@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import frameProvider from '../utils/frameProvider.js';
 
 export default function TakeMoment() {
   const navigate = useNavigate();
@@ -13,12 +14,25 @@ export default function TakeMoment() {
   const [currentPhoto, setCurrentPhoto] = useState(null); // For captured photo
   const [showConfirmation, setShowConfirmation] = useState(false); // Show confirmation modal
   const [videoAspectRatio, setVideoAspectRatio] = useState(4/3); // Default aspect ratio
+  const [maxCaptures, setMaxCaptures] = useState(4); // Default to 4, will be updated from frame config
 
-  // Initialize with empty photos - don't load from localStorage automatically
+  // Initialize with empty photos and load frame configuration
   useEffect(() => {
     // Clear any existing photos and start fresh
     setCapturedPhotos([]);
     localStorage.removeItem('capturedPhotos'); // Clear localStorage to ensure clean start
+    
+    // Load frame configuration
+    frameProvider.loadFrameFromStorage();
+    const frameConfig = frameProvider.getCurrentConfig();
+    
+    if (frameConfig && frameConfig.maxCaptures) {
+      setMaxCaptures(frameConfig.maxCaptures);
+      console.log(`📸 Frame loaded: ${frameConfig.name} - Max captures: ${frameConfig.maxCaptures}`);
+    } else {
+      console.log('⚠️ No frame selected, using default max captures: 4');
+      setMaxCaptures(4); // Default fallback
+    }
   }, []);
 
   // Debug: Log when capturedPhotos changes
@@ -83,6 +97,12 @@ export default function TakeMoment() {
 
   const handleCapture = () => {
     if (!videoRef.current || capturing) return;
+    
+    // Check if maximum captures reached
+    if (capturedPhotos.length >= maxCaptures) {
+      alert(`Maksimal ${maxCaptures} foto sudah tercapai untuk frame ini!`);
+      return;
+    }
     
     setCapturing(true);
     
@@ -392,24 +412,38 @@ export default function TakeMoment() {
               <div style={{
                 textAlign: 'center'
               }}>
+                {/* Photo Count Display */}
+                <div style={{
+                  marginBottom: '1rem',
+                  fontSize: '1rem',
+                  fontWeight: '500',
+                  color: capturedPhotos.length >= maxCaptures ? '#dc3545' : '#333'
+                }}>
+                  Foto: {capturedPhotos.length}/{maxCaptures}
+                  {capturedPhotos.length >= maxCaptures && ' - Maksimal tercapai!'}
+                </div>
+                
                 <button
                   onClick={handleCapture}
-                  disabled={capturing}
+                  disabled={capturing || capturedPhotos.length >= maxCaptures}
                   style={{
                     padding: '1rem 2rem',
-                    background: capturing ? '#6c757d' : '#E8A889',
+                    background: (capturing || capturedPhotos.length >= maxCaptures) ? '#6c757d' : '#E8A889',
                     color: 'white',
                     border: 'none',
                     borderRadius: '25px',
                     fontSize: '1.1rem',
                     fontWeight: '600',
-                    cursor: capturing ? 'not-allowed' : 'pointer',
-                    boxShadow: '0 2px 10px rgba(0,0,0,0.1)'
+                    cursor: (capturing || capturedPhotos.length >= maxCaptures) ? 'not-allowed' : 'pointer',
+                    boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
+                    opacity: (capturing || capturedPhotos.length >= maxCaptures) ? 0.6 : 1
                   }}
                 >
-                  {capturing 
-                    ? (timer === 0 ? "📸 Capturing..." : `📸 Capturing in ${countdown}...`) 
-                    : (timer === 0 ? '📸 Capture (Instant)' : `📸 Capture (${timer}s timer)`)
+                  {capturedPhotos.length >= maxCaptures 
+                    ? '📸 Maksimal foto tercapai'
+                    : capturing 
+                      ? (timer === 0 ? "📸 Capturing..." : `📸 Capturing in ${countdown}...`) 
+                      : (timer === 0 ? '📸 Capture (Instant)' : `📸 Capture (${timer}s timer)`)
                   }
                 </button>
               </div>

@@ -530,25 +530,40 @@ export default function TakeMoment() {
               )}
             </div>
 
-            {/* Edit Button */}
-            <button
-              onClick={handleEdit}
-              style={{
-                width: '100%',
-                padding: '1rem',
-                background: '#fff',
-                color: '#333',
-                border: '1px solid #ddd',
-                borderRadius: '25px',
-                fontSize: '1.1rem',
-                fontWeight: '600',
-                cursor: 'pointer',
-                boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              Edit
-            </button>
+            {/* Edit Button - Only show when maximum photos captured */}
+            {capturedPhotos.length >= maxCaptures && (
+              <button
+                onClick={() => {
+                  // Save photos to localStorage before navigating
+                  localStorage.setItem('capturedPhotos', JSON.stringify(capturedPhotos));
+                  navigate('/edit-photo');
+                }}
+                style={{
+                  width: '100%',
+                  padding: '1rem',
+                  background: '#E8A889',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '25px',
+                  fontSize: '1.1rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 10px rgba(0,0,0,0.15)',
+                  transition: 'all 0.2s ease',
+                  marginTop: '1rem'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#d49673';
+                  e.target.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = '#E8A889';
+                  e.target.style.transform = 'translateY(0)';
+                }}
+              >
+                ✨ Edit Photos
+              </button>
+            )}
           </div>
 
         </div>

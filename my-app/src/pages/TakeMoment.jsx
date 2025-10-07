@@ -434,7 +434,7 @@ export default function TakeMoment() {
               borderRadius: '20px',
               padding: '1.5rem',
               marginBottom: '1.5rem',
-              minHeight: '400px',
+              minHeight: '320px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center'
@@ -442,19 +442,19 @@ export default function TakeMoment() {
               {capturedPhotos.length > 0 ? (
                 <div style={{
                   display: 'grid',
-                  gridTemplateColumns: videoAspectRatio > 1 ? '1fr' : 'repeat(2, 1fr)',
-                  gap: '0.75rem',
+                  gridTemplateColumns: 'repeat(2, 1fr)',
+                  gap: '0.5rem',
                   width: '100%',
-                  maxWidth: videoAspectRatio > 1 ? '320px' : '280px'
+                  maxWidth: '300px'
                 }}>
                   {capturedPhotos.map((photo, idx) => (
                     <div
                       key={idx}
                       style={{
                         aspectRatio: videoAspectRatio.toString(),
-                        borderRadius: '12px',
+                        borderRadius: '8px',
                         overflow: 'hidden',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
                         transition: 'transform 0.2s ease',
                         cursor: 'pointer'
                       }}

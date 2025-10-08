@@ -26,60 +26,164 @@ export default function EditPhoto() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#f5f1eb] to-[#e8ddd4] p-6">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-2xl font-bold text-gray-800">fremio</h1>
-        <nav className="flex gap-8">
-          <button onClick={() => navigate('/')} className="text-base text-gray-700 hover:underline bg-none border-none cursor-pointer">Home</button>
-          <button onClick={() => navigate('/frames')} className="text-base text-gray-700 hover:underline bg-none border-none cursor-pointer">Frames</button>
-          <span className="text-base text-gray-700 font-medium">My Profile</span>
-        </nav>
-      </div>
-      {/* Main Layout */}
-      <div className="grid grid-cols-[250px_1fr_250px] gap-8 max-w-6xl mx-auto">
+    <div style={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #f5f1eb 0%, #e8ddd4 100%)',
+      padding: '2rem'
+    }}>
+      {/* Main Editor Layout */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '250px 1fr 250px',
+        gap: '2rem',
+        maxWidth: '1400px',
+        margin: '0 auto'
+      }}>
+        
         {/* Left Panel - Toggle Tools */}
-        <div className="bg-white rounded-2xl p-6 h-fit">
-          <h3 className="text-center mb-6 text-lg font-semibold text-gray-800">Toggle Tools</h3>
-          <div className="flex flex-col gap-4">
+        <div style={{
+          background: '#fff',
+          borderRadius: '20px',
+          padding: '1.5rem',
+          height: 'fit-content'
+        }}>
+          <h3 style={{
+            textAlign: 'center',
+            marginBottom: '2rem',
+            fontSize: '1.2rem',
+            fontWeight: '600',
+            color: '#333'
+          }}>Toggle Tools</h3>
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1rem'
+          }}>
             <button
               onClick={() => setActiveToggle('filter')}
-              className={`rounded-xl px-4 py-3 text-base font-medium flex items-center gap-2 transition ${activeToggle === 'filter' ? 'bg-orange-200 text-white' : 'bg-gray-100 text-gray-800'}`}
+              style={{
+                background: activeToggle === 'filter' ? '#E8A889' : '#f8f9fa',
+                color: activeToggle === 'filter' ? 'white' : '#333',
+                border: 'none',
+                borderRadius: '15px',
+                padding: '1rem',
+                fontSize: '1rem',
+                fontWeight: '500',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}
             >
-              <span className="text-xl">🎨</span> Filter
+              <span style={{ fontSize: '1.2rem' }}>🎨</span> Filter
             </button>
             <button
               onClick={() => setActiveToggle('adjust')}
-              className={`rounded-xl px-4 py-3 text-base font-medium flex items-center gap-2 transition ${activeToggle === 'adjust' ? 'bg-orange-200 text-white' : 'bg-gray-100 text-gray-800'}`}
+              style={{
+                background: activeToggle === 'adjust' ? '#E8A889' : '#f8f9fa',
+                color: activeToggle === 'adjust' ? 'white' : '#333',
+                border: 'none',
+                borderRadius: '15px',
+                padding: '1rem',
+                fontSize: '1rem',
+                fontWeight: '500',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}
             >
-              <span className="text-xl">⚙️</span> Adjust
+              <span style={{ fontSize: '1.2rem' }}>⚙️</span> Adjust
             </button>
           </div>
         </div>
         {/* Center Panel - Preview */}
-        <div className="flex flex-col items-center justify-center min-h-[500px] bg-gradient-to-br from-gray-100 to-blue-100 rounded-2xl shadow-lg p-8">
-          <h3 className="mb-6 text-xl font-semibold text-gray-800">Preview</h3>
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '500px',
+          background: 'linear-gradient(135deg, #f8f9fa 0%, #e3f2fd 100%)',
+          borderRadius: '20px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
+          padding: '2rem'
+        }}>
+          <h3 style={{
+            marginBottom: '2rem',
+            fontSize: '1.4rem',
+            fontWeight: '600',
+            color: '#333'
+          }}>Preview</h3>
           {frameConfig ? (
             <FramePreview photos={photos} frameConfig={frameConfig} />
           ) : (
-            <div className="text-center text-gray-500">Frame config not loaded</div>
+            <div style={{ textAlign: 'center', color: '#666' }}>Frame config not loaded</div>
           )}
           {/* Save & Print Buttons */}
-          <div className="flex gap-6 justify-center mt-8">
-            <button className="border-2 border-orange-300 text-orange-400 rounded-full px-8 py-2 font-semibold bg-white hover:bg-orange-200 hover:text-white transition">Save</button>
-            <button className="bg-orange-300 text-white rounded-full px-8 py-2 font-semibold hover:bg-orange-400 transition">Print</button>
+          <div style={{
+            display: 'flex',
+            gap: '1.5rem',
+            justifyContent: 'center',
+            marginTop: '2rem'
+          }}>
+            <button style={{
+              border: '2px solid #E8A889',
+              color: '#E8A889',
+              borderRadius: '50px',
+              padding: '0.5rem 2rem',
+              fontWeight: '600',
+              background: '#fff',
+              cursor: 'pointer',
+              transition: 'all 0.3s ease'
+            }}>Save</button>
+            <button style={{
+              background: '#E8A889',
+              color: 'white',
+              border: 'none',
+              borderRadius: '50px',
+              padding: '0.5rem 2rem',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.3s ease'
+            }}>Print</button>
           </div>
         </div>
         {/* Right Panel - Filter/Adjust */}
-        <div className="bg-white rounded-2xl p-6 h-fit">
-          <h3 className="text-center mb-6 text-lg font-semibold text-gray-800">{activeToggle === 'filter' ? 'Filter' : 'Adjustment'}</h3>
+        <div style={{
+          background: '#fff',
+          borderRadius: '20px',
+          padding: '1.5rem',
+          height: 'fit-content'
+        }}>
+          <h3 style={{
+            textAlign: 'center',
+            marginBottom: '2rem',
+            fontSize: '1.2rem',
+            fontWeight: '600',
+            color: '#333'
+          }}>{activeToggle === 'filter' ? 'Filter' : 'Adjustment'}</h3>
           {activeToggle === 'filter' ? (
-            <div className="flex flex-col gap-4 text-center text-gray-500">
-              <div className="p-6">Filter options will be displayed here</div>
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem',
+              textAlign: 'center',
+              color: '#666'
+            }}>
+              <div style={{ padding: '2rem' }}>Filter options will be displayed here</div>
             </div>
           ) : (
-            <div className="flex flex-col gap-4 text-center text-gray-500">
-              <div className="p-6">Adjustment controls will be displayed here</div>
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem',
+              textAlign: 'center',
+              color: '#666'
+            }}>
+              <div style={{ padding: '2rem' }}>Adjustment controls will be displayed here</div>
             </div>
           )}
         </div>

@@ -15,7 +15,7 @@ export default function Home() {
         <div className="container hero-grid">
           {/* LEFT */}
           <div className="hero-left">
-            <h1 className="hero-h1">
+            <h1 className="hero-h1">    
               Not a <span className="accent">photobooth</span>
               <br />
               Not a <span className="accent">photobox</span>

@@ -9,13 +9,14 @@ import Frames from "./pages/Frames.jsx";
 import NotFound from "./pages/NotFound.jsx";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 
-// createRoot(document.getElementById("root")).render(
-//   <React.StrictMode>
-//     <BrowserRouter>
-//       <App />
-//     </BrowserRouter>
-//   </React.StrictMode>
-// );
+createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <BrowserRouter
+      basename={(import.meta.env.BASE_URL || "/").replace(/\/+$/, "/")}>
+      <App />
+    </BrowserRouter>
+  </React.StrictMode>
+);
 
 const router = createBrowserRouter([
   {

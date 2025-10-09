@@ -8,7 +8,7 @@ export default function Footer() {
         {/* Brand + contact */}
         <div className="footer-brand">
           <div className="footer-logo">fremio</div>
-          <p className="footer-tagline">Cherris what matters!</p>
+          <p className="footer-tagline">Think Outside The Box!</p>
 
           <ul className="contact">
             <li>

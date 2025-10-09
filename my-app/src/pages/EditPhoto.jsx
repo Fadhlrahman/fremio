@@ -10,6 +10,7 @@ export default function EditPhoto() {
   const [photos, setPhotos] = useState([]);
   const [frameConfig, setFrameConfig] = useState(null);
   const [frameImage, setFrameImage] = useState(null);
+  const [selectedFrame, setSelectedFrame] = useState('Testframe1'); // Add selected frame state
   const [activeToggle, setActiveToggle] = useState('filter');
   const [selectedPhoto, setSelectedPhoto] = useState(0);
   const [draggedPhoto, setDraggedPhoto] = useState(null);
@@ -18,6 +19,11 @@ export default function EditPhoto() {
   const [debugMode, setDebugMode] = useState(false); // Debug mode toggle
   const [configReloadKey, setConfigReloadKey] = useState(0); // Force config reload
   const [isReloading, setIsReloading] = useState(false); // Loading state for reload
+  const [photoTransforms, setPhotoTransforms] = useState({}); // Store zoom and pan for each photo
+  const [selectedPhotoForEdit, setSelectedPhotoForEdit] = useState(null); // Which photo is being edited
+  const [isDraggingPhoto, setIsDraggingPhoto] = useState(false); // Track if dragging for pan
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 }); // Drag start position
+  const [isSaving, setIsSaving] = useState(false); // Loading state for save
 
   // Frame image mapping
   const getFrameImage = (frameId) => {
@@ -40,10 +46,18 @@ export default function EditPhoto() {
         
         // Initialize photo positions with better defaults for portrait photos
         const positions = {};
+        const transforms = {};
         parsedPhotos.forEach((_, index) => {
           positions[index] = 'center center'; // Centered positioning
+          transforms[index] = {
+            scale: 1, // Will be calculated to auto-fill
+            translateX: 0,
+            translateY: 0,
+            autoFillScale: 1 // Store the minimum scale to fill slot
+          };
         });
         setPhotoPositions(positions);
+        setPhotoTransforms(transforms);
         
         console.log('✅ Loaded photos:', parsedPhotos.length);
       } catch (error) {
@@ -52,18 +66,31 @@ export default function EditPhoto() {
     }
 
     // Load selected frame from localStorage
-    const selectedFrame = localStorage.getItem('selectedFrame') || 'Testframe1';
-    console.log('🖼️ Loading frame:', selectedFrame);
+    const frameFromStorage = localStorage.getItem('selectedFrame') || 'Testframe1';
+    setSelectedFrame(frameFromStorage);
+    console.log('🖼️ Loading frame:', frameFromStorage);
     
-    const config = getFrameConfig(selectedFrame);
+    const config = getFrameConfig(frameFromStorage);
     if (config) {
       setFrameConfig(config);
-      setFrameImage(getFrameImage(selectedFrame));
+      setFrameImage(getFrameImage(frameFromStorage));
       console.log('✅ Frame config loaded:', config);
     } else {
-      console.error('❌ Failed to load frame config for:', selectedFrame);
+      console.error('❌ Failed to load frame config for:', frameFromStorage);
     }
   }, []);
+
+  // Initialize auto-fill scale when frameConfig is loaded
+  useEffect(() => {
+    if (frameConfig && photos.length > 0) {
+      console.log('🎯 Auto-fitting photos to slots...');
+      photos.forEach((_, index) => {
+        const autoScale = calculateAutoFillScale(index);
+        console.log(`📸 Photo ${index + 1}: Auto-fit scale = ${autoScale.toFixed(2)}x`);
+        initializePhotoScale(index);
+      });
+    }
+  }, [frameConfig, photos.length]);
 
   // Handle drag start
   const handleDragStart = (e, photoIndex, slotIndex) => {
@@ -116,7 +143,64 @@ export default function EditPhoto() {
     localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
     setDraggedPhoto(null);
     
+    // Re-initialize auto-fit for swapped photos
+    if (frameConfig) {
+      setTimeout(() => {
+        initializePhotoScale(sourceSlotIndex);
+        initializePhotoScale(targetSlotIndex);
+      }, 100);
+    }
+    
     console.log(`🔄 Swapped photo from slot ${sourceSlotIndex} to slot ${targetSlotIndex}`);
+  };
+
+  // Calculate auto-fit scale untuk fit vertical height (ujung atas-bawah foto terlihat)
+  const calculateAutoFillScale = (slotIndex) => {
+    if (!frameConfig || !frameConfig.slots[slotIndex]) return 1;
+    
+    const slot = frameConfig.slots[slotIndex];
+    
+    // Untuk foto landscape (4:3) dalam slot portrait:
+    // Kita ingin foto fit berdasarkan HEIGHT agar seluruh tinggi foto terlihat
+    
+    // objectFit: contain akan otomatis fit foto dalam slot
+    // Kita perlu scale tambahan agar foto mengisi slot height dengan optimal
+    
+    // Simple approach: scale berdasarkan aspect ratio difference
+    const slotAspectRatio = slot.width / slot.height; // biasanya < 1 (portrait)
+    const photoAspectRatio = 4 / 3; // 1.33 (landscape)
+    
+    // Jika foto landscape masuk slot portrait:
+    // Foto akan fit by height (atas-bawah pas), ada space kiri-kanan
+    // Scale factor untuk mengoptimalkan tinggi
+    const heightFitScale = 1.4; // Base scale untuk height fit
+    
+    // Adjustment berdasarkan ukuran slot
+    const slotSizeAdjustment = 1 / slot.height; // Semakin kecil slot, semakin besar scale
+    const finalScale = heightFitScale + (slotSizeAdjustment * 0.3);
+    
+    // Clamp antara 1.2x - 2.2x untuk range yang reasonable
+    const clampedScale = Math.max(1.2, Math.min(2.2, finalScale));
+    
+    console.log(`📏 Slot ${slotIndex + 1}: Vertical-fit scale = ${clampedScale.toFixed(2)}x (slot: ${(slot.width*100).toFixed(0)}%×${(slot.height*100).toFixed(0)}%)`);
+    
+    return clampedScale;
+  };
+
+  // Initialize auto-fit scale for a photo
+  const initializePhotoScale = (photoIndex) => {
+    const autoFitScale = calculateAutoFillScale(photoIndex);
+    console.log(`🔧 Initializing photo ${photoIndex + 1} with auto-fit scale: ${autoFitScale.toFixed(2)}x`);
+    
+    setPhotoTransforms(prev => ({
+      ...prev,
+      [photoIndex]: {
+        scale: autoFitScale,
+        translateX: 0,
+        translateY: 0,
+        autoFillScale: autoFitScale
+      }
+    }));
   };
 
   // Fungsi untuk menghitung ukuran slot dalam pixel
@@ -136,10 +220,12 @@ export default function EditPhoto() {
     };
   };
 
-  // Fungsi untuk menghitung style cropping yang presisi
+  // Fungsi untuk menghitung style photo viewport (preserving full image)
   const calculatePhotoCropStyle = (frameConfig, slotIndex) => {
     const slotDimensions = calculateSlotDimensions(frameConfig, slotIndex);
     if (!slotDimensions) return {};
+    
+    const transform = photoTransforms[slotIndex] || { scale: 1, translateX: 0, translateY: 0 };
     
     return {
       position: 'absolute',
@@ -147,8 +233,11 @@ export default function EditPhoto() {
       left: 0,
       width: '100%',
       height: '100%',
-      objectFit: 'cover', // Crop foto untuk memenuhi slot
-      objectPosition: 'center center', // Simpan di tengah slot
+      objectFit: 'contain', // Preserve entire image, no permanent cropping
+      objectPosition: 'center center',
+      transform: `scale(${transform.scale}) translate(${transform.translateX}px, ${transform.translateY}px)`,
+      transformOrigin: 'center center',
+      transition: 'transform 0.2s ease'
     };
   };
 
@@ -175,6 +264,13 @@ export default function EditPhoto() {
             setFrameConfig(newConfig);
             setConfigReloadKey(prev => prev + 1);
             console.log('✅ Frame config reloaded successfully:', newConfig);
+            
+            // Re-apply auto-fit after config reload
+            setTimeout(() => {
+              photos.forEach((_, index) => {
+                initializePhotoScale(index);
+              });
+            }, 200);
           } else {
             console.warn('⚠️ No config found for frame:', selectedFrame);
           }
@@ -187,6 +283,13 @@ export default function EditPhoto() {
             setFrameConfig(fallbackConfig);
             setConfigReloadKey(prev => prev + 1);
             console.log('⚡ Using fallback config reload:', fallbackConfig);
+            
+            // Re-apply auto-fit after fallback config
+            setTimeout(() => {
+              photos.forEach((_, index) => {
+                initializePhotoScale(index);
+              });
+            }, 200);
           }
         })
         .finally(() => {
@@ -197,6 +300,184 @@ export default function EditPhoto() {
       console.error('❌ Failed to reload frame config:', error);
       setIsReloading(false);
     }
+  };
+
+  // Handle photo zoom (dengan edge-to-edge boundaries)
+  const handlePhotoZoom = (photoIndex, delta) => {
+    setPhotoTransforms(prev => {
+      const current = prev[photoIndex] || { scale: 1, translateX: 0, translateY: 0, autoFillScale: 1 };
+      const autoFillScale = current.autoFillScale || calculateAutoFillScale(photoIndex);
+      
+      // Calculate minimum scale untuk edge-to-edge coverage
+      const slot = frameConfig?.slots[photoIndex];
+      if (!slot) return prev;
+      
+      const photoAspectRatio = 4 / 3;
+      const slotAspectRatio = slot.width / slot.height;
+      
+      // Minimum scale agar foto edge bertemu slot edge (no gaps)
+      let minScaleForCoverage;
+      
+      if (photoAspectRatio > slotAspectRatio) {
+        // Foto landscape, slot portrait → fit by height untuk full coverage
+        minScaleForCoverage = 1 / (photoAspectRatio / slotAspectRatio);
+      } else {
+        // Foto portrait, slot landscape → fit by width untuk full coverage  
+        minScaleForCoverage = slotAspectRatio / photoAspectRatio;
+      }
+      
+      // Apply reasonable bounds
+      const absoluteMinScale = Math.max(0.8, minScaleForCoverage);
+      const maxScale = 4;
+      
+      const newScale = Math.max(absoluteMinScale, Math.min(maxScale, current.scale + delta * 0.1));
+      
+      // Auto-adjust pan untuk maintain edge-to-edge setelah zoom
+      const adjustedTransform = adjustPanForEdgeBoundaries(current, newScale, photoIndex);
+      
+      console.log(`🔍 Photo ${photoIndex + 1}: Zoom ${delta > 0 ? 'IN' : 'OUT'} to ${newScale.toFixed(2)}x (min: ${absoluteMinScale.toFixed(2)}x for edge coverage)`);
+      
+      return {
+        ...prev,
+        [photoIndex]: {
+          ...adjustedTransform,
+          scale: newScale,
+          autoFillScale: autoFillScale
+        }
+      };
+    });
+  };
+
+  // Helper function untuk adjust pan berdasarkan edge boundaries
+  const adjustPanForEdgeBoundaries = (current, newScale, photoIndex) => {
+    const slot = frameConfig?.slots[photoIndex];
+    if (!slot) return current;
+    
+    const photoAspectRatio = 4 / 3;
+    const slotAspectRatio = slot.width / slot.height;
+    
+    // Calculate foto dimensions setelah scale
+    let photoWidthInSlot, photoHeightInSlot;
+    
+    if (photoAspectRatio > slotAspectRatio) {
+      photoWidthInSlot = 100;
+      photoHeightInSlot = (100 / photoAspectRatio) * slotAspectRatio;
+    } else {
+      photoHeightInSlot = 100;
+      photoWidthInSlot = (100 * photoAspectRatio) / slotAspectRatio;
+    }
+    
+    const scaledPhotoWidth = photoWidthInSlot * newScale;
+    const scaledPhotoHeight = photoHeightInSlot * newScale;
+    
+    // Calculate new max translate
+    const maxTranslateXPx = Math.max(0, (scaledPhotoWidth - 100) / 2) * 3.5;
+    const maxTranslateYPx = Math.max(0, (scaledPhotoHeight - 100) / 2) * 5.25;
+    
+    return {
+      ...current,
+      translateX: Math.max(-maxTranslateXPx, Math.min(maxTranslateXPx, current.translateX)),
+      translateY: Math.max(-maxTranslateYPx, Math.min(maxTranslateYPx, current.translateY))
+    };
+  };
+
+    // Handle photo pan (dengan edge-to-edge boundaries)
+  const handlePhotoPan = (photoIndex, deltaX, deltaY) => {
+    setPhotoTransforms(prev => {
+      const current = prev[photoIndex] || { scale: 1, translateX: 0, translateY: 0, autoFillScale: 1 };
+      const autoFillScale = current.autoFillScale || 1;
+      const scale = current.scale;
+      
+      // Calculate exact boundaries berdasarkan foto dan slot dimensions
+      const slot = frameConfig?.slots[photoIndex];
+      if (!slot) return prev;
+      
+      // Foto dimensions setelah scale (assuming objectFit contain)
+      const photoAspectRatio = 4 / 3; // Camera landscape
+      const slotAspectRatio = slot.width / slot.height;
+      
+      // Calculate actual foto size dalam slot setelah objectFit contain + scale
+      let photoWidthInSlot, photoHeightInSlot;
+      
+      if (photoAspectRatio > slotAspectRatio) {
+        // Foto lebih landscape dari slot → foto fit by width
+        photoWidthInSlot = 100; // 100% slot width
+        photoHeightInSlot = (100 / photoAspectRatio) * slotAspectRatio; // Proportional height
+      } else {
+        // Foto lebih portrait dari slot → foto fit by height  
+        photoHeightInSlot = 100; // 100% slot height
+        photoWidthInSlot = (100 * photoAspectRatio) / slotAspectRatio; // Proportional width
+      }
+      
+      // Apply scale to foto dimensions
+      const scaledPhotoWidth = photoWidthInSlot * scale;
+      const scaledPhotoHeight = photoHeightInSlot * scale;
+      
+      // Calculate maximum translate untuk edge-to-edge boundaries
+      // Foto tidak boleh geser sampai ada gap antara foto edge dan slot edge
+      const maxTranslateX = Math.max(0, (scaledPhotoWidth - 100) / 2); // Half of overflow
+      const maxTranslateY = Math.max(0, (scaledPhotoHeight - 100) / 2); // Half of overflow
+      
+      // Convert percentage to pixels (approximate, untuk visual feedback)
+      const maxTranslateXPx = maxTranslateX * 3.5; // Slot width ≈ 350px * slot.width
+      const maxTranslateYPx = maxTranslateY * 5.25; // Slot height ≈ 525px * slot.height
+      
+      const newTranslateX = Math.max(-maxTranslateXPx, Math.min(maxTranslateXPx, current.translateX + deltaX));
+      const newTranslateY = Math.max(-maxTranslateYPx, Math.min(maxTranslateYPx, current.translateY + deltaY));
+      
+      console.log(`📍 Photo ${photoIndex + 1}: Pan range ±${maxTranslateXPx.toFixed(0)}px×${maxTranslateYPx.toFixed(0)}px (scaled foto: ${scaledPhotoWidth.toFixed(0)}%×${scaledPhotoHeight.toFixed(0)}%)`);
+      
+      return {
+        ...prev,
+        [photoIndex]: {
+          ...current,
+          translateX: newTranslateX,
+          translateY: newTranslateY
+        }
+      };
+    });
+  };
+
+  // Reset photo transform (ke auto-fit optimal)
+  const resetPhotoTransform = (photoIndex) => {
+    const autoFillScale = calculateAutoFillScale(photoIndex);
+    console.log(`🔄 Reset Photo ${photoIndex + 1} to auto-fit: ${autoFillScale.toFixed(2)}x with centered position`);
+    
+    setPhotoTransforms(prev => ({
+      ...prev,
+      [photoIndex]: { 
+        scale: autoFillScale, 
+        translateX: 0, // Reset ke center
+        translateY: 0, // Reset ke center
+        autoFillScale: autoFillScale
+      }
+    }));
+  };
+
+  // Handle mouse down for pan
+  const handlePhotoMouseDown = (e, photoIndex) => {
+    if (selectedPhotoForEdit === photoIndex && e.button === 0) { // Left click only
+      setIsDraggingPhoto(true);
+      setDragStart({ x: e.clientX, y: e.clientY });
+      e.preventDefault();
+    }
+  };
+
+  // Handle mouse move for pan
+  const handlePhotoMouseMove = (e, photoIndex) => {
+    if (isDraggingPhoto && selectedPhotoForEdit === photoIndex) {
+      const deltaX = e.clientX - dragStart.x;
+      const deltaY = e.clientY - dragStart.y;
+      
+      handlePhotoPan(photoIndex, deltaX * 0.5, deltaY * 0.5); // Reduce sensitivity
+      setDragStart({ x: e.clientX, y: e.clientY });
+      e.preventDefault();
+    }
+  };
+
+  // Handle mouse up for pan
+  const handlePhotoMouseUp = () => {
+    setIsDraggingPhoto(false);
   };
 
   // Debug: Calculate slot dimensions in pixels
@@ -217,9 +498,235 @@ export default function EditPhoto() {
     };
   };
 
-  const handleSave = () => {
-    // TODO: Implement save functionality
-    alert('Save functionality will be implemented');
+  // Debug function untuk melihat state saat save
+  const debugSaveState = () => {
+    console.log('🔍 DEBUG SAVE STATE:');
+    console.log('📷 Photos:', photos);
+    console.log('🖼️ Frame Config:', frameConfig);
+    console.log('🎯 Selected Frame:', selectedFrame);
+    console.log('🔧 Photo Transforms:', photoTransforms);
+    console.log('🖼️ Frame Image:', frameImage);
+  };
+
+  const handleSave = async () => {
+    if (isSaving) return; // Prevent multiple saves
+    
+    debugSaveState(); // Debug current state
+    
+    setIsSaving(true);
+    try {
+      console.log('🎪 Starting save process...');
+      console.log('📷 Photos available:', photos.length);
+      console.log('🖼️ Frame config:', frameConfig);
+      console.log('🎯 Selected frame:', selectedFrame);
+      
+      // Create canvas untuk menggabungkan frame dan foto
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Set canvas size sesuai frame aspect ratio dari preview
+      // Preview container di EditPhoto memiliki aspect ratio yang tepat
+      const frameAspectRatio = 2 / 3; // Frame portrait 2:3 ratio seperti di preview
+      const canvasWidth = 800; // Ukuran optimal untuk photobooth
+      const canvasHeight = canvasWidth / frameAspectRatio; // 800 / (2/3) = 1200
+      canvas.width = canvasWidth;
+      canvas.height = canvasHeight;
+      
+      console.log('✅ Canvas created with correct aspect ratio:', canvasWidth, 'x', canvasHeight);
+      
+      // Fill background dengan frame color (blue) seperti di preview
+      ctx.fillStyle = '#2563eb'; // Blue color like the frame
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+      console.log('✅ Canvas created with blue frame background:', canvasWidth, 'x', canvasHeight);
+      
+      if (!frameConfig || !frameConfig.slots) {
+        console.error('❌ Frame configuration not found or invalid');
+        alert('Frame configuration not found');
+        return;
+      }
+      
+      if (photos.length === 0) {
+        console.error('❌ No photos to save');
+        alert('No photos to save');
+        return;
+      }
+      
+      // Load semua foto yang diperlukan
+      console.log('📸 Loading photos for canvas...');
+      console.log('📷 Photos data check:');
+      photos.forEach((photo, index) => {
+        console.log(`Photo ${index + 1}:`, {
+          hasData: !!photo,
+          dataType: typeof photo,
+          dataLength: photo ? photo.length : 0,
+          startsWithData: photo ? photo.startsWith('data:') : false
+        });
+      });
+      const photoPromises = photos.map((photoDataUrl, index) => {
+        return new Promise((resolve) => {
+          if (!photoDataUrl) {
+            console.warn(`⚠️ Photo ${index + 1}: No data URL`);
+            resolve({ img: null, index });
+            return;
+          }
+          
+          const img = new Image();
+          img.onload = () => {
+            console.log(`✅ Photo ${index + 1}: Loaded (${img.width}x${img.height})`);
+            resolve({ img, index });
+          };
+          img.onerror = (error) => {
+            console.error(`❌ Photo ${index + 1}: Failed to load`, error);
+            resolve({ img: null, index });
+          };
+          img.src = photoDataUrl;
+        });
+      });
+      
+      const loadedPhotos = await Promise.all(photoPromises);
+      console.log('📸 Photos loaded:', loadedPhotos.filter(p => p.img).length, 'of', loadedPhotos.length);
+      
+      // Initialize rendered count
+      let renderedCount = 0;
+      
+      // Render photos directly pada blue background (tanpa frame overlay yang menutupi)
+      console.log('🖼️ Rendering photos directly on blue background...');
+      for (const { img, index } of loadedPhotos) {
+        if (!img) {
+          console.warn(`⚠️ Skipping photo ${index + 1}: Failed to load`);
+          continue;
+        }
+        
+        if (!frameConfig.slots[index]) {
+          console.warn(`⚠️ Skipping photo ${index + 1}: No slot config`);
+          continue;
+        }
+        
+        const slot = frameConfig.slots[index];
+        const transform = photoTransforms[index] || { scale: 1, translateX: 0, translateY: 0 };
+        
+        // Calculate slot position dan size dalam canvas
+        const slotX = (slot.left / 100) * canvasWidth;
+        const slotY = (slot.top / 100) * canvasHeight;
+        const slotWidth = (slot.width / 100) * canvasWidth;
+        const slotHeight = (slot.height / 100) * canvasHeight;
+        
+        // Calculate foto position dengan transform
+        const photoAspectRatio = 4 / 3; // Camera aspect ratio
+        const slotAspectRatio = slot.width / slot.height;
+        
+        let photoWidth, photoHeight;
+        
+        // Auto-fit calculation (sama seperti di CSS)
+        if (photoAspectRatio > slotAspectRatio) {
+          // Foto landscape, fit by height
+          photoHeight = slotHeight;
+          photoWidth = photoHeight * photoAspectRatio;
+        } else {
+          // Foto portrait, fit by width  
+          photoWidth = slotWidth;
+          photoHeight = photoWidth / photoAspectRatio;
+        }
+        
+        // Apply scale
+        photoWidth *= transform.scale;
+        photoHeight *= transform.scale;
+        
+        // Calculate center position
+        const centerX = slotX + slotWidth / 2;
+        const centerY = slotY + slotHeight / 2;
+        
+        // Apply translate - EXACT match dengan preview behavior
+        // Preview container: 350px × 525px (2:3 ratio)
+        // Canvas: 800px × 1200px (2:3 ratio)
+        // Scale factor: 800/350 = 2.286 untuk X, 1200/525 = 2.286 untuk Y
+        const previewToCanvasScale = canvasWidth / 350; // Should be same for both X and Y
+        
+        const translateXCanvas = transform.translateX * previewToCanvasScale;
+        const translateYCanvas = transform.translateY * previewToCanvasScale;
+        
+        const photoX = centerX - photoWidth / 2 + translateXCanvas;
+        const photoY = centerY - photoHeight / 2 + translateYCanvas;
+        
+        console.log(`🎯 Photo ${index + 1} FINAL render:`, { 
+          slotX: slotX.toFixed(1), 
+          slotY: slotY.toFixed(1), 
+          slotWidth: slotWidth.toFixed(1), 
+          slotHeight: slotHeight.toFixed(1),
+          photoX: photoX.toFixed(1), 
+          photoY: photoY.toFixed(1), 
+          photoWidth: photoWidth.toFixed(1), 
+          photoHeight: photoHeight.toFixed(1),
+          transform: transform
+        });
+        
+        // Debug: Draw a test rectangle to see if clipping area is correct
+        ctx.save();
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.3)'; // Semi-transparent red
+        ctx.fillRect(slotX, slotY, slotWidth, slotHeight);
+        ctx.restore();
+        
+        // TEST: Draw foto WITHOUT clipping first to see if it appears
+        console.log(`🧪 TEST: Drawing photo ${index + 1} WITHOUT clipping at (${photoX.toFixed(1)}, ${photoY.toFixed(1)})`);
+        ctx.drawImage(img, photoX, photoY, photoWidth, photoHeight);
+        
+        // Then draw with clipping for final result
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(slotX, slotY, slotWidth, slotHeight);
+        ctx.clip();
+        
+        // Draw foto with clipping
+        console.log(`🖼️ Drawing photo ${index + 1} WITH clipping`);
+        ctx.drawImage(img, photoX, photoY, photoWidth, photoHeight);
+        ctx.restore();
+        
+        renderedCount++;
+        console.log(`✅ Photo ${index + 1}: Rendered successfully on blue background`);
+      }
+      
+      console.log(`🎨 Final rendering complete: ${renderedCount} photos rendered on blue background`);
+      
+      // Debug: Draw canvas to screen untuk testing
+      console.log('🔍 Canvas final state - creating blob...');
+      
+      // Convert canvas ke blob dan trigger download
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          console.error('❌ Failed to generate blob from canvas');
+          alert('Failed to generate image');
+          return;
+        }
+        
+        console.log('✅ Blob created:', blob.size, 'bytes');
+        
+        // Create download link
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        
+        // Generate filename dengan timestamp
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+        link.download = `photobooth-${selectedFrame}-${timestamp}.png`;
+        
+        // Trigger download
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Cleanup
+        URL.revokeObjectURL(url);
+        
+        console.log('💾 Photo saved successfully!');
+        alert('Photo saved successfully!');
+      }, 'image/png', 0.95);
+      
+    } catch (error) {
+      console.error('❌ Save error:', error);
+      alert('Failed to save photo. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handlePrint = () => {
@@ -445,32 +952,124 @@ export default function EditPhoto() {
                           style={{
                             ...calculatePhotoCropStyle(frameConfig, slotIndex),
                             opacity: draggedPhoto?.slotIndex === slotIndex ? 0.7 : 1,
-                            transform: draggedPhoto?.slotIndex === slotIndex ? 'scale(0.98)' : 'scale(1)'
+                            cursor: selectedPhotoForEdit === slotIndex ? 'grab' : 'pointer'
                           }}
                           draggable={true}
                           onDragStart={(e) => handleDragStart(e, slotIndex, slotIndex)}
-                          onMouseDown={(e) => e.target.style.cursor = 'grabbing'}
-                          onMouseUp={(e) => e.target.style.cursor = 'grab'}
+                          onClick={() => setSelectedPhotoForEdit(selectedPhotoForEdit === slotIndex ? null : slotIndex)}
+                          onWheel={(e) => {
+                            if (selectedPhotoForEdit === slotIndex) {
+                              e.preventDefault();
+                              const delta = e.deltaY > 0 ? -1 : 1;
+                              handlePhotoZoom(slotIndex, delta);
+                            }
+                          }}
+                          onMouseDown={(e) => handlePhotoMouseDown(e, slotIndex)}
+                          onMouseMove={(e) => handlePhotoMouseMove(e, slotIndex)}
+                          onMouseUp={handlePhotoMouseUp}
+                          onMouseLeave={handlePhotoMouseUp}
                         />
-                        {/* Drag indicator */}
-                        <div style={{
-                          position: 'absolute',
-                          top: '4px',
-                          right: '4px',
-                          width: '16px',
-                          height: '16px',
-                          background: 'rgba(0,0,0,0.6)',
-                          borderRadius: '50%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '8px',
-                          color: 'white',
-                          pointerEvents: 'none',
-                          zIndex: 10
-                        }}>
-                          ↔
-                        </div>
+                        
+                        {/* Photo Edit Controls */}
+                        {selectedPhotoForEdit === slotIndex && (
+                          <div style={{
+                            position: 'absolute',
+                            bottom: '4px',
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            display: 'flex',
+                            gap: '4px',
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            borderRadius: '20px',
+                            padding: '4px 8px',
+                            zIndex: 20
+                          }}>
+                            {/* Zoom Out */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePhotoZoom(slotIndex, -1);
+                              }}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: 'white',
+                                fontSize: '14px',
+                                cursor: 'pointer',
+                                padding: '2px 4px'
+                              }}
+                            >
+                              🔍-
+                            </button>
+                            
+                            {/* Zoom In */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePhotoZoom(slotIndex, 1);
+                              }}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: 'white',
+                                fontSize: '14px',
+                                cursor: 'pointer',
+                                padding: '2px 4px'
+                              }}
+                            >
+                              🔍+
+                            </button>
+                            
+                            {/* Zoom Level Indicator */}
+                            <span style={{
+                              color: 'white',
+                              fontSize: '10px',
+                              padding: '2px 4px',
+                              backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                              borderRadius: '4px',
+                              minWidth: '30px',
+                              textAlign: 'center'
+                            }}>
+                              {(photoTransforms[slotIndex]?.scale || 1).toFixed(1)}x
+                            </span>
+                            
+                            {/* Reset */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                resetPhotoTransform(slotIndex);
+                              }}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: 'white',
+                                fontSize: '12px',
+                                cursor: 'pointer',
+                                padding: '2px 4px'
+                              }}
+                            >
+                              ↺
+                            </button>
+                          </div>
+                        )}
+                        
+                        {/* Photo Selection Indicator */}
+                        {selectedPhotoForEdit === slotIndex && (
+                          <div style={{
+                            position: 'absolute',
+                            top: '2px',
+                            right: '2px',
+                            backgroundColor: '#00ff00',
+                            color: 'black',
+                            fontSize: '10px',
+                            padding: '2px 6px',
+                            borderRadius: '10px',
+                            fontWeight: 'bold',
+                            zIndex: 20
+                          }}>
+                            EDIT
+                          </div>
+                        )}
                       </div>
                     )}
                     {!photos[slotIndex] && (
@@ -556,31 +1155,60 @@ export default function EditPhoto() {
           <div style={{
             display: 'flex',
             gap: '1rem',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            flexDirection: 'column',
+            alignItems: 'center'
           }}>
+            {/* Debug Button */}
+            <button
+              onClick={debugSaveState}
+              style={{
+                background: '#f0f0f0',
+                border: '1px solid #ccc',
+                color: '#666',
+                borderRadius: '15px',
+                padding: '0.5rem 1rem',
+                fontSize: '0.8rem',
+                cursor: 'pointer'
+              }}
+            >
+              🔍 Debug Save Data
+            </button>
+            
+            <div style={{
+              display: 'flex',
+              gap: '1rem',
+              justifyContent: 'center'
+            }}>
             <button
               onClick={handleSave}
+              disabled={isSaving}
               style={{
-                background: '#fff',
+                background: isSaving ? '#f5f5f5' : '#fff',
                 border: '2px solid #E8A889',
-                color: '#E8A889',
+                color: isSaving ? '#999' : '#E8A889',
                 borderRadius: '25px',
                 padding: '0.8rem 2rem',
                 fontSize: '1rem',
                 fontWeight: '600',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease'
+                cursor: isSaving ? 'not-allowed' : 'pointer',
+                transition: 'all 0.3s ease',
+                opacity: isSaving ? 0.7 : 1
               }}
               onMouseEnter={(e) => {
-                e.target.style.background = '#E8A889';
-                e.target.style.color = 'white';
+                if (!isSaving) {
+                  e.target.style.background = '#E8A889';
+                  e.target.style.color = 'white';
+                }
               }}
               onMouseLeave={(e) => {
-                e.target.style.background = '#fff';
-                e.target.style.color = '#E8A889';
+                if (!isSaving) {
+                  e.target.style.background = '#fff';
+                  e.target.style.color = '#E8A889';
+                }
               }}
             >
-              Save
+              {isSaving ? '💾 Saving...' : 'Save'}
             </button>
             <button
               onClick={handlePrint}
@@ -604,6 +1232,7 @@ export default function EditPhoto() {
             >
               Print
             </button>
+            </div>
           </div>
         </div>
 
@@ -721,7 +1350,10 @@ export default function EditPhoto() {
                 textAlign: 'center',
                 marginBottom: '1rem'
               }}>
-                Drag photos to frame slots
+                {selectedPhotoForEdit !== null 
+                  ? `✨ Adjusting Photo ${selectedPhotoForEdit + 1} - Smart boundaries ensure slot coverage` 
+                  : 'Auto-fit preserves vertical height, Smart limits prevent empty slots'
+                }
               </div>
               
               {/* All Photos Grid */}

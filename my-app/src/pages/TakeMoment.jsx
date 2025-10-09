@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import frameProvider from '../utils/frameProvider.js';
+import { getFrameConfig } from '../config/frameConfigs.js';
 
 export default function TakeMoment() {
   const navigate = useNavigate();
@@ -15,6 +16,8 @@ export default function TakeMoment() {
   const [showConfirmation, setShowConfirmation] = useState(false); // Show confirmation modal
   const [videoAspectRatio, setVideoAspectRatio] = useState(4/3); // Default aspect ratio
   const [maxCaptures, setMaxCaptures] = useState(4); // Default to 4, will be updated from frame config
+  const [frameConfig, setFrameConfig] = useState(null); // Frame configuration for crop guides
+  const [showCropGuides, setShowCropGuides] = useState(true); // Toggle crop guides
 
   // Initialize with empty photos and load frame configuration
   useEffect(() => {
@@ -28,10 +31,20 @@ export default function TakeMoment() {
     
     if (frameConfig && frameConfig.maxCaptures) {
       setMaxCaptures(frameConfig.maxCaptures);
+      setFrameConfig(frameConfig); // Store frame config for crop guides
       console.log(`📸 Frame loaded: ${frameConfig.name} - Max captures: ${frameConfig.maxCaptures}`);
     } else {
-      console.log('⚠️ No frame selected, using default max captures: 4');
-      setMaxCaptures(4); // Default fallback
+      // Load from localStorage as fallback
+      const selectedFrame = localStorage.getItem('selectedFrame') || 'Testframe1';
+      const config = getFrameConfig(selectedFrame);
+      if (config) {
+        setFrameConfig(config);
+        setMaxCaptures(config.maxCaptures);
+        console.log(`📸 Frame loaded from localStorage: ${config.name}`);
+      } else {
+        console.log('⚠️ No frame selected, using default max captures: 4');
+        setMaxCaptures(4); // Default fallback
+      }
     }
   }, []);
 
@@ -40,6 +53,50 @@ export default function TakeMoment() {
     console.log('capturedPhotos state updated:', capturedPhotos.length, 'photos');
     console.log('Photos array:', capturedPhotos.map((photo, idx) => `${idx}: ${photo.substring(0, 30)}...`));
   }, [capturedPhotos]);
+
+  // Function to calculate crop guide positions based on frame config
+  const calculateCropGuides = () => {
+    if (!frameConfig || !frameConfig.slots) return [];
+    
+    // Show only the current slot based on captured photos count
+    const currentSlotIndex = capturedPhotos.length;
+    
+    // If all photos captured, don't show any guides
+    if (currentSlotIndex >= frameConfig.slots.length) return [];
+    
+    const currentSlot = frameConfig.slots[currentSlotIndex];
+    if (!currentSlot) return [];
+    
+    // Fixed aspect ratio 1.502 (width:height = 1.502:1)
+    const GUIDE_ASPECT_RATIO = 1.502;
+    
+    // Use a base height percentage and calculate width to maintain 1.502 ratio
+    const guideHeight = 40; // 40% of stream height
+    const guideWidth = guideHeight * GUIDE_ASPECT_RATIO; // 40% * 1.502 = 60.08%
+    
+    // Center the guide in the stream (50% - half of guide size)
+    const centerLeft = 50 - (guideWidth / 2);  // 50% - 14% = 36%
+    const centerTop = 50 - (guideHeight / 2);  // 50% - 20% = 30%
+    
+    // Return centered slot guide with fixed 0.7 aspect ratio
+    return [{
+      left: `${centerLeft}%`,
+      top: `${centerTop}%`, 
+      width: `${guideWidth}%`,
+      height: `${guideHeight}%`,
+      id: currentSlot.id,
+      aspectRatio: `${GUIDE_ASPECT_RATIO}:1`,
+      isCurrent: true,
+      // Debug info
+      calculatedRatio: guideWidth / guideHeight,
+      originalSlot: {
+        width: currentSlot.width,
+        height: currentSlot.height,
+        left: currentSlot.left,
+        top: currentSlot.top
+      }
+    }];
+  };
 
     const handleCameraClick = async () => {
     try {
@@ -192,12 +249,30 @@ export default function TakeMoment() {
   };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#E8D5C4',
-      padding: '2rem',
-      fontFamily: 'system-ui, -apple-system, sans-serif'
-    }}>
+    <>
+      <style>{`
+        @keyframes pulse {
+          0% { 
+            transform: scale(1);
+            opacity: 0.8;
+          }
+          50% { 
+            transform: scale(1.02);
+            opacity: 1;
+          }
+          100% { 
+            transform: scale(1);
+            opacity: 0.8;
+          }
+        }
+      `}</style>
+      
+      <div style={{
+        minHeight: '100vh',
+        background: '#E8D5C4',
+        padding: '2rem',
+        fontFamily: 'system-ui, -apple-system, sans-serif'
+      }}>
       {/* Header */}
       <div style={{ 
         textAlign: 'center', 
@@ -370,6 +445,94 @@ export default function TakeMoment() {
                       console.error('🚫 Video error:', e);
                     }}
                   />
+                  
+                  {/* Crop Guides Overlay */}
+                  {showCropGuides && frameConfig && (
+                    <div style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      pointerEvents: 'none',
+                      zIndex: 5
+                    }}>
+                      {calculateCropGuides().map((guide, index) => (
+                        <div
+                          key={`crop-guide-${index}`}
+                          style={{
+                            position: 'absolute',
+                            left: guide.left,
+                            top: guide.top,
+                            width: guide.width,
+                            height: guide.height,
+                            border: '3px solid #00ff00',
+                            borderRadius: '12px',
+                            backgroundColor: 'rgba(0, 255, 0, 0.15)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '14px',
+                            color: '#00ff00',
+                            fontWeight: 'bold',
+                            textShadow: '0 0 6px rgba(0,0,0,0.9)',
+                            animation: 'pulse 2s infinite'
+                          }}
+                        >
+                          📸 {guide.id} ({guide.aspectRatio})
+                        </div>
+                      ))}
+                      
+                      {/* Guide info */}
+                      <div style={{
+                        position: 'absolute',
+                        top: '10px',
+                        left: '10px',
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        color: 'white',
+                        padding: '10px 15px',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        fontWeight: 'bold',
+                        border: '2px solid #00ff00'
+                      }}>
+                        📸 <span style={{ color: '#00ff00' }}>
+                          {capturedPhotos.length < maxCaptures 
+                            ? `Siap ambil: ${frameConfig.slots[capturedPhotos.length]?.id || 'slot_1'}` 
+                            : 'Semua foto selesai!'
+                          }
+                        </span>
+                        <br/>
+                        🖼️ Frame: {frameConfig.name} | Progress: {capturedPhotos.length}/{maxCaptures}
+                        {capturedPhotos.length < maxCaptures && (
+                          <div style={{ fontSize: '10px', color: '#ccc', marginTop: '4px' }}>
+                            Guide: 60.1% × 40% (ratio 1.502:1)
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Toggle Guides Button */}
+                  <button
+                    onClick={() => setShowCropGuides(!showCropGuides)}
+                    style={{
+                      position: 'absolute',
+                      top: '10px',
+                      right: '10px',
+                      backgroundColor: showCropGuides ? 'rgba(0, 255, 0, 0.8)' : 'rgba(128, 128, 128, 0.8)',
+                      color: 'white',
+                      border: 'none',
+                      padding: '6px 10px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      zIndex: 10
+                    }}
+                  >
+                    🎯 {showCropGuides ? 'Hide' : 'Show'} Guides
+                  </button>
                   
                   {/* Countdown Overlay */}
                   {countdown && (
@@ -663,5 +826,6 @@ export default function TakeMoment() {
         </div>
       )}
     </div>
+    </>
   );
 }

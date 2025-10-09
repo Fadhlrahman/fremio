@@ -1,6 +1,13 @@
-import { NavLink } from "react-router-dom";
+// src/components/Header.jsx
+import { NavLink, Link, useLocation } from "react-router-dom";
 
 export default function Header() {
+  const { pathname, hash } = useLocation();
+
+  // active state manual untuk hash links di homepage
+  const isHomeActive = pathname === "/" && (hash === "" || hash === "#home");
+  const isAboutActive = pathname === "/" && hash === "#about";
+
   return (
     <header className="site-header">
       <div className="container header-bar">
@@ -9,23 +16,21 @@ export default function Header() {
 
         {/* Center: Nav */}
         <nav className="main-nav">
-          <NavLink
-            to="/"
-            end
-            className={({ isActive }) =>
-              "nav-link" + (isActive ? " active" : "")
-            }
+          {/* Home & About: scroll ke section di halaman root */}
+          <Link
+            to={{ pathname: "/", hash: "#home" }}
+            className={"nav-link" + (isHomeActive ? " active" : "")}
           >
             Home
-          </NavLink>
-          <NavLink
-            to="/about"
-            className={({ isActive }) =>
-              "nav-link" + (isActive ? " active" : "")
-            }
+          </Link>
+          <Link
+            to={{ pathname: "/", hash: "#about" }}
+            className={"nav-link" + (isAboutActive ? " active" : "")}
           >
             About
-          </NavLink>
+          </Link>
+
+          {/* Frames tetap route terpisah */}
           <NavLink
             to="/frames"
             className={({ isActive }) =>

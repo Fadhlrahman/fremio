@@ -1,55 +1,109 @@
 import { NavLink } from "react-router-dom";
-import frame1 from "../assets/frame1.png"; // ganti sesuai asetmu
+import frame1 from "../assets/frame1.png";
 import frame2 from "../assets/frame2.png";
 import frame3 from "../assets/frame3.png";
 
 export default function Home() {
   return (
-    <section className="hero-fremio">
-      <div className="container hero-grid">
-        {/* LEFT */}
-        <div className="hero-left">
-          <h1 className="hero-h1">
-            Not a <span className="accent">photobooth</span>
-            <br />
-            Not a <span className="accent">photobox</span>
-          </h1>
+    <>
+      {/* ======= HERO (/#home) ======= */}
+      <section
+        id="home"
+        className="hero-fremio"
+        style={{ scrollMarginTop: "64px" }}
+      >
+        <div className="container hero-grid">
+          {/* LEFT */}
+          <div className="hero-left">
+            <h1 className="hero-h1">
+              Not a <span className="accent">photobooth</span>
+              <br />
+              Not a <span className="accent">photobox</span>
+            </h1>
 
-          <p className="hero-sub">
-<<<<<<< HEAD
-            fremio adalah cara baru merayakan momen. Pilih frame, cetak instan,
-            dan jadikan kenanganmu sesuatu yang hidup
-=======
-            fremio adalah cara baru merayakan momen.<br/> 
+            <p className="hero-sub">
+              fremio adalah cara baru merayakan momen. Pilih frame, cetak
+              instan, dan jadikan kenanganmu sesuatu yang hidup
+            </p>
 
-            Pilih frame, cetak instan, dan jadikan kenanganmu <br/>
-            sesuatu yang hidup
->>>>>>> fbf1ab948afe0aad5d4addcb8c5299bbe7a6523b
-          </p>
+            <NavLink to="/frames" className="cta-pink">
+              Get Started
+            </NavLink>
 
-          <NavLink to="/frames" className="cta-pink">
-            Get Started
-          </NavLink>
+            {/* dekorasi: kamera + roll film */}
+            <CameraIcon className="deco cam-tl" />
+            <FilmIcon className="deco film-tc" />
+            <CameraIcon className="deco cam-bl" />
+            <FilmIcon className="deco film-bc" />
+          </div>
 
-          {/* dekorasi: kamera + roll film */}
-          <CameraIcon className="deco cam-tl" />
-          <FilmIcon className="deco film-tc" />
-          <CameraIcon className="deco cam-bl" />
-          <FilmIcon className="deco film-bc" />
+          {/* RIGHT – kolase */}
+          <div className="hero-right">
+            <img src={frame1} alt="Contoh frame utama" className="shot main" />
+            <img src={frame2} alt="Contoh frame kiri" className="shot left" />
+            <img src={frame3} alt="Contoh frame kanan" className="shot right" />
+          </div>
         </div>
+      </section>
 
-        {/* RIGHT – kanvas kolase fix agar rapi */}
-        <div className="hero-right">
-          <img src={frame1} alt="Contoh frame utama" className="shot main" />
-          <img src={frame2} alt="Contoh frame kiri" className="shot left" />
-          <img src={frame3} alt="Contoh frame kanan" className="shot right" />
+      {/* ======= ABOUT (/#about) ======= */}
+      <section
+        id="about"
+        className="container pad"
+        style={{ scrollMarginTop: "64px" }}
+      >
+        <div className="mt-10 px-8">
+          <h2 className="mb-8">
+            <span
+              className="font-bold"
+              style={{ color: "#D9B9AB", fontSize: "2rem", lineHeight: "1" }}
+            >
+              Tentang&nbsp;
+            </span>
+            <span
+              className="font-bold text-black"
+              style={{ fontSize: "2rem", lineHeight: "1" }}
+            >
+              Kami
+            </span>
+          </h2>
+
+          <div className="space-y-8 text-xl text-black">
+            <p>
+              Kami percaya bahwa setiap momen berharga layak untuk diabadikan
+              dengan cara yang istimewa.
+              <br />
+              Fremio hadir bukan sekadar photobooth atau photobox, tapi sebuah
+              pengalaman baru dalam merayakan kenangan.
+            </p>
+
+            <p>
+              Dengan Fremio, kamu bisa memilih frame yang unik, mencetak foto
+              instan, dan menyimpannya sebagai bagian dari cerita hidupmu.
+              <br />
+              Kami menghubungkan kreator desain, coffee shop, dan komunitas
+              dalam satu ekosistem yang membuat kenangan terasa lebih hidup,
+              personal, dan bermakna.
+            </p>
+
+            <p>
+              Purpose kami sederhana:{" "}
+              <span className="font-bold text-black text-xl">
+                We help people cherish what matters most.
+              </span>
+              <br />
+              Kami ingin menjadikan foto bukan sekadar gambar, tapi sebuah
+              pengalaman emosional yang bisa kamu sentuh, bagikan, dan kenang
+              selamanya.
+            </p>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </>
   );
 }
 
-/* ====== Ikon dekor ====== */
+/* ====== Ikon dekor (asli kamu, tidak diubah) ====== */
 function CameraIcon({ className = "" }) {
   return (
     <svg className={className} viewBox="0 0 24 24" aria-hidden="true">

@@ -10,11 +10,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tailwindcss/postcss": "^4.1.14",
     "@tailwindcss/vite": "^4.1.13",
-<<<<<<< HEAD
-=======
     "face-api.js": "^0.22.2",
->>>>>>> fbf1ab948afe0aad5d4addcb8c5299bbe7a6523b
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.9.3"

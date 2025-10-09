@@ -1,14 +1,3 @@
-<<<<<<< HEAD
-export default function Frames() {
-  return (
-    <section className="container pad">
-      <h2>Frames</h2>
-      <p>Kumpulan komponen/section yang bisa kamu reuse di halaman lain.</p>
-    </section>
-  );
-}
-=======
-
 import Testframe1 from "../assets/Testframe1.png";
 import Testframe2 from "../assets/Testframe2.png";
 import Testframe3 from "../assets/Testframe3.png";
@@ -84,4 +73,3 @@ export default function Frames() {
     </section>
   );
 }
->>>>>>> fbf1ab948afe0aad5d4addcb8c5299bbe7a6523b

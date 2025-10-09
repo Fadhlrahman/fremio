@@ -44,28 +44,28 @@ export const FRAME_CONFIGS = {
     slots: [
       {
         id: 'slot_1',
-        left: 0.25,     // 25% dari kiri - centered
-        top: 0.15,      // 15% dari atas - slot pertama
-        width: 0.5,     // 50% lebar - rasio 4:5
-        height: 0.22,   // 22% tinggi - untuk 3 slot dengan rasio 4:5
+        left: 0.3,     // 25% dari kiri - centered
+        top: 0.03,      // 15% dari atas - slot pertama
+        width: 0.4,     // 50% lebar - rasio 4:5
+        height: 0.275,   // 22% tinggi - untuk 3 slot dengan rasio 4:5
         aspectRatio: '4:5', // Rasio Instagram portrait
         zIndex: 2
       },
       {
         id: 'slot_2',
-        left: 0.25,     // 25% dari kiri - centered sama dengan slot lain
-        top: 0.40,      // 40% dari atas - slot kedua
-        width: 0.5,     // 50% lebar - sama dengan slot lain
-        height: 0.22,   // 22% tinggi - sama dengan slot lain
+        left: 0.3,     // 25% dari kiri - centered sama dengan slot lain
+        top: 0.32,      // 40% dari atas - slot kedua
+        width: 0.4,     // 50% lebar - sama dengan slot lain
+        height: 0.275,   // 22% tinggi - sama dengan slot lain
         aspectRatio: '4:5', // Rasio Instagram portrait
         zIndex: 2
       },
       {
         id: 'slot_3',
-        left: 0.25,     // 25% dari kiri - centered sama dengan slot lain
-        top: 0.65,      // 65% dari atas - slot ketiga
-        width: 0.5,     // 50% lebar - sama dengan slot lain
-        height: 0.22,   // 22% tinggi - sama dengan slot lain
+        left: 0.3,     // 25% dari kiri - centered sama dengan slot lain
+        top: 0.61,      // 65% dari atas - slot ketiga
+        width: 0.4,     // 50% lebar - sama dengan slot lain
+        height: 0.275,   // 22% tinggi - sama dengan slot lain
         aspectRatio: '4:5', // Rasio Instagram portrait
         zIndex: 2
       }

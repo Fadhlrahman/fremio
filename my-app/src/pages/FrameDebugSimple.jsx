@@ -1,0 +1,193 @@
+import React, { useState, useEffect } from 'react';
+import { getFrameConfig } from '../config/frameConfigs.js';
+
+export default function FrameDebugSimple() {
+  const [selectedFrame, setSelectedFrame] = useState('Testframe1');
+  const [frameConfig, setFrameConfig] = useState(null);
+
+  // Calculate slot dimensions in pixels
+  const calculateSlotPixels = (frameConfig, slotIndex) => {
+    const FRAME_WIDTH = 350; // px
+    const FRAME_HEIGHT = 525; // px
+    
+    const slot = frameConfig.slots[slotIndex];
+    if (!slot) return null;
+    
+    return {
+      left: Math.round(slot.left * FRAME_WIDTH),
+      top: Math.round(slot.top * FRAME_HEIGHT),
+      width: Math.round(slot.width * FRAME_WIDTH),
+      height: Math.round(slot.height * FRAME_HEIGHT),
+      aspectRatio: slot.aspectRatio,
+      calculatedRatio: (slot.width * FRAME_WIDTH) / (slot.height * FRAME_HEIGHT)
+    };
+  };
+
+  useEffect(() => {
+    const config = getFrameConfig(selectedFrame);
+    if (config) {
+      setFrameConfig(config);
+    }
+  }, [selectedFrame]);
+
+  return (
+    <div style={{ padding: '2rem', background: '#f5f5f5', minHeight: '100vh' }}>
+      <h1>Frame Debug Tool</h1>
+      
+      {/* Frame Selector */}
+      <div style={{ marginBottom: '2rem' }}>
+        <label>Select Frame: </label>
+        <select 
+          value={selectedFrame} 
+          onChange={(e) => setSelectedFrame(e.target.value)}
+          style={{ padding: '0.5rem', fontSize: '1rem' }}
+        >
+          <option value="Testframe1">Testframe1 (2 slots)</option>
+          <option value="Testframe2">Testframe2 (3 slots)</option>
+          <option value="Testframe3">Testframe3 (4 slots)</option>
+        </select>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+        
+        {/* Frame Preview with Slot Overlay */}
+        <div style={{ background: '#fff', padding: '2rem', borderRadius: '10px' }}>
+          <h3>Frame dengan Slot Overlay</h3>
+          {frameConfig && (
+            <div style={{
+              position: 'relative',
+              width: '350px',
+              height: '525px',
+              margin: '0 auto',
+              border: '1px solid #ddd',
+              background: '#e0e0e0'
+            }}>
+              
+              {/* Placeholder Frame Area */}
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                background: 'linear-gradient(45deg, #f0f0f0 25%, transparent 25%), linear-gradient(-45deg, #f0f0f0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #f0f0f0 75%), linear-gradient(-45deg, transparent 75%, #f0f0f0 75%)',
+                backgroundSize: '20px 20px',
+                backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px'
+              }}>
+                <div style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  fontSize: '14px',
+                  color: '#666',
+                  textAlign: 'center'
+                }}>
+                  {frameConfig.name}<br/>
+                  Frame Area<br/>
+                  350x525px
+                </div>
+              </div>
+              
+              {/* Slot Overlays */}
+              {frameConfig.slots.map((slot, index) => {
+                const pixels = calculateSlotPixels(frameConfig, index);
+                return (
+                  <div
+                    key={slot.id}
+                    style={{
+                      position: 'absolute',
+                      left: `${slot.left * 100}%`,
+                      top: `${slot.top * 100}%`,
+                      width: `${slot.width * 100}%`,
+                      height: `${slot.height * 100}%`,
+                      border: '3px dashed #ff0000',
+                      background: 'rgba(255, 0, 0, 0.15)',
+                      zIndex: 5,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '14px',
+                      fontWeight: 'bold',
+                      color: '#ff0000',
+                      boxSizing: 'border-box'
+                    }}
+                  >
+                    {slot.id}<br/>
+                    {pixels.width}x{pixels.height}px
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Slot Data Table */}
+        <div style={{ background: '#fff', padding: '2rem', borderRadius: '10px' }}>
+          <h3>Slot Metadata Debug</h3>
+          {frameConfig && (
+            <div>
+              <div style={{ marginBottom: '1rem' }}>
+                <strong>Frame:</strong> {frameConfig.name}<br/>
+                <strong>Max Captures:</strong> {frameConfig.maxCaptures}<br/>
+                <strong>Layout Ratio:</strong> {frameConfig.layout.aspectRatio}
+              </div>
+              
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                <thead>
+                  <tr style={{ background: '#f0f0f0' }}>
+                    <th style={{ border: '1px solid #ddd', padding: '8px' }}>Slot ID</th>
+                    <th style={{ border: '1px solid #ddd', padding: '8px' }}>Percentage</th>
+                    <th style={{ border: '1px solid #ddd', padding: '8px' }}>Pixels</th>
+                    <th style={{ border: '1px solid #ddd', padding: '8px' }}>Aspect Ratio</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {frameConfig.slots.map((slot, index) => {
+                    const pixels = calculateSlotPixels(frameConfig, index);
+                    return (
+                      <tr key={slot.id}>
+                        <td style={{ border: '1px solid #ddd', padding: '8px' }}>{slot.id}</td>
+                        <td style={{ border: '1px solid #ddd', padding: '8px' }}>
+                          L: {(slot.left * 100).toFixed(1)}%<br/>
+                          T: {(slot.top * 100).toFixed(1)}%<br/>
+                          W: {(slot.width * 100).toFixed(1)}%<br/>
+                          H: {(slot.height * 100).toFixed(1)}%
+                        </td>
+                        <td style={{ border: '1px solid #ddd', padding: '8px' }}>
+                          L: {pixels.left}px<br/>
+                          T: {pixels.top}px<br/>
+                          W: {pixels.width}px<br/>
+                          H: {pixels.height}px
+                        </td>
+                        <td style={{ border: '1px solid #ddd', padding: '8px' }}>
+                          Expected: {slot.aspectRatio}<br/>
+                          Actual: {pixels.calculatedRatio.toFixed(2)}<br/>
+                          {slot.aspectRatio === '4:5' && Math.abs(pixels.calculatedRatio - 0.8) > 0.01 && 
+                            <span style={{ color: 'red' }}>⚠️ Mismatch!</span>
+                          }
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Recommendations */}
+      <div style={{ background: '#fff', padding: '2rem', borderRadius: '10px', marginTop: '2rem' }}>
+        <h3>Instructions</h3>
+        <ul>
+          <li><strong>Kotak merah putus-putus</strong> menunjukkan posisi slot foto</li>
+          <li><strong>Ganti frame</strong> dengan dropdown di atas</li>
+          <li><strong>Cek koordinat</strong> di tabel untuk melihat detail posisi</li>
+          <li><strong>Aspect ratio harus 0.80</strong> untuk rasio 4:5</li>
+          <li><strong>Bagian yang keluar frame</strong> akan terpotong saat foto ditempatkan</li>
+        </ul>
+      </div>
+    </div>
+  );
+}

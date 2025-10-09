@@ -11,18 +11,20 @@ export const FRAME_CONFIGS = {
     slots: [
       {
         id: 'slot_1',
-        left: 0.1,      // 10% dari kiri
-        top: 0.15,      // 15% dari atas
-        width: 0.8,     // 80% lebar
-        height: 0.35,   // 35% tinggi
+        left: 0.25,     // 25% dari kiri - centered
+        top: 0.025,      // 8% dari atas - digeser lebih ke atas
+        width: 0.5,     // 50% lebar - rasio 4:5 = 0.8, jadi 50% width
+        height: 0.4,   // 32% tinggi - untuk rasio 4:5
+        aspectRatio: '4:5', // Rasio Instagram portrait
         zIndex: 2
       },
       {
         id: 'slot_2', 
-        left: 0.1,      // 10% dari kiri
-        top: 0.55,      // 55% dari atas
-        width: 0.8,     // 80% lebar
-        height: 0.35,   // 35% tinggi
+        left: 0.25,     // 25% dari kiri - centered sama dengan slot 1
+        top: 0.44,      // 42% dari atas - digeser lebih ke atas
+        width: 0.5,     // 50% lebar - sama dengan slot 1
+        height: 0.4,   // 32% tinggi - sama dengan slot 1
+        aspectRatio: '4:5', // Rasio Instagram portrait
         zIndex: 2
       }
     ],
@@ -42,26 +44,29 @@ export const FRAME_CONFIGS = {
     slots: [
       {
         id: 'slot_1',
-        left: 0.1,      // 10% dari kiri
-        top: 0.1,       // 10% dari atas
-        width: 0.8,     // 80% lebar
-        height: 0.25,   // 25% tinggi
+        left: 0.25,     // 25% dari kiri - centered
+        top: 0.15,      // 15% dari atas - slot pertama
+        width: 0.5,     // 50% lebar - rasio 4:5
+        height: 0.22,   // 22% tinggi - untuk 3 slot dengan rasio 4:5
+        aspectRatio: '4:5', // Rasio Instagram portrait
         zIndex: 2
       },
       {
         id: 'slot_2',
-        left: 0.1,      // 10% dari kiri
-        top: 0.38,      // 38% dari atas
-        width: 0.8,     // 80% lebar
-        height: 0.25,   // 25% tinggi
+        left: 0.25,     // 25% dari kiri - centered sama dengan slot lain
+        top: 0.40,      // 40% dari atas - slot kedua
+        width: 0.5,     // 50% lebar - sama dengan slot lain
+        height: 0.22,   // 22% tinggi - sama dengan slot lain
+        aspectRatio: '4:5', // Rasio Instagram portrait
         zIndex: 2
       },
       {
         id: 'slot_3',
-        left: 0.1,      // 10% dari kiri
-        top: 0.66,      // 66% dari atas
-        width: 0.8,     // 80% lebar
-        height: 0.25,   // 25% tinggi
+        left: 0.25,     // 25% dari kiri - centered sama dengan slot lain
+        top: 0.65,      // 65% dari atas - slot ketiga
+        width: 0.5,     // 50% lebar - sama dengan slot lain
+        height: 0.22,   // 22% tinggi - sama dengan slot lain
+        aspectRatio: '4:5', // Rasio Instagram portrait
         zIndex: 2
       }
     ],
@@ -81,34 +86,38 @@ export const FRAME_CONFIGS = {
     slots: [
       {
         id: 'slot_1',
-        left: 0.05,     // 5% dari kiri (kiri atas)
-        top: 0.1,       // 10% dari atas
-        width: 0.4,     // 40% lebar
-        height: 0.35,   // 35% tinggi
+        left: 0.15,     // 15% dari kiri (kiri atas) - margin untuk grid
+        top: 0.18,      // 18% dari atas - margin untuk grid
+        width: 0.32,    // 32% lebar - untuk rasio 4:5 dalam grid 2x2
+        height: 0.28,   // 28% tinggi - untuk rasio 4:5 dalam grid 2x2
+        aspectRatio: '4:5', // Rasio Instagram portrait
         zIndex: 2
       },
       {
         id: 'slot_2',
-        left: 0.55,     // 55% dari kiri (kanan atas)
-        top: 0.1,       // 10% dari atas
-        width: 0.4,     // 40% lebar
-        height: 0.35,   // 35% tinggi
+        left: 0.53,     // 53% dari kiri (kanan atas) - margin seimbang
+        top: 0.18,      // 18% dari atas - sama dengan slot 1
+        width: 0.32,    // 32% lebar - sama dengan slot lain
+        height: 0.28,   // 28% tinggi - sama dengan slot lain
+        aspectRatio: '4:5', // Rasio Instagram portrait
         zIndex: 2
       },
       {
         id: 'slot_3',
-        left: 0.05,     // 5% dari kiri (kiri bawah)
-        top: 0.55,      // 55% dari atas
-        width: 0.4,     // 40% lebar
-        height: 0.35,   // 35% tinggi
+        left: 0.15,     // 15% dari kiri (kiri bawah) - sama dengan slot 1
+        top: 0.54,      // 54% dari atas - slot bawah
+        width: 0.32,    // 32% lebar - sama dengan slot lain
+        height: 0.28,   // 28% tinggi - sama dengan slot lain
+        aspectRatio: '4:5', // Rasio Instagram portrait
         zIndex: 2
       },
       {
         id: 'slot_4',
-        left: 0.55,     // 55% dari kiri (kanan bawah)
-        top: 0.55,      // 55% dari atas
-        width: 0.4,     // 40% lebar
-        height: 0.35,   // 35% tinggi
+        left: 0.53,     // 53% dari kiri (kanan bawah) - sama dengan slot 2
+        top: 0.54,      // 54% dari atas - sama dengan slot 3
+        width: 0.32,    // 32% lebar - sama dengan slot lain
+        height: 0.28,   // 28% tinggi - sama dengan slot lain
+        aspectRatio: '4:5', // Rasio Instagram portrait
         zIndex: 2
       }
     ],

@@ -21,6 +21,8 @@ export default function TakeMoment() {
 
   // Initialize with empty photos and load frame configuration
   useEffect(() => {
+    console.log('🔄 TakeMoment component initializing...');
+    
     // Clear any existing photos and start fresh
     setCapturedPhotos([]);
     localStorage.removeItem('capturedPhotos'); // Clear localStorage to ensure clean start
@@ -29,6 +31,8 @@ export default function TakeMoment() {
     frameProvider.loadFrameFromStorage();
     const frameConfig = frameProvider.getCurrentConfig();
     
+    console.log('🖼️ frameProvider.getCurrentConfig():', frameConfig);
+    
     if (frameConfig && frameConfig.maxCaptures) {
       setMaxCaptures(frameConfig.maxCaptures);
       setFrameConfig(frameConfig); // Store frame config for crop guides
@@ -36,11 +40,15 @@ export default function TakeMoment() {
     } else {
       // Load from localStorage as fallback
       const selectedFrame = localStorage.getItem('selectedFrame') || 'Testframe1';
+      console.log('📦 selectedFrame from localStorage:', selectedFrame);
+      
       const config = getFrameConfig(selectedFrame);
+      console.log('⚙️ getFrameConfig result:', config);
+      
       if (config) {
         setFrameConfig(config);
         setMaxCaptures(config.maxCaptures);
-        console.log(`📸 Frame loaded from localStorage: ${config.name}`);
+        console.log(`📸 Frame loaded from localStorage: ${config.name} - MaxCaptures: ${config.maxCaptures}`);
       } else {
         console.log('⚠️ No frame selected, using default max captures: 4');
         setMaxCaptures(4); // Default fallback
@@ -693,18 +701,31 @@ export default function TakeMoment() {
               )}
             </div>
 
-            {/* Edit Button - Only show when maximum photos captured */}
-            {capturedPhotos.length >= maxCaptures && (
+            {/* Edit Button - Show when at least 1 photo captured */}
+            {capturedPhotos.length > 0 && (
               <button
                 onClick={() => {
+                  console.log(`🎯 Edit button clicked - Photos: ${capturedPhotos.length}, MaxCaptures: ${maxCaptures}`);
+                  console.log('📸 Photos array:', capturedPhotos);
+                  
                   // Save photos to localStorage before navigating
                   localStorage.setItem('capturedPhotos', JSON.stringify(capturedPhotos));
+                  console.log('💾 Photos saved to localStorage');
+                  
+                  // Also save current frame info
+                  const currentFrame = frameProvider.getCurrentConfig();
+                  if (currentFrame) {
+                    localStorage.setItem('selectedFrame', currentFrame.id);
+                    console.log(`🖼️ Frame saved: ${currentFrame.id}`);
+                  }
+                  
+                  console.log('🚀 Navigating to /edit-photo');
                   navigate('/edit-photo');
                 }}
                 style={{
                   width: '100%',
                   padding: '1rem',
-                  background: '#E8A889',
+                  background: capturedPhotos.length >= maxCaptures ? '#E8A889' : '#94A3B8',
                   color: 'white',
                   border: 'none',
                   borderRadius: '25px',
@@ -716,15 +737,26 @@ export default function TakeMoment() {
                   marginTop: '1rem'
                 }}
                 onMouseEnter={(e) => {
-                  e.target.style.background = '#d49673';
+                  if (capturedPhotos.length >= maxCaptures) {
+                    e.target.style.background = '#d49673';
+                  } else {
+                    e.target.style.background = '#64748B';
+                  }
                   e.target.style.transform = 'translateY(-2px)';
                 }}
                 onMouseLeave={(e) => {
-                  e.target.style.background = '#E8A889';
+                  if (capturedPhotos.length >= maxCaptures) {
+                    e.target.style.background = '#E8A889';
+                  } else {
+                    e.target.style.background = '#94A3B8';
+                  }
                   e.target.style.transform = 'translateY(0)';
                 }}
               >
-                ✨ Edit Photos
+                {capturedPhotos.length >= maxCaptures 
+                  ? '✨ Edit Photos' 
+                  : `📝 Edit Photos (${capturedPhotos.length}/${maxCaptures})`
+                }
               </button>
             )}
           </div>

@@ -37,11 +37,18 @@ export default function EditPhoto() {
 
   // Load photos and frame config on mount
   useEffect(() => {
+    console.log('🔄 EditPhoto component mounting...');
+    
     // Load photos from localStorage
     const savedPhotos = localStorage.getItem('capturedPhotos');
+    console.log('📦 Raw savedPhotos from localStorage:', savedPhotos);
+    
     if (savedPhotos) {
       try {
         const parsedPhotos = JSON.parse(savedPhotos);
+        console.log('📸 Parsed photos array:', parsedPhotos);
+        console.log('📊 Number of photos:', parsedPhotos.length);
+        
         setPhotos(parsedPhotos);
         
         // Initialize photo positions with better defaults for portrait photos
@@ -61,16 +68,21 @@ export default function EditPhoto() {
         
         console.log('✅ Loaded photos:', parsedPhotos.length);
       } catch (error) {
-        console.error('Error loading photos:', error);
+        console.error('❌ Error parsing photos:', error);
       }
+    } else {
+      console.log('⚠️ No saved photos found in localStorage');
     }
 
     // Load selected frame from localStorage
     const frameFromStorage = localStorage.getItem('selectedFrame') || 'Testframe1';
+    console.log('🖼️ Frame from localStorage:', frameFromStorage);
     setSelectedFrame(frameFromStorage);
     console.log('🖼️ Loading frame:', frameFromStorage);
     
     const config = getFrameConfig(frameFromStorage);
+    console.log('⚙️ Frame config result:', config);
+    
     if (config) {
       setFrameConfig(config);
       setFrameImage(getFrameImage(frameFromStorage));
@@ -1397,7 +1409,7 @@ export default function EditPhoto() {
                   textAlign: 'center',
                   padding: '2rem'
                 }}>
-                  No photos iii available. Take some photos first!
+                  No photos available. Take some photos first!
                 </div>
               )}
             </div>

@@ -1397,7 +1397,7 @@ export default function EditPhoto() {
                   textAlign: 'center',
                   padding: '2rem'
                 }}>
-                  No photos available. Take some photos first!
+                  No photos iii available. Take some photos first!
                 </div>
               )}
             </div>

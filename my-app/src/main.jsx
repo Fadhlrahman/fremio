@@ -10,4 +10,8 @@ createRoot(document.getElementById("root")).render(
       <App />
     </BrowserRouter>
   </React.StrictMode>
+<<<<<<< HEAD
 );
+=======
+);
+>>>>>>> fbf1ab948afe0aad5d4addcb8c5299bbe7a6523b

@@ -16,8 +16,15 @@ export default function Home() {
           </h1>
 
           <p className="hero-sub">
+<<<<<<< HEAD
             fremio adalah cara baru merayakan momen. Pilih frame, cetak instan,
             dan jadikan kenanganmu sesuatu yang hidup
+=======
+            fremio adalah cara baru merayakan momen.<br/> 
+
+            Pilih frame, cetak instan, dan jadikan kenanganmu <br/>
+            sesuatu yang hidup
+>>>>>>> fbf1ab948afe0aad5d4addcb8c5299bbe7a6523b
           </p>
 
           <NavLink to="/frames" className="cta-pink">

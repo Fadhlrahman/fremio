@@ -137,28 +137,28 @@ export const FRAME_CONFIGS = {
     slots: [
       {
         id: 'slot_1',
-        left: 0.1,     // 25% dari kiri - slot pertama
-        top: 0.065,       // 10% dari atas - slot atas
-        width: 0.8,     // 50% lebar - slot besar
-        height: 0.25,   // 35% tinggi - slot besar
+        left: 0.1,       // 10% dari kiri - slot pertama
+        top: 0.065,      // 6.5% dari atas - slot atas
+        width: 0.8,      // 80% lebar - slot besar landscape
+        height: 0.25,    // 25% tinggi - slot besar
         aspectRatio: '16:9', // Landscape aspect ratio untuk slot yang lebih lebar
         zIndex: 2
       },
       {
         id: 'slot_2',
-        left: 0.1,      // 10% dari kiri - slot kiri bawah
-        top: 0.33,      // 55% dari atas - slot bawah
-        width: 0.8,    // 35% lebar - slot kecil
-        height: 0.25,    // 30% tinggi - slot kecil
+        left: 0.1,       // 10% dari kiri - slot kedua
+        top: 0.33,       // 33% dari atas - slot tengah
+        width: 0.8,      // 80% lebar - slot landscape
+        height: 0.25,    // 25% tinggi - slot
         aspectRatio: '16:9', // Landscape aspect ratio untuk konsistensi
         zIndex: 2
       },
       {
         id: 'slot_3',
-        left: 0.1,     // 55% dari kiri - slot kanan bawah
-        top: 0.59,      // 55% dari atas - slot bawah
-        width: 0.8,    // 35% lebar - slot kecil
-        height: 0.25,    // 30% tinggi - slot kecil
+        left: 0.1,       // 10% dari kiri - slot ketiga
+        top: 0.59,       // 59% dari atas - slot bawah
+        width: 0.8,      // 80% lebar - slot landscape
+        height: 0.25,    // 25% tinggi - slot
         aspectRatio: '16:9', // Landscape aspect ratio untuk konsistensi
         zIndex: 2
       }

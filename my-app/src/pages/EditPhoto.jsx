@@ -53,18 +53,38 @@ export default function EditPhoto() {
         
         setPhotos(parsedPhotos);
         
-        // Initialize photo positions with better defaults for portrait photos
+        // Initialize photo positions with correct defaults for each frame type
         const positions = {};
         const transforms = {};
+        
+        // Get frame config to calculate proper default scales
+        const frameConfigForDefaults = getFrameConfig(frameFromStorage);
+        
         parsedPhotos.forEach((_, index) => {
-          positions[index] = 'center center'; // Centered positioning
+          positions[index] = 'center center';
+          
+          // Calculate proper default scale based on frame type
+          let defaultScale = 1;
+          
+          if (frameConfigForDefaults?.id === 'Testframe4') {
+            // Testframe4 was configured to use max zoom out + 6 steps
+            // Based on zoom step of 0.1, max zoom out is 0.5, +6 steps = 1.1
+            defaultScale = 1.1;
+            console.log(`🎯 Setting Testframe4 default scale: ${defaultScale}`);
+          } else {
+            // Other frames use standard auto-fill scale
+            defaultScale = 1.6; // Standard auto-fill for portrait frames
+            console.log(`📐 Setting standard default scale: ${defaultScale}`);
+          }
+          
           transforms[index] = {
-            scale: 1, // Will be calculated to auto-fill
+            scale: defaultScale,
             translateX: 0,
             translateY: 0,
-            autoFillScale: 1 // Store the minimum scale to fill slot
+            autoFillScale: defaultScale
           };
         });
+        
         setPhotoPositions(positions);
         setPhotoTransforms(transforms);
         
@@ -659,28 +679,56 @@ export default function EditPhoto() {
     setIsSaving(true);
     try {
       console.log('🎪 Starting save process...');
+      console.log('🔧 Current photoTransforms state:', photoTransforms);
+      console.log('🔧 PhotoTransforms keys:', Object.keys(photoTransforms));
+      console.log('🔧 Photos length:', photos.length);
       console.log('📷 Photos available:', photos.length);
       console.log('🖼️ Frame config:', frameConfig);
       console.log('🎯 Selected frame:', selectedFrame);
+      
+      // DEBUG: Check frameConfig slots untuk Testframe4
+      if (frameConfig.id === 'Testframe4') {
+        console.log('🔍 TESTFRAME4 DEBUG - Slot configurations:');
+        frameConfig.slots.forEach((slot, index) => {
+          console.log(`  Slot ${index + 1}:`, {
+            left: slot.left + '%',
+            top: slot.top + '%', 
+            width: slot.width + '%',
+            height: slot.height + '%'
+          });
+        });
+      }
       
       // Create canvas untuk menggabungkan frame dan foto
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       
       // Set canvas size sesuai frame aspect ratio dari preview
-      // Preview container di EditPhoto memiliki aspect ratio yang tepat
-      const frameAspectRatio = 2 / 3; // Frame portrait 2:3 ratio seperti di preview
-      const canvasWidth = 800; // Ukuran optimal untuk photobooth
-      const canvasHeight = canvasWidth / frameAspectRatio; // 800 / (2/3) = 1200
+      let frameAspectRatio, canvasWidth, canvasHeight;
+      
+      // Dynamic sizing based on frame type
+      if (frameConfig.id === 'Testframe4') {
+        // Testframe4 has portrait frame but landscape slots
+        frameAspectRatio = 2 / 3; // Portrait frame like others
+        canvasWidth = 800;
+        canvasHeight = canvasWidth / frameAspectRatio; // 800 / (2/3) = 1200
+        console.log('🎯 Testframe4 canvas sizing: portrait frame with landscape slots');
+      } else {
+        // Other frames (Testframe1, 2, 3)
+        frameAspectRatio = 2 / 3; // Frame portrait 2:3 ratio seperti di preview
+        canvasWidth = 800;
+        canvasHeight = canvasWidth / frameAspectRatio; // 800 / (2/3) = 1200
+      }
+      
       canvas.width = canvasWidth;
       canvas.height = canvasHeight;
       
-      console.log('✅ Canvas created with correct aspect ratio:', canvasWidth, 'x', canvasHeight);
+      console.log('✅ Canvas created with aspect ratio:', canvasWidth, 'x', canvasHeight, `(${frameConfig.id})`);
       
       // Fill background dengan frame color (blue) seperti di preview
       ctx.fillStyle = '#2563eb'; // Blue color like the frame
       ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-      console.log('✅ Canvas created with blue frame background:', canvasWidth, 'x', canvasHeight);
+      console.log('✅ Canvas background filled with blue frame color');
       
       if (!frameConfig || !frameConfig.slots) {
         console.error('❌ Frame configuration not found or invalid');
@@ -697,14 +745,24 @@ export default function EditPhoto() {
       // Load semua foto yang diperlukan
       console.log('📸 Loading photos for canvas...');
       console.log('📷 Photos data check:');
+      console.log('Photos array length:', photos.length);
+      console.log('Photos array:', photos);
+      
       photos.forEach((photo, index) => {
         console.log(`Photo ${index + 1}:`, {
           hasData: !!photo,
           dataType: typeof photo,
           dataLength: photo ? photo.length : 0,
-          startsWithData: photo ? photo.startsWith('data:') : false
+          startsWithData: photo ? photo.startsWith('data:') : false,
+          preview: photo ? photo.substring(0, 50) + '...' : 'NO DATA'
         });
       });
+      
+      if (photos.length === 0) {
+        console.error('❌ NO PHOTOS FOUND! Check photos array');
+        alert('No photos found to save!');
+        return;
+      }
       const photoPromises = photos.map((photoDataUrl, index) => {
         return new Promise((resolve) => {
           if (!photoDataUrl) {
@@ -727,14 +785,41 @@ export default function EditPhoto() {
       });
       
       const loadedPhotos = await Promise.all(photoPromises);
-      console.log('📸 Photos loaded:', loadedPhotos.filter(p => p.img).length, 'of', loadedPhotos.length);
+      console.log('📸 Photos loaded result:', loadedPhotos.filter(p => p.img).length, 'of', loadedPhotos.length);
+      console.log('📸 Loaded photos details:', loadedPhotos.map(p => ({ 
+        index: p.index, 
+        hasImg: !!p.img, 
+        imgSize: p.img ? `${p.img.width}x${p.img.height}` : 'N/A' 
+      })));
+      
+      // Check photoTransforms
+      console.log('🔧 Photo transforms:', photoTransforms);
+      console.log('🔧 Transform keys:', Object.keys(photoTransforms));
+      
+      if (loadedPhotos.filter(p => p.img).length === 0) {
+        console.error('❌ NO PHOTOS LOADED SUCCESSFULLY!');
+        alert('Failed to load any photos!');
+        return;
+      }
       
       // Initialize rendered count
       let renderedCount = 0;
       
-      // Render photos directly pada blue background (tanpa frame overlay yang menutupi)
-      console.log('🖼️ Rendering photos directly on blue background...');
+      // Render photos
+      console.log('🖼️ Starting photo rendering loop...');
+      console.log('🖼️ Canvas size:', canvasWidth, 'x', canvasHeight);
+      
       for (const { img, index } of loadedPhotos) {
+        console.log(`� LOOP DEBUG: Processing item ${index + 1}/${loadedPhotos.length}`);
+        console.log(`🔥 LOOP DEBUG: img exists:`, !!img);
+        console.log(`🔥 LOOP DEBUG: img details:`, img ? `${img.width}x${img.height}` : 'NULL');
+        
+        // FORCE DRAW: Draw something untuk setiap loop iteration
+        // ctx.fillStyle = 'purple';
+        // ctx.fillRect(400 + (index * 50), 100, 40, 40);
+        console.log(`🔥 FORCE DRAW: Drew purple square for photo ${index + 1}`);
+        
+        console.log(`�🔄 Processing photo ${index + 1}...`);
         if (!img) {
           console.warn(`⚠️ Skipping photo ${index + 1}: Failed to load`);
           continue;
@@ -745,92 +830,157 @@ export default function EditPhoto() {
           continue;
         }
         
-        const slot = frameConfig.slots[index];
-        const transform = photoTransforms[index] || { scale: 1, translateX: 0, translateY: 0 };
+        console.log(`✅ Photo ${index + 1}: Ready to process (img: ${img.width}x${img.height})`);
         
-        // Calculate slot position dan size dalam canvas
-        const slotX = (slot.left / 100) * canvasWidth;
-        const slotY = (slot.top / 100) * canvasHeight;
-        const slotWidth = (slot.width / 100) * canvasWidth;
-        const slotHeight = (slot.height / 100) * canvasHeight;
-        
-        // Calculate foto position dengan transform
-        const photoAspectRatio = 4 / 3; // Camera aspect ratio
-        const slotAspectRatio = slot.width / slot.height;
-        
-        let photoWidth, photoHeight;
-        
-        // Auto-fit calculation (sama seperti di CSS)
-        if (photoAspectRatio > slotAspectRatio) {
-          // Foto landscape, fit by height
-          photoHeight = slotHeight;
-          photoWidth = photoHeight * photoAspectRatio;
-        } else {
-          // Foto portrait, fit by width  
-          photoWidth = slotWidth;
-          photoHeight = photoWidth / photoAspectRatio;
+        // Get default scale based on frame type
+        let defaultScale = 1.6; // Standard for other frames
+        if (frameConfig.id === 'Testframe4') {
+          defaultScale = 1.1; // Testframe4 specific default (max zoom out + 6 steps)
         }
         
-        // Apply scale
-        photoWidth *= transform.scale;
-        photoHeight *= transform.scale;
+        const slot = frameConfig.slots[index];
+        const transform = photoTransforms[index] || { scale: defaultScale, translateX: 0, translateY: 0 };
         
-        // Calculate center position
-        const centerX = slotX + slotWidth / 2;
-        const centerY = slotY + slotHeight / 2;
+        console.log(`🔍 Photo ${index + 1} transform debug:`);
+        console.log(`  - photoTransforms[${index}]:`, photoTransforms[index]);
+        console.log(`  - Using transform:`, transform);
+        console.log(`  - All photoTransforms:`, photoTransforms);
+        console.log(`  - Default scale would be:`, defaultScale);
+        console.log(`  - Is using default fallback?:`, !photoTransforms[index]);
         
-        // Apply translate - EXACT match dengan preview behavior
-        // Preview container: 350px × 525px (2:3 ratio)
-        // Canvas: 800px × 1200px (2:3 ratio)
-        // Scale factor: 800/350 = 2.286 untuk X, 1200/525 = 2.286 untuk Y
-        const previewToCanvasScale = canvasWidth / 350; // Should be same for both X and Y
+        console.log(`🎯 Processing photo ${index + 1} for ${frameConfig.id}:`);
         
-        const translateXCanvas = transform.translateX * previewToCanvasScale;
-        const translateYCanvas = transform.translateY * previewToCanvasScale;
+        // KOORDINAT MAPPING: Preview (350px) -> Canvas (800px)
+        const PREVIEW_WIDTH = 350;
+        const PREVIEW_HEIGHT = 525; // aspect ratio 2:3
+        const SCALE_RATIO = canvasWidth / PREVIEW_WIDTH; // 800/350 = 2.286
         
-        const photoX = centerX - photoWidth / 2 + translateXCanvas;
-        const photoY = centerY - photoHeight / 2 + translateYCanvas;
+        console.log(`🔍 COORDINATE MAPPING:`)
+        console.log(`  - Preview size: ${PREVIEW_WIDTH}x${PREVIEW_HEIGHT}`)
+        console.log(`  - Canvas size: ${canvasWidth}x${canvasHeight}`)
+        console.log(`  - Scale ratio: ${SCALE_RATIO.toFixed(3)}`)
         
-        console.log(`🎯 Photo ${index + 1} FINAL render:`, { 
-          slotX: slotX.toFixed(1), 
-          slotY: slotY.toFixed(1), 
-          slotWidth: slotWidth.toFixed(1), 
-          slotHeight: slotHeight.toFixed(1),
-          photoX: photoX.toFixed(1), 
-          photoY: photoY.toFixed(1), 
-          photoWidth: photoWidth.toFixed(1), 
-          photoHeight: photoHeight.toFixed(1),
-          transform: transform
-        });
+        // Calculate slot position dalam preview coordinates (seperti yang dilihat user)
+        const previewSlotX = slot.left * PREVIEW_WIDTH;
+        const previewSlotY = slot.top * PREVIEW_HEIGHT;
+        const previewSlotWidth = slot.width * PREVIEW_WIDTH;
+        const previewSlotHeight = slot.height * PREVIEW_HEIGHT;
         
-        // Debug: Draw a test rectangle to see if clipping area is correct
+        // Convert ke canvas coordinates 
+        const slotX = previewSlotX * SCALE_RATIO;
+        const slotY = previewSlotY * SCALE_RATIO;
+        const slotWidth = previewSlotWidth * SCALE_RATIO;
+        const slotHeight = previewSlotHeight * SCALE_RATIO;
+        
+        console.log(`🎯 Slot ${index + 1} coordinates mapping:`);
+        console.log(`  - Preview slot: ${previewSlotX.toFixed(1)}, ${previewSlotY.toFixed(1)} (${previewSlotWidth.toFixed(1)}x${previewSlotHeight.toFixed(1)})`);
+        console.log(`  - Canvas slot: ${slotX.toFixed(1)}, ${slotY.toFixed(1)} (${slotWidth.toFixed(1)}x${slotHeight.toFixed(1)})`);
+        
+        // MIMIC CSS objectFit: contain behavior
+        // Hitung bagaimana foto original (img.width x img.height) di-fit ke dalam slot
+        
+        const imgAspectRatio = img.width / img.height;
+        const slotAspectRatio = slotWidth / slotHeight;
+        
+        let photoDisplayWidth, photoDisplayHeight;
+        
+        if (imgAspectRatio > slotAspectRatio) {
+          // Photo lebih wide - fit by width
+          photoDisplayWidth = slotWidth;
+          photoDisplayHeight = slotWidth / imgAspectRatio;
+        } else {
+          // Photo lebih tall - fit by height  
+          photoDisplayWidth = slotHeight * imgAspectRatio;
+          photoDisplayHeight = slotHeight;
+        }
+        
+        console.log(`📐 ObjectFit contain calculation:`);
+        console.log(`  - Image: ${img.width}x${img.height} (ratio: ${imgAspectRatio.toFixed(3)})`);
+        console.log(`  - Slot: ${slotWidth.toFixed(1)}x${slotHeight.toFixed(1)} (ratio: ${slotAspectRatio.toFixed(3)})`);
+        console.log(`  - Photo display: ${photoDisplayWidth.toFixed(1)}x${photoDisplayHeight.toFixed(1)}`);
+        
+        // Center position dalam slot (sama seperti objectPosition: center)
+        const slotCenterX = slotX + (slotWidth / 2);
+        const slotCenterY = slotY + (slotHeight / 2);
+        
+        // Base photo position (centered in slot seperti objectPosition: center)
+        let basePhotoX = slotCenterX - (photoDisplayWidth / 2);
+        let basePhotoY = slotCenterY - (photoDisplayHeight / 2);
+        
+        // Apply user transforms dengan scaling yang tepat
+        // translateX/Y dalam preview coordinates, harus di-scale untuk canvas
+        const scaledTranslateX = (transform.translateX || 0) * SCALE_RATIO;
+        const scaledTranslateY = (transform.translateY || 0) * SCALE_RATIO;
+        
+        console.log(`🔧 User transforms:`);
+        console.log(`  - Scale: ${transform.scale}`);
+        console.log(`  - Translate preview: ${transform.translateX || 0}, ${transform.translateY || 0}`);
+        console.log(`  - Translate canvas: ${scaledTranslateX.toFixed(1)}, ${scaledTranslateY.toFixed(1)}`);
+        
+        console.log(`📸 Photo ${index + 1}: Base position ${basePhotoX.toFixed(1)},${basePhotoY.toFixed(1)} scale ${transform.scale}`);
+        
+        // Render photo dengan clipping untuk clean edges
         ctx.save();
-        ctx.fillStyle = 'rgba(255, 0, 0, 0.3)'; // Semi-transparent red
-        ctx.fillRect(slotX, slotY, slotWidth, slotHeight);
-        ctx.restore();
         
-        // TEST: Draw foto WITHOUT clipping first to see if it appears
-        console.log(`🧪 TEST: Drawing photo ${index + 1} WITHOUT clipping at (${photoX.toFixed(1)}, ${photoY.toFixed(1)})`);
-        ctx.drawImage(img, photoX, photoY, photoWidth, photoHeight);
-        
-        // Then draw with clipping for final result
-        ctx.save();
+        // Clip to slot area  
         ctx.beginPath();
         ctx.rect(slotX, slotY, slotWidth, slotHeight);
         ctx.clip();
         
-        // Draw foto with clipping
-        console.log(`🖼️ Drawing photo ${index + 1} WITH clipping`);
-        ctx.drawImage(img, photoX, photoY, photoWidth, photoHeight);
+        // Calculate final photo dimensions dengan scale applied (sama seperti CSS scale)
+        const finalPhotoWidth = photoDisplayWidth * transform.scale;
+        const finalPhotoHeight = photoDisplayHeight * transform.scale;
+        
+        // Calculate final position dengan scale dari center + translate
+        // CSS: transform-origin: center -> scaling terjadi dari center photo
+        const finalPhotoX = slotCenterX - (finalPhotoWidth / 2) + scaledTranslateX;
+        const finalPhotoY = slotCenterY - (finalPhotoHeight / 2) + scaledTranslateY;
+        
+        console.log(`📐 Final photo dimensions: ${finalPhotoWidth.toFixed(1)}x${finalPhotoHeight.toFixed(1)} at ${finalPhotoX.toFixed(1)},${finalPhotoY.toFixed(1)}`);
+        
+        // Draw photo dengan ukuran dan posisi final
+        ctx.drawImage(img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight);
+        
         ctx.restore();
         
         renderedCount++;
-        console.log(`✅ Photo ${index + 1}: Rendered successfully on blue background`);
+        console.log(`✅ Photo ${index + 1}: Rendered successfully`);
       }
       
-      console.log(`🎨 Final rendering complete: ${renderedCount} photos rendered on blue background`);
+      console.log(`🎨 Photos rendering complete: ${renderedCount} photos rendered`);
       
-      // Debug: Draw canvas to screen untuk testing
+      // Render frame overlay on top of photos
+      if (frameImage) {
+        console.log('🖼️ Rendering frame overlay...');
+        
+        try {
+          const frameImgElement = new Image();
+          await new Promise((resolve, reject) => {
+            frameImgElement.onload = () => {
+              console.log(`✅ Frame image loaded: ${frameImgElement.width}x${frameImgElement.height}`);
+              
+              // Draw frame overlay on top of everything
+              ctx.drawImage(frameImgElement, 0, 0, canvasWidth, canvasHeight);
+              console.log('✅ Frame overlay rendered successfully');
+              resolve();
+            };
+            frameImgElement.onerror = (error) => {
+              console.error('❌ Failed to load frame image:', error);
+              resolve(); // Continue without frame instead of failing
+            };
+            frameImgElement.src = frameImage;
+          });
+        } catch (error) {
+          console.error('❌ Frame rendering error:', error);
+          // Continue without frame
+        }
+      } else {
+        console.warn('⚠️ No frame image to render');
+      }
+      
+      console.log(`🎨 Final rendering complete: ${renderedCount} photos + frame overlay`);
+      
+      // Debug: Log canvas final state
       console.log('🔍 Canvas final state - creating blob...');
       
       // Convert canvas ke blob dan trigger download

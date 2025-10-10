@@ -37,9 +37,83 @@ export default function EditPhoto() {
     return frameMap[frameId] || Testframe1;
   };
 
+  // SMART ZOOM DEFAULT CALCULATION - SCALABLE FOR ALL PHOTO SIZES
+  const calculateSmartDefaultScale = (photoImg, slotIndex, frameConfig) => {
+    if (!frameConfig || !frameConfig.slots[slotIndex] || !photoImg) {
+      console.log('⚠️ Missing data for smart scale calculation, using fallback scale 1.6');
+      return 1.6;
+    }
+    
+    const slot = frameConfig.slots[slotIndex];
+    const photoAspectRatio = photoImg.width / photoImg.height;
+    
+    console.log(`🧮 Smart Scale Calculation for Slot ${slotIndex + 1} (${slot.id}):`);
+    console.log(`  - Photo: ${photoImg.width}x${photoImg.height} (ratio: ${photoAspectRatio.toFixed(2)})`);
+    console.log(`  - Slot: ${slot.width}x${slot.height} (ratio: ${(slot.width/slot.height).toFixed(2)})`);
+    
+    // Convert slot dimensions to pixels (using preview dimensions as base)
+    const PREVIEW_WIDTH = 350;
+    const PREVIEW_HEIGHT = 525; // 2:3 aspect ratio
+    
+    const slotWidthPx = slot.width * PREVIEW_WIDTH;
+    const slotHeightPx = slot.height * PREVIEW_HEIGHT;
+    
+    console.log(`  - Slot in pixels: ${slotWidthPx.toFixed(1)}x${slotHeightPx.toFixed(1)}px`);
+    
+    // Calculate objectFit: contain behavior - how photo naturally fits in slot
+    const slotAspectRatio = slotWidthPx / slotHeightPx;
+    
+    let containedPhotoWidth, containedPhotoHeight;
+    
+    if (photoAspectRatio > slotAspectRatio) {
+      // Photo is wider than slot - fit by width
+      containedPhotoWidth = slotWidthPx;
+      containedPhotoHeight = slotWidthPx / photoAspectRatio;
+    } else {
+      // Photo is taller than slot or same aspect - fit by height
+      containedPhotoWidth = slotHeightPx * photoAspectRatio;
+      containedPhotoHeight = slotHeightPx;
+    }
+    
+    console.log(`  - Contained photo size: ${containedPhotoWidth.toFixed(1)}x${containedPhotoHeight.toFixed(1)}px`);
+    
+    // Step 3: Check height constraint
+    // If contained photo height < slot height, we need to scale up
+    const heightScale = containedPhotoHeight < slotHeightPx ? slotHeightPx / containedPhotoHeight : 1;
+    
+    // Step 4: Check width constraint 
+    // If contained photo width < slot width, we need to scale up
+    const widthScale = containedPhotoWidth < slotWidthPx ? slotWidthPx / containedPhotoWidth : 1;
+    
+    // Use the larger scale to ensure we fill the slot (minimize empty space)
+    const fillScale = Math.max(heightScale, widthScale);
+    
+    // Apply slight buffer to ensure good coverage
+    const smartScale = fillScale * 1.02; // 2% buffer for perfect fit
+    
+    console.log(`  - Height scale needed: ${heightScale.toFixed(2)}x`);
+    console.log(`  - Width scale needed: ${widthScale.toFixed(2)}x`);
+    console.log(`  - Fill scale (max): ${fillScale.toFixed(2)}x`);
+    console.log(`  - Smart scale (with buffer): ${smartScale.toFixed(2)}x`);
+    
+    // Clamp between reasonable bounds
+    const minScale = 1.0;
+    const maxScale = 4.0; // Reasonable maximum
+    
+    const clampedScale = Math.max(minScale, Math.min(maxScale, smartScale));
+    
+    console.log(`  - Final clamped scale: ${clampedScale.toFixed(2)}x`);
+    
+    return clampedScale;
+  };
+
   // Load photos and frame config on mount
   useEffect(() => {
     console.log('🔄 EditPhoto component mounting...');
+    
+    // Load selected frame from localStorage first
+    const frameFromStorage = localStorage.getItem('selectedFrame') || 'Testframe1';
+    console.log('🖼️ Frame from localStorage:', frameFromStorage);
     
     // Load photos from localStorage
     const savedPhotos = localStorage.getItem('capturedPhotos');
@@ -60,30 +134,58 @@ export default function EditPhoto() {
         // Get frame config to calculate proper default scales
         const frameConfigForDefaults = getFrameConfig(frameFromStorage);
         
-        parsedPhotos.forEach((_, index) => {
-          positions[index] = 'center center';
-          
-          // Calculate proper default scale based on frame type
-          let defaultScale = 1;
-          
-          if (frameConfigForDefaults?.id === 'Testframe4') {
-            // Testframe4 was configured to use max zoom out + 6 steps
-            // Based on zoom step of 0.1, max zoom out is 0.5, +6 steps = 1.1
-            defaultScale = 1.1;
-            console.log(`🎯 Setting Testframe4 default scale: ${defaultScale}`);
-          } else {
-            // Other frames use standard auto-fill scale
-            defaultScale = 1.6; // Standard auto-fill for portrait frames
-            console.log(`📐 Setting standard default scale: ${defaultScale}`);
-          }
-          
-          transforms[index] = {
-            scale: defaultScale,
-            translateX: 0,
-            translateY: 0,
-            autoFillScale: defaultScale
-          };
-        });
+        // For frames with duplicate photos (like Testframe2), we need transforms for ALL slots, not just photos
+        if (frameConfigForDefaults?.duplicatePhotos && frameConfigForDefaults.slots) {
+          // Initialize transforms for all slots
+          frameConfigForDefaults.slots.forEach((slot, slotIndex) => {
+            const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+            
+            // For duplicate frames, both positions and transforms should use slotIndex as key
+            positions[slotIndex] = 'center center';
+            
+            // Calculate proper default scale based on frame type
+            let defaultScale = 1.6; // Standard auto-fill for portrait frames
+            if (frameConfigForDefaults?.id === 'Testframe4') {
+              defaultScale = 1.1; // Testframe4 specific default
+            }
+            
+            console.log(`📐 Setting slot ${slotIndex} (photo ${photoIndex}) default scale: ${defaultScale}`);
+            
+            // Create transform for this specific slot index
+            transforms[slotIndex] = {
+              scale: defaultScale,
+              translateX: 0,
+              translateY: 0,
+              autoFillScale: defaultScale
+            };
+          });
+        } else {
+          // Standard initialization for non-duplicate frames (one transform per photo)
+          parsedPhotos.forEach((_, index) => {
+            positions[index] = 'center center';
+            
+            // Calculate proper default scale based on frame type
+            let defaultScale = 1;
+            
+            if (frameConfigForDefaults?.id === 'Testframe4') {
+              // Testframe4 was configured to use max zoom out + 6 steps
+              // Based on zoom step of 0.1, max zoom out is 0.5, +6 steps = 1.1
+              defaultScale = 1.1;
+              console.log(`🎯 Setting Testframe4 default scale: ${defaultScale}`);
+            } else {
+              // Other frames use standard auto-fill scale
+              defaultScale = 1.6; // Standard auto-fill for portrait frames
+              console.log(`📐 Setting standard default scale: ${defaultScale}`);
+            }
+            
+            transforms[index] = {
+              scale: defaultScale,
+              translateX: 0,
+              translateY: 0,
+              autoFillScale: defaultScale
+            };
+          });
+        }
         
         setPhotoPositions(positions);
         setPhotoTransforms(transforms);
@@ -96,10 +198,6 @@ export default function EditPhoto() {
       console.log('⚠️ No saved photos found in localStorage');
     }
 
-    // Load selected frame from localStorage
-    const frameFromStorage = localStorage.getItem('selectedFrame') || 'Testframe1';
-    console.log('🖼️ Frame from localStorage:', frameFromStorage);
-    
     // Special debugging for Testframe3 and Testframe4
     if (frameFromStorage === 'Testframe3' || frameFromStorage === 'Testframe4') {
       console.log(`🔍 ${frameFromStorage.toUpperCase()} LOADING DEBUG:`);
@@ -267,6 +365,164 @@ export default function EditPhoto() {
 
   // Calculate auto-fit scale untuk fit vertical height (ujung atas-bawah foto terlihat)
   const calculateAutoFillScale = (slotIndex) => {
+    if (!frameConfig || !frameConfig.slots[slotIndex]) return 1.6;
+    
+    // Try to get photo image for smart calculation
+    const photoImg = getPhotoImageForSlot(slotIndex);
+    
+    if (photoImg) {
+      // Use smart calculation with actual photo dimensions
+      return calculateSmartDefaultScale(photoImg, slotIndex, frameConfig);
+    }
+    
+    // Fallback to original logic if photo not available
+    const slot = frameConfig.slots[slotIndex];
+    
+    // Special handling for Testframe4 landscape slots
+    if (frameConfig?.id === 'Testframe4') {
+      // Testframe4 default to zoom out maksimum + 6 zoom in steps
+      console.log(`🎯 Testframe4 slot ${slotIndex + 1}: Setting to MAX ZOOM OUT + 6 zoom in steps`);
+      
+      const maxZoomOutScale = calculateMaxZoomOutScale(slotIndex);
+      
+      // Each zoom step is 0.1x increment (same as handlePhotoZoom delta)
+      const zoomInSteps = 6;
+      const zoomIncrement = 0.1;
+      const defaultScale = maxZoomOutScale + (zoomInSteps * zoomIncrement);
+      
+      console.log(`📏 Testframe4 Slot ${slotIndex + 1}: Default scale = ${defaultScale.toFixed(2)}x (max zoom out: ${maxZoomOutScale.toFixed(2)}x + ${zoomInSteps} steps)`);
+      return defaultScale;
+    }
+    
+    // Original logic for portrait frames (Testframe1, 2, 3)
+    // Default scale for when photo image not available
+    return 1.6; // Conservative default
+  };
+
+  // Helper function to get photo image for a slot - ASYNC VERSION
+  const getPhotoImageForSlot = (slotIndex) => {
+    try {
+      if (!photos || !photos[slotIndex]) return null;
+      
+      // Check if we have duplicate photos (like Testframe2)
+      let photoIndex = slotIndex;
+      if (frameConfig?.duplicatePhotos && frameConfig.slots[slotIndex]?.photoIndex !== undefined) {
+        photoIndex = frameConfig.slots[slotIndex].photoIndex;
+      }
+      
+      if (!photos[photoIndex]) return null;
+      
+      // For now, return fallback dimensions (will be improved with async loading)
+      // Most camera photos are around 4:3 or 16:9 aspect ratio
+      // Using representative dimensions for calculation
+      return {
+        width: 1600, // Representative camera width
+        height: 1200 // Representative camera height (4:3 aspect)
+      };
+    } catch (error) {
+      console.log('⚠️ Could not get photo image for smart scale calculation:', error);
+      return null;
+    }
+  };
+
+  // Async function to load photo and calculate smart scale
+  const calculateSmartScaleAsync = async (photoDataUrl, slotIndex) => {
+    return new Promise((resolve) => {
+      if (!photoDataUrl || !frameConfig?.slots[slotIndex]) {
+        resolve(1.6); // fallback
+        return;
+      }
+      
+      const img = new Image();
+      img.onload = () => {
+        const smartScale = calculateSmartDefaultScale(img, slotIndex, frameConfig);
+        console.log(`✨ Async smart scale for slot ${slotIndex + 1}: ${smartScale.toFixed(2)}x`);
+        resolve(smartScale);
+      };
+      img.onerror = () => {
+        console.warn(`⚠️ Failed to load image for smart scale calculation`);
+        resolve(1.6); // fallback
+      };
+      img.src = photoDataUrl;
+    });
+  };
+
+  // Update photo transforms with smart scale when photos are loaded
+  const updateSmartScales = async () => {
+    if (!photos || photos.length === 0 || !frameConfig) return;
+    
+    console.log('🧮 Calculating smart scales for all slots...');
+    
+    const updates = {};
+    
+    // For duplicate photo frames, process all slots
+    if (frameConfig.duplicatePhotos && frameConfig.slots) {
+      for (let slotIndex = 0; slotIndex < frameConfig.slots.length; slotIndex++) {
+        const slot = frameConfig.slots[slotIndex];
+        const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+        
+        if (photos[photoIndex]) {
+          try {
+            const smartScale = await calculateSmartScaleAsync(photos[photoIndex], slotIndex);
+            
+            // Keep existing transforms if they exist, only update scale
+            const existingTransform = photoTransforms[slotIndex] || { translateX: 0, translateY: 0 };
+            
+            updates[slotIndex] = {
+              ...existingTransform,
+              scale: smartScale,
+              autoFillScale: smartScale
+            };
+            console.log(`✨ Smart scale for slot ${slotIndex + 1} (photo ${photoIndex + 1}): ${smartScale.toFixed(2)}x`);
+          } catch (error) {
+            console.warn(`⚠️ Failed to calculate smart scale for slot ${slotIndex + 1}:`, error);
+          }
+        }
+      }
+    } else {
+      // Standard processing for non-duplicate frames
+      for (let i = 0; i < photos.length; i++) {
+        try {
+          const smartScale = await calculateSmartScaleAsync(photos[i], i);
+          
+          // Keep existing transforms if they exist, only update scale
+          const existingTransform = photoTransforms[i] || { translateX: 0, translateY: 0 };
+          
+          updates[i] = {
+            ...existingTransform,
+            scale: smartScale,
+            autoFillScale: smartScale
+          };
+        } catch (error) {
+          console.error(`❌ Error calculating smart scale for photo ${i + 1}:`, error);
+        }
+      }
+    }
+    
+    if (Object.keys(updates).length > 0) {
+      setPhotoTransforms(prev => ({
+        ...prev,
+        ...updates
+      }));
+      console.log('✅ Smart scales updated for', Object.keys(updates).length, 'slots');
+    }
+  };
+
+  // Effect to update smart scales when photos or frame config changes
+  useEffect(() => {
+    if (photos.length > 0 && frameConfig) {
+      // Small delay to ensure everything is properly loaded
+      const timer = setTimeout(() => {
+        updateSmartScales();
+      }, 500);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [photos.length, frameConfig?.id]);
+
+  // Helper function to get photo image for a slot - SYNC VERSION FOR IMMEDIATE USE
+
+  const calculateAutoFillScale_ORIGINAL = (slotIndex) => {
     if (!frameConfig || !frameConfig.slots[slotIndex]) return 1;
     
     const slot = frameConfig.slots[slotIndex];

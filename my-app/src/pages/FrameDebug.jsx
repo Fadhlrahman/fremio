@@ -10,7 +10,7 @@ export default function FrameDebug() {
   const [frameConfig, setFrameConfig] = useState(null);
   const [frameImage, setFrameImage] = useState(null);
 
-  // Frame image mapping
+  // Frame image mapping1
   const getFrameImage = (frameName) => {
     const frameMap = {
       'Testframe1': Testframe1,

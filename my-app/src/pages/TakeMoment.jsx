@@ -89,8 +89,7 @@ export default function TakeMoment() {
   const [showConfirmation, setShowConfirmation] = useState(false); // Show confirmation modal
   const [videoAspectRatio, setVideoAspectRatio] = useState(4/3); // Default aspect ratio
   const [maxCaptures, setMaxCaptures] = useState(4); // Default to 4, will be updated from frame config
-  const [frameConfig, setFrameConfig] = useState(null); // Frame configuration for crop guides
-  const [showCropGuides, setShowCropGuides] = useState(true); // Toggle crop guides
+  const [frameConfig, setFrameConfig] = useState(null); // Frame configuration
 
   // Initialize with empty photos and load frame configuration
   useEffect(() => {
@@ -135,76 +134,7 @@ export default function TakeMoment() {
     console.log('Photos array:', capturedPhotos.map((photo, idx) => `${idx}: ${photo.substring(0, 30)}...`));
   }, [capturedPhotos]);
 
-  // Function to calculate crop guide positions based on frame config
-  const calculateCropGuides = () => {
-    if (!frameConfig || !frameConfig.slots) return [];
-    
-    // Show only the current slot based on captured photos count
-    const currentSlotIndex = capturedPhotos.length;
-    
-    // If all photos captured, don't show any guides
-    if (currentSlotIndex >= frameConfig.slots.length) return [];
-    
-    const currentSlot = frameConfig.slots[currentSlotIndex];
-    if (!currentSlot) return [];
-    
-    // Get current frame name to determine aspect ratio
-    const currentFrameName = frameProvider.getCurrentFrameName();
-    
-    // Determine aspect ratio based on frame and slot
-    let GUIDE_ASPECT_RATIO;
-    
-    if (currentFrameName === 'Testframe4') {
-      // Testframe4 uses landscape aspect ratio (16:9)
-      GUIDE_ASPECT_RATIO = 16/9; // ≈ 1.78 (landscape)
-      console.log('📐 Using landscape aspect ratio for Testframe4:', GUIDE_ASPECT_RATIO);
-    } else {
-      // Other frames use portrait aspect ratio (4:5)
-      GUIDE_ASPECT_RATIO = 4/5; // = 0.8 (portrait)
-      console.log('📐 Using portrait aspect ratio for', currentFrameName, ':', GUIDE_ASPECT_RATIO);
-    }
-    
-    // Calculate guide dimensions based on aspect ratio
-    let guideWidth, guideHeight;
-    
-    if (GUIDE_ASPECT_RATIO > 1) {
-      // Landscape: fix height, calculate width
-      guideHeight = 35; // 35% of stream height for landscape
-      guideWidth = guideHeight * GUIDE_ASPECT_RATIO;
-    } else {
-      // Portrait: fix width, calculate height
-      guideWidth = 40; // 40% of stream width for portrait
-      guideHeight = guideWidth / GUIDE_ASPECT_RATIO;
-    }
-    
-    // Center the guide in the stream
-    const centerLeft = 50 - (guideWidth / 2);
-    const centerTop = 50 - (guideHeight / 2);
-    
-    // Return centered slot guide with appropriate aspect ratio
-    return [{
-      left: `${centerLeft}%`,
-      top: `${centerTop}%`, 
-      width: `${guideWidth}%`,
-      height: `${guideHeight}%`,
-      id: currentSlot.id,
-      aspectRatio: currentSlot.aspectRatio || `${GUIDE_ASPECT_RATIO}:1`,
-      isCurrent: true,
-      // Debug info
-      calculatedRatio: guideWidth / guideHeight,
-      frameName: currentFrameName,
-      isLandscape: GUIDE_ASPECT_RATIO > 1,
-      originalSlot: {
-        width: currentSlot.width,
-        height: currentSlot.height,
-        left: currentSlot.left,
-        top: currentSlot.top,
-        aspectRatio: currentSlot.aspectRatio
-      }
-    }];
-  };
-
-    const handleCameraClick = async () => {
+  const handleCameraClick = async () => {
     try {
       console.log('� Starting camera...');
       const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -643,103 +573,6 @@ export default function TakeMoment() {
                     }}
                   />
                   
-                  {/* Crop Guides Overlay */}
-                  {showCropGuides && frameConfig && (
-                    <div style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      pointerEvents: 'none',
-                      zIndex: 5
-                    }}>
-                      {calculateCropGuides().map((guide, index) => (
-                        <div
-                          key={`crop-guide-${index}`}
-                          style={{
-                            position: 'absolute',
-                            left: guide.left,
-                            top: guide.top,
-                            width: guide.width,
-                            height: guide.height,
-                            border: '3px solid #00ff00',
-                            borderRadius: '12px',
-                            backgroundColor: 'rgba(0, 255, 0, 0.15)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '14px',
-                            color: '#00ff00',
-                            fontWeight: 'bold',
-                            textShadow: '0 0 6px rgba(0,0,0,0.9)',
-                            animation: 'pulse 2s infinite'
-                          }}
-                        >
-                          📸 {guide.id} ({guide.aspectRatio})
-                        </div>
-                      ))}
-                      
-                      {/* Guide info */}
-                      <div style={{
-                        position: 'absolute',
-                        top: '10px',
-                        left: '10px',
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        color: 'white',
-                        padding: '10px 15px',
-                        borderRadius: '8px',
-                        fontSize: '12px',
-                        fontWeight: 'bold',
-                        border: '2px solid #00ff00'
-                      }}>
-                        📸 <span style={{ color: '#00ff00' }}>
-                          {capturedPhotos.length < maxCaptures 
-                            ? `Siap ambil: ${frameConfig.slots[capturedPhotos.length]?.id || 'slot_1'}` 
-                            : 'Semua foto selesai!'
-                          }
-                        </span>
-                        <br/>
-                        🖼️ Frame: {frameConfig.name} | Progress: {capturedPhotos.length}/{maxCaptures}
-                        {capturedPhotos.length < maxCaptures && (() => {
-                          const guides = calculateCropGuides();
-                          const currentGuide = guides[0];
-                          return currentGuide && (
-                            <div style={{ fontSize: '10px', color: '#ccc', marginTop: '4px' }}>
-                              Guide: {parseFloat(currentGuide.width).toFixed(1)}% × {parseFloat(currentGuide.height).toFixed(1)}% 
-                              <br/>
-                              Ratio: {currentGuide.calculatedRatio?.toFixed(2)}:1 
-                              ({currentGuide.isLandscape ? 'Landscape' : 'Portrait'})
-                              <br/>
-                              Slot: {currentGuide.originalSlot?.aspectRatio}
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Toggle Guides Button */}
-                  <button
-                    onClick={() => setShowCropGuides(!showCropGuides)}
-                    style={{
-                      position: 'absolute',
-                      top: '10px',
-                      right: '10px',
-                      backgroundColor: showCropGuides ? 'rgba(0, 255, 0, 0.8)' : 'rgba(128, 128, 128, 0.8)',
-                      color: 'white',
-                      border: 'none',
-                      padding: '6px 10px',
-                      borderRadius: '6px',
-                      fontSize: '11px',
-                      fontWeight: 'bold',
-                      cursor: 'pointer',
-                      zIndex: 10
-                    }}
-                  >
-                    🎯 {showCropGuides ? 'Hide' : 'Show'} Guides
-                  </button>
-                  
                   {/* Countdown Overlay */}
                   {countdown && (
                     <div style={{
@@ -1168,22 +1001,12 @@ export default function TakeMoment() {
           <button
             onClick={() => {
               const size = calculateStorageSize(capturedPhotos);
-              const guides = calculateCropGuides();
-              const currentGuide = guides[0];
               
-              console.log('💾 Storage & Crop Analysis:');
+              console.log('💾 Storage Analysis:');
               console.log(`  - Frame: ${frameConfig?.id}`);
               console.log(`  - Photos count: ${capturedPhotos.length}`);
               console.log(`  - Total size: ${size.kb}KB (${size.mb}MB)`);
               console.log(`  - Slot aspect ratio: ${frameConfig?.slots?.[0]?.aspectRatio}`);
-              
-              if (currentGuide) {
-                console.log('🎯 Current Crop Guide:');
-                console.log(`  - Guide ratio: ${currentGuide.calculatedRatio?.toFixed(2)}:1`);
-                console.log(`  - Is landscape: ${currentGuide.isLandscape}`);
-                console.log(`  - Guide size: ${currentGuide.width} × ${currentGuide.height}`);
-                console.log(`  - Frame name: ${currentGuide.frameName}`);
-              }
               
               // Test localStorage space
               try {

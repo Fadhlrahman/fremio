@@ -25,6 +25,7 @@ export default function EditPhoto() {
   const [isDraggingPhoto, setIsDraggingPhoto] = useState(false); // Track if dragging for pan
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 }); // Drag start position
   const [isSaving, setIsSaving] = useState(false); // Loading state for save
+  const [slotPhotos, setSlotPhotos] = useState({}); // Store individual photos per slot for Testframe2
 
   // Frame image mapping
   const getFrameImage = (frameId) => {
@@ -136,12 +137,18 @@ export default function EditPhoto() {
         
         // For frames with duplicate photos (like Testframe2), we need transforms for ALL slots, not just photos
         if (frameConfigForDefaults?.duplicatePhotos && frameConfigForDefaults.slots) {
+          // Initialize slot-specific photos for independent slot behavior
+          const initialSlotPhotos = {};
+          
           // Initialize transforms for all slots
           frameConfigForDefaults.slots.forEach((slot, slotIndex) => {
             const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
             
             // For duplicate frames, both positions and transforms should use slotIndex as key
             positions[slotIndex] = 'center center';
+            
+            // Store photo for this specific slot
+            initialSlotPhotos[slotIndex] = parsedPhotos[photoIndex];
             
             // Calculate proper default scale based on frame type
             let defaultScale = 1.6; // Standard auto-fill for portrait frames
@@ -159,6 +166,10 @@ export default function EditPhoto() {
               autoFillScale: defaultScale
             };
           });
+          
+          // Set slot photos for Testframe2
+          setSlotPhotos(initialSlotPhotos);
+          console.log('🎯 Initialized slot photos for Testframe2:', Object.keys(initialSlotPhotos).length, 'slots');
         } else {
           // Standard initialization for non-duplicate frames (one transform per photo)
           parsedPhotos.forEach((_, index) => {
@@ -240,11 +251,9 @@ export default function EditPhoto() {
   // Initialize auto-fill scale when frameConfig is loaded
   useEffect(() => {
     if (frameConfig && photos.length > 0) {
-      console.log('🎯 Auto-fitting photos to slots...');
-      photos.forEach((_, index) => {
-        const autoScale = calculateAutoFillScale(index);
-        console.log(`📸 Photo ${index + 1}: Auto-fit scale = ${autoScale.toFixed(2)}x`);
-        initializePhotoScale(index);
+      console.log('🎯 Auto-fitting photos to slots with smart calculation...');
+      photos.forEach(async (_, index) => {
+        await initializePhotoScale(index);
       });
     }
   }, [frameConfig, photos.length]);
@@ -283,15 +292,68 @@ export default function EditPhoto() {
 
     // Special handling for frames with duplicate photos (like Testframe2)
     if (frameConfig && frameConfig.duplicatePhotos) {
-      console.log('🎯 Drag & Drop disabled for duplicate photo frames (Testframe2)');
-      alert('Drag & Drop tidak tersedia untuk Testframe2. Foto otomatis duplicate sesuai urutan capture.');
+      console.log('🎯 Processing Testframe2 independent slot drag & drop...');
+      
+      // For Testframe2, we swap individual slot photos directly
+      const newSlotPhotos = { ...slotPhotos };
+      
+      // Swap photos between the specific slots only
+      const temp = newSlotPhotos[sourceSlotIndex];
+      newSlotPhotos[sourceSlotIndex] = newSlotPhotos[targetSlotIndex];
+      newSlotPhotos[targetSlotIndex] = temp;
+      
+      setSlotPhotos(newSlotPhotos);
       setDraggedPhoto(null);
+      
+      // Also update the main photos array for consistency and storage
+      const newPhotos = [...photos];
+      frameConfig.slots.forEach((slot, slotIndex) => {
+        const photoIndex = slot.photoIndex;
+        if (newSlotPhotos[slotIndex]) {
+          newPhotos[photoIndex] = newSlotPhotos[slotIndex];
+        }
+      });
+      setPhotos(newPhotos);
+      localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
+      
+      // Recalculate smart scales for the two swapped slots only
+      console.log(`🔄 Recalculating smart scales for swapped slots: ${sourceSlotIndex + 1} ↔ ${targetSlotIndex + 1}`);
+      setTimeout(async () => {
+        const affectedSlots = [sourceSlotIndex, targetSlotIndex];
+        
+        for (const slotIndex of affectedSlots) {
+          const newPhotoForSlot = newSlotPhotos[slotIndex];
+          if (newPhotoForSlot) {
+            try {
+              const smartScale = await calculateSmartScaleAsync(newPhotoForSlot, slotIndex);
+              setPhotoTransforms(prev => ({
+                ...prev,
+                [slotIndex]: {
+                  scale: smartScale,
+                  translateX: 0,
+                  translateY: 0,
+                  autoFillScale: smartScale
+                }
+              }));
+              console.log(`✨ Updated smart scale for slot ${slotIndex + 1}: ${smartScale.toFixed(2)}x`);
+            } catch (error) {
+              console.error(`❌ Failed to update smart scale for slot ${slotIndex + 1}:`, error);
+            }
+          }
+        }
+        
+        console.log(`✅ Smart scales updated for 2 independent slots`);
+      }, 100);
+      
+      console.log(`🔄 Swapped individual slots in Testframe2: slot ${sourceSlotIndex + 1} ↔ slot ${targetSlotIndex + 1}`);
+      console.log(`📸 Only these 2 slots changed, other slots remain unchanged`);
       return;
     }
 
     // Standard drag & drop logic for other frames
     const newPhotos = [...photos];
     const newPhotoPositions = { ...photoPositions };
+    const newPhotoTransforms = { ...photoTransforms };
     
     // Swap photos
     const temp = newPhotos[sourceSlotIndex];
@@ -303,16 +365,24 @@ export default function EditPhoto() {
     newPhotoPositions[sourceSlotIndex] = newPhotoPositions[targetSlotIndex];
     newPhotoPositions[targetSlotIndex] = tempPos;
     
+    // Swap photo transforms - preserve existing transforms but recalculate later
+    const tempTransform = newPhotoTransforms[sourceSlotIndex];
+    newPhotoTransforms[sourceSlotIndex] = newPhotoTransforms[targetSlotIndex];
+    newPhotoTransforms[targetSlotIndex] = tempTransform;
+    
     setPhotos(newPhotos);
     setPhotoPositions(newPhotoPositions);
+    setPhotoTransforms(newPhotoTransforms);
     localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
     setDraggedPhoto(null);
     
-    // Re-initialize auto-fit for swapped photos
+    // Re-initialize smart scale for swapped photos
     if (frameConfig) {
-      setTimeout(() => {
-        initializePhotoScale(sourceSlotIndex);
-        initializePhotoScale(targetSlotIndex);
+      console.log(`🔄 Recalculating smart scales for swapped photos (slots ${sourceSlotIndex} ↔ ${targetSlotIndex})`);
+      setTimeout(async () => {
+        await initializePhotoScale(sourceSlotIndex);
+        await initializePhotoScale(targetSlotIndex);
+        console.log(`✅ Smart scales updated for swapped photos`);
       }, 100);
     }
     
@@ -459,11 +529,13 @@ export default function EditPhoto() {
     if (frameConfig.duplicatePhotos && frameConfig.slots) {
       for (let slotIndex = 0; slotIndex < frameConfig.slots.length; slotIndex++) {
         const slot = frameConfig.slots[slotIndex];
-        const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
         
-        if (photos[photoIndex]) {
+        // Use slotPhotos if available (for independent slots), otherwise use photos array
+        const photoForSlot = slotPhotos[slotIndex] || photos[slot.photoIndex];
+        
+        if (photoForSlot) {
           try {
-            const smartScale = await calculateSmartScaleAsync(photos[photoIndex], slotIndex);
+            const smartScale = await calculateSmartScaleAsync(photoForSlot, slotIndex);
             
             // Keep existing transforms if they exist, only update scale
             const existingTransform = photoTransforms[slotIndex] || { translateX: 0, translateY: 0 };
@@ -473,7 +545,7 @@ export default function EditPhoto() {
               scale: smartScale,
               autoFillScale: smartScale
             };
-            console.log(`✨ Smart scale for slot ${slotIndex + 1} (photo ${photoIndex + 1}): ${smartScale.toFixed(2)}x`);
+            console.log(`✨ Smart scale for slot ${slotIndex + 1}: ${smartScale.toFixed(2)}x`);
           } catch (error) {
             console.warn(`⚠️ Failed to calculate smart scale for slot ${slotIndex + 1}:`, error);
           }
@@ -572,20 +644,44 @@ export default function EditPhoto() {
     return clampedScale;
   };
 
-  // Initialize auto-fit scale for a photo
-  const initializePhotoScale = (photoIndex) => {
-    const autoFitScale = calculateAutoFillScale(photoIndex);
-    console.log(`🔧 Initializing photo ${photoIndex + 1} with auto-fit scale: ${autoFitScale.toFixed(2)}x`);
-    
-    setPhotoTransforms(prev => ({
-      ...prev,
-      [photoIndex]: {
-        scale: autoFitScale,
-        translateX: 0,
-        translateY: 0,
-        autoFillScale: autoFitScale
-      }
-    }));
+  // Initialize auto-fit scale for a photo with smart calculation
+  const initializePhotoScale = async (photoIndex) => {
+    if (!photos[photoIndex] || !frameConfig) {
+      console.warn(`⚠️ Cannot initialize photo scale for slot ${photoIndex + 1}: missing photo or frame config`);
+      return;
+    }
+
+    try {
+      // Use smart scale calculation for better fitting
+      const smartScale = await calculateSmartScaleAsync(photos[photoIndex], photoIndex);
+      console.log(`🔧 Initializing photo ${photoIndex + 1} with smart scale: ${smartScale.toFixed(2)}x`);
+      
+      setPhotoTransforms(prev => ({
+        ...prev,
+        [photoIndex]: {
+          scale: smartScale,
+          translateX: 0,
+          translateY: 0,
+          autoFillScale: smartScale
+        }
+      }));
+    } catch (error) {
+      console.error(`❌ Error initializing smart scale for photo ${photoIndex + 1}:`, error);
+      
+      // Fallback to basic auto-fit scale
+      const autoFitScale = calculateAutoFillScale(photoIndex);
+      console.log(`🔧 Fallback: Initializing photo ${photoIndex + 1} with auto-fit scale: ${autoFitScale.toFixed(2)}x`);
+      
+      setPhotoTransforms(prev => ({
+        ...prev,
+        [photoIndex]: {
+          scale: autoFitScale,
+          translateX: 0,
+          translateY: 0,
+          autoFillScale: autoFitScale
+        }
+      }));
+    }
   };
 
   // Fungsi untuk menghitung ukuran slot dalam pixel
@@ -650,11 +746,11 @@ export default function EditPhoto() {
             setConfigReloadKey(prev => prev + 1);
             console.log('✅ Frame config reloaded successfully:', newConfig);
             
-            // Re-apply auto-fit after config reload
-            setTimeout(() => {
-              photos.forEach((_, index) => {
-                initializePhotoScale(index);
-              });
+            // Re-apply smart scale after config reload
+            setTimeout(async () => {
+              for (const [index] of photos.entries()) {
+                await initializePhotoScale(index);
+              }
             }, 200);
           } else {
             console.warn('⚠️ No config found for frame:', selectedFrame);
@@ -669,11 +765,11 @@ export default function EditPhoto() {
             setConfigReloadKey(prev => prev + 1);
             console.log('⚡ Using fallback config reload:', fallbackConfig);
             
-            // Re-apply auto-fit after fallback config
-            setTimeout(() => {
-              photos.forEach((_, index) => {
-                initializePhotoScale(index);
-              });
+            // Re-apply smart scale after fallback config
+            setTimeout(async () => {
+              for (const [index] of photos.entries()) {
+                await initializePhotoScale(index);
+              }
             }, 200);
           }
         })
@@ -1608,10 +1704,19 @@ export default function EditPhoto() {
                   >
                     {/* Render photo dengan logic duplicate support */}
                     {(() => {
-                      // Untuk photobooth duplicate, gunakan slot.photoIndex
-                      // Jika tidak ada photoIndex, fallback ke slotIndex
-                      const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
-                      const photoSrc = photos[photoIndex];
+                      // For Testframe2 with independent slots, use slotPhotos
+                      let photoSrc;
+                      let photoIndex;
+                      
+                      if (frameConfig?.duplicatePhotos && slotPhotos[slotIndex]) {
+                        // Use independent slot photo for Testframe2
+                        photoSrc = slotPhotos[slotIndex];
+                        photoIndex = slotIndex; // Use slot index as photo index for display
+                      } else {
+                        // Standard behavior for other frames
+                        photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+                        photoSrc = photos[photoIndex];
+                      }
                       
                       return photoSrc && (
                         <div style={{ 
@@ -1628,12 +1733,8 @@ export default function EditPhoto() {
                               opacity: draggedPhoto?.slotIndex === slotIndex ? 0.7 : 1,
                               cursor: selectedPhotoForEdit === slotIndex ? 'grab' : 'pointer'
                             }}
-                            draggable={!frameConfig?.duplicatePhotos} // Disable drag for duplicate photo frames
+                            draggable={true} // Enable drag for all frames including Testframe2
                             onDragStart={(e) => {
-                              if (frameConfig?.duplicatePhotos) {
-                                e.preventDefault();
-                                return false;
-                              }
                               handleDragStart(e, photoIndex, slotIndex);
                             }}
                             onClick={() => setSelectedPhotoForEdit(selectedPhotoForEdit === slotIndex ? null : slotIndex)}

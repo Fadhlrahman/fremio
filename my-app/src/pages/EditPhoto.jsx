@@ -193,6 +193,50 @@ export default function EditPhoto() {
     console.log(`🔄 Swapped photo from slot ${sourceSlotIndex} to slot ${targetSlotIndex}`);
   };
 
+  // Calculate maximum zoom out scale (minimum scale before gaps appear)
+  const calculateMaxZoomOutScale = (slotIndex) => {
+    if (!frameConfig || !frameConfig.slots[slotIndex]) return 1;
+    
+    const slot = frameConfig.slots[slotIndex];
+    
+    // Use same logic as handlePhotoZoom for minimum scale calculation
+    let photoAspectRatio = 4 / 3; // Default camera landscape
+    let slotAspectRatio = slot.width / slot.height;
+    
+    // Calculate minimum scale for edge-to-edge coverage
+    let minScaleForCoverage;
+    
+    // Special handling for Testframe4 - use left/right as zoom out max boundary
+    if (frameConfig?.id === 'Testframe4') {
+      console.log(`🎯 Testframe4 slot ${slotIndex + 1}: Using LEFT/RIGHT as zoom out boundary`);
+      
+      // For Testframe4, force fit by WIDTH (kiri-kanan menyentuh batas slot)
+      // Landscape photo in landscape slot: fit by width
+      minScaleForCoverage = 1; // Base scale where photo width = slot width
+      
+      // Apply some additional margin to ensure no gaps on left/right
+      const widthFitScale = 1.0; // Exact fit by width
+      
+      console.log(`📏 Testframe4 width-fit calculation: ${widthFitScale.toFixed(2)}x`);
+      return widthFitScale;
+    }
+    
+    // Original logic for other frames (Testframe1, 2, 3)
+    if (photoAspectRatio > slotAspectRatio) {
+      // Photo landscape, slot portrait → fit by height for full coverage
+      minScaleForCoverage = 1 / (photoAspectRatio / slotAspectRatio);
+    } else {
+      // Photo portrait, slot landscape → fit by width for full coverage  
+      minScaleForCoverage = slotAspectRatio / photoAspectRatio;
+    }
+    
+    // Apply same bounds as handlePhotoZoom
+    let absoluteMinScale = Math.max(0.8, minScaleForCoverage);
+    
+    console.log(`🔍 Max zoom out for slot ${slotIndex + 1}: ${absoluteMinScale.toFixed(2)}x (minCoverage: ${minScaleForCoverage.toFixed(2)}x)`);
+    return absoluteMinScale;
+  };
+
   // Calculate auto-fit scale untuk fit vertical height (ujung atas-bawah foto terlihat)
   const calculateAutoFillScale = (slotIndex) => {
     if (!frameConfig || !frameConfig.slots[slotIndex]) return 1;
@@ -205,19 +249,18 @@ export default function EditPhoto() {
     
     // Special handling for Testframe4 landscape slots
     if (frameConfig?.id === 'Testframe4') {
-      // Testframe4 has landscape slots (16:9) for landscape photos
-      console.log(`🎯 Testframe4 slot ${slotIndex + 1}: Landscape auto-fit calculation`);
+      // Testframe4 default to zoom out maksimum + 6 zoom in steps
+      console.log(`🎯 Testframe4 slot ${slotIndex + 1}: Setting to MAX ZOOM OUT + 6 zoom in steps`);
       
-      // For landscape photos in landscape slots, we can use lower scale
-      const landscapeFitScale = 1.1; // Much lower base scale for landscape slots
-      const slotSizeAdjustment = 1 / slot.width; // Width-based adjustment for landscape
-      const finalScale = landscapeFitScale + (slotSizeAdjustment * 0.2);
+      const maxZoomOutScale = calculateMaxZoomOutScale(slotIndex);
       
-      // More conservative clamping for landscape
-      const clampedScale = Math.max(0.8, Math.min(1.8, finalScale));
+      // Each zoom step is 0.1x increment (same as handlePhotoZoom delta)
+      const zoomInSteps = 6;
+      const zoomIncrement = 0.1;
+      const defaultScale = maxZoomOutScale + (zoomInSteps * zoomIncrement);
       
-      console.log(`📏 Testframe4 Slot ${slotIndex + 1}: Landscape-fit scale = ${clampedScale.toFixed(2)}x (slot: ${(slot.width*100).toFixed(0)}%×${(slot.height*100).toFixed(0)}%)`);
-      return clampedScale;
+      console.log(`📏 Testframe4 Slot ${slotIndex + 1}: Default scale = ${defaultScale.toFixed(2)}x (max zoom out: ${maxZoomOutScale.toFixed(2)}x + ${zoomInSteps} steps)`);
+      return defaultScale;
     }
     
     // Original logic for portrait frames (Testframe1, 2, 3)
@@ -374,31 +417,29 @@ export default function EditPhoto() {
       let photoAspectRatio = 4 / 3; // Default camera landscape
       let slotAspectRatio = slot.width / slot.height;
       
-      // Special handling for Testframe4 yang punya landscape slots
-      if (frameConfig?.id === 'Testframe4') {
-        // Testframe4 slots are 16:9 landscape
-        console.log(`🎯 Testframe4 slot ${photoIndex + 1}: Using landscape calculations`);
-        // Untuk landscape slots, minimum zoom out lebih permisif
-        slotAspectRatio = 16 / 9; // Force 16:9 ratio for consistency
-      }
-      
       // Minimum scale agar foto edge bertemu slot edge (no gaps)
       let minScaleForCoverage;
-      
-      if (photoAspectRatio > slotAspectRatio) {
-        // Foto landscape, slot portrait → fit by height untuk full coverage
-        minScaleForCoverage = 1 / (photoAspectRatio / slotAspectRatio);
-      } else {
-        // Foto portrait, slot landscape → fit by width untuk full coverage  
-        minScaleForCoverage = slotAspectRatio / photoAspectRatio;
-      }
-      
-      // Apply reasonable bounds - more permissive for Testframe4
       let absoluteMinScale;
+      
+      // Special handling for Testframe4 - use left/right boundary
       if (frameConfig?.id === 'Testframe4') {
-        // Allow much more zoom out for landscape frames
-        absoluteMinScale = Math.max(0.5, minScaleForCoverage * 0.7); // More permissive
+        console.log(`🎯 Testframe4 slot ${photoIndex + 1}: Using LEFT/RIGHT boundary for zoom out`);
+        
+        // For Testframe4, minimum zoom out is when photo width fits slot width exactly
+        // This means left and right edges of photo touch slot boundaries
+        absoluteMinScale = 1.0; // Width-fit scale
+        
+        console.log(`📐 Testframe4 zoom boundary: ${absoluteMinScale.toFixed(2)}x (width-fit)`);
       } else {
+        // Original logic for other frames (Testframe1, 2, 3)
+        if (photoAspectRatio > slotAspectRatio) {
+          // Foto landscape, slot portrait → fit by height untuk full coverage
+          minScaleForCoverage = 1 / (photoAspectRatio / slotAspectRatio);
+        } else {
+          // Foto portrait, slot landscape → fit by width untuk full coverage  
+          minScaleForCoverage = slotAspectRatio / photoAspectRatio;
+        }
+        
         absoluteMinScale = Math.max(0.8, minScaleForCoverage);
       }
       
@@ -431,15 +472,36 @@ export default function EditPhoto() {
     let photoAspectRatio = 4 / 3; // Default camera landscape
     let slotAspectRatio = slot.width / slot.height;
     
-    // Special handling for Testframe4 landscape slots
-    if (frameConfig?.id === 'Testframe4') {
-      slotAspectRatio = 16 / 9; // Force consistent 16:9 for Testframe4
-      console.log(`🎯 Testframe4 boundary adjustment for slot ${photoIndex + 1}: photo ${photoAspectRatio.toFixed(2)} vs slot ${slotAspectRatio.toFixed(2)}`);
-    }
-    
     // Calculate foto dimensions setelah scale
     let photoWidthInSlot, photoHeightInSlot;
     
+    // Special handling for Testframe4 - width-fit approach
+    if (frameConfig?.id === 'Testframe4') {
+      console.log(`🎯 Testframe4 boundary adjustment for slot ${photoIndex + 1}: WIDTH-FIT approach`);
+      
+      // For width-fit: photo width always fits slot width (100%)
+      photoWidthInSlot = 100; // Photo width = slot width
+      photoHeightInSlot = (100 / photoAspectRatio) * slotAspectRatio; // Proportional height
+      
+      // At minimum zoom out (1.0x), there should be no horizontal translate allowed
+      // Only vertical translate is allowed when photo height > slot height
+      const scaledPhotoWidth = photoWidthInSlot * newScale;
+      const scaledPhotoHeight = photoHeightInSlot * newScale;
+      
+      // For width-fit, horizontal translate should be very limited
+      const maxTranslateXPx = Math.max(0, (scaledPhotoWidth - 100) / 2) * 2.0; // Limited horizontal movement
+      const maxTranslateYPx = Math.max(0, (scaledPhotoHeight - 100) / 2) * 4.0; // More vertical freedom
+      
+      console.log(`📐 Testframe4 bounds: X±${maxTranslateXPx.toFixed(1)}px, Y±${maxTranslateYPx.toFixed(1)}px (scale: ${newScale.toFixed(2)}x)`);
+      
+      return {
+        ...current,
+        translateX: Math.max(-maxTranslateXPx, Math.min(maxTranslateXPx, current.translateX)),
+        translateY: Math.max(-maxTranslateYPx, Math.min(maxTranslateYPx, current.translateY))
+      };
+    }
+    
+    // Original logic for other frames (Testframe1, 2, 3)
     if (photoAspectRatio > slotAspectRatio) {
       photoWidthInSlot = 100;
       photoHeightInSlot = (100 / photoAspectRatio) * slotAspectRatio;
@@ -451,18 +513,9 @@ export default function EditPhoto() {
     const scaledPhotoWidth = photoWidthInSlot * newScale;
     const scaledPhotoHeight = photoHeightInSlot * newScale;
     
-    // Calculate new max translate - more permissive for Testframe4
-    let maxTranslateXPx, maxTranslateYPx;
-    
-    if (frameConfig?.id === 'Testframe4') {
-      // More generous boundaries for landscape slots
-      maxTranslateXPx = Math.max(0, (scaledPhotoWidth - 100) / 2) * 4.5;
-      maxTranslateYPx = Math.max(0, (scaledPhotoHeight - 100) / 2) * 6.0;
-    } else {
-      // Standard boundaries for portrait frames
-      maxTranslateXPx = Math.max(0, (scaledPhotoWidth - 100) / 2) * 3.5;
-      maxTranslateYPx = Math.max(0, (scaledPhotoHeight - 100) / 2) * 5.25;
-    }
+    // Standard boundaries for portrait frames
+    const maxTranslateXPx = Math.max(0, (scaledPhotoWidth - 100) / 2) * 3.5;
+    const maxTranslateYPx = Math.max(0, (scaledPhotoHeight - 100) / 2) * 5.25;
     
     return {
       ...current,
@@ -1511,13 +1564,13 @@ export default function EditPhoto() {
         </div>
       </div>
       
-      {/* Debug Panel - only show if Testframe3 or Testframe4 is selected */}
-      {(selectedFrame === 'Testframe3' || selectedFrame === 'Testframe4') && (
+      {/* Debug Panel - only show if Testframe3 is selected */}
+      {selectedFrame === 'Testframe3' && (
         <div style={{
           position: 'fixed',
           bottom: '20px',
           right: '20px',
-          background: selectedFrame === 'Testframe4' ? '#28a745' : '#ff6b6b',
+          background: '#ff6b6b',
           color: 'white',
           padding: '10px',
           borderRadius: '8px',
@@ -1538,19 +1591,21 @@ export default function EditPhoto() {
               console.log('  - selectedFrame:', selectedFrame);
               console.log('  - frameConfig:', frameConfig);
               console.log('  - photos:', photos);
+              console.log('  - photoTransforms:', photoTransforms);
               console.log('  - localStorage selectedFrame:', localStorage.getItem('selectedFrame'));
               console.log('  - localStorage frameConfig:', localStorage.getItem('frameConfig'));
               console.log('  - localStorage capturedPhotos:', localStorage.getItem('capturedPhotos'));
             }}
             style={{
               background: 'white',
-              color: selectedFrame === 'Testframe4' ? '#28a745' : '#ff6b6b',
+              color: '#ff6b6b',
               border: 'none',
               padding: '4px 8px',
               borderRadius: '4px',
               fontSize: '10px',
               marginTop: '8px',
-              cursor: 'pointer'
+              cursor: 'pointer',
+              width: '100%'
             }}
           >
             Log Debug Info

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getFrameConfig, FRAME_CONFIGS } from '../config/frameConfigs.js';
+import QRCode from 'qrcode';
 import Testframe1 from '../assets/Testframe1.png';
 import Testframe2 from '../assets/Testframe2.png';
 import Testframe3 from '../assets/Testframe3.png';
@@ -26,6 +27,11 @@ export default function EditPhoto() {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 }); // Drag start position
   const [isSaving, setIsSaving] = useState(false); // Loading state for save
   const [slotPhotos, setSlotPhotos] = useState({}); // Store individual photos per slot for Testframe2
+  
+  // Print functionality states
+  const [printCode, setPrintCode] = useState(null);
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Frame image mapping
   const getFrameImage = (frameId) => {
@@ -1492,9 +1498,233 @@ export default function EditPhoto() {
     }
   };
 
-  const handlePrint = () => {
-    // TODO: Implement print functionality
-    alert('Print functionality will be implemented');
+  // Generate unique print code
+  const generatePrintCode = () => {
+    const timestamp = Date.now();
+    const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+    return `FREMIO-${timestamp}-${random}`;
+  };
+
+  // Upload photo and generate QR code
+  const uploadPhotoForPrint = async (canvas) => {
+    try {
+      setIsUploading(true);
+      
+      // Convert canvas to blob
+      const blob = await new Promise(resolve => {
+        canvas.toBlob(resolve, 'image/png', 0.95);
+      });
+      
+      // Generate unique code
+      const uniqueCode = generatePrintCode();
+      
+      // Create FormData
+      const formData = new FormData();
+      formData.append('photo', blob, `fremio-${uniqueCode}.png`);
+      formData.append('code', uniqueCode);
+      formData.append('frameType', selectedFrame);
+      formData.append('timestamp', new Date().toISOString());
+      
+      // For now, simulate backend with local storage (replace with actual API later)
+      // Upload to your backend (you'll need to implement this endpoint)
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3001'}/api/upload-for-print`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!response.ok) {
+        // Fallback: create local URL for testing
+        const fileUrl = URL.createObjectURL(blob);
+        
+        // Generate QR code
+        const qrCodeDataUrl = await QRCode.toDataURL(uniqueCode, {
+          width: 256,
+          margin: 2,
+          color: {
+            dark: '#000000',
+            light: '#FFFFFF'
+          }
+        });
+        
+        return {
+          code: uniqueCode,
+          qrCode: qrCodeDataUrl,
+          downloadUrl: fileUrl
+        };
+      }
+      
+      const result = await response.json();
+      
+      // Generate QR code
+      const qrCodeDataUrl = await QRCode.toDataURL(uniqueCode, {
+        width: 256,
+        margin: 2,
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        }
+      });
+      
+      return {
+        code: uniqueCode,
+        qrCode: qrCodeDataUrl,
+        downloadUrl: result.downloadUrl
+      };
+      
+    } catch (error) {
+      console.error('Upload error:', error);
+      
+      // Fallback for demo purposes
+      const uniqueCode = generatePrintCode();
+      const qrCodeDataUrl = await QRCode.toDataURL(uniqueCode, {
+        width: 256,
+        margin: 2,
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        }
+      });
+      
+      return {
+        code: uniqueCode,
+        qrCode: qrCodeDataUrl,
+        downloadUrl: '#demo'
+      };
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handlePrint = async () => {
+    try {
+      console.log('🖨️ Starting print process...');
+      
+      // Reuse canvas generation logic from handleSave
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Set canvas size (same as handleSave)
+      let frameAspectRatio = 2 / 3;
+      const canvasWidth = 800;
+      const canvasHeight = canvasWidth / frameAspectRatio;
+      
+      canvas.width = canvasWidth;
+      canvas.height = canvasHeight;
+      
+      // Fill background
+      ctx.fillStyle = '#2563eb';
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+      
+      // Render photos (reuse logic from handleSave)
+      if (frameConfig?.duplicatePhotos && selectedFrame === 'Testframe2') {
+        // Handle Testframe2 with slot-based photos
+        const frameSlots = frameConfig.slots || [];
+        
+        for (let slotIndex = 0; slotIndex < frameSlots.length; slotIndex++) {
+          const slot = frameSlots[slotIndex];
+          const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+          const photoSrc = slotPhotos[slotIndex] || photos[photoIndex];
+          
+          if (photoSrc) {
+            const img = new Image();
+            await new Promise((resolve) => {
+              img.onload = () => {
+                const transform = photoTransforms[slotIndex] || { x: 0, y: 0, scale: 1 };
+                
+                ctx.save();
+                
+                const slotX = slot.x * canvasWidth / 100;
+                const slotY = slot.y * canvasHeight / 100;
+                const slotWidth = slot.width * canvasWidth / 100;
+                const slotHeight = slot.height * canvasHeight / 100;
+                
+                // Create clipping region
+                ctx.beginPath();
+                ctx.rect(slotX, slotY, slotWidth, slotHeight);
+                ctx.clip();
+                
+                // Calculate scaled dimensions
+                const scaledWidth = slotWidth * transform.scale;
+                const scaledHeight = slotHeight * transform.scale;
+                
+                // Calculate position with transform offset
+                const imgX = slotX + (slotWidth - scaledWidth) / 2 + transform.x;
+                const imgY = slotY + (slotHeight - scaledHeight) / 2 + transform.y;
+                
+                ctx.drawImage(img, imgX, imgY, scaledWidth, scaledHeight);
+                ctx.restore();
+                resolve();
+              };
+              img.src = photoSrc;
+            });
+          }
+        }
+      } else {
+        // Handle regular frames
+        const frameSlots = frameConfig?.slots || [];
+        
+        for (let i = 0; i < frameSlots.length && i < photos.length; i++) {
+          if (photos[i]) {
+            const img = new Image();
+            await new Promise((resolve) => {
+              img.onload = () => {
+                const slot = frameSlots[i];
+                const transform = photoTransforms[i] || { x: 0, y: 0, scale: 1 };
+                
+                ctx.save();
+                
+                const slotX = slot.x * canvasWidth / 100;
+                const slotY = slot.y * canvasHeight / 100;
+                const slotWidth = slot.width * canvasWidth / 100;
+                const slotHeight = slot.height * canvasHeight / 100;
+                
+                // Create clipping region
+                ctx.beginPath();
+                ctx.rect(slotX, slotY, slotWidth, slotHeight);
+                ctx.clip();
+                
+                // Calculate scaled dimensions
+                const scaledWidth = slotWidth * transform.scale;
+                const scaledHeight = slotHeight * transform.scale;
+                
+                // Calculate position with transform offset
+                const imgX = slotX + (slotWidth - scaledWidth) / 2 + transform.x;
+                const imgY = slotY + (slotHeight - scaledHeight) / 2 + transform.y;
+                
+                ctx.drawImage(img, imgX, imgY, scaledWidth, scaledHeight);
+                ctx.restore();
+                resolve();
+              };
+              img.src = photos[i];
+            });
+          }
+        }
+      }
+      
+      // Render frame overlay
+      if (frameImage) {
+        const frameImg = new Image();
+        await new Promise((resolve) => {
+          frameImg.onload = () => {
+            ctx.drawImage(frameImg, 0, 0, canvasWidth, canvasHeight);
+            resolve();
+          };
+          frameImg.src = frameImage;
+        });
+      }
+      
+      // Upload and generate QR code
+      const printData = await uploadPhotoForPrint(canvas);
+      
+      setPrintCode(printData);
+      setShowPrintModal(true);
+      
+      console.log('✅ Print code generated:', printData.code);
+      
+    } catch (error) {
+      console.error('❌ Print error:', error);
+      alert('Failed to prepare photo for printing. Please try again.');
+    }
   };
 
   return (
@@ -2038,25 +2268,31 @@ export default function EditPhoto() {
             </button>
             <button
               onClick={handlePrint}
+              disabled={isUploading}
               style={{
-                background: '#E8A889',
+                background: isUploading ? '#f5f5f5' : '#E8A889',
                 border: 'none',
-                color: 'white',
+                color: isUploading ? '#999' : 'white',
                 borderRadius: '25px',
                 padding: '0.8rem 2rem',
                 fontSize: '1rem',
                 fontWeight: '600',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease'
+                cursor: isUploading ? 'not-allowed' : 'pointer',
+                transition: 'all 0.3s ease',
+                opacity: isUploading ? 0.7 : 1
               }}
               onMouseEnter={(e) => {
-                e.target.style.background = '#d49673';
+                if (!isUploading) {
+                  e.target.style.background = '#d49673';
+                }
               }}
               onMouseLeave={(e) => {
-                e.target.style.background = '#E8A889';
+                if (!isUploading) {
+                  e.target.style.background = '#E8A889';
+                }
               }}
             >
-              Print
+              {isUploading ? '⏳ Preparing...' : '🖨️ Print'}
             </button>
             </div>
           </div>
@@ -2293,6 +2529,145 @@ export default function EditPhoto() {
           >
             Log Debug Info
           </button>
+        </div>
+      )}
+
+      {/* Print Modal */}
+      {showPrintModal && printCode && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '20px',
+            padding: '2rem',
+            maxWidth: '400px',
+            width: '90%',
+            textAlign: 'center',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)'
+          }}>
+            <h3 style={{
+              marginBottom: '1rem',
+              fontSize: '1.5rem',
+              fontWeight: '600',
+              color: '#333'
+            }}>
+              🖨️ Ready to Print
+            </h3>
+            
+            <p style={{
+              color: '#666',
+              marginBottom: '1.5rem',
+              fontSize: '0.9rem'
+            }}>
+              Scan QR code with tablet to print
+            </p>
+            
+            {/* QR Code */}
+            <div style={{
+              background: '#f8f9fa',
+              padding: '1.5rem',
+              borderRadius: '15px',
+              marginBottom: '1.5rem',
+              border: '2px solid #e9ecef'
+            }}>
+              <img 
+                src={printCode.qrCode} 
+                alt="Print QR Code"
+                style={{
+                  width: '200px',
+                  height: '200px',
+                  margin: '0 auto',
+                  display: 'block'
+                }}
+              />
+            </div>
+            
+            {/* Print Code */}
+            <div style={{
+              background: '#f8f9fa',
+              padding: '1rem',
+              borderRadius: '10px',
+              marginBottom: '1.5rem',
+              fontSize: '1.1rem',
+              fontWeight: '600',
+              color: '#333',
+              fontFamily: 'monospace',
+              letterSpacing: '1px'
+            }}>
+              {printCode.code}
+            </div>
+            
+            {/* Instructions */}
+            <div style={{
+              fontSize: '0.8rem',
+              color: '#666',
+              marginBottom: '1.5rem',
+              lineHeight: '1.5'
+            }}>
+              <p>📱 Open tablet printer app</p>
+              <p>📷 Scan the QR code above</p>
+              <p>🖨️ Your photo will print automatically</p>
+            </div>
+            
+            {/* Action Buttons */}
+            <div style={{
+              display: 'flex',
+              gap: '1rem',
+              justifyContent: 'center'
+            }}>
+              <button
+                onClick={() => {
+                  setShowPrintModal(false);
+                  setPrintCode(null);
+                }}
+                style={{
+                  background: '#f8f9fa',
+                  border: '1px solid #e9ecef',
+                  color: '#666',
+                  borderRadius: '15px',
+                  padding: '0.8rem 1.5rem',
+                  fontSize: '0.9rem',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s ease'
+                }}
+              >
+                Close
+              </button>
+              
+              <button
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(printCode.code);
+                    alert('Print code copied to clipboard!');
+                  } catch (error) {
+                    console.error('Copy failed:', error);
+                  }
+                }}
+                style={{
+                  background: '#E8A889',
+                  border: 'none',
+                  color: 'white',
+                  borderRadius: '15px',
+                  padding: '0.8rem 1.5rem',
+                  fontSize: '0.9rem',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s ease'
+                }}
+              >
+                Copy Code
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

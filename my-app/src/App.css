@@ -248,3 +248,74 @@ html{ scroll-behavior:smooth }                  /* smooth scroll ke #about */
 @supports (padding: env(safe-area-inset-bottom)){
   .app-footer{ padding-bottom:max(18px, env(safe-area-inset-bottom)) }
 }
+
+
+
+/* ============ AUTH PAGES ============ */
+:root{
+  --accent:#E0B7A9;
+  --accent-dark:#caa396;   /* untuk shadow tombol */
+}
+
+/* wrap + titlebar */
+.auth-wrap{ padding-block: 18px 48px; }
+.auth-titlebar{
+  height:48px; display:flex; align-items:center;
+  border-bottom:1px solid #ecdeda; background:#fbf4f2;
+}
+.auth-titlebar h1{ padding-inline:20px; font-size:20px; font-weight:700; }
+
+/* card */
+.auth-card{
+  width:100%; max-width:520px; margin-inline:auto; margin-top:28px;
+  background:#fff; border:1px solid #e5e5e5;
+  border-radius:18px; box-shadow:0 3px 0 #d6d3d1;
+}
+
+/* tabs */
+.auth-tabs{ display:flex; gap:12px; padding:16px; }
+.auth-tab{
+  display:inline-flex; align-items:center; gap:8px;
+  padding:8px 16px; border-radius:999px; font-weight:700; font-size:14px;
+  border:1px solid #d1d1d1; background:#fff; color:#111;
+  box-shadow:none; text-decoration:none;
+}
+.auth-tab.active{
+  background:var(--accent); color:#2a2a2a;
+  box-shadow: 0 3px 0 #c9c9c9;
+}
+
+/* body */
+.auth-body{ padding:0 24px 20px 24px; }
+.auth-label{ display:block; font-weight:600; font-size:14px; margin:14px 0 6px; }
+.auth-input{
+  width:100%; height:44px; border-radius:999px; padding:0 16px;
+  border:2px solid #d4d4d8; outline:none;
+  box-shadow:0 6px 16px rgba(0,0,0,.06);
+}
+.auth-input:focus{ border-color:#0a0a0a; }
+
+/* checkbox small */
+.auth-check{ display:inline-flex; align-items:center; gap:8px; font-size:13px; margin-top:10px; }
+.auth-check input{ accent-color:#000; }
+
+/* submit */
+.auth-btn{
+  width:100%; margin-top:18px; padding:10px 18px; border:0;
+  border-radius:999px; font-weight:700; color:#2a2a2a;
+  background:var(--accent);
+  box-shadow: 0 6px 0 var(--accent-dark), 0 18px 40px rgba(0,0,0,.12);
+  cursor:pointer; transition: transform .15s ease, box-shadow .15s ease;
+}
+.auth-btn:hover{ transform: translateY(-1px); }
+.auth-btn:active{ box-shadow: 0 4px 0 var(--accent-dark); transform:none; }
+
+/* helper link */
+.auth-help{ margin-top:10px; text-align:center; font-size:12px; color:#71717a; }
+.auth-help a{ text-decoration:underline; }
+
+/* grid untuk nama (register) */
+.auth-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+@media (max-width:640px){
+  .auth-grid{ grid-template-columns:1fr; }
+}

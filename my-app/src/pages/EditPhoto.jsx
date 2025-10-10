@@ -1178,23 +1178,58 @@ export default function EditPhoto() {
       // FOR DUPLICATE PHOTO FRAMES: iterate through slots instead of photos
       if (frameConfig.duplicatePhotos) {
         console.log('🎯 DUPLICATE PHOTOS MODE: Processing all', frameConfig.slots.length, 'slots for', frameConfig.id);
+        console.log('📋 Current slotPhotos state:', slotPhotos);
+        console.log('📋 Current photoTransforms state:', photoTransforms);
         
         for (let slotIndex = 0; slotIndex < frameConfig.slots.length; slotIndex++) {
           const currentSlot = frameConfig.slots[slotIndex];
-          const currentPhotoIndex = currentSlot.photoIndex;
           
-          console.log(`🔄 Processing slot ${slotIndex + 1} → photo ${currentPhotoIndex + 1}...`);
+          // ✅ PERBAIKAN: Gunakan slotPhotos yang actual (setelah drag & drop) 
+          // bukan currentSlot.photoIndex yang statis dari config
+          let actualPhotoSrc;
+          let actualPhotoIndex;
           
-          // Find the loaded photo for this slot
-          const loadedPhoto = loadedPhotos.find(p => p.index === currentPhotoIndex);
-          const img = loadedPhoto?.img;
+          if (slotPhotos[slotIndex]) {
+            // Slot sudah di-assign foto specific (dari drag & drop atau manual assignment)
+            actualPhotoSrc = slotPhotos[slotIndex];
+            actualPhotoIndex = slotIndex; // Use slotIndex as identifier for transforms
+            console.log(`🎯 Slot ${slotIndex + 1}: Using slot-specific photo from slotPhotos`);
+          } else {
+            // Fallback ke config default photoIndex
+            actualPhotoIndex = currentSlot.photoIndex;
+            actualPhotoSrc = photos[actualPhotoIndex];
+            console.log(`🎯 Slot ${slotIndex + 1}: Using fallback photo index ${actualPhotoIndex}`);
+          }
           
-          if (!img) {
-            console.warn(`⚠️ Skipping slot ${slotIndex + 1}: Photo ${currentPhotoIndex + 1} not loaded`);
+          console.log(`🔄 Processing slot ${slotIndex + 1}:`);
+          console.log(`  - Config photoIndex: ${currentSlot.photoIndex}`);
+          console.log(`  - Actual photo source: ${actualPhotoSrc ? 'Available' : 'Not available'}`);
+          console.log(`  - SlotPhotos entry: ${slotPhotos[slotIndex] ? 'Yes' : 'No'}`);
+          
+          if (!actualPhotoSrc) {
+            console.warn(`⚠️ Skipping slot ${slotIndex + 1}: No photo available`);
             continue;
           }
           
-          console.log(`✅ Slot ${slotIndex + 1}: Processing photo ${currentPhotoIndex + 1} (${img.width}x${img.height})`);
+          // Load image from actual photo source
+          const img = new Image();
+          await new Promise((resolve) => {
+            img.onload = () => {
+              console.log(`✅ Slot ${slotIndex + 1}: Photo loaded (${img.width}x${img.height})`);
+              resolve();
+            };
+            img.onerror = () => {
+              console.error(`❌ Slot ${slotIndex + 1}: Failed to load photo`);
+              resolve(); // Continue with next photo
+            };
+            img.src = actualPhotoSrc;
+          });
+          
+          // Skip if image failed to load
+          if (!img.complete || img.naturalWidth === 0) {
+            console.warn(`⚠️ Skipping slot ${slotIndex + 1}: Image failed to load`);
+            continue;
+          }
           
           // Get default scale based on frame type
           let defaultScale = 1.6; // Standard for other frames
@@ -1204,9 +1239,9 @@ export default function EditPhoto() {
           
           const transform = photoTransforms[slotIndex] || { scale: defaultScale, translateX: 0, translateY: 0 };
           
-          console.log(`🔍 Slot ${slotIndex + 1} (Photo ${currentPhotoIndex + 1}) transform debug:`);
+          console.log(`🔍 Slot ${slotIndex + 1} transform debug:`);
           console.log(`  - Slot config photoIndex:`, currentSlot.photoIndex);
-          console.log(`  - Using photo index:`, currentPhotoIndex);
+          console.log(`  - Using actual photo source:`, actualPhotoSrc ? 'Custom' : 'Default');
           console.log(`  - photoTransforms[${slotIndex}]:`, photoTransforms[slotIndex]);
           console.log(`  - Using transform:`, transform);
           
@@ -1622,14 +1657,24 @@ export default function EditPhoto() {
         
         for (let slotIndex = 0; slotIndex < frameSlots.length; slotIndex++) {
           const slot = frameSlots[slotIndex];
-          const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
-          const photoSrc = slotPhotos[slotIndex] || photos[photoIndex];
           
-          if (photoSrc) {
+          // ✅ PERBAIKAN: Gunakan slotPhotos yang actual (setelah drag & drop)
+          let actualPhotoSrc;
+          
+          if (slotPhotos[slotIndex]) {
+            // Slot sudah di-assign foto specific (dari drag & drop atau manual assignment)
+            actualPhotoSrc = slotPhotos[slotIndex];
+          } else {
+            // Fallback ke config default photoIndex
+            const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+            actualPhotoSrc = photos[photoIndex];
+          }
+          
+          if (actualPhotoSrc) {
             const img = new Image();
             await new Promise((resolve) => {
               img.onload = () => {
-                const transform = photoTransforms[slotIndex] || { x: 0, y: 0, scale: 1 };
+                const transform = photoTransforms[slotIndex] || { translateX: 0, translateY: 0, scale: 1 };
                 
                 ctx.save();
                 
@@ -1648,14 +1693,14 @@ export default function EditPhoto() {
                 const scaledHeight = slotHeight * transform.scale;
                 
                 // Calculate position with transform offset
-                const imgX = slotX + (slotWidth - scaledWidth) / 2 + transform.x;
-                const imgY = slotY + (slotHeight - scaledHeight) / 2 + transform.y;
+                const imgX = slotX + (slotWidth - scaledWidth) / 2 + (transform.translateX || 0);
+                const imgY = slotY + (slotHeight - scaledHeight) / 2 + (transform.translateY || 0);
                 
                 ctx.drawImage(img, imgX, imgY, scaledWidth, scaledHeight);
                 ctx.restore();
                 resolve();
               };
-              img.src = photoSrc;
+              img.src = actualPhotoSrc;
             });
           }
         }

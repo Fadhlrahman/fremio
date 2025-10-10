@@ -244,12 +244,29 @@ export default function TakeMoment() {
     }
   };
 
-  const handleFileSelect = (event) => {
+  const handleFileSelect = async (event) => {
     const file = event.target.files[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = (e) => {
-        const newPhotos = [...capturedPhotos, e.target.result];
+      reader.onload = async (e) => {
+        // Get current frame for quality optimization
+        const currentFrameName = frameProvider.getCurrentFrameName();
+        
+        // Compress uploaded photo with frame-specific quality
+        console.log('📷 Compressing uploaded photo...');
+        let compressedPhoto;
+        
+        if (currentFrameName === 'Testframe4') {
+          console.log('🎯 Using high quality compression for Testframe4 upload');
+          compressedPhoto = await compressImage(e.target.result, 0.85, 700, 500);
+        } else if (currentFrameName === 'Testframe2') {
+          console.log('🎯 Using ULTRA high quality compression for Testframe2 upload (6 slots)');
+          compressedPhoto = await compressImage(e.target.result, 0.95, 800, 800);
+        } else {
+          compressedPhoto = await compressImage(e.target.result, 0.75, 500, 500);
+        }
+        
+        const newPhotos = [...capturedPhotos, compressedPhoto];
         setCapturedPhotos(newPhotos);
         localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
       };
@@ -331,7 +348,7 @@ export default function TakeMoment() {
         // Get current frame for quality optimization
         const currentFrameName = frameProvider.getCurrentFrameName();
         
-        // Compress the photo before saving - higher quality for Testframe4
+        // Compress the photo before saving - higher quality for frames with more/smaller slots
         console.log('📷 Compressing photo...');
         let compressedPhoto;
         
@@ -339,6 +356,10 @@ export default function TakeMoment() {
           // Higher quality for Testframe4 landscape photos
           console.log('🎯 Using high quality compression for Testframe4');
           compressedPhoto = await compressImage(currentPhoto, 0.85, 700, 500); // Higher quality and size
+        } else if (currentFrameName === 'Testframe2') {
+          // Higher quality for Testframe2 - 6 smaller slots need better resolution
+          console.log('🎯 Using ULTRA high quality compression for Testframe2 (6 slots)');
+          compressedPhoto = await compressImage(currentPhoto, 0.95, 800, 800); // Ultra high quality for photobooth strips
         } else {
           // Standard quality for other frames
           compressedPhoto = await compressImage(currentPhoto, 0.75, 500, 500);
@@ -1254,6 +1275,44 @@ export default function TakeMoment() {
               }}
             >
               Save Premium Quality (T4)
+            </button>
+          )}
+          {frameConfig?.id === 'Testframe2' && (
+            <button
+              onClick={async () => {
+                // Special high-quality compression for Testframe2 photobooth strips
+                try {
+                  cleanUpStorage();
+                  console.log('🎯 Applying Testframe2 premium compression (6 slots)');
+                  
+                  const premiumCompressed = [];
+                  for (const photo of capturedPhotos) {
+                    const compressed = await compressImage(photo, 0.98, 900, 900); // ULTRA high quality for photobooth
+                    premiumCompressed.push(compressed);
+                  }
+                  
+                  localStorage.setItem('capturedPhotos', JSON.stringify(premiumCompressed));
+                  const size = calculateStorageSize(premiumCompressed);
+                  console.log(`✅ Testframe2 premium quality saved (${size.kb}KB)`);
+                  alert(`Testframe2 premium quality saved! Size: ${size.kb}KB`);
+                } catch (error) {
+                  console.error('❌ Cannot save premium quality:', error);
+                  alert('Cannot save premium quality. Using standard compression.');
+                }
+              }}
+              style={{
+                background: '#007bff',
+                color: 'white',
+                border: 'none',
+                padding: '4px 8px',
+                borderRadius: '4px',
+                fontSize: '10px',
+                marginTop: '4px',
+                cursor: 'pointer',
+                width: '100%'
+              }}
+            >
+              Save Premium Quality (T2)
             </button>
           )}
           <button

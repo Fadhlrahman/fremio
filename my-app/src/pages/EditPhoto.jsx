@@ -183,7 +183,15 @@ export default function EditPhoto() {
       return;
     }
 
-    // Create new photos array with swapped positions
+    // Special handling for frames with duplicate photos (like Testframe2)
+    if (frameConfig && frameConfig.duplicatePhotos) {
+      console.log('🎯 Drag & Drop disabled for duplicate photo frames (Testframe2)');
+      alert('Drag & Drop tidak tersedia untuk Testframe2. Foto otomatis duplicate sesuai urutan capture.');
+      setDraggedPhoto(null);
+      return;
+    }
+
+    // Standard drag & drop logic for other frames
     const newPhotos = [...photos];
     const newPhotoPositions = { ...photoPositions };
     
@@ -809,15 +817,120 @@ export default function EditPhoto() {
       console.log('🖼️ Starting photo rendering loop...');
       console.log('🖼️ Canvas size:', canvasWidth, 'x', canvasHeight);
       
-      for (const { img, index } of loadedPhotos) {
-        console.log(`� LOOP DEBUG: Processing item ${index + 1}/${loadedPhotos.length}`);
+      // FOR DUPLICATE PHOTO FRAMES: iterate through slots instead of photos
+      if (frameConfig.duplicatePhotos) {
+        console.log('🎯 DUPLICATE PHOTOS MODE: Processing all', frameConfig.slots.length, 'slots for', frameConfig.id);
+        
+        for (let slotIndex = 0; slotIndex < frameConfig.slots.length; slotIndex++) {
+          const currentSlot = frameConfig.slots[slotIndex];
+          const currentPhotoIndex = currentSlot.photoIndex;
+          
+          console.log(`🔄 Processing slot ${slotIndex + 1} → photo ${currentPhotoIndex + 1}...`);
+          
+          // Find the loaded photo for this slot
+          const loadedPhoto = loadedPhotos.find(p => p.index === currentPhotoIndex);
+          const img = loadedPhoto?.img;
+          
+          if (!img) {
+            console.warn(`⚠️ Skipping slot ${slotIndex + 1}: Photo ${currentPhotoIndex + 1} not loaded`);
+            continue;
+          }
+          
+          console.log(`✅ Slot ${slotIndex + 1}: Processing photo ${currentPhotoIndex + 1} (${img.width}x${img.height})`);
+          
+          // Get default scale based on frame type
+          let defaultScale = 1.6; // Standard for other frames
+          if (frameConfig.id === 'Testframe4') {
+            defaultScale = 1.1; // Testframe4 specific default (max zoom out + 6 steps)
+          }
+          
+          const transform = photoTransforms[slotIndex] || { scale: defaultScale, translateX: 0, translateY: 0 };
+          
+          console.log(`🔍 Slot ${slotIndex + 1} (Photo ${currentPhotoIndex + 1}) transform debug:`);
+          console.log(`  - Slot config photoIndex:`, currentSlot.photoIndex);
+          console.log(`  - Using photo index:`, currentPhotoIndex);
+          console.log(`  - photoTransforms[${slotIndex}]:`, photoTransforms[slotIndex]);
+          console.log(`  - Using transform:`, transform);
+          
+          // KOORDINAT MAPPING: Preview (350px) -> Canvas (800px)
+          const PREVIEW_WIDTH = 350;
+          const PREVIEW_HEIGHT = 525; // aspect ratio 2:3
+          const SCALE_RATIO = canvasWidth / PREVIEW_WIDTH; // 800/350 = 2.286
+          
+          // Calculate slot position dalam preview coordinates
+          const previewSlotX = currentSlot.left * PREVIEW_WIDTH;
+          const previewSlotY = currentSlot.top * PREVIEW_HEIGHT;
+          const previewSlotWidth = currentSlot.width * PREVIEW_WIDTH;
+          const previewSlotHeight = currentSlot.height * PREVIEW_HEIGHT;
+          
+          // Convert ke canvas coordinates 
+          const slotX = previewSlotX * SCALE_RATIO;
+          const slotY = previewSlotY * SCALE_RATIO;
+          const slotWidth = previewSlotWidth * SCALE_RATIO;
+          const slotHeight = previewSlotHeight * SCALE_RATIO;
+          
+          // MIMIC CSS objectFit: contain behavior
+          const imgAspectRatio = img.width / img.height;
+          const slotAspectRatio = slotWidth / slotHeight;
+          
+          let photoDisplayWidth, photoDisplayHeight;
+          
+          if (imgAspectRatio > slotAspectRatio) {
+            // Photo lebih wide - fit by width
+            photoDisplayWidth = slotWidth;
+            photoDisplayHeight = slotWidth / imgAspectRatio;
+          } else {
+            // Photo lebih tall - fit by height  
+            photoDisplayWidth = slotHeight * imgAspectRatio;
+            photoDisplayHeight = slotHeight;
+          }
+          
+          // Center position dalam slot
+          const slotCenterX = slotX + (slotWidth / 2);
+          const slotCenterY = slotY + (slotHeight / 2);
+          
+          // Apply user transforms
+          const scaledTranslateX = (transform.translateX || 0) * SCALE_RATIO;
+          const scaledTranslateY = (transform.translateY || 0) * SCALE_RATIO;
+          
+          // Render photo dengan clipping untuk clean edges
+          ctx.save();
+          
+          // Clip to slot area  
+          ctx.beginPath();
+          ctx.rect(slotX, slotY, slotWidth, slotHeight);
+          ctx.clip();
+          
+          // Calculate final photo dimensions dengan scale applied
+          const finalPhotoWidth = photoDisplayWidth * transform.scale;
+          const finalPhotoHeight = photoDisplayHeight * transform.scale;
+          
+          // Calculate final position dengan scale dari center + translate
+          const finalPhotoX = slotCenterX - (finalPhotoWidth / 2) + scaledTranslateX;
+          const finalPhotoY = slotCenterY - (finalPhotoHeight / 2) + scaledTranslateY;
+          
+          console.log(`📐 Slot ${slotIndex + 1}: Final photo ${finalPhotoWidth.toFixed(1)}x${finalPhotoHeight.toFixed(1)} at ${finalPhotoX.toFixed(1)},${finalPhotoY.toFixed(1)}`);
+          
+          // Draw photo dengan ukuran dan posisi final
+          ctx.drawImage(img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight);
+          
+          ctx.restore();
+          
+          renderedCount++;
+          console.log(`✅ Slot ${slotIndex + 1}: Rendered successfully`);
+        }
+        
+      } else {
+        // Standard logic for non-duplicate frames  
+        for (const { img, index } of loadedPhotos) {
+        console.log(`Processing standard photo...`);
         console.log(`🔥 LOOP DEBUG: img exists:`, !!img);
         console.log(`🔥 LOOP DEBUG: img details:`, img ? `${img.width}x${img.height}` : 'NULL');
         
         // FORCE DRAW: Draw something untuk setiap loop iteration
         // ctx.fillStyle = 'purple';
         // ctx.fillRect(400 + (index * 50), 100, 40, 40);
-        console.log(`🔥 FORCE DRAW: Drew purple square for photo ${index + 1}`);
+        // Debug draw removed
         
         console.log(`�🔄 Processing photo ${index + 1}...`);
         if (!img) {
@@ -838,13 +951,17 @@ export default function EditPhoto() {
           defaultScale = 1.1; // Testframe4 specific default (max zoom out + 6 steps)
         }
         
-        const slot = frameConfig.slots[index];
+        const standardSlot = frameConfig.slots[index];
+        
+        // Handle duplicate photos: use slot.photoIndex if available
+        const standardPhotoIndex = standardSlot.photoIndex !== undefined ? standardSlot.photoIndex : index;
         const transform = photoTransforms[index] || { scale: defaultScale, translateX: 0, translateY: 0 };
         
-        console.log(`🔍 Photo ${index + 1} transform debug:`);
+        console.log(`🔍 Slot ${index + 1} (Photo ${standardPhotoIndex + 1}) transform debug:`);
+        console.log(`  - Slot config photoIndex:`, standardSlot.photoIndex);
+        console.log(`  - Using photo index:`, standardPhotoIndex);
         console.log(`  - photoTransforms[${index}]:`, photoTransforms[index]);
         console.log(`  - Using transform:`, transform);
-        console.log(`  - All photoTransforms:`, photoTransforms);
         console.log(`  - Default scale would be:`, defaultScale);
         console.log(`  - Is using default fallback?:`, !photoTransforms[index]);
         
@@ -861,10 +978,10 @@ export default function EditPhoto() {
         console.log(`  - Scale ratio: ${SCALE_RATIO.toFixed(3)}`)
         
         // Calculate slot position dalam preview coordinates (seperti yang dilihat user)
-        const previewSlotX = slot.left * PREVIEW_WIDTH;
-        const previewSlotY = slot.top * PREVIEW_HEIGHT;
-        const previewSlotWidth = slot.width * PREVIEW_WIDTH;
-        const previewSlotHeight = slot.height * PREVIEW_HEIGHT;
+        const previewSlotX = standardSlot.left * PREVIEW_WIDTH;
+        const previewSlotY = standardSlot.top * PREVIEW_HEIGHT;
+        const previewSlotWidth = standardSlot.width * PREVIEW_WIDTH;
+        const previewSlotHeight = standardSlot.height * PREVIEW_HEIGHT;
         
         // Convert ke canvas coordinates 
         const slotX = previewSlotX * SCALE_RATIO;
@@ -936,7 +1053,7 @@ export default function EditPhoto() {
         const finalPhotoX = slotCenterX - (finalPhotoWidth / 2) + scaledTranslateX;
         const finalPhotoY = slotCenterY - (finalPhotoHeight / 2) + scaledTranslateY;
         
-        console.log(`📐 Final photo dimensions: ${finalPhotoWidth.toFixed(1)}x${finalPhotoHeight.toFixed(1)} at ${finalPhotoX.toFixed(1)},${finalPhotoY.toFixed(1)}`);
+        console.log(`Final photo dimensions: ${finalPhotoWidth.toFixed(1)}x${finalPhotoHeight.toFixed(1)} at ${finalPhotoX.toFixed(1)},${finalPhotoY.toFixed(1)}`);
         
         // Draw photo dengan ukuran dan posisi final
         ctx.drawImage(img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight);
@@ -944,14 +1061,15 @@ export default function EditPhoto() {
         ctx.restore();
         
         renderedCount++;
-        console.log(`✅ Photo ${index + 1}: Rendered successfully`);
+        console.log(`Slot/Photo ${index + 1}: Rendered successfully`);
+        }
       }
       
-      console.log(`🎨 Photos rendering complete: ${renderedCount} photos rendered`);
+      console.log(`Photos rendering complete: ${renderedCount} photos rendered`);
       
       // Render frame overlay on top of photos
       if (frameImage) {
-        console.log('🖼️ Rendering frame overlay...');
+        console.log('Rendering frame overlay...');
         
         try {
           const frameImgElement = new Image();
@@ -1232,39 +1350,52 @@ export default function EditPhoto() {
                     onDragLeave={handleDragLeave}
                     onDrop={(e) => handleDrop(e, slotIndex)}
                   >
-                    {photos[slotIndex] && (
-                      <div style={{ 
-                        position: 'relative', 
-                        width: '100%', 
-                        height: '100%',
-                        overflow: 'hidden'
-                      }}>
-                        <img
-                          src={photos[slotIndex]}
-                          alt={`Photo ${slotIndex + 1}`}
-                          style={{
-                            ...calculatePhotoCropStyle(frameConfig, slotIndex),
-                            opacity: draggedPhoto?.slotIndex === slotIndex ? 0.7 : 1,
-                            cursor: selectedPhotoForEdit === slotIndex ? 'grab' : 'pointer'
-                          }}
-                          draggable={true}
-                          onDragStart={(e) => handleDragStart(e, slotIndex, slotIndex)}
-                          onClick={() => setSelectedPhotoForEdit(selectedPhotoForEdit === slotIndex ? null : slotIndex)}
-                          onWheel={(e) => {
-                            if (selectedPhotoForEdit === slotIndex) {
-                              e.preventDefault();
-                              const delta = e.deltaY > 0 ? -1 : 1;
-                              handlePhotoZoom(slotIndex, delta);
-                            }
-                          }}
-                          onMouseDown={(e) => handlePhotoMouseDown(e, slotIndex)}
-                          onMouseMove={(e) => handlePhotoMouseMove(e, slotIndex)}
-                          onMouseUp={handlePhotoMouseUp}
-                          onMouseLeave={handlePhotoMouseUp}
-                        />
-                        
-                        {/* Photo Edit Controls */}
-                        {selectedPhotoForEdit === slotIndex && (
+                    {/* Render photo dengan logic duplicate support */}
+                    {(() => {
+                      // Untuk photobooth duplicate, gunakan slot.photoIndex
+                      // Jika tidak ada photoIndex, fallback ke slotIndex
+                      const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+                      const photoSrc = photos[photoIndex];
+                      
+                      return photoSrc && (
+                        <div style={{ 
+                          position: 'relative', 
+                          width: '100%', 
+                          height: '100%',
+                          overflow: 'hidden'
+                        }}>
+                          <img
+                            src={photoSrc}
+                            alt={`Photo ${photoIndex + 1}${slot.photoIndex !== undefined ? ` (duplicate)` : ''}`}
+                            style={{
+                              ...calculatePhotoCropStyle(frameConfig, slotIndex),
+                              opacity: draggedPhoto?.slotIndex === slotIndex ? 0.7 : 1,
+                              cursor: selectedPhotoForEdit === slotIndex ? 'grab' : 'pointer'
+                            }}
+                            draggable={!frameConfig?.duplicatePhotos} // Disable drag for duplicate photo frames
+                            onDragStart={(e) => {
+                              if (frameConfig?.duplicatePhotos) {
+                                e.preventDefault();
+                                return false;
+                              }
+                              handleDragStart(e, photoIndex, slotIndex);
+                            }}
+                            onClick={() => setSelectedPhotoForEdit(selectedPhotoForEdit === slotIndex ? null : slotIndex)}
+                            onWheel={(e) => {
+                              if (selectedPhotoForEdit === slotIndex) {
+                                e.preventDefault();
+                                const delta = e.deltaY > 0 ? -1 : 1;
+                                handlePhotoZoom(slotIndex, delta);
+                              }
+                            }}
+                            onMouseDown={(e) => handlePhotoMouseDown(e, slotIndex)}
+                            onMouseMove={(e) => handlePhotoMouseMove(e, slotIndex)}
+                            onMouseUp={handlePhotoMouseUp}
+                            onMouseLeave={handlePhotoMouseUp}
+                          />
+                          
+                          {/* Photo Edit Controls */}
+                          {selectedPhotoForEdit === slotIndex && (
                           <div style={{
                             position: 'absolute',
                             bottom: '4px',
@@ -1364,8 +1495,12 @@ export default function EditPhoto() {
                           </div>
                         )}
                       </div>
-                    )}
-                    {!photos[slotIndex] && (
+                      );
+                    })()}
+                    {(() => {
+                      const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+                      const photoSrc = photos[photoIndex];
+                      return !photoSrc && (
                       <div style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -1378,7 +1513,8 @@ export default function EditPhoto() {
                       }}>
                         Slot {slotIndex + 1}
                       </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 ))}
                 

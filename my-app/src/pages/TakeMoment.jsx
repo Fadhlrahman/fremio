@@ -3,6 +3,79 @@ import { useNavigate } from "react-router-dom";
 import frameProvider from '../utils/frameProvider.js';
 import { getFrameConfig } from '../config/frameConfigs.js';
 
+// Utility function to compress image
+const compressImage = (dataUrl, quality = 0.8, maxWidth = 600, maxHeight = 600) => {
+  return new Promise((resolve) => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    
+    img.onload = () => {
+      // Calculate new dimensions - maintain better quality
+      let { width, height } = img;
+      
+      // Less aggressive sizing to preserve quality
+      if (width > maxWidth || height > maxHeight) {
+        const ratio = Math.min(maxWidth / width, maxHeight / height);
+        width *= ratio;
+        height *= ratio;
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
+      
+      // Better quality settings
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      
+      // Draw and compress with better quality
+      ctx.drawImage(img, 0, 0, width, height);
+      const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+      
+      console.log(`📷 Image compressed: ${(dataUrl.length / 1024).toFixed(1)}KB → ${(compressedDataUrl.length / 1024).toFixed(1)}KB`);
+      resolve(compressedDataUrl);
+    };
+    
+    img.src = dataUrl;
+  });
+};
+
+// Utility function to calculate storage size
+const calculateStorageSize = (data) => {
+  const size = new Blob([JSON.stringify(data)]).size;
+  return {
+    bytes: size,
+    kb: (size / 1024).toFixed(1),
+    mb: (size / (1024 * 1024)).toFixed(2)
+  };
+};
+
+// Utility function to clean up localStorage
+const cleanUpStorage = () => {
+  // Remove old/unnecessary items
+  const keysToRemove = ['__test__', 'debug', 'temp'];
+  keysToRemove.forEach(key => {
+    localStorage.removeItem(key);
+  });
+  
+  // Force garbage collection if available
+  if (window.gc) {
+    window.gc();
+  }
+  
+  console.log('🧹 Storage cleaned up');
+};
+
+// Utility function to compress multiple photos
+const compressPhotosArray = async (photos, quality = 0.6, maxWidth = 400, maxHeight = 400) => {
+  const compressed = [];
+  for (const photo of photos) {
+    const compressedPhoto = await compressImage(photo, quality, maxWidth, maxHeight);
+    compressed.push(compressedPhoto);
+  }
+  return compressed;
+};
+
 export default function TakeMoment() {
   const navigate = useNavigate();
   const fileInputRef = useRef();
@@ -75,33 +148,58 @@ export default function TakeMoment() {
     const currentSlot = frameConfig.slots[currentSlotIndex];
     if (!currentSlot) return [];
     
-    // Fixed aspect ratio 1.502 (width:height = 1.502:1)
-    const GUIDE_ASPECT_RATIO = 1.502;
+    // Get current frame name to determine aspect ratio
+    const currentFrameName = frameProvider.getCurrentFrameName();
     
-    // Use a base height percentage and calculate width to maintain 1.502 ratio
-    const guideHeight = 40; // 40% of stream height
-    const guideWidth = guideHeight * GUIDE_ASPECT_RATIO; // 40% * 1.502 = 60.08%
+    // Determine aspect ratio based on frame and slot
+    let GUIDE_ASPECT_RATIO;
     
-    // Center the guide in the stream (50% - half of guide size)
-    const centerLeft = 50 - (guideWidth / 2);  // 50% - 14% = 36%
-    const centerTop = 50 - (guideHeight / 2);  // 50% - 20% = 30%
+    if (currentFrameName === 'Testframe4') {
+      // Testframe4 uses landscape aspect ratio (16:9)
+      GUIDE_ASPECT_RATIO = 16/9; // ≈ 1.78 (landscape)
+      console.log('📐 Using landscape aspect ratio for Testframe4:', GUIDE_ASPECT_RATIO);
+    } else {
+      // Other frames use portrait aspect ratio (4:5)
+      GUIDE_ASPECT_RATIO = 4/5; // = 0.8 (portrait)
+      console.log('📐 Using portrait aspect ratio for', currentFrameName, ':', GUIDE_ASPECT_RATIO);
+    }
     
-    // Return centered slot guide with fixed 0.7 aspect ratio
+    // Calculate guide dimensions based on aspect ratio
+    let guideWidth, guideHeight;
+    
+    if (GUIDE_ASPECT_RATIO > 1) {
+      // Landscape: fix height, calculate width
+      guideHeight = 35; // 35% of stream height for landscape
+      guideWidth = guideHeight * GUIDE_ASPECT_RATIO;
+    } else {
+      // Portrait: fix width, calculate height
+      guideWidth = 40; // 40% of stream width for portrait
+      guideHeight = guideWidth / GUIDE_ASPECT_RATIO;
+    }
+    
+    // Center the guide in the stream
+    const centerLeft = 50 - (guideWidth / 2);
+    const centerTop = 50 - (guideHeight / 2);
+    
+    // Return centered slot guide with appropriate aspect ratio
     return [{
       left: `${centerLeft}%`,
       top: `${centerTop}%`, 
       width: `${guideWidth}%`,
       height: `${guideHeight}%`,
       id: currentSlot.id,
-      aspectRatio: `${GUIDE_ASPECT_RATIO}:1`,
+      aspectRatio: currentSlot.aspectRatio || `${GUIDE_ASPECT_RATIO}:1`,
       isCurrent: true,
       // Debug info
       calculatedRatio: guideWidth / guideHeight,
+      frameName: currentFrameName,
+      isLandscape: GUIDE_ASPECT_RATIO > 1,
       originalSlot: {
         width: currentSlot.width,
         height: currentSlot.height,
         left: currentSlot.left,
-        top: currentSlot.top
+        top: currentSlot.top,
+        aspectRatio: currentSlot.aspectRatio
       }
     }];
   };
@@ -220,19 +318,89 @@ export default function TakeMoment() {
     setShowConfirmation(true);
   };
 
-  const handleChoosePhoto = () => {
+  const handleChoosePhoto = async () => {
     console.log('handleChoosePhoto called');
     console.log('Current photo:', currentPhoto ? currentPhoto.substring(0, 50) + '...' : 'null');
     console.log('Current capturedPhotos before update:', capturedPhotos);
     
     if (currentPhoto) {
-      const newPhotos = [...capturedPhotos, currentPhoto];
-      console.log('New photos array:', newPhotos.length, 'photos');
-      setCapturedPhotos(newPhotos);
-      localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
-      setCurrentPhoto(null);
-      setShowConfirmation(false);
-      console.log('Photo added successfully');
+      try {
+        // Clean up storage first
+        cleanUpStorage();
+        
+        // Get current frame for quality optimization
+        const currentFrameName = frameProvider.getCurrentFrameName();
+        
+        // Compress the photo before saving - higher quality for Testframe4
+        console.log('📷 Compressing photo...');
+        let compressedPhoto;
+        
+        if (currentFrameName === 'Testframe4') {
+          // Higher quality for Testframe4 landscape photos
+          console.log('🎯 Using high quality compression for Testframe4');
+          compressedPhoto = await compressImage(currentPhoto, 0.85, 700, 500); // Higher quality and size
+        } else {
+          // Standard quality for other frames
+          compressedPhoto = await compressImage(currentPhoto, 0.75, 500, 500);
+        }
+        
+        const newPhotos = [...capturedPhotos, compressedPhoto];
+        console.log('New photos array:', newPhotos.length, 'photos');
+        
+        // Calculate storage size
+        const storageSize = calculateStorageSize(newPhotos);
+        console.log(`💾 Storage size: ${storageSize.kb}KB (${storageSize.mb}MB)`);
+        
+        // Check if we're getting close to localStorage limit
+        if (parseFloat(storageSize.mb) > 3) {
+          console.warn('⚠️ Storage size is getting large, applying moderate compression');
+          // Apply moderate compression with frame-specific settings
+          let moderateCompressed;
+          
+          if (currentFrameName === 'Testframe4') {
+            // Less aggressive compression for Testframe4 to maintain quality
+            console.log('🎯 Applying gentle compression for Testframe4');
+            moderateCompressed = await compressImage(currentPhoto, 0.75, 600, 450); // Still high quality
+          } else {
+            moderateCompressed = await compressImage(currentPhoto, 0.6, 400, 400);
+          }
+          
+          newPhotos[newPhotos.length - 1] = moderateCompressed;
+          
+          const newSize = calculateStorageSize(newPhotos);
+          console.log(`💾 Moderate-compressed size: ${newSize.kb}KB (${newSize.mb}MB)`);
+        }
+        
+        setCapturedPhotos(newPhotos);
+        
+        // Save with error handling
+        try {
+          localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
+          console.log('✅ Photos saved to localStorage successfully');
+        } catch (quotaError) {
+          console.error('❌ QuotaExceededError caught:', quotaError);
+          alert('Storage limit exceeded! Please try taking fewer photos or refresh the page.');
+          return;
+        }
+        
+        setCurrentPhoto(null);
+        setShowConfirmation(false);
+        console.log('Photo added successfully');
+      } catch (error) {
+        console.error('❌ Error compressing photo:', error);
+        // Fallback to original photo if compression fails
+        const newPhotos = [...capturedPhotos, currentPhoto];
+        setCapturedPhotos(newPhotos);
+        try {
+          localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
+        } catch (quotaError) {
+          console.error('❌ QuotaExceededError on fallback:', quotaError);
+          alert('Storage limit exceeded! Please refresh the page and try again.');
+          return;
+        }
+        setCurrentPhoto(null);
+        setShowConfirmation(false);
+      }
     } else {
       console.log('No currentPhoto available');
     }
@@ -512,11 +680,20 @@ export default function TakeMoment() {
                         </span>
                         <br/>
                         🖼️ Frame: {frameConfig.name} | Progress: {capturedPhotos.length}/{maxCaptures}
-                        {capturedPhotos.length < maxCaptures && (
-                          <div style={{ fontSize: '10px', color: '#ccc', marginTop: '4px' }}>
-                            Guide: 60.1% × 40% (ratio 1.502:1)
-                          </div>
-                        )}
+                        {capturedPhotos.length < maxCaptures && (() => {
+                          const guides = calculateCropGuides();
+                          const currentGuide = guides[0];
+                          return currentGuide && (
+                            <div style={{ fontSize: '10px', color: '#ccc', marginTop: '4px' }}>
+                              Guide: {parseFloat(currentGuide.width).toFixed(1)}% × {parseFloat(currentGuide.height).toFixed(1)}% 
+                              <br/>
+                              Ratio: {currentGuide.calculatedRatio?.toFixed(2)}:1 
+                              ({currentGuide.isLandscape ? 'Landscape' : 'Portrait'})
+                              <br/>
+                              Slot: {currentGuide.originalSlot?.aspectRatio}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   )}
@@ -704,19 +881,104 @@ export default function TakeMoment() {
             {/* Edit Button - Show when at least 1 photo captured */}
             {capturedPhotos.length > 0 && (
               <button
-                onClick={() => {
+                onClick={async () => {
                   console.log(`🎯 Edit button clicked - Photos: ${capturedPhotos.length}, MaxCaptures: ${maxCaptures}`);
                   console.log('📸 Photos array:', capturedPhotos);
                   
-                  // Save photos to localStorage before navigating
-                  localStorage.setItem('capturedPhotos', JSON.stringify(capturedPhotos));
-                  console.log('💾 Photos saved to localStorage');
+                  // Debug frame information
+                  const currentFrameConfig = frameProvider.getCurrentConfig();
+                  const currentFrameName = frameProvider.getCurrentFrameName();
+                  console.log('🖼️ Current frame name:', currentFrameName);
+                  console.log('🖼️ Current frame config:', currentFrameConfig);
                   
-                  // Also save current frame info
+                  // Check if this is Testframe3 or Testframe4 specifically
+                  if (currentFrameName === 'Testframe3' || currentFrameName === 'Testframe4') {
+                    console.log(`🔍 ${currentFrameName.toUpperCase()} DETECTED - Special debugging:`);
+                    console.log('  - Frame ID:', currentFrameConfig?.id);
+                    console.log('  - Max Captures:', currentFrameConfig?.maxCaptures);
+                    console.log('  - Slots count:', currentFrameConfig?.slots?.length);
+                    console.log('  - Photos count:', capturedPhotos.length);
+                  }
+                  
+                  // Save photos to localStorage before navigating
+                  try {
+                    // Clean up storage first
+                    cleanUpStorage();
+                    
+                    const storageSize = calculateStorageSize(capturedPhotos);
+                    console.log(`💾 About to save ${storageSize.kb}KB to localStorage`);
+                    
+                    // If still too large, apply emergency compression
+                    if (parseFloat(storageSize.mb) > 4) {
+                      console.log('🚨 Emergency compression needed');
+                      
+                      // Frame-specific emergency compression
+                      const currentFrameName = frameProvider.getCurrentFrameName();
+                      let emergencyCompressed;
+                      
+                      if (currentFrameName === 'Testframe4') {
+                        // More gentle emergency compression for Testframe4
+                        console.log('🎯 Gentle emergency compression for Testframe4');
+                        emergencyCompressed = await compressPhotosArray(capturedPhotos, 0.7, 500, 400);
+                      } else {
+                        emergencyCompressed = await compressPhotosArray(capturedPhotos, 0.6, 400, 400);
+                      }
+                      
+                      const newSize = calculateStorageSize(emergencyCompressed);
+                      console.log(`💾 Emergency compressed size: ${newSize.kb}KB`);
+                      
+                      localStorage.setItem('capturedPhotos', JSON.stringify(emergencyCompressed));
+                    } else {
+                      localStorage.setItem('capturedPhotos', JSON.stringify(capturedPhotos));
+                    }
+                    
+                    console.log('💾 Photos saved to localStorage');
+                  } catch (quotaError) {
+                    console.error('❌ QuotaExceededError when saving photos:', quotaError);
+                    
+                    // Last resort: try to save with reasonable compression
+                    try {
+                      console.log('🔥 Last resort: strong compression');
+                      
+                      const currentFrameName = frameProvider.getCurrentFrameName();
+                      let strongCompressed;
+                      
+                      if (currentFrameName === 'Testframe4') {
+                        // Even in last resort, try to preserve Testframe4 quality
+                        console.log('🎯 Last resort gentle compression for Testframe4');
+                        strongCompressed = await compressPhotosArray(capturedPhotos, 0.5, 400, 350);
+                      } else {
+                        strongCompressed = await compressPhotosArray(capturedPhotos, 0.4, 300, 300);
+                      }
+                      
+                      localStorage.setItem('capturedPhotos', JSON.stringify(strongCompressed));
+                      console.log('✅ Saved with strong compression');
+                    } catch (finalError) {
+                      alert('Storage limit exceeded! Please refresh the page and try again.');
+                      return; // Don't navigate if we can't save
+                    }
+                  }
+                  
+                  // Also save current frame info with extra verification for Testframe3
                   const currentFrame = frameProvider.getCurrentConfig();
                   if (currentFrame) {
-                    localStorage.setItem('selectedFrame', currentFrame.id);
-                    console.log(`🖼️ Frame saved: ${currentFrame.id}`);
+                    try {
+                      localStorage.setItem('selectedFrame', currentFrame.id);
+                      localStorage.setItem('frameConfig', JSON.stringify(currentFrame));
+                      console.log(`🖼️ Frame saved: ${currentFrame.id}`);
+                      
+                      if (currentFrame.id === 'Testframe3' || currentFrame.id === 'Testframe4') {
+                        console.log(`✅ ${currentFrame.id.toUpperCase()} data saved to localStorage`);
+                        console.log('   - selectedFrame:', localStorage.getItem('selectedFrame'));
+                        console.log('   - frameConfig:', localStorage.getItem('frameConfig'));
+                      }
+                    } catch (quotaError) {
+                      console.error('❌ QuotaExceededError when saving frame config:', quotaError);
+                      // Frame config is smaller, so this is less likely, but still handle it
+                      alert('Warning: Could not save frame configuration due to storage limits.');
+                    }
+                  } else {
+                    console.error('❌ No current frame found!');
                   }
                   
                   console.log('🚀 Navigating to /edit-photo');
@@ -855,6 +1117,169 @@ export default function TakeMoment() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+      
+      {/* Debug Panel for Storage Management */}
+      {capturedPhotos.length > 0 && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          right: '20px',
+          background: frameConfig?.id === 'Testframe4' ? '#28a745' : '#ff6b6b',
+          color: 'white',
+          padding: '10px',
+          borderRadius: '8px',
+          fontSize: '12px',
+          zIndex: 1000,
+          boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+          maxWidth: '200px'
+        }}>
+          <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>
+            💾 {frameConfig?.id?.toUpperCase()} Debug
+          </div>
+          <div>Photos: {capturedPhotos.length}/{maxCaptures}</div>
+          <div>Aspect: {frameConfig?.slots?.[0]?.aspectRatio || 'N/A'}</div>
+          <div>Size: {(() => {
+            const size = calculateStorageSize(capturedPhotos);
+            return `${size.kb}KB`;
+          })()}</div>
+          <button
+            onClick={() => {
+              const size = calculateStorageSize(capturedPhotos);
+              const guides = calculateCropGuides();
+              const currentGuide = guides[0];
+              
+              console.log('💾 Storage & Crop Analysis:');
+              console.log(`  - Frame: ${frameConfig?.id}`);
+              console.log(`  - Photos count: ${capturedPhotos.length}`);
+              console.log(`  - Total size: ${size.kb}KB (${size.mb}MB)`);
+              console.log(`  - Slot aspect ratio: ${frameConfig?.slots?.[0]?.aspectRatio}`);
+              
+              if (currentGuide) {
+                console.log('🎯 Current Crop Guide:');
+                console.log(`  - Guide ratio: ${currentGuide.calculatedRatio?.toFixed(2)}:1`);
+                console.log(`  - Is landscape: ${currentGuide.isLandscape}`);
+                console.log(`  - Guide size: ${currentGuide.width} × ${currentGuide.height}`);
+                console.log(`  - Frame name: ${currentGuide.frameName}`);
+              }
+              
+              // Test localStorage space
+              try {
+                const testData = 'x'.repeat(1024 * 1024); // 1MB test
+                localStorage.setItem('__test__', testData);
+                localStorage.removeItem('__test__');
+                console.log('✅ localStorage has space available');
+              } catch (e) {
+                console.log('❌ localStorage is nearly full');
+              }
+            }}
+            style={{
+              background: 'white',
+              color: frameConfig?.id === 'Testframe4' ? '#28a745' : '#ff6b6b',
+              border: 'none',
+              padding: '4px 8px',
+              borderRadius: '4px',
+              fontSize: '10px',
+              marginTop: '8px',
+              cursor: 'pointer',
+              width: '100%'
+            }}
+          >
+            Check Info
+          </button>
+          <button
+            onClick={() => {
+              // Force save original photos (risky but better quality)
+              try {
+                // Clear storage first
+                cleanUpStorage();
+                
+                // Try to save original photos
+                localStorage.setItem('capturedPhotos', JSON.stringify(capturedPhotos));
+                console.log('✅ Original photos saved (high quality)');
+                alert('Original high-quality photos saved! Note: this uses more storage.');
+              } catch (error) {
+                console.error('❌ Cannot save original photos:', error);
+                alert('Cannot save original photos due to storage limits. Using compressed version.');
+              }
+            }}
+            style={{
+              background: 'green',
+              color: 'white',
+              border: 'none',
+              padding: '4px 8px',
+              borderRadius: '4px',
+              fontSize: '10px',
+              marginTop: '4px',
+              cursor: 'pointer',
+              width: '100%'
+            }}
+          >
+            Save Original Quality
+          </button>
+          {frameConfig?.id === 'Testframe4' && (
+            <button
+              onClick={async () => {
+                // Special high-quality compression for Testframe4
+                try {
+                  cleanUpStorage();
+                  console.log('🎯 Applying Testframe4 premium compression');
+                  
+                  const premiumCompressed = [];
+                  for (const photo of capturedPhotos) {
+                    const compressed = await compressImage(photo, 0.9, 800, 600); // Very high quality
+                    premiumCompressed.push(compressed);
+                  }
+                  
+                  localStorage.setItem('capturedPhotos', JSON.stringify(premiumCompressed));
+                  const size = calculateStorageSize(premiumCompressed);
+                  console.log(`✅ Testframe4 premium quality saved (${size.kb}KB)`);
+                  alert(`Testframe4 premium quality saved! Size: ${size.kb}KB`);
+                } catch (error) {
+                  console.error('❌ Cannot save premium quality:', error);
+                  alert('Cannot save premium quality. Using standard compression.');
+                }
+              }}
+              style={{
+                background: '#28a745',
+                color: 'white',
+                border: 'none',
+                padding: '4px 8px',
+                borderRadius: '4px',
+                fontSize: '10px',
+                marginTop: '4px',
+                cursor: 'pointer',
+                width: '100%'
+              }}
+            >
+              Save Premium Quality (T4)
+            </button>
+          )}
+          <button
+            onClick={() => {
+              // Enhanced storage clearing
+              localStorage.clear(); // Clear everything
+              sessionStorage.clear(); // Clear session too
+              setCapturedPhotos([]);
+              console.log('🧹 ALL storage completely cleared (localStorage + sessionStorage)');
+              alert('Complete storage wipe! All data cleared. You can now take fresh high-quality photos.');
+              window.location.reload(); // Force refresh
+            }}
+            style={{
+              background: '#dc3545',
+              color: 'white',
+              border: 'none',
+              padding: '4px 8px',
+              borderRadius: '4px',
+              fontSize: '10px',
+              marginTop: '4px',
+              cursor: 'pointer',
+              width: '100%'
+            }}
+          >
+            Complete Storage Wipe
+          </button>
         </div>
       )}
     </div>

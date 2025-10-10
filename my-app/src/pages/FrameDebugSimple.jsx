@@ -45,6 +45,7 @@ export default function FrameDebugSimple() {
           <option value="Testframe1">Testframe1 (2 slots)</option>
           <option value="Testframe2">Testframe2 (3 slots)</option>
           <option value="Testframe3">Testframe3 (4 slots)</option>
+          <option value="Testframe4">Testframe4 (3 slots)</option>
         </select>
       </div>
 

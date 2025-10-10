@@ -6,6 +6,7 @@ import { createSampleData, clearTestData } from '../utils/testData.js';
 import Testframe1 from '../assets/Testframe1.png';
 import Testframe2 from '../assets/Testframe2.png';
 import Testframe3 from '../assets/Testframe3.png';
+import Testframe4 from '../assets/Testframe4.png';
 
 export default function Editor() {
   const navigate = useNavigate();
@@ -19,7 +20,8 @@ export default function Editor() {
     const frameMap = {
       'Testframe1': Testframe1,
       'Testframe2': Testframe2,
-      'Testframe3': Testframe3
+      'Testframe3': Testframe3,
+      'Testframe4': Testframe4
     };
     return frameMap[frameName] || null;
   };

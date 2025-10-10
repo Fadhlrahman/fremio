@@ -9,6 +9,8 @@ export class FrameDataProvider {
 
   // Set frame yang akan digunakan
   setFrame(frameName) {
+    console.log(`🎯 setFrame called with: ${frameName}`);
+    
     if (!isValidFrame(frameName)) {
       console.error(`Frame "${frameName}" tidak valid atau tidak ditemukan`);
       return false;
@@ -16,6 +18,15 @@ export class FrameDataProvider {
 
     this.currentFrame = frameName;
     this.currentConfig = getFrameConfig(frameName);
+    
+    // Special logging for Testframe3 and Testframe4
+    if (frameName === 'Testframe3' || frameName === 'Testframe4') {
+      console.log(`🔍 ${frameName.toUpperCase()} SET FRAME DEBUG:`);
+      console.log('  - isValidFrame result:', isValidFrame(frameName));
+      console.log('  - getFrameConfig result:', this.currentConfig);
+      console.log('  - maxCaptures:', this.currentConfig?.maxCaptures);
+      console.log('  - slots count:', this.currentConfig?.slots?.length);
+    }
     
     // Simpan ke localStorage untuk persistence
     localStorage.setItem('selectedFrame', frameName);

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getFrameConfig } from '../config/frameConfigs.js';
+import { getFrameConfig, FRAME_CONFIGS } from '../config/frameConfigs.js';
 import Testframe1 from '../assets/Testframe1.png';
 import Testframe2 from '../assets/Testframe2.png';
 import Testframe3 from '../assets/Testframe3.png';
+import Testframe4 from '../assets/Testframe4.png';
 
 export default function EditPhoto() {
   const navigate = useNavigate();
@@ -30,7 +31,8 @@ export default function EditPhoto() {
     const frameMap = {
       'Testframe1': Testframe1,
       'Testframe2': Testframe2,
-      'Testframe3': Testframe3
+      'Testframe3': Testframe3,
+      'Testframe4': Testframe4
     };
     return frameMap[frameId] || Testframe1;
   };
@@ -77,6 +79,15 @@ export default function EditPhoto() {
     // Load selected frame from localStorage
     const frameFromStorage = localStorage.getItem('selectedFrame') || 'Testframe1';
     console.log('🖼️ Frame from localStorage:', frameFromStorage);
+    
+    // Special debugging for Testframe3 and Testframe4
+    if (frameFromStorage === 'Testframe3' || frameFromStorage === 'Testframe4') {
+      console.log(`🔍 ${frameFromStorage.toUpperCase()} LOADING DEBUG:`);
+      console.log('  - selectedFrame value:', frameFromStorage);
+      console.log('  - frameConfig from localStorage:', localStorage.getItem('frameConfig'));
+      console.log('  - capturedPhotos from localStorage:', localStorage.getItem('capturedPhotos'));
+    }
+    
     setSelectedFrame(frameFromStorage);
     console.log('🖼️ Loading frame:', frameFromStorage);
     
@@ -87,8 +98,24 @@ export default function EditPhoto() {
       setFrameConfig(config);
       setFrameImage(getFrameImage(frameFromStorage));
       console.log('✅ Frame config loaded:', config);
+      
+      // Extra verification for Testframe3 and Testframe4
+      if (frameFromStorage === 'Testframe3' || frameFromStorage === 'Testframe4') {
+        console.log(`✅ ${frameFromStorage.toUpperCase()} successfully loaded:`);
+        console.log('  - Config ID:', config.id);
+        console.log('  - Max captures:', config.maxCaptures);
+        console.log('  - Slots count:', config.slots?.length);
+        console.log('  - Frame image:', getFrameImage(frameFromStorage));
+      }
     } else {
       console.error('❌ Failed to load frame config for:', frameFromStorage);
+      
+      // Extra error logging for Testframe3 and Testframe4
+      if (frameFromStorage === 'Testframe3' || frameFromStorage === 'Testframe4') {
+        console.error(`❌ ${frameFromStorage.toUpperCase()} FAILED TO LOAD!`);
+        console.error('  - getFrameConfig returned:', config);
+        console.error('  - Available configs:', Object.keys(FRAME_CONFIGS || {}));
+      }
     }
   }, []);
 
@@ -172,6 +199,28 @@ export default function EditPhoto() {
     
     const slot = frameConfig.slots[slotIndex];
     
+    // Dynamic calculation based on frame type
+    const slotAspectRatio = slot.width / slot.height;
+    const photoAspectRatio = 4 / 3; // 1.33 (landscape camera)
+    
+    // Special handling for Testframe4 landscape slots
+    if (frameConfig?.id === 'Testframe4') {
+      // Testframe4 has landscape slots (16:9) for landscape photos
+      console.log(`🎯 Testframe4 slot ${slotIndex + 1}: Landscape auto-fit calculation`);
+      
+      // For landscape photos in landscape slots, we can use lower scale
+      const landscapeFitScale = 1.1; // Much lower base scale for landscape slots
+      const slotSizeAdjustment = 1 / slot.width; // Width-based adjustment for landscape
+      const finalScale = landscapeFitScale + (slotSizeAdjustment * 0.2);
+      
+      // More conservative clamping for landscape
+      const clampedScale = Math.max(0.8, Math.min(1.8, finalScale));
+      
+      console.log(`📏 Testframe4 Slot ${slotIndex + 1}: Landscape-fit scale = ${clampedScale.toFixed(2)}x (slot: ${(slot.width*100).toFixed(0)}%×${(slot.height*100).toFixed(0)}%)`);
+      return clampedScale;
+    }
+    
+    // Original logic for portrait frames (Testframe1, 2, 3)
     // Untuk foto landscape (4:3) dalam slot portrait:
     // Kita ingin foto fit berdasarkan HEIGHT agar seluruh tinggi foto terlihat
     
@@ -179,9 +228,6 @@ export default function EditPhoto() {
     // Kita perlu scale tambahan agar foto mengisi slot height dengan optimal
     
     // Simple approach: scale berdasarkan aspect ratio difference
-    const slotAspectRatio = slot.width / slot.height; // biasanya < 1 (portrait)
-    const photoAspectRatio = 4 / 3; // 1.33 (landscape)
-    
     // Jika foto landscape masuk slot portrait:
     // Foto akan fit by height (atas-bawah pas), ada space kiri-kanan
     // Scale factor untuk mengoptimalkan tinggi
@@ -324,8 +370,17 @@ export default function EditPhoto() {
       const slot = frameConfig?.slots[photoIndex];
       if (!slot) return prev;
       
-      const photoAspectRatio = 4 / 3;
-      const slotAspectRatio = slot.width / slot.height;
+      // Get aspect ratios dynamically based on frame configuration
+      let photoAspectRatio = 4 / 3; // Default camera landscape
+      let slotAspectRatio = slot.width / slot.height;
+      
+      // Special handling for Testframe4 yang punya landscape slots
+      if (frameConfig?.id === 'Testframe4') {
+        // Testframe4 slots are 16:9 landscape
+        console.log(`🎯 Testframe4 slot ${photoIndex + 1}: Using landscape calculations`);
+        // Untuk landscape slots, minimum zoom out lebih permisif
+        slotAspectRatio = 16 / 9; // Force 16:9 ratio for consistency
+      }
       
       // Minimum scale agar foto edge bertemu slot edge (no gaps)
       let minScaleForCoverage;
@@ -338,8 +393,15 @@ export default function EditPhoto() {
         minScaleForCoverage = slotAspectRatio / photoAspectRatio;
       }
       
-      // Apply reasonable bounds
-      const absoluteMinScale = Math.max(0.8, minScaleForCoverage);
+      // Apply reasonable bounds - more permissive for Testframe4
+      let absoluteMinScale;
+      if (frameConfig?.id === 'Testframe4') {
+        // Allow much more zoom out for landscape frames
+        absoluteMinScale = Math.max(0.5, minScaleForCoverage * 0.7); // More permissive
+      } else {
+        absoluteMinScale = Math.max(0.8, minScaleForCoverage);
+      }
+      
       const maxScale = 4;
       
       const newScale = Math.max(absoluteMinScale, Math.min(maxScale, current.scale + delta * 0.1));
@@ -347,7 +409,7 @@ export default function EditPhoto() {
       // Auto-adjust pan untuk maintain edge-to-edge setelah zoom
       const adjustedTransform = adjustPanForEdgeBoundaries(current, newScale, photoIndex);
       
-      console.log(`🔍 Photo ${photoIndex + 1}: Zoom ${delta > 0 ? 'IN' : 'OUT'} to ${newScale.toFixed(2)}x (min: ${absoluteMinScale.toFixed(2)}x for edge coverage)`);
+      console.log(`🔍 Photo ${photoIndex + 1}: Zoom ${delta > 0 ? 'IN' : 'OUT'} to ${newScale.toFixed(2)}x (min: ${absoluteMinScale.toFixed(2)}x for ${frameConfig?.id || 'unknown'} coverage)`);
       
       return {
         ...prev,
@@ -365,8 +427,15 @@ export default function EditPhoto() {
     const slot = frameConfig?.slots[photoIndex];
     if (!slot) return current;
     
-    const photoAspectRatio = 4 / 3;
-    const slotAspectRatio = slot.width / slot.height;
+    // Dynamic aspect ratio based on frame type
+    let photoAspectRatio = 4 / 3; // Default camera landscape
+    let slotAspectRatio = slot.width / slot.height;
+    
+    // Special handling for Testframe4 landscape slots
+    if (frameConfig?.id === 'Testframe4') {
+      slotAspectRatio = 16 / 9; // Force consistent 16:9 for Testframe4
+      console.log(`🎯 Testframe4 boundary adjustment for slot ${photoIndex + 1}: photo ${photoAspectRatio.toFixed(2)} vs slot ${slotAspectRatio.toFixed(2)}`);
+    }
     
     // Calculate foto dimensions setelah scale
     let photoWidthInSlot, photoHeightInSlot;
@@ -382,9 +451,18 @@ export default function EditPhoto() {
     const scaledPhotoWidth = photoWidthInSlot * newScale;
     const scaledPhotoHeight = photoHeightInSlot * newScale;
     
-    // Calculate new max translate
-    const maxTranslateXPx = Math.max(0, (scaledPhotoWidth - 100) / 2) * 3.5;
-    const maxTranslateYPx = Math.max(0, (scaledPhotoHeight - 100) / 2) * 5.25;
+    // Calculate new max translate - more permissive for Testframe4
+    let maxTranslateXPx, maxTranslateYPx;
+    
+    if (frameConfig?.id === 'Testframe4') {
+      // More generous boundaries for landscape slots
+      maxTranslateXPx = Math.max(0, (scaledPhotoWidth - 100) / 2) * 4.5;
+      maxTranslateYPx = Math.max(0, (scaledPhotoHeight - 100) / 2) * 6.0;
+    } else {
+      // Standard boundaries for portrait frames
+      maxTranslateXPx = Math.max(0, (scaledPhotoWidth - 100) / 2) * 3.5;
+      maxTranslateYPx = Math.max(0, (scaledPhotoHeight - 100) / 2) * 5.25;
+    }
     
     return {
       ...current,
@@ -1432,6 +1510,53 @@ export default function EditPhoto() {
           )}
         </div>
       </div>
+      
+      {/* Debug Panel - only show if Testframe3 or Testframe4 is selected */}
+      {(selectedFrame === 'Testframe3' || selectedFrame === 'Testframe4') && (
+        <div style={{
+          position: 'fixed',
+          bottom: '20px',
+          right: '20px',
+          background: selectedFrame === 'Testframe4' ? '#28a745' : '#ff6b6b',
+          color: 'white',
+          padding: '10px',
+          borderRadius: '8px',
+          fontSize: '12px',
+          zIndex: 1000,
+          boxShadow: '0 2px 10px rgba(0,0,0,0.2)'
+        }}>
+          <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>
+            🔍 {selectedFrame.toUpperCase()} DEBUG
+          </div>
+          <div>Frame: {selectedFrame}</div>
+          <div>Photos: {photos.length}</div>
+          <div>Frame Config: {frameConfig ? '✅' : '❌'}</div>
+          <div>Max Captures: {frameConfig?.maxCaptures || 'N/A'}</div>
+          <button
+            onClick={() => {
+              console.log(`🔍 ${selectedFrame.toUpperCase()} COMPLETE DEBUG:`);
+              console.log('  - selectedFrame:', selectedFrame);
+              console.log('  - frameConfig:', frameConfig);
+              console.log('  - photos:', photos);
+              console.log('  - localStorage selectedFrame:', localStorage.getItem('selectedFrame'));
+              console.log('  - localStorage frameConfig:', localStorage.getItem('frameConfig'));
+              console.log('  - localStorage capturedPhotos:', localStorage.getItem('capturedPhotos'));
+            }}
+            style={{
+              background: 'white',
+              color: selectedFrame === 'Testframe4' ? '#28a745' : '#ff6b6b',
+              border: 'none',
+              padding: '4px 8px',
+              borderRadius: '4px',
+              fontSize: '10px',
+              marginTop: '8px',
+              cursor: 'pointer'
+            }}
+          >
+            Log Debug Info
+          </button>
+        </div>
+      )}
     </div>
   );
 }

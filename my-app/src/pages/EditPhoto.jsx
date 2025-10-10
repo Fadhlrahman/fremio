@@ -1730,8 +1730,11 @@ export default function EditPhoto() {
                             alt={`Photo ${photoIndex + 1}${slot.photoIndex !== undefined ? ` (duplicate)` : ''}`}
                             style={{
                               ...calculatePhotoCropStyle(frameConfig, slotIndex),
-                              opacity: draggedPhoto?.slotIndex === slotIndex ? 0.7 : 1,
-                              cursor: selectedPhotoForEdit === slotIndex ? 'grab' : 'pointer'
+                              opacity: draggedPhoto?.slotIndex === slotIndex ? 0.6 : 1,
+                              cursor: selectedPhotoForEdit === slotIndex ? 'grab' : 'pointer',
+                              filter: draggedPhoto?.slotIndex === slotIndex ? 'blur(1px)' : 'none',
+                              transform: `${calculatePhotoCropStyle(frameConfig, slotIndex).transform} ${draggedPhoto?.slotIndex === slotIndex ? 'scale(0.95)' : ''}`,
+                              transition: 'all 0.2s ease'
                             }}
                             draggable={true} // Enable drag for all frames including Testframe2
                             onDragStart={(e) => {
@@ -1751,104 +1754,141 @@ export default function EditPhoto() {
                             onMouseLeave={handlePhotoMouseUp}
                           />
                           
-                          {/* Photo Edit Controls */}
+                          {/* Modern Photo Edit Controls */}
                           {selectedPhotoForEdit === slotIndex && (
                           <div style={{
                             position: 'absolute',
-                            bottom: '4px',
+                            bottom: '12px',
                             left: '50%',
                             transform: 'translateX(-50%)',
                             display: 'flex',
+                            alignItems: 'center',
                             gap: '4px',
-                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                            borderRadius: '20px',
+                            background: 'rgba(0, 0, 0, 0.7)',
+                            backdropFilter: 'blur(20px)',
+                            borderRadius: '14px',
                             padding: '4px 8px',
-                            zIndex: 20
+                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+                            zIndex: 20,
+                            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
                           }}>
-                            {/* Zoom Out */}
+                            {/* Zoom Out Button */}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handlePhotoZoom(slotIndex, -1);
                               }}
                               style={{
-                                background: 'none',
+                                background: 'rgba(255, 255, 255, 0.1)',
                                 border: 'none',
                                 color: 'white',
-                                fontSize: '14px',
+                                width: '20px',
+                                height: '20px',
+                                borderRadius: '50%',
                                 cursor: 'pointer',
-                                padding: '2px 4px'
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '12px',
+                                fontWeight: 'bold',
+                                transition: 'all 0.2s ease',
+                                backdropFilter: 'blur(10px)'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.target.style.background = 'rgba(255, 255, 255, 0.2)';
+                                e.target.style.transform = 'scale(1.1)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.target.style.background = 'rgba(255, 255, 255, 0.1)';
+                                e.target.style.transform = 'scale(1)';
                               }}
                             >
-                              🔍-
+                              −
                             </button>
                             
-                            {/* Zoom In */}
+                            {/* Zoom Level Display */}
+                            <div style={{
+                              color: 'white',
+                              fontSize: '11px',
+                              fontWeight: '600',
+                              minWidth: '28px',
+                              textAlign: 'center',
+                              background: 'rgba(255, 255, 255, 0.1)',
+                              padding: '3px 6px',
+                              borderRadius: '10px',
+                              backdropFilter: 'blur(10px)',
+                              border: '1px solid rgba(255, 255, 255, 0.1)'
+                            }}>
+                              {(photoTransforms[slotIndex]?.scale || 1).toFixed(1)}x
+                            </div>
+                            
+                            {/* Zoom In Button */}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handlePhotoZoom(slotIndex, 1);
                               }}
                               style={{
-                                background: 'none',
+                                background: 'rgba(255, 255, 255, 0.1)',
                                 border: 'none',
                                 color: 'white',
-                                fontSize: '14px',
+                                width: '20px',
+                                height: '20px',
+                                borderRadius: '50%',
                                 cursor: 'pointer',
-                                padding: '2px 4px'
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '12px',
+                                fontWeight: 'bold',
+                                transition: 'all 0.2s ease',
+                                backdropFilter: 'blur(10px)'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.target.style.background = 'rgba(255, 255, 255, 0.2)';
+                                e.target.style.transform = 'scale(1.1)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.target.style.background = 'rgba(255, 255, 255, 0.1)';
+                                e.target.style.transform = 'scale(1)';
                               }}
                             >
-                              🔍+
+                              +
                             </button>
                             
-                            {/* Zoom Level Indicator */}
-                            <span style={{
-                              color: 'white',
-                              fontSize: '10px',
-                              padding: '2px 4px',
-                              backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                              borderRadius: '4px',
-                              minWidth: '30px',
-                              textAlign: 'center'
-                            }}>
-                              {(photoTransforms[slotIndex]?.scale || 1).toFixed(1)}x
-                            </span>
-                            
-                            {/* Reset */}
+                            {/* Reset Button */}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 resetPhotoTransform(slotIndex);
                               }}
                               style={{
-                                background: 'none',
+                                background: 'rgba(255, 255, 255, 0.1)',
                                 border: 'none',
                                 color: 'white',
-                                fontSize: '12px',
+                                width: '20px',
+                                height: '20px',
+                                borderRadius: '50%',
                                 cursor: 'pointer',
-                                padding: '2px 4px'
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '10px',
+                                transition: 'all 0.2s ease',
+                                backdropFilter: 'blur(10px)'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.target.style.background = 'rgba(255, 255, 255, 0.2)';
+                                e.target.style.transform = 'scale(1.1)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.target.style.background = 'rgba(255, 255, 255, 0.1)';
+                                e.target.style.transform = 'scale(1)';
                               }}
                             >
                               ↺
                             </button>
-                          </div>
-                        )}
-                        
-                        {/* Photo Selection Indicator */}
-                        {selectedPhotoForEdit === slotIndex && (
-                          <div style={{
-                            position: 'absolute',
-                            top: '2px',
-                            right: '2px',
-                            backgroundColor: '#00ff00',
-                            color: 'black',
-                            fontSize: '10px',
-                            padding: '2px 6px',
-                            borderRadius: '10px',
-                            fontWeight: 'bold',
-                            zIndex: 20
-                          }}>
-                            EDIT
                           </div>
                         )}
                       </div>

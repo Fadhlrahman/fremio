@@ -2909,7 +2909,11 @@ export default function EditPhoto() {
           background: '#fff',
           borderRadius: '20px',
           padding: '1.5rem',
-          height: 'fit-content'
+          height: 'fit-content',
+          display: 'flex',
+          flexDirection: 'column',
+          maxHeight: '72vh',
+          overflow: 'hidden'
         }}>
           <h3 style={{
             textAlign: 'center',
@@ -2920,7 +2924,7 @@ export default function EditPhoto() {
           }}>
             {hasDevAccess && debugMode ? 'Debug Info' : (activeToggle === 'photos' ? 'All Photos' : 'Filter Presets')}
           </h3>
-          
+          <div style={{ flex: 1, overflowY: 'auto', paddingRight: '0.5rem', minHeight: 0 }}>
           {hasDevAccess && debugMode ? (
             /* Debug Panel */
             frameConfig && (
@@ -3280,6 +3284,7 @@ export default function EditPhoto() {
               )}
             </div>
           ) : null}
+          </div>
         </div>
       </div>
       

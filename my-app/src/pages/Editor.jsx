@@ -292,7 +292,7 @@ export default function Editor() {
       return;
     }
 
-    // Duplicate-photo frames: swap only the targeted slots
+    // Duplicate-photo frames: swap only the targeted slots...
     if (duplicatePhotos && Array.isArray(frameSlots)) {
       const newSlotPhotos = { ...slotPhotos };
       const srcSlot = frameSlots[sourceSlotIndex];

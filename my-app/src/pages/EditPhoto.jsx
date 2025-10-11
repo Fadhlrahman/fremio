@@ -18,13 +18,29 @@ import FremioSeriesPurple3 from '../assets/frames/FremioSeries/FremioSeries-3/Fr
 import FremioSeriesWhite3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-white-3.png';
 import FremioSeriesBlue4 from '../assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png';
 
+const FILTER_PRESETS = [
+  { id: 'none', label: 'Original', description: 'Tanpa filter, warna asli foto', css: '' },
+  { id: 'warm', label: 'Warm Glow', description: 'Tona hangat dan sedikit saturasi', css: 'sepia(0.15) saturate(1.2) hue-rotate(-5deg) contrast(1.05)' },
+  { id: 'mono', label: 'Monokrom', description: 'Hitam putih klasik', css: 'grayscale(1) contrast(1.1)' },
+  { id: 'vintage', label: 'Vintage', description: 'Nuansa retro lembut', css: 'sepia(0.4) saturate(0.9) brightness(1.05) contrast(0.95)' },
+  { id: 'cool', label: 'Cool Breeze', description: 'Nada dingin dan tajam', css: 'hue-rotate(15deg) saturate(1.15) contrast(1.05)' },
+  { id: 'vivid', label: 'Vivid', description: 'Warna lebih hidup dan kontras', css: 'saturate(1.35) contrast(1.15)' },
+  { id: 'soft', label: 'Soft Pastel', description: 'Lembut dengan warna pastel', css: 'saturate(0.85) brightness(1.1)' },
+  { id: 'dramatic', label: 'Dramatis', description: 'Kontras tinggi dengan bayangan tegas', css: 'contrast(1.3) brightness(0.95) saturate(1.05)' }
+];
+
+const FILTER_PRESET_MAP = FILTER_PRESETS.reduce((acc, preset) => {
+  acc[preset.id] = preset;
+  return acc;
+}, {});
+
 export default function EditPhoto() {
   const navigate = useNavigate();
   const [photos, setPhotos] = useState([]);
   const [frameConfig, setFrameConfig] = useState(null);
   const [frameImage, setFrameImage] = useState(null);
   const [selectedFrame, setSelectedFrame] = useState('FremioSeries-blue-2');
-  const [activeToggle, setActiveToggle] = useState('filter');
+  const [activeToggle, setActiveToggle] = useState('photos');
   const [selectedPhoto, setSelectedPhoto] = useState(0);
   const [draggedPhoto, setDraggedPhoto] = useState(null);
   const [dragOverSlot, setDragOverSlot] = useState(null);
@@ -38,6 +54,7 @@ export default function EditPhoto() {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 }); // Drag start position
   const [isSaving, setIsSaving] = useState(false); // Loading state for save
   const [slotPhotos, setSlotPhotos] = useState({}); // Store individual photos per slot for Testframe2
+  const [photoFilters, setPhotoFilters] = useState({}); // Store filter presets per slot
   
   // Print functionality states
   const [printCode, setPrintCode] = useState(null);
@@ -119,6 +136,68 @@ export default function EditPhoto() {
     } catch (err) {
       console.warn('⚠️ Failed to persist slotPhotos for', id, err);
     }
+  };
+
+  const getFilterCssValue = (filterId) => {
+    const preset = FILTER_PRESET_MAP[filterId];
+    return preset?.css ?? '';
+  };
+
+  const resolveSlotFilterId = (slotIndex) => {
+    if (slotIndex === null || slotIndex === undefined) return 'none';
+    return Object.prototype.hasOwnProperty.call(photoFilters, slotIndex)
+      ? photoFilters[slotIndex]
+      : 'none';
+  };
+
+  const applyFilterToSlot = (slotIndex, filterId) => {
+    if (slotIndex === null || slotIndex === undefined) return;
+    setPhotoFilters((prev = {}) => {
+      const next = { ...prev, [slotIndex]: filterId };
+      return next;
+    });
+  };
+
+  const applyFilterToAllSlots = (filterId) => {
+    if (!frameConfig?.slots) return;
+    setPhotoFilters((prev = {}) => {
+      const next = { ...prev };
+      frameConfig.slots.forEach((_, index) => {
+        next[index] = filterId;
+      });
+      return next;
+    });
+  };
+
+  const allSlotsShareFilter = (filterId) => {
+    if (!frameConfig?.slots) return false;
+    return frameConfig.slots.every((_, index) => resolveSlotFilterId(index) === filterId);
+  };
+
+  const anySlotHasFilter = () => {
+    if (!frameConfig?.slots) return false;
+    return frameConfig.slots.some((_, index) => resolveSlotFilterId(index) !== 'none');
+  };
+
+  const getPhotoSourceForSlot = (slotIndex) => {
+    if (!frameConfig || slotIndex === null || slotIndex === undefined) return null;
+
+    if (frameConfig?.duplicatePhotos) {
+      if (slotPhotos[slotIndex]) {
+        return slotPhotos[slotIndex];
+      }
+      const duplicateSlot = frameConfig.slots?.[slotIndex];
+      if (duplicateSlot) {
+        const photoIndex = duplicateSlot.photoIndex !== undefined ? duplicateSlot.photoIndex : slotIndex;
+        return photos[photoIndex] ?? null;
+      }
+      return null;
+    }
+
+    const slot = frameConfig.slots?.[slotIndex];
+    if (!slot) return null;
+    const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+    return photos[photoIndex] ?? null;
   };
 
   const handleDeveloperUnlock = async (event) => {
@@ -425,6 +504,34 @@ export default function EditPhoto() {
       console.error('  - Available configs:', Object.keys(FRAME_CONFIGS || {}));
     }
   }, []);
+
+  useEffect(() => {
+    if (!frameConfig?.slots) return;
+
+    setPhotoFilters((prev = {}) => {
+      const next = {};
+      let changed = false;
+
+      frameConfig.slots.forEach((_, index) => {
+        const existing = Object.prototype.hasOwnProperty.call(prev, index) ? prev[index] : 'none';
+        next[index] = existing;
+        if (prev[index] !== existing) {
+          changed = true;
+        }
+      });
+
+      if (!changed) {
+        const prevKeys = Object.keys(prev);
+        if (prevKeys.length !== frameConfig.slots.length) {
+          changed = true;
+        } else if (!prevKeys.every((key) => next[key] === prev[key])) {
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [frameConfig?.id, frameConfig?.slots?.length]);
 
   // Initialize auto-fill scale when frameConfig is loaded
   useEffect(() => {
@@ -1605,10 +1712,13 @@ export default function EditPhoto() {
           
           console.log(`📐 Slot ${slotIndex + 1}: Final photo ${finalPhotoWidth.toFixed(1)}x${finalPhotoHeight.toFixed(1)} at ${finalPhotoX.toFixed(1)},${finalPhotoY.toFixed(1)}`);
           
-          // Draw photo dengan ukuran dan posisi final
+          // Draw photo dengan ukuran dan posisi final + filter
+          const slotFilterCss = getFilterCssValue(resolveSlotFilterId(slotIndex));
+          ctx.filter = slotFilterCss && slotFilterCss !== 'none' ? slotFilterCss : 'none';
           ctx.drawImage(img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight);
           
           ctx.restore();
+          ctx.filter = 'none';
           
           renderedCount++;
           console.log(`✅ Slot ${slotIndex + 1}: Rendered successfully`);
@@ -1750,9 +1860,12 @@ export default function EditPhoto() {
         console.log(`Final photo dimensions: ${finalPhotoWidth.toFixed(1)}x${finalPhotoHeight.toFixed(1)} at ${finalPhotoX.toFixed(1)},${finalPhotoY.toFixed(1)}`);
         
         // Draw photo dengan ukuran dan posisi final
-        ctx.drawImage(img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight);
+  const standardFilterCss = getFilterCssValue(resolveSlotFilterId(index));
+  ctx.filter = standardFilterCss && standardFilterCss !== 'none' ? standardFilterCss : 'none';
+  ctx.drawImage(img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight);
         
-        ctx.restore();
+  ctx.restore();
+  ctx.filter = 'none';
         
         renderedCount++;
         console.log(`Slot/Photo ${index + 1}: Rendered successfully`);
@@ -1997,8 +2110,11 @@ export default function EditPhoto() {
                 const imgX = slotX + (slotWidth - scaledWidth) / 2 + (transform.translateX || 0);
                 const imgY = slotY + (slotHeight - scaledHeight) / 2 + (transform.translateY || 0);
                 
+                const slotFilterCss = getFilterCssValue(resolveSlotFilterId(slotIndex));
+                ctx.filter = slotFilterCss && slotFilterCss !== 'none' ? slotFilterCss : 'none';
                 ctx.drawImage(img, imgX, imgY, scaledWidth, scaledHeight);
                 ctx.restore();
+                ctx.filter = 'none';
                 resolve();
               };
               img.src = actualPhotoSrc;
@@ -2037,8 +2153,11 @@ export default function EditPhoto() {
                 const imgX = slotX + (slotWidth - scaledWidth) / 2 + transform.x;
                 const imgY = slotY + (slotHeight - scaledHeight) / 2 + transform.y;
                 
+                const slotFilterCss = getFilterCssValue(resolveSlotFilterId(i));
+                ctx.filter = slotFilterCss && slotFilterCss !== 'none' ? slotFilterCss : 'none';
                 ctx.drawImage(img, imgX, imgY, scaledWidth, scaledHeight);
                 ctx.restore();
+                ctx.filter = 'none';
                 resolve();
               };
               img.src = photos[i];
@@ -2100,12 +2219,12 @@ export default function EditPhoto() {
             flexDirection: 'column',
             gap: '1rem'
           }}>
-            {/* Filter Toggle */}
+            {/* Photos Toggle */}
             <button
-              onClick={() => setActiveToggle('filter')}
+              onClick={() => setActiveToggle('photos')}
               style={{
-                background: activeToggle === 'filter' ? '#E8A889' : '#f8f9fa',
-                color: activeToggle === 'filter' ? 'white' : '#333',
+                background: activeToggle === 'photos' ? '#E8A889' : '#f8f9fa',
+                color: activeToggle === 'photos' ? 'white' : '#333',
                 border: 'none',
                 borderRadius: '15px',
                 padding: '1rem',
@@ -2123,12 +2242,12 @@ export default function EditPhoto() {
               Photos
             </button>
             
-            {/* Adjust Toggle */}
+            {/* Filter Toggle */}
             <button
-              onClick={() => setActiveToggle('adjust')}
+              onClick={() => setActiveToggle('filters')}
               style={{
-                background: activeToggle === 'adjust' ? '#E8A889' : '#f8f9fa',
-                color: activeToggle === 'adjust' ? 'white' : '#333',
+                background: activeToggle === 'filters' ? '#E8A889' : '#f8f9fa',
+                color: activeToggle === 'filters' ? 'white' : '#333',
                 border: 'none',
                 borderRadius: '15px',
                 padding: '1rem',
@@ -2142,8 +2261,8 @@ export default function EditPhoto() {
                 gap: '0.5rem'
               }}
             >
-              <span style={{ fontSize: '1.5rem' }}>⚙️</span>
-              Adjust
+              <span style={{ fontSize: '1.5rem' }}>🎨</span>
+              Filter
             </button>
             
             {/* Frame Info */}
@@ -2391,7 +2510,24 @@ export default function EditPhoto() {
                         photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
                         photoSrc = photos[photoIndex];
                       }
-                      
+
+                      const baseCropStyle = calculatePhotoCropStyle(frameConfig, slotIndex);
+                      const slotFilterId = resolveSlotFilterId(slotIndex);
+                      const filterCssValue = getFilterCssValue(slotFilterId);
+                      const isDraggedSlot = draggedPhoto?.slotIndex === slotIndex;
+                      const filterParts = [];
+                      if (filterCssValue && filterCssValue !== 'none') {
+                        filterParts.push(filterCssValue);
+                      }
+                      if (isDraggedSlot) {
+                        filterParts.push('blur(1px) brightness(0.8)');
+                      }
+                      const computedFilter = filterParts.length > 0 ? filterParts.join(' ') : 'none';
+                      const computedTransform = isDraggedSlot
+                        ? `${baseCropStyle.transform || ''} scale(0.9)`.trim()
+                        : baseCropStyle.transform;
+                      const computedTransition = isDraggedSlot ? 'none' : (baseCropStyle.transition || 'transform 0.2s ease');
+
                       return photoSrc && (
                         <div style={{ 
                           position: 'relative', 
@@ -2403,13 +2539,13 @@ export default function EditPhoto() {
                             src={photoSrc}
                             alt={`Photo ${photoIndex + 1}${slot.photoIndex !== undefined ? ` (duplicate)` : ''}`}
                             style={{
-                              ...calculatePhotoCropStyle(frameConfig, slotIndex),
-                              opacity: draggedPhoto?.slotIndex === slotIndex ? 0.5 : 1,
-                              cursor: draggedPhoto?.slotIndex === slotIndex ? 'grabbing' : 
+                              ...baseCropStyle,
+                              opacity: isDraggedSlot ? 0.5 : 1,
+                              cursor: isDraggedSlot ? 'grabbing' : 
                                      selectedPhotoForEdit === slotIndex ? 'grab' : 'pointer',
-                              filter: draggedPhoto?.slotIndex === slotIndex ? 'blur(1px) brightness(0.8)' : 'none',
-                              transform: `${calculatePhotoCropStyle(frameConfig, slotIndex).transform} ${draggedPhoto?.slotIndex === slotIndex ? 'scale(0.9)' : ''}`,
-                              transition: draggedPhoto?.slotIndex === slotIndex ? 'none' : 'all 0.2s ease',
+                              filter: computedFilter,
+                              transform: computedTransform || baseCropStyle.transform,
+                              transition: computedTransition,
                               pointerEvents: draggedPhoto && draggedPhoto.slotIndex !== slotIndex ? 'none' : 'auto'
                             }}
                             draggable={true} // Enable drag for all frames including Testframe2
@@ -2782,7 +2918,7 @@ export default function EditPhoto() {
             fontWeight: '600',
             color: '#333'
           }}>
-            {hasDevAccess && debugMode ? 'Debug Info' : (activeToggle === 'filter' ? 'All Photos' : 'Adjust Settings')}
+            {hasDevAccess && debugMode ? 'Debug Info' : (activeToggle === 'photos' ? 'All Photos' : 'Filter Presets')}
           </h3>
           
           {hasDevAccess && debugMode ? (
@@ -2896,7 +3032,7 @@ export default function EditPhoto() {
                 </div>
               </div>
             )
-          ) : activeToggle === 'filter' ? (
+          ) : activeToggle === 'photos' ? (
             <div style={{
               display: 'flex',
               flexDirection: 'column',
@@ -2909,8 +3045,8 @@ export default function EditPhoto() {
                 marginBottom: '1rem'
               }}>
                 {selectedPhotoForEdit !== null 
-                  ? `✨ Adjusting Photo ${selectedPhotoForEdit + 1} - Smart boundaries ensure slot coverage` 
-                  : 'Auto-fit preserves vertical height, Smart limits prevent empty slots'
+                  ? `📸 Foto slot ${selectedPhotoForEdit + 1} siap diedit` 
+                  : 'Pilih foto pada preview untuk mengatur filter dan posisi.'
                 }
               </div>
               
@@ -2959,23 +3095,191 @@ export default function EditPhoto() {
                 </div>
               )}
             </div>
-          ) : (
+          ) : activeToggle === 'filters' ? (
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: '1rem'
+              gap: '1.5rem'
             }}>
               <div style={{
-                color: '#666',
                 fontSize: '0.9rem',
-                textAlign: 'center',
-                padding: '2rem'
+                color: '#666',
+                textAlign: 'center'
               }}>
-                Adjustment controls will be displayed here
+                {selectedPhotoForEdit !== null
+                  ? `Pilih filter untuk slot ${selectedPhotoForEdit + 1}. Gunakan tombol preset untuk menerapkan ke slot ini saja.`
+                  : 'Tidak memilih slot? Filter akan diterapkan ke semua foto pada preview secara instan.'}
               </div>
-              {/* TODO: Add adjustment controls */}
+
+              {selectedPhotoForEdit !== null && (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '1rem'
+                }}>
+                  <div style={{
+                    textAlign: 'center',
+                    fontWeight: '600',
+                    color: '#333'
+                  }}>
+                    Preview Filter
+                  </div>
+                  <div style={{
+                    borderRadius: '12px',
+                    overflow: 'hidden',
+                    border: '1px solid #e5e7eb',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    background: '#f8f9fa',
+                    padding: '0.75rem'
+                  }}>
+                    {(() => {
+                      const previewSrc = getPhotoSourceForSlot(selectedPhotoForEdit);
+                      if (!previewSrc) {
+                        return (
+                          <div style={{
+                            color: '#999',
+                            fontSize: '0.85rem'
+                          }}>
+                            Slot ini belum memiliki foto.
+                          </div>
+                        );
+                      }
+
+                      const activeFilterId = resolveSlotFilterId(selectedPhotoForEdit);
+                      const previewFilter = getFilterCssValue(activeFilterId);
+
+                      return (
+                        <img
+                          src={previewSrc}
+                          alt={`Preview filter slot ${selectedPhotoForEdit + 1}`}
+                          style={{
+                            maxWidth: '160px',
+                            width: '100%',
+                            aspectRatio: '4/5',
+                            objectFit: 'cover',
+                            borderRadius: '10px',
+                            filter: previewFilter && previewFilter !== 'none' ? previewFilter : 'none'
+                          }}
+                        />
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))',
+                gap: '0.75rem'
+              }}>
+                {FILTER_PRESETS.map((preset) => {
+                  let isSelected = false;
+                  if (selectedPhotoForEdit !== null) {
+                    isSelected = resolveSlotFilterId(selectedPhotoForEdit) === preset.id;
+                  } else if (frameConfig?.slots?.length) {
+                    isSelected = allSlotsShareFilter(preset.id);
+                  }
+                  return (
+                    <button
+                      key={preset.id}
+                      onClick={() => {
+                        if (selectedPhotoForEdit !== null) {
+                          applyFilterToSlot(selectedPhotoForEdit, preset.id);
+                        } else {
+                          applyFilterToAllSlots(preset.id);
+                        }
+                      }}
+                      style={{
+                        border: isSelected ? '2px solid #E8A889' : '1px solid #e5e7eb',
+                        borderRadius: '12px',
+                        padding: '0.75rem 0.5rem',
+                        background: '#fff',
+                        cursor: 'pointer',
+                        boxShadow: isSelected ? '0 6px 16px rgba(232, 168, 137, 0.25)' : 'none',
+                        transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        opacity: 1
+                      }}
+                    >
+                      <div style={{
+                        width: '60px',
+                        height: '60px',
+                        borderRadius: '10px',
+                        backgroundColor: '#f0f0f0',
+                        overflow: 'hidden',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}>
+                        <div style={{
+                          width: '100%',
+                          height: '100%',
+                          backgroundImage: 'linear-gradient(135deg, #d7d7d7, #ffffff)',
+                          filter: preset.css && preset.css !== 'none' ? preset.css : 'none'
+                        }} />
+                      </div>
+                      <div style={{
+                        fontSize: '0.85rem',
+                        fontWeight: '600',
+                        color: '#333',
+                        textAlign: 'center'
+                      }}>
+                        {preset.label}
+                      </div>
+                      <div style={{
+                        fontSize: '0.7rem',
+                        color: '#777',
+                        textAlign: 'center',
+                        lineHeight: '1.2'
+                      }}>
+                        {preset.description}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {(selectedPhotoForEdit !== null && resolveSlotFilterId(selectedPhotoForEdit) !== 'none') && (
+                <button
+                  onClick={() => applyFilterToSlot(selectedPhotoForEdit, 'none')}
+                  style={{
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '12px',
+                    padding: '0.75rem',
+                    background: '#fff',
+                    cursor: 'pointer',
+                    color: '#b00020',
+                    fontWeight: '600',
+                    transition: 'background 0.2s ease'
+                  }}
+                >
+                  Reset ke Original
+                </button>
+              )}
+
+              {(selectedPhotoForEdit === null && anySlotHasFilter()) && (
+                <button
+                  onClick={() => applyFilterToAllSlots('none')}
+                  style={{
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '12px',
+                    padding: '0.75rem',
+                    background: '#fff',
+                    cursor: 'pointer',
+                    color: '#b00020',
+                    fontWeight: '600',
+                    transition: 'background 0.2s ease'
+                  }}
+                >
+                  Reset semua ke Original
+                </button>
+              )}
             </div>
-          )}
+          ) : null}
         </div>
       </div>
       

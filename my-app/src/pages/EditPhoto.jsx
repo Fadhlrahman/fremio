@@ -2904,7 +2904,7 @@ export default function EditPhoto() {
           </div>
         </div>
 
-        {/* Right Panel - Filter or Adjust *./}
+        {/* Right Panel - Filter or Adjust */}
         <div style={{
           background: '#fff',
           borderRadius: '20px',

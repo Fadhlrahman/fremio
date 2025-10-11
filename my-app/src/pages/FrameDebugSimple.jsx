@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getFrameConfig } from '../config/frameConfigs.js';
 
 export default function FrameDebugSimple() {
-  const [selectedFrame, setSelectedFrame] = useState('Testframe1');
+  const [selectedFrame, setSelectedFrame] = useState('FremioSeries-blue-2');
   const [frameConfig, setFrameConfig] = useState(null);
 
   // Calculate slot dimensions in pixels
@@ -42,9 +42,18 @@ export default function FrameDebugSimple() {
           onChange={(e) => setSelectedFrame(e.target.value)}
           style={{ padding: '0.5rem', fontSize: '1rem' }}
         >
-          <option value="Testframe1">Testframe1 (2 slots)</option>
-          <option value="Testframe2">Testframe2 (3 slots)</option>
-          <option value="Testframe3">Testframe3 (4 slots)</option>
+          <option value="FremioSeries-blue-2">FremioSeries Blue 2 (4 slots)</option>
+          <option value="FremioSeries-babyblue-3">FremioSeries Baby Blue 3 (6 slots)</option>
+          <option value="FremioSeries-black-3">FremioSeries Black 3 (6 slots)</option>
+          <option value="FremioSeries-blue-3">FremioSeries Blue 3 (6 slots)</option>
+          <option value="FremioSeries-cream-3">FremioSeries Cream 3 (6 slots)</option>
+          <option value="FremioSeries-green-3">FremioSeries Green 3 (6 slots)</option>
+          <option value="FremioSeries-maroon-3">FremioSeries Maroon 3 (6 slots)</option>
+          <option value="FremioSeries-orange-3">FremioSeries Orange 3 (6 slots)</option>
+          <option value="FremioSeries-pink-3">FremioSeries Pink 3 (6 slots)</option>
+          <option value="FremioSeries-purple-3">FremioSeries Purple 3 (6 slots)</option>
+          <option value="FremioSeries-white-3">FremioSeries White 3 (6 slots)</option>
+          <option value="FremioSeries-blue-4">FremioSeries Blue 4 (8 slots)</option>
         </select>
       </div>
 

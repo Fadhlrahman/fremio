@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getFrameConfig, FRAME_CONFIGS } from '../config/frameConfigs.js';
+import frameProvider from '../utils/frameProvider.js';
 import QRCode from 'qrcode';
-import Testframe1 from '../assets/frames/Testframe1.png';
-import Testframe2 from '../assets/frames/Testframe2.png';
-import Testframe3 from '../assets/frames/Testframe3.png';
+import FremioSeriesBlue2 from '../assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png';
+import FremioSeriesBlue3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-blue-3.png';
+import FremioSeriesBlue4 from '../assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png';
 
 export default function EditPhoto() {
   const navigate = useNavigate();
   const [photos, setPhotos] = useState([]);
   const [frameConfig, setFrameConfig] = useState(null);
   const [frameImage, setFrameImage] = useState(null);
-  const [selectedFrame, setSelectedFrame] = useState('Testframe1'); // Add selected frame state
+  const [selectedFrame, setSelectedFrame] = useState('FremioSeries-blue-2'); // Add selected frame state
   const [activeToggle, setActiveToggle] = useState('filter');
   const [selectedPhoto, setSelectedPhoto] = useState(0);
   const [draggedPhoto, setDraggedPhoto] = useState(null);
@@ -35,11 +35,11 @@ export default function EditPhoto() {
   // Frame image mapping
   const getFrameImage = (frameId) => {
     const frameMap = {
-      'Testframe1': Testframe1,
-      'Testframe2': Testframe2,
-      'Testframe3': Testframe3
+      'FremioSeries-blue-2': FremioSeriesBlue2,
+      'FremioSeries-blue-3': FremioSeriesBlue3,
+      'FremioSeries-blue-4': FremioSeriesBlue4
     };
-    return frameMap[frameId] || Testframe1;
+    return frameMap[frameId] || FremioSeriesBlue2;
   };
 
   // SMART ZOOM DEFAULT CALCULATION - SCALABLE FOR ALL PHOTO SIZES
@@ -117,7 +117,7 @@ export default function EditPhoto() {
     console.log('🔄 EditPhoto component mounting...');
     
     // Load selected frame from localStorage first
-    const frameFromStorage = localStorage.getItem('selectedFrame') || 'Testframe1';
+    const frameFromStorage = localStorage.getItem('selectedFrame') || 'FremioSeries-blue-2';
     console.log('🖼️ Frame from localStorage:', frameFromStorage);
     
     // Load photos from localStorage
@@ -706,7 +706,7 @@ export default function EditPhoto() {
     
     try {
       // Get current selected frame
-      const selectedFrame = localStorage.getItem('selectedFrame') || 'Testframe1';
+      const selectedFrame = localStorage.getItem('selectedFrame') || 'FremioSeries-blue-2';
       console.log('🔄 Attempting to reload config for:', selectedFrame);
       
       // Force component re-render with fresh import

@@ -3,37 +3,142 @@
 
 // Frame registry for available frames
 export const FRAME_REGISTRY = [
-  'Testframe1',
-  'Testframe2', 
-  'Testframe3'
+  'FremioSeries-blue-2',
+  'FremioSeries-babyblue-3',
+  'FremioSeries-black-3',
+  'FremioSeries-blue-3',
+  'FremioSeries-cream-3',
+  'FremioSeries-green-3',
+  'FremioSeries-maroon-3',
+  'FremioSeries-orange-3',
+  'FremioSeries-pink-3',
+  'FremioSeries-purple-3',
+  'FremioSeries-white-3',
+  'FremioSeries-blue-4'
   // Add new frames here as needed
 ];
 
 // Frame metadata for quick access without loading full config
 export const FRAME_METADATA = {
-  Testframe1: {
-    id: 'Testframe1',
-    name: 'Frame 2 Foto',
-    maxCaptures: 2,
-    description: '2 slot foto vertikal',
-    imagePath: '/src/assets/frames/Testframe1.png',
-    category: 'portrait'
-  },
-  Testframe2: {
-    id: 'Testframe2', 
-    name: 'Frame 6 Foto (Photobooth Style)',
-    maxCaptures: 3,
-    description: '3 foto x 2 = 6 slot photobooth klasik',
-    imagePath: '/src/assets/frames/Testframe2.png',
-    category: 'photobooth'
-  },
-  Testframe3: {
-    id: 'Testframe3',
-    name: 'Frame 4 Foto',
+  'FremioSeries-blue-2': {
+    id: 'FremioSeries-blue-2',
+    name: 'FremioSeries Blue 2',
     maxCaptures: 4,
-    description: '4 slot foto grid 2x2',
-    imagePath: '/src/assets/frames/Testframe3.png',
-    category: 'grid'
+    description: '4 slot foto dengan frame biru FremioSeries',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png',
+    category: 'FremioSeries',
+    color: 'blue',
+    series: 'FremioSeries-2'
+  },
+  'FremioSeries-babyblue-3': {
+    id: 'FremioSeries-babyblue-3',
+    name: 'FremioSeries Baby Blue 3',
+    maxCaptures: 6,
+    description: '6 slot foto dengan frame baby blue FremioSeries',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-babyblue-3.png',
+    category: 'FremioSeries',
+    color: 'babyblue',
+    series: 'FremioSeries-3'
+  },
+  'FremioSeries-black-3': {
+    id: 'FremioSeries-black-3',
+    name: 'FremioSeries Black 3',
+    maxCaptures: 6,
+    description: '6 slot foto dengan frame hitam FremioSeries',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-black-3.png',
+    category: 'FremioSeries',
+    color: 'black',
+    series: 'FremioSeries-3'
+  },
+  'FremioSeries-blue-3': {
+    id: 'FremioSeries-blue-3',
+    name: 'FremioSeries Blue 3',
+    maxCaptures: 6,
+    description: '6 slot foto dengan frame biru FremioSeries',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-blue-3.png',
+    category: 'FremioSeries',
+    color: 'blue',
+    series: 'FremioSeries-3'
+  },
+  'FremioSeries-cream-3': {
+    id: 'FremioSeries-cream-3',
+    name: 'FremioSeries Cream 3',
+    maxCaptures: 6,
+    description: '6 slot foto dengan frame cream FremioSeries',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-cream-3.png',
+    category: 'FremioSeries',
+    color: 'cream',
+    series: 'FremioSeries-3'
+  },
+  'FremioSeries-green-3': {
+    id: 'FremioSeries-green-3',
+    name: 'FremioSeries Green 3',
+    maxCaptures: 6,
+    description: '6 slot foto dengan frame hijau FremioSeries',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-green-3.png',
+    category: 'FremioSeries',
+    color: 'green',
+    series: 'FremioSeries-3'
+  },
+  'FremioSeries-maroon-3': {
+    id: 'FremioSeries-maroon-3',
+    name: 'FremioSeries Maroon 3',
+    maxCaptures: 6,
+    description: '6 slot foto dengan frame maroon FremioSeries',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-maroon-3.png',
+    category: 'FremioSeries',
+    color: 'maroon',
+    series: 'FremioSeries-3'
+  },
+  'FremioSeries-orange-3': {
+    id: 'FremioSeries-orange-3',
+    name: 'FremioSeries Orange 3',
+    maxCaptures: 6,
+    description: '6 slot foto dengan frame orange FremioSeries',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-orange-3.png',
+    category: 'FremioSeries',
+    color: 'orange',
+    series: 'FremioSeries-3'
+  },
+  'FremioSeries-pink-3': {
+    id: 'FremioSeries-pink-3',
+    name: 'FremioSeries Pink 3',
+    maxCaptures: 6,
+    description: '6 slot foto dengan frame pink FremioSeries',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-pink-3.png',
+    category: 'FremioSeries',
+    color: 'pink',
+    series: 'FremioSeries-3'
+  },
+  'FremioSeries-purple-3': {
+    id: 'FremioSeries-purple-3',
+    name: 'FremioSeries Purple 3',
+    maxCaptures: 6,
+    description: '6 slot foto dengan frame ungu FremioSeries',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-purple-3.png',
+    category: 'FremioSeries',
+    color: 'purple',
+    series: 'FremioSeries-3'
+  },
+  'FremioSeries-white-3': {
+    id: 'FremioSeries-white-3',
+    name: 'FremioSeries White 3',
+    maxCaptures: 6,
+    description: '6 slot foto dengan frame putih FremioSeries',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-white-3.png',
+    category: 'FremioSeries',
+    color: 'white',
+    series: 'FremioSeries-3'
+  },
+  'FremioSeries-blue-4': {
+    id: 'FremioSeries-blue-4',
+    name: 'FremioSeries Blue 4',
+    maxCaptures: 8,
+    description: '8 slot foto dengan frame biru FremioSeries',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png',
+    category: 'FremioSeries',
+    color: 'blue',
+    series: 'FremioSeries-4'
   }
 };
 

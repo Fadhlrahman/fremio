@@ -1,20 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import { getFrameConfig } from '../config/frameConfigs.js';
-import Testframe1 from '../assets/frames/Testframe1.png';
-import Testframe2 from '../assets/frames/Testframe2.png';
-import Testframe3 from '../assets/frames/Testframe3.png';
+import FremioSeriesBlue2 from '../assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png';
+import FremioSeriesBabyblue3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-babyblue-3.png';
+import FremioSeriesBlack3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-black-3.png';
+import FremioSeriesBlue3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-blue-3.png';
+import FremioSeriesCream3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-cream-3.png';
+import FremioSeriesGreen3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-green-3.png';
+import FremioSeriesMaroon3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-maroon-3.png';
+import FremioSeriesOrange3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-orange-3.png';
+import FremioSeriesPink3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-pink-3.png';
+import FremioSeriesPurple3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-purple-3.png';
+import FremioSeriesWhite3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-white-3.png';
+import FremioSeriesBlue4 from '../assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png';
 
 export default function FrameDebug() {
-  const [selectedFrame, setSelectedFrame] = useState('Testframe1');
+  const [selectedFrame, setSelectedFrame] = useState('FremioSeries-blue-2');
   const [frameConfig, setFrameConfig] = useState(null);
   const [frameImage, setFrameImage] = useState(null);
 
   // Frame image mapping
   const getFrameImage = (frameName) => {
     const frameMap = {
-      'Testframe1': Testframe1,
-      'Testframe2': Testframe2,
-      'Testframe3': Testframe3
+      'FremioSeries-blue-2': FremioSeriesBlue2,
+      'FremioSeries-babyblue-3': FremioSeriesBabyblue3,
+      'FremioSeries-black-3': FremioSeriesBlack3,
+      'FremioSeries-blue-3': FremioSeriesBlue3,
+      'FremioSeries-cream-3': FremioSeriesCream3,
+      'FremioSeries-green-3': FremioSeriesGreen3,
+      'FremioSeries-maroon-3': FremioSeriesMaroon3,
+      'FremioSeries-orange-3': FremioSeriesOrange3,
+      'FremioSeries-pink-3': FremioSeriesPink3,
+      'FremioSeries-purple-3': FremioSeriesPurple3,
+      'FremioSeries-white-3': FremioSeriesWhite3,
+      'FremioSeries-blue-4': FremioSeriesBlue4
     };
     return frameMap[frameName] || null;
   };  // Calculate slot dimensions in pixels
@@ -55,9 +73,18 @@ export default function FrameDebug() {
           onChange={(e) => setSelectedFrame(e.target.value)}
           style={{ padding: '0.5rem', fontSize: '1rem' }}
         >
-          <option value="Testframe1">Testframe1 (2 slots)</option>
-          <option value="Testframe2">Testframe2 (3 slots)</option>
-          <option value="Testframe3">Testframe3 (4 slots)</option>
+          <option value="FremioSeries-blue-2">FremioSeries Blue 2 (4 slots)</option>
+          <option value="FremioSeries-babyblue-3">FremioSeries Baby Blue 3 (6 slots)</option>
+          <option value="FremioSeries-black-3">FremioSeries Black 3 (6 slots)</option>
+          <option value="FremioSeries-blue-3">FremioSeries Blue 3 (6 slots)</option>
+          <option value="FremioSeries-cream-3">FremioSeries Cream 3 (6 slots)</option>
+          <option value="FremioSeries-green-3">FremioSeries Green 3 (6 slots)</option>
+          <option value="FremioSeries-maroon-3">FremioSeries Maroon 3 (6 slots)</option>
+          <option value="FremioSeries-orange-3">FremioSeries Orange 3 (6 slots)</option>
+          <option value="FremioSeries-pink-3">FremioSeries Pink 3 (6 slots)</option>
+          <option value="FremioSeries-purple-3">FremioSeries Purple 3 (6 slots)</option>
+          <option value="FremioSeries-white-3">FremioSeries White 3 (6 slots)</option>
+          <option value="FremioSeries-blue-4">FremioSeries Blue 4 (8 slots)</option>
         </select>
       </div>
 

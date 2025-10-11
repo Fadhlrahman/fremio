@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import filterIcon from '../assets/filter-icon.png';
 import adjustIcon from '../assets/adjust-icon.png';
 import { createSampleData, clearTestData } from '../utils/testData.js';
-import Testframe1 from '../assets/frames/Testframe1.png';
-import Testframe2 from '../assets/frames/Testframe2.png';
-import Testframe3 from '../assets/frames/Testframe3.png';
+import FremioSeriesBlue2 from '../assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png';
+import FremioSeriesBlue3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-blue-3.png';
+import FremioSeriesBlue4 from '../assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png';
 
 export default function Editor() {
   const navigate = useNavigate();
@@ -17,9 +17,9 @@ export default function Editor() {
   // Frame mapping for imported assets
   const getFrameAsset = (frameName) => {
     const frameMap = {
-      'Testframe1': Testframe1,
-      'Testframe2': Testframe2,
-      'Testframe3': Testframe3
+      'FremioSeries-blue-2': FremioSeriesBlue2,
+      'FremioSeries-blue-3': FremioSeriesBlue3,
+      'FremioSeries-blue-4': FremioSeriesBlue4
     };
     return frameMap[frameName] || null;
   };

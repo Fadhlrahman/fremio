@@ -9,7 +9,13 @@ class FrameService {
     this.apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:3001';
     this.itemsPerPage = 20;
     this.categories = new Map();
-    this.preloadedFrames = new Set(['Testframe1', 'Testframe2', 'Testframe3']); // Most common frames
+    this.preloadedFrames = new Set([
+      'Testframe1', 'Testframe2', 'Testframe3',
+      'FremioSeries-blue-2', 'FremioSeries-babyblue-3', 'FremioSeries-black-3',
+      'FremioSeries-blue-3', 'FremioSeries-cream-3', 'FremioSeries-green-3',
+      'FremioSeries-maroon-3', 'FremioSeries-orange-3', 'FremioSeries-pink-3',
+      'FremioSeries-purple-3', 'FremioSeries-white-3', 'FremioSeries-blue-4'
+    ]); // Most common frames
   }
 
   /**

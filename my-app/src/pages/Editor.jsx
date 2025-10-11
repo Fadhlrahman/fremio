@@ -3,9 +3,24 @@ import { useNavigate } from 'react-router-dom';
 import filterIcon from '../assets/filter-icon.png';
 import adjustIcon from '../assets/adjust-icon.png';
 import { createSampleData, clearTestData } from '../utils/testData.js';
+import { createFremioSeriesTestData, createTestframe2TestData } from '../utils/fremioTestData.js';
 import Testframe1 from '../assets/frames/Testframe1.png';
 import Testframe2 from '../assets/frames/Testframe2.png';
 import Testframe3 from '../assets/frames/Testframe3.png';
+
+// FremioSeries Imports
+import FremioSeriesBlue2 from '../assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png';
+import FremioSeriesBabyblue3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-babyblue-3.png';
+import FremioSeriesBlack3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-black-3.png';
+import FremioSeriesBlue3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-blue-3.png';
+import FremioSeriesCream3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-cream-3.png';
+import FremioSeriesGreen3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-green-3.png';
+import FremioSeriesMaroon3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-maroon-3.png';
+import FremioSeriesOrange3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-orange-3.png';
+import FremioSeriesPink3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-pink-3.png';
+import FremioSeriesPurple3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-purple-3.png';
+import FremioSeriesWhite3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-white-3.png';
+import FremioSeriesBlue4 from '../assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png';
 
 export default function Editor() {
   const navigate = useNavigate();
@@ -19,24 +34,43 @@ export default function Editor() {
     const frameMap = {
       'Testframe1': Testframe1,
       'Testframe2': Testframe2,
-      'Testframe3': Testframe3
+      'Testframe3': Testframe3,
+      // FremioSeries frames
+      'FremioSeries-blue-2': FremioSeriesBlue2,
+      'FremioSeries-babyblue-3': FremioSeriesBabyblue3,
+      'FremioSeries-black-3': FremioSeriesBlack3,
+      'FremioSeries-blue-3': FremioSeriesBlue3,
+      'FremioSeries-cream-3': FremioSeriesCream3,
+      'FremioSeries-green-3': FremioSeriesGreen3,
+      'FremioSeries-maroon-3': FremioSeriesMaroon3,
+      'FremioSeries-orange-3': FremioSeriesOrange3,
+      'FremioSeries-pink-3': FremioSeriesPink3,
+      'FremioSeries-purple-3': FremioSeriesPurple3,
+      'FremioSeries-white-3': FremioSeriesWhite3,
+      'FremioSeries-blue-4': FremioSeriesBlue4
     };
     return frameMap[frameName] || null;
   };
 
   // Load photos and frame data from localStorage when component mounts
   useEffect(() => {
+    console.log('🔄 Editor useEffect started - loading data...');
+    
     // Get captured photos from localStorage
     const capturedPhotos = localStorage.getItem('capturedPhotos');
     if (capturedPhotos) {
       const parsedPhotos = JSON.parse(capturedPhotos);
       setPhotos(parsedPhotos);
       console.log('✅ Loaded photos:', parsedPhotos.length);
+    } else {
+      console.log('⚠️ No captured photos found in localStorage');
     }
 
     // Get frame data from localStorage (new format with frameConfig)
     const frameName = localStorage.getItem('selectedFrame');
     const frameConfigData = localStorage.getItem('frameConfig');
+    
+    console.log('🔍 Loading frame data:', { frameName, frameConfigData: !!frameConfigData });
     
     if (frameName && frameConfigData) {
       try {
@@ -44,6 +78,13 @@ export default function Editor() {
         
         // Get the imported frame asset
         const frameAsset = getFrameAsset(frameName);
+        
+        console.log('🔍 Frame loading results:', {
+          frameName,
+          frameAsset: !!frameAsset,
+          frameConfig: !!frameConfig,
+          slotsCount: frameConfig?.slots?.length
+        });
         
         if (frameAsset) {
           setSelectedFrame(frameAsset);
@@ -54,6 +95,23 @@ export default function Editor() {
           console.log('✅ Loaded slots:', frameConfig.slots);
         } else {
           console.error('❌ Frame asset not found for:', frameName);
+          console.error('❌ Available frames in getFrameAsset:', Object.keys({
+            'Testframe1': 'Testframe1',
+            'Testframe2': 'Testframe2', 
+            'Testframe3': 'Testframe3',
+            'FremioSeries-blue-2': 'FremioSeries-blue-2',
+            'FremioSeries-babyblue-3': 'FremioSeries-babyblue-3',
+            'FremioSeries-black-3': 'FremioSeries-black-3',
+            'FremioSeries-blue-3': 'FremioSeries-blue-3',
+            'FremioSeries-cream-3': 'FremioSeries-cream-3',
+            'FremioSeries-green-3': 'FremioSeries-green-3',
+            'FremioSeries-maroon-3': 'FremioSeries-maroon-3',
+            'FremioSeries-orange-3': 'FremioSeries-orange-3',
+            'FremioSeries-pink-3': 'FremioSeries-pink-3',
+            'FremioSeries-purple-3': 'FremioSeries-purple-3',
+            'FremioSeries-white-3': 'FremioSeries-white-3',
+            'FremioSeries-blue-4': 'FremioSeries-blue-4'
+          }));
         }
       } catch (error) {
         console.error('❌ Error parsing frameConfig:', error);
@@ -114,6 +172,72 @@ export default function Editor() {
       flexDirection: 'column',
       fontFamily: 'system-ui, -apple-system, sans-serif'
     }}>
+      {/* Testing Buttons - Development Only */}
+      <div style={{
+        position: 'fixed',
+        top: '10px',
+        right: '10px',
+        display: 'flex',
+        gap: '5px',
+        zIndex: 1000,
+        background: 'rgba(255, 255, 255, 0.9)',
+        padding: '10px',
+        borderRadius: '8px',
+        border: '1px solid #ddd'
+      }}>
+        <button 
+          onClick={() => {
+            createFremioSeriesTestData();
+            window.location.reload();
+          }}
+          style={{
+            padding: '5px 10px',
+            background: '#007bff',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            fontSize: '12px',
+            cursor: 'pointer'
+          }}
+        >
+          Test FremioSeries
+        </button>
+        <button 
+          onClick={() => {
+            createTestframe2TestData();
+            window.location.reload();
+          }}
+          style={{
+            padding: '5px 10px',
+            background: '#28a745',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            fontSize: '12px',
+            cursor: 'pointer'
+          }}
+        >
+          Test Testframe2
+        </button>
+        <button 
+          onClick={() => {
+            clearTestData();
+            window.location.reload();
+          }}
+          style={{
+            padding: '5px 10px',
+            background: '#dc3545',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            fontSize: '12px',
+            cursor: 'pointer'
+          }}
+        >
+          Clear
+        </button>
+      </div>
+      
       {/* Main Content */}
       <div style={{
         flex: 1,
@@ -252,16 +376,20 @@ export default function Editor() {
                 {/* Debug info */}
                 <div style={{ 
                   position: 'absolute', 
-                  top: '-40px', 
+                  top: '-50px', 
                   left: 0, 
                   fontSize: '10px', 
                   color: '#666',
                   background: '#f0f0f0',
-                  padding: '4px',
+                  padding: '4px 8px',
                   borderRadius: '4px',
-                  zIndex: 10
+                  zIndex: 10,
+                  lineHeight: '1.2'
                 }}>
-                  Frame: {selectedFrame ? 'Found' : 'Missing'} | Slots: {frameSlots ? frameSlots.length : 0} | Photos: {photos.length}
+                  <div>Frame: {selectedFrame ? '✅ Loaded' : '❌ Missing'}</div>
+                  <div>Slots: {frameSlots ? frameSlots.length : 0}</div>
+                  <div>Photos: {photos.length}</div>
+                  <div>Frame Name: {localStorage.getItem('selectedFrame')}</div>
                 </div>
                 
                 {/* Background layer */}
@@ -275,7 +403,21 @@ export default function Editor() {
                 
                 {/* Photos in slots */}
                 {photos && photos.length > 0 && frameSlots && frameSlots.map((slot, idx) => {
-                  const photo = photos[idx];
+                  // For frames with photoIndex property (duplicated photos), use photoIndex
+                  // Otherwise use slot index directly
+                  const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : idx;
+                  const photo = photos[photoIndex];
+                  
+                  // Debug logging for photo mapping
+                  if (idx === 0) {
+                    console.log('🔍 Photo mapping debug:', {
+                      slotIdx: idx,
+                      photoIndex,
+                      hasPhoto: !!photo,
+                      totalPhotos: photos.length,
+                      slotHasPhotoIndex: slot.photoIndex !== undefined
+                    });
+                  }
                   
                   return (
                     <div

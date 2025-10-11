@@ -183,33 +183,65 @@ export default function TakeMoment() {
   };
 
   const handleFileSelect = async (event) => {
-    const file = event.target.files[0];
-    if (file) {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+
+    const remaining = Math.max(0, maxCaptures - capturedPhotos.length);
+    if (remaining <= 0) {
+      alert(`Maksimal ${maxCaptures} foto sudah tercapai untuk frame ini!`);
+      event.target.value = '';
+      return;
+    }
+
+    if (files.length > remaining) {
+      console.warn(`Selected ${files.length} files but only ${remaining} slots remaining. Only the first ${remaining} will be used.`);
+    }
+
+    const filesToProcess = files.slice(0, remaining);
+    const currentFrameName = frameProvider.getCurrentFrameName();
+
+    // Helper to process a single file into a compressed dataURL
+    const processFile = (file) => new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = async (e) => {
-        // Get current frame for quality optimization
-        const currentFrameName = frameProvider.getCurrentFrameName();
-        
-        // Compress uploaded photo with frame-specific quality
-        console.log('📷 Compressing uploaded photo...');
-        let compressedPhoto;
-        
-        if (currentFrameName === 'Testframe4') {
-          console.log('🎯 Using high quality compression for Testframe4 upload');
-          compressedPhoto = await compressImage(e.target.result, 0.85, 700, 500);
-        } else if (currentFrameName === 'Testframe2') {
-          console.log('🎯 Using ULTRA high quality compression for Testframe2 upload (6 slots)');
-          compressedPhoto = await compressImage(e.target.result, 0.95, 800, 800);
-        } else {
-          compressedPhoto = await compressImage(e.target.result, 0.75, 500, 500);
+        // Frame-specific compression tuning
+        let quality = 0.75;
+        let maxW = 500;
+        let maxH = 500;
+
+        if (currentFrameName === 'Testframe4' || (currentFrameName && currentFrameName.includes('FremioSeries-4'))) {
+          console.log('🎯 Using high quality compression for 4-slot frames');
+          quality = 0.85; maxW = 700; maxH = 500;
+        } else if (currentFrameName === 'Testframe2' || (currentFrameName && currentFrameName.includes('FremioSeries-3'))) {
+          console.log('🎯 Using higher quality compression for 3-slot frames');
+          quality = 0.9; maxW = 650; maxH = 650;
+        } else if (currentFrameName && currentFrameName.includes('FremioSeries-2')) {
+          console.log('🎯 Using higher quality compression for 2-slot frames');
+          quality = 0.85; maxW = 650; maxH = 500;
         }
-        
-        const newPhotos = [...capturedPhotos, compressedPhoto];
-        setCapturedPhotos(newPhotos);
-        localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
+
+        const compressed = await compressImage(e.target.result, quality, maxW, maxH);
+        resolve(compressed);
       };
       reader.readAsDataURL(file);
+    });
+
+    const compressedList = [];
+    for (const file of filesToProcess) {
+      const dataUrl = await processFile(file);
+      compressedList.push(dataUrl);
     }
+
+    const newPhotos = [...capturedPhotos, ...compressedList];
+    setCapturedPhotos(newPhotos);
+    try {
+      localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
+      console.log(`✅ ${compressedList.length} photo(s) added from files. Total: ${newPhotos.length}/${maxCaptures}`);
+    } catch (quotaError) {
+      console.error('❌ QuotaExceededError when saving selected files:', quotaError);
+      alert('Storage limit exceeded! Please try selecting fewer photos or refresh the page.');
+    }
+
     event.target.value = '';
   };
 
@@ -529,24 +561,32 @@ export default function TakeMoment() {
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
+                multiple
                 onChange={handleFileSelect}
                 style={{ display: 'none' }}
               />
               <button
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => {
+                  if (capturedPhotos.length >= maxCaptures) return;
+                  fileInputRef.current?.click();
+                }}
+                disabled={capturedPhotos.length >= maxCaptures}
+                title={capturedPhotos.length >= maxCaptures ? 'Maksimal foto sudah tercapai' : 'Pilih beberapa file sekaligus'}
                 style={{
                   padding: '0.75rem 1.5rem',
-                  background: '#fff',
-                  color: '#333',
+                  background: capturedPhotos.length >= maxCaptures ? '#f1f1f1' : '#fff',
+                  color: capturedPhotos.length >= maxCaptures ? '#999' : '#333',
                   border: '1px solid #ddd',
                   borderRadius: '25px',
                   fontSize: '1rem',
                   fontWeight: '500',
-                  cursor: 'pointer',
+                  cursor: capturedPhotos.length >= maxCaptures ? 'not-allowed' : 'pointer',
                   boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
                 }}
               >
-                Choose file
+                {capturedPhotos.length >= maxCaptures
+                  ? 'Max photos reached'
+                  : `Choose file (${maxCaptures - capturedPhotos.length} left)`}
               </button>
               
               <button

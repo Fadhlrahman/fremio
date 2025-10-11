@@ -1,10 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getFrameConfig, FRAME_CONFIGS } from '../config/frameConfigs.js';
+import frameProvider from '../utils/frameProvider.js';
 import QRCode from 'qrcode';
 import Testframe1 from '../assets/frames/Testframe1.png';
 import Testframe2 from '../assets/frames/Testframe2.png';
 import Testframe3 from '../assets/frames/Testframe3.png';
+
+// FremioSeries Imports
+import FremioSeriesBlue2 from '../assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png';
+import FremioSeriesBabyblue3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-babyblue-3.png';
+import FremioSeriesBlack3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-black-3.png';
+import FremioSeriesBlue3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-blue-3.png';
+import FremioSeriesCream3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-cream-3.png';
+import FremioSeriesGreen3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-green-3.png';
+import FremioSeriesMaroon3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-maroon-3.png';
+import FremioSeriesOrange3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-orange-3.png';
+import FremioSeriesPink3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-pink-3.png';
+import FremioSeriesPurple3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-purple-3.png';
+import FremioSeriesWhite3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-white-3.png';
+import FremioSeriesBlue4 from '../assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png';
 
 export default function EditPhoto() {
   const navigate = useNavigate();
@@ -37,7 +52,20 @@ export default function EditPhoto() {
     const frameMap = {
       'Testframe1': Testframe1,
       'Testframe2': Testframe2,
-      'Testframe3': Testframe3
+      'Testframe3': Testframe3,
+      // FremioSeries frames
+      'FremioSeries-blue-2': FremioSeriesBlue2,
+      'FremioSeries-babyblue-3': FremioSeriesBabyblue3,
+      'FremioSeries-black-3': FremioSeriesBlack3,
+      'FremioSeries-blue-3': FremioSeriesBlue3,
+      'FremioSeries-cream-3': FremioSeriesCream3,
+      'FremioSeries-green-3': FremioSeriesGreen3,
+      'FremioSeries-maroon-3': FremioSeriesMaroon3,
+      'FremioSeries-orange-3': FremioSeriesOrange3,
+      'FremioSeries-pink-3': FremioSeriesPink3,
+      'FremioSeries-purple-3': FremioSeriesPurple3,
+      'FremioSeries-white-3': FremioSeriesWhite3,
+      'FremioSeries-blue-4': FremioSeriesBlue4
     };
     return frameMap[frameId] || Testframe1;
   };
@@ -248,6 +276,44 @@ export default function EditPhoto() {
       });
     }
   }, [frameConfig, photos.length]);
+
+  // Listen for frame changes from frameProvider
+  useEffect(() => {
+    const checkFrameChange = () => {
+      const currentFrameFromProvider = frameProvider.currentFrame;
+      const currentFrameFromStorage = localStorage.getItem('selectedFrame');
+      
+      if (currentFrameFromProvider && currentFrameFromProvider !== selectedFrame) {
+        console.log('🔄 Frame changed via frameProvider:', currentFrameFromProvider);
+        setSelectedFrame(currentFrameFromProvider);
+        
+        const config = getFrameConfig(currentFrameFromProvider);
+        if (config) {
+          setFrameConfig(config);
+          setFrameImage(getFrameImage(currentFrameFromProvider));
+          console.log('✅ Updated frame config:', config);
+        }
+      } else if (currentFrameFromStorage && currentFrameFromStorage !== selectedFrame) {
+        console.log('🔄 Frame changed via localStorage:', currentFrameFromStorage);
+        setSelectedFrame(currentFrameFromStorage);
+        
+        const config = getFrameConfig(currentFrameFromStorage);
+        if (config) {
+          setFrameConfig(config);
+          setFrameImage(getFrameImage(currentFrameFromStorage));
+          console.log('✅ Updated frame config:', config);
+        }
+      }
+    };
+
+    // Check immediately
+    checkFrameChange();
+    
+    // Set up polling to check for changes (since we don't have events)
+    const interval = setInterval(checkFrameChange, 500);
+    
+    return () => clearInterval(interval);
+  }, [selectedFrame]);
 
   // Handle drag start
   const handleDragStart = (e, photoIndex, slotIndex) => {
@@ -1773,6 +1839,152 @@ export default function EditPhoto() {
           }}>
             Toggle Tools
           </h3>
+
+          {/* Testing Controls */}
+          <div style={{
+            marginBottom: '1.5rem',
+            padding: '1rem',
+            backgroundColor: '#fff3cd',
+            borderRadius: '10px',
+            border: '1px solid #ffeaa7'
+          }}>
+            <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: '#856404' }}>Testing Controls</h4>
+            
+            {/* Debug Info */}
+            <div style={{ 
+              fontSize: '0.7rem', 
+              marginBottom: '0.5rem', 
+              padding: '0.3rem', 
+              backgroundColor: '#f8f9fa', 
+              borderRadius: '4px',
+              color: '#6c757d'
+            }}>
+              Selected: {selectedFrame || 'None'}<br/>
+              Provider: {frameProvider?.currentFrame || 'None'}<br/>
+              Storage: {localStorage.getItem('selectedFrame') || 'None'}
+            </div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <button
+                onClick={async () => {
+                  console.log('🔄 Setting FremioSeries-blue-3...');
+                  console.log('📋 Before setFrame - selectedFrame:', selectedFrame);
+                  console.log('📋 Before setFrame - frameProvider.currentFrame:', frameProvider.currentFrame);
+                  console.log('📋 Before setFrame - localStorage:', localStorage.getItem('selectedFrame'));
+                  
+                  const result = await frameProvider.setFrame('FremioSeries-blue-3');
+                  console.log('📋 setFrame result:', result);
+                  
+                  console.log('📋 After setFrame - frameProvider.currentFrame:', frameProvider.currentFrame);
+                  console.log('📋 After setFrame - localStorage:', localStorage.getItem('selectedFrame'));
+                  
+                  // Force immediate update
+                  const newFrame = frameProvider.currentFrame || localStorage.getItem('selectedFrame');
+                  if (newFrame && newFrame !== selectedFrame) {
+                    console.log('🔄 Forcing immediate frame update to:', newFrame);
+                    setSelectedFrame(newFrame);
+                    
+                    const config = getFrameConfig(newFrame);
+                    if (config) {
+                      setFrameConfig(config);
+                      setFrameImage(getFrameImage(newFrame));
+                      console.log('✅ Forced frame config update:', config);
+                    }
+                  }
+                }}
+                style={{
+                  padding: '0.4rem 0.8rem',
+                  fontSize: '0.8rem',
+                  backgroundColor: '#007bff',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer'
+                }}
+              >
+                Set Fremio Blue 3
+              </button>
+              <button
+                onClick={async () => {
+                  console.log('🔄 Setting FremioSeries-green-3...');
+                  await frameProvider.setFrame('FremioSeries-green-3');
+                  // Force re-render dengan mengupdate state
+                  setActiveToggle(activeToggle === 'filter' ? 'adjust' : 'filter');
+                  setTimeout(() => setActiveToggle('filter'), 10);
+                }}
+                style={{
+                  padding: '0.4rem 0.8rem',
+                  fontSize: '0.8rem',
+                  backgroundColor: '#28a745',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer'
+                }}
+              >
+                Set Fremio Green 3
+              </button>
+              <button
+                onClick={async () => {
+                  console.log('🔄 Setting FremioSeries-blue-4...');
+                  await frameProvider.setFrame('FremioSeries-blue-4');
+                  // Force re-render dengan mengupdate state
+                  setActiveToggle(activeToggle === 'filter' ? 'adjust' : 'filter');
+                  setTimeout(() => setActiveToggle('filter'), 10);
+                }}
+                style={{
+                  padding: '0.4rem 0.8rem',
+                  fontSize: '0.8rem',
+                  backgroundColor: '#17a2b8',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer'
+                }}
+              >
+                Set Fremio Blue 4
+              </button>
+              <button
+                onClick={() => {
+                  console.log('🗑️ Clearing localStorage...');
+                  localStorage.removeItem('selectedFrame');
+                  localStorage.removeItem('capturedPhotos');
+                  frameProvider.currentFrame = null;
+                  frameProvider.currentConfig = null;
+                  // Force re-render
+                  setSelectedFrame('');
+                  setFrameConfig(null);
+                  setFrameImage(null);
+                }}
+                style={{
+                  padding: '0.4rem 0.8rem',
+                  fontSize: '0.8rem',
+                  backgroundColor: '#dc3545',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer'
+                }}
+              >
+                Clear Test Data
+              </button>
+              
+              <button
+                onClick={() => window.location.reload()}
+                style={{
+                  padding: '0.4rem 0.8rem',
+                  fontSize: '0.8rem',
+                  backgroundColor: '#6c757d',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer'
+                }}
+              >
+                Reload Page
+              </button>
+            </div>
+          </div>
           
           <div style={{
             display: 'flex',

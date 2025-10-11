@@ -5,8 +5,20 @@
 export const FRAME_REGISTRY = [
   'Testframe1',
   'Testframe2', 
-  'Testframe3'
-  // Add new frames here as needed
+  'Testframe3',
+  // FremioSeries frames
+  'FremioSeries-blue-2',
+  'FremioSeries-babyblue-3',
+  'FremioSeries-black-3',
+  'FremioSeries-blue-3',
+  'FremioSeries-cream-3',
+  'FremioSeries-green-3',
+  'FremioSeries-maroon-3',
+  'FremioSeries-orange-3',
+  'FremioSeries-pink-3',
+  'FremioSeries-purple-3',
+  'FremioSeries-white-3',
+  'FremioSeries-blue-4'
 ];
 
 // Frame metadata for quick access without loading full config
@@ -33,6 +45,103 @@ export const FRAME_METADATA = {
     maxCaptures: 4,
     description: '4 slot foto grid 2x2',
     imagePath: '/src/assets/frames/Testframe3.png',
+    category: 'grid'
+  },
+  // FremioSeries Metadata
+  'FremioSeries-blue-2': {
+    id: 'FremioSeries-blue-2',
+    name: 'FremioSeries Blue 2 Foto',
+    maxCaptures: 2,
+    description: '2 slot foto vertikal - Blue Frame',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png',
+    category: 'portrait'
+  },
+  'FremioSeries-babyblue-3': {
+    id: 'FremioSeries-babyblue-3',
+    name: 'FremioSeries Baby Blue 6 Foto',
+    maxCaptures: 3,
+    description: '3 foto x 2 = 6 slot photobooth klasik - Baby Blue Frame',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-babyblue-3.png',
+    category: 'photobooth'
+  },
+  'FremioSeries-black-3': {
+    id: 'FremioSeries-black-3',
+    name: 'FremioSeries Black 6 Foto',
+    maxCaptures: 3,
+    description: '3 foto x 2 = 6 slot photobooth klasik - Black Frame',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-black-3.png',
+    category: 'photobooth'
+  },
+  'FremioSeries-blue-3': {
+    id: 'FremioSeries-blue-3',
+    name: 'FremioSeries Blue 6 Foto',
+    maxCaptures: 3,
+    description: '3 foto x 2 = 6 slot photobooth klasik - Blue Frame',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-blue-3.png',
+    category: 'photobooth'
+  },
+  'FremioSeries-cream-3': {
+    id: 'FremioSeries-cream-3',
+    name: 'FremioSeries Cream 6 Foto',
+    maxCaptures: 3,
+    description: '3 foto x 2 = 6 slot photobooth klasik - Cream Frame',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-cream-3.png',
+    category: 'photobooth'
+  },
+  'FremioSeries-green-3': {
+    id: 'FremioSeries-green-3',
+    name: 'FremioSeries Green 6 Foto',
+    maxCaptures: 3,
+    description: '3 foto x 2 = 6 slot photobooth klasik - Green Frame',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-green-3.png',
+    category: 'photobooth'
+  },
+  'FremioSeries-maroon-3': {
+    id: 'FremioSeries-maroon-3',
+    name: 'FremioSeries Maroon 6 Foto',
+    maxCaptures: 3,
+    description: '3 foto x 2 = 6 slot photobooth klasik - Maroon Frame',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-maroon-3.png',
+    category: 'photobooth'
+  },
+  'FremioSeries-orange-3': {
+    id: 'FremioSeries-orange-3',
+    name: 'FremioSeries Orange 6 Foto',
+    maxCaptures: 3,
+    description: '3 foto x 2 = 6 slot photobooth klasik - Orange Frame',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-orange-3.png',
+    category: 'photobooth'
+  },
+  'FremioSeries-pink-3': {
+    id: 'FremioSeries-pink-3',
+    name: 'FremioSeries Pink 6 Foto',
+    maxCaptures: 3,
+    description: '3 foto x 2 = 6 slot photobooth klasik - Pink Frame',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-pink-3.png',
+    category: 'photobooth'
+  },
+  'FremioSeries-purple-3': {
+    id: 'FremioSeries-purple-3',
+    name: 'FremioSeries Purple 6 Foto',
+    maxCaptures: 3,
+    description: '3 foto x 2 = 6 slot photobooth klasik - Purple Frame',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-purple-3.png',
+    category: 'photobooth'
+  },
+  'FremioSeries-white-3': {
+    id: 'FremioSeries-white-3',
+    name: 'FremioSeries White 6 Foto',
+    maxCaptures: 3,
+    description: '3 foto x 2 = 6 slot photobooth klasik - White Frame',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-white-3.png',
+    category: 'photobooth'
+  },
+  'FremioSeries-blue-4': {
+    id: 'FremioSeries-blue-4',
+    name: 'FremioSeries Blue 4 Foto',
+    maxCaptures: 4,
+    description: '4 slot foto grid 2x2 - Blue Frame',
+    imagePath: '/src/assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png',
     category: 'grid'
   }
 };

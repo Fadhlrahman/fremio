@@ -5,42 +5,87 @@ export const frameConfig = {
   maxCaptures: 4,
   description: '4 slot foto grid 2x2 - Blue Frame',
   imagePath: '/src/assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png',
+  duplicatePhotos: true,
   slots: [
     {
-      id: 'slot_1',
-      left: 0.2,     // 15% dari kiri (kiri atas) - margin untuk grid
-      top: 0.03,      // 18% dari atas - margin untuk grid
-      width: 0.4,    // 32% lebar - untuk rasio 4:5 dalam grid 2x2
-      height: 0.2,   // 28% tinggi - untuk rasio 4:5 dalam grid 2x2
-      aspectRatio: '4:5', // Rasio Instagram portrait
-      zIndex: 2
+      id: 'slot_1a',
+      left: 0.05,     // Kolom kiri atas
+      top: 0.03,      // Baris 1
+      width: 0.41,
+      height: 0.2,
+      aspectRatio: '4:5',
+      zIndex: 2,
+      photoIndex: 0
     },
     {
-      id: 'slot_2',
-      left: 0.3,     // 53% dari kiri (kanan atas) - margin seimbang
-      top: 0.25,      // 18% dari atas - sama dengan slot 1
-      width: 0.4,    // 32% lebar - sama dengan slot lain
-      height: 0.2,   // 28% tinggi - sama dengan slot lain
-      aspectRatio: '4:5', // Rasio Instagram portrait
-      zIndex: 2
+      id: 'slot_1b',
+      left: 0.545,    // Kolom kanan atas
+      top: 0.03,
+      width: 0.41,
+      height: 0.2,
+      aspectRatio: '4:5',
+      zIndex: 2,
+      photoIndex: 0
     },
     {
-      id: 'slot_3',
-      left: 0.3,     // 15% dari kiri (kiri bawah) - sama dengan slot 1
-      top: 0.46,      // 54% dari atas - slot bawah
-      width: 0.4,    // 32% lebar - sama dengan slot lain
-      height: 0.2,   // 28% tinggi - sama dengan slot lain
-      aspectRatio: '4:5', // Rasio Instagram portrait
-      zIndex: 2
+      id: 'slot_2a',
+      left: 0.05,     // Kolom kiri baris 2
+      top: 0.24,
+      width: 0.41,
+      height: 0.21,
+      aspectRatio: '4:5',
+      zIndex: 2,
+      photoIndex: 1
     },
     {
-      id: 'slot_4',
-      left: 0.3,     // 53% dari kiri (kanan bawah) - sama dengan slot 2
-      top: 0.68,      // 54% dari atas - sama dengan slot 3
-      width: 0.4,    // 32% lebar - sama dengan slot lain
-      height: 0.2,   // 28% tinggi - sama dengan slot lain
-      aspectRatio: '4:5', // Rasio Instagram portrait
-      zIndex: 2
+      id: 'slot_2b',
+      left: 0.545,    // Kolom kanan baris 2
+      top: 0.24,
+      width: 0.41,
+      height: 0.21,
+      aspectRatio: '4:5',
+      zIndex: 2,
+      photoIndex: 1
+    },
+    {
+      id: 'slot_3a',
+      left: 0.05,     // Kolom kiri baris 3
+      top: 0.455,
+      width: 0.41,
+      height: 0.21,
+      aspectRatio: '4:5',
+      zIndex: 2,
+      photoIndex: 2
+    },
+    {
+      id: 'slot_3b',
+      left: 0.545,    // Kolom kanan baris 3
+      top: 0.455,
+      width: 0.41,
+      height: 0.21,
+      aspectRatio: '4:5',
+      zIndex: 2,
+      photoIndex: 2
+    },
+    {
+      id: 'slot_4a',
+      left: 0.05,     // Kolom kiri baris 4
+      top: 0.675,
+      width: 0.41,
+      height: 0.21,
+      aspectRatio: '4:5',
+      zIndex: 2,
+      photoIndex: 3
+    },
+    {
+      id: 'slot_4b',
+      left: 0.545,    // Kolom kanan baris 4
+      top: 0.675,
+      width: 0.41,
+      height: 0.21,
+      aspectRatio: '4:5',
+      zIndex: 2,
+      photoIndex: 3
     }
   ],
   layout: {

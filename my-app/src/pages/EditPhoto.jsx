@@ -2,10 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getFrameConfig, FRAME_CONFIGS } from '../config/frameConfigs.js';
 import QRCode from 'qrcode';
-import Testframe1 from '../assets/Testframe1.png';
-import Testframe2 from '../assets/Testframe2.png';
-import Testframe3 from '../assets/Testframe3.png';
-import Testframe4 from '../assets/Testframe4.png';
+import Testframe1 from '../assets/frames/Testframe1.png';
+import Testframe2 from '../assets/frames/Testframe2.png';
+import Testframe3 from '../assets/frames/Testframe3.png';
 
 export default function EditPhoto() {
   const navigate = useNavigate();
@@ -38,8 +37,7 @@ export default function EditPhoto() {
     const frameMap = {
       'Testframe1': Testframe1,
       'Testframe2': Testframe2,
-      'Testframe3': Testframe3,
-      'Testframe4': Testframe4
+      'Testframe3': Testframe3
     };
     return frameMap[frameId] || Testframe1;
   };
@@ -158,9 +156,6 @@ export default function EditPhoto() {
             
             // Calculate proper default scale based on frame type
             let defaultScale = 1.6; // Standard auto-fill for portrait frames
-            if (frameConfigForDefaults?.id === 'Testframe4') {
-              defaultScale = 1.1; // Testframe4 specific default
-            }
             
             console.log(`📐 Setting slot ${slotIndex} (photo ${photoIndex}) default scale: ${defaultScale}`);
             
@@ -181,19 +176,9 @@ export default function EditPhoto() {
           parsedPhotos.forEach((_, index) => {
             positions[index] = 'center center';
             
-            // Calculate proper default scale based on frame type
-            let defaultScale = 1;
-            
-            if (frameConfigForDefaults?.id === 'Testframe4') {
-              // Testframe4 was configured to use max zoom out + 6 steps
-              // Based on zoom step of 0.1, max zoom out is 0.5, +6 steps = 1.1
-              defaultScale = 1.1;
-              console.log(`🎯 Setting Testframe4 default scale: ${defaultScale}`);
-            } else {
-              // Other frames use standard auto-fill scale
-              defaultScale = 1.6; // Standard auto-fill for portrait frames
-              console.log(`📐 Setting standard default scale: ${defaultScale}`);
-            }
+            // Use standard auto-fill scale for all frames
+            let defaultScale = 1.6; // Standard auto-fill for portrait frames
+            console.log(`📐 Setting standard default scale: ${defaultScale}`);
             
             transforms[index] = {
               scale: defaultScale,
@@ -215,8 +200,8 @@ export default function EditPhoto() {
       console.log('⚠️ No saved photos found in localStorage');
     }
 
-    // Special debugging for Testframe3 and Testframe4
-    if (frameFromStorage === 'Testframe3' || frameFromStorage === 'Testframe4') {
+    // Special debugging for Testframe3
+    if (frameFromStorage === 'Testframe3') {
       console.log(`🔍 ${frameFromStorage.toUpperCase()} LOADING DEBUG:`);
       console.log('  - selectedFrame value:', frameFromStorage);
       console.log('  - frameConfig from localStorage:', localStorage.getItem('frameConfig'));
@@ -234,8 +219,8 @@ export default function EditPhoto() {
       setFrameImage(getFrameImage(frameFromStorage));
       console.log('✅ Frame config loaded:', config);
       
-      // Extra verification for Testframe3 and Testframe4
-      if (frameFromStorage === 'Testframe3' || frameFromStorage === 'Testframe4') {
+      // Extra verification for Testframe3
+      if (frameFromStorage === 'Testframe3') {
         console.log(`✅ ${frameFromStorage.toUpperCase()} successfully loaded:`);
         console.log('  - Config ID:', config.id);
         console.log('  - Max captures:', config.maxCaptures);
@@ -245,8 +230,8 @@ export default function EditPhoto() {
     } else {
       console.error('❌ Failed to load frame config for:', frameFromStorage);
       
-      // Extra error logging for Testframe3 and Testframe4
-      if (frameFromStorage === 'Testframe3' || frameFromStorage === 'Testframe4') {
+      // Extra error logging for Testframe3
+      if (frameFromStorage === 'Testframe3') {
         console.error(`❌ ${frameFromStorage.toUpperCase()} FAILED TO LOAD!`);
         console.error('  - getFrameConfig returned:', config);
         console.error('  - Available configs:', Object.keys(FRAME_CONFIGS || {}));
@@ -408,22 +393,7 @@ export default function EditPhoto() {
     // Calculate minimum scale for edge-to-edge coverage
     let minScaleForCoverage;
     
-    // Special handling for Testframe4 - use left/right as zoom out max boundary
-    if (frameConfig?.id === 'Testframe4') {
-      console.log(`🎯 Testframe4 slot ${slotIndex + 1}: Using LEFT/RIGHT as zoom out boundary`);
-      
-      // For Testframe4, force fit by WIDTH (kiri-kanan menyentuh batas slot)
-      // Landscape photo in landscape slot: fit by width
-      minScaleForCoverage = 1; // Base scale where photo width = slot width
-      
-      // Apply some additional margin to ensure no gaps on left/right
-      const widthFitScale = 1.0; // Exact fit by width
-      
-      console.log(`📏 Testframe4 width-fit calculation: ${widthFitScale.toFixed(2)}x`);
-      return widthFitScale;
-    }
-    
-    // Original logic for other frames (Testframe1, 2, 3)
+    // Calculate scale for full coverage
     if (photoAspectRatio > slotAspectRatio) {
       // Photo landscape, slot portrait → fit by height for full coverage
       minScaleForCoverage = 1 / (photoAspectRatio / slotAspectRatio);

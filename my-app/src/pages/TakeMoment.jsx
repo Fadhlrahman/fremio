@@ -99,33 +99,41 @@ export default function TakeMoment() {
     setCapturedPhotos([]);
     localStorage.removeItem('capturedPhotos'); // Clear localStorage to ensure clean start
     
-    // Load frame configuration
-    frameProvider.loadFrameFromStorage();
-    const frameConfig = frameProvider.getCurrentConfig();
-    
-    console.log('🖼️ frameProvider.getCurrentConfig():', frameConfig);
-    
-    if (frameConfig && frameConfig.maxCaptures) {
-      setMaxCaptures(frameConfig.maxCaptures);
-      setFrameConfig(frameConfig); // Store frame config for crop guides
-      console.log(`📸 Frame loaded: ${frameConfig.name} - Max captures: ${frameConfig.maxCaptures}`);
-    } else {
-      // Load from localStorage as fallback
-      const selectedFrame = localStorage.getItem('selectedFrame') || 'Testframe1';
-      console.log('📦 selectedFrame from localStorage:', selectedFrame);
-      
-      const config = getFrameConfig(selectedFrame);
-      console.log('⚙️ getFrameConfig result:', config);
-      
-      if (config) {
-        setFrameConfig(config);
-        setMaxCaptures(config.maxCaptures);
-        console.log(`📸 Frame loaded from localStorage: ${config.name} - MaxCaptures: ${config.maxCaptures}`);
-      } else {
-        console.log('⚠️ No frame selected, using default max captures: 4');
-        setMaxCaptures(4); // Default fallback
+    // Load frame configuration asynchronously
+    const loadFrameConfig = async () => {
+      try {
+        await frameProvider.loadFrameFromStorage();
+        const frameConfig = frameProvider.getCurrentConfig();
+        
+        console.log('🖼️ frameProvider.getCurrentConfig():', frameConfig);
+        
+        if (frameConfig && frameConfig.maxCaptures) {
+          setMaxCaptures(frameConfig.maxCaptures);
+          setFrameConfig(frameConfig); // Store frame config for crop guides
+          console.log(`📸 Frame loaded: ${frameConfig.name} - Max captures: ${frameConfig.maxCaptures}`);
+        } else {
+          // Load from localStorage as fallback
+          const selectedFrame = localStorage.getItem('selectedFrame') || 'Testframe1';
+          console.log('📦 selectedFrame from localStorage:', selectedFrame);
+          
+          const config = await frameProvider.setFrame(selectedFrame);
+          if (config) {
+            const loadedConfig = frameProvider.getCurrentConfig();
+            setFrameConfig(loadedConfig);
+            setMaxCaptures(loadedConfig.maxCaptures);
+            console.log(`📸 Frame loaded from localStorage: ${loadedConfig.name} - MaxCaptures: ${loadedConfig.maxCaptures}`);
+          } else {
+            console.log('⚠️ No frame selected, using default max captures: 4');
+            setMaxCaptures(4); // Default fallback
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error loading frame configuration:', error);
+        setMaxCaptures(4); // Fallback
       }
-    }
+    };
+    
+    loadFrameConfig();
   }, []);
 
   // Debug: Log when capturedPhotos changes
@@ -336,6 +344,13 @@ export default function TakeMoment() {
         
         setCurrentPhoto(null);
         setShowConfirmation(false);
+        
+        // Auto-close kamera HANYA jika sudah mencapai maksimal foto
+        if (newPhotos.length >= maxCaptures) {
+          stopCamera();
+          console.log(`📸 Camera auto-closed: reached maximum photos (${maxCaptures})`);
+        }
+        
         console.log('Photo added successfully');
       } catch (error) {
         console.error('❌ Error compressing photo:', error);
@@ -351,6 +366,13 @@ export default function TakeMoment() {
         }
         setCurrentPhoto(null);
         setShowConfirmation(false);
+        
+        // Auto-close kamera HANYA jika sudah mencapai maksimal foto
+        const finalPhotos = [...capturedPhotos, currentPhoto];
+        if (finalPhotos.length >= maxCaptures) {
+          stopCamera();
+          console.log(`📸 Camera auto-closed: reached maximum photos (${maxCaptures})`);
+        }
       }
     } else {
       console.log('No currentPhoto available');
@@ -362,8 +384,72 @@ export default function TakeMoment() {
     setShowConfirmation(false);
   };
 
-  const handleEdit = () => {
-    navigate('/editor');
+  const handleDeletePhoto = (indexToDelete) => {
+    const newPhotos = capturedPhotos.filter((_, index) => index !== indexToDelete);
+    setCapturedPhotos(newPhotos);
+    
+    // Update localStorage
+    try {
+      localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
+      console.log(`✅ Photo ${indexToDelete + 1} deleted successfully`);
+    } catch (error) {
+      console.error('❌ Error updating localStorage after delete:', error);
+    }
+  };
+
+  const handleEdit = async () => {
+    // Validasi foto harus maksimal sebelum bisa edit
+    if (capturedPhotos.length < maxCaptures) {
+      alert(`Anda perlu mengambil ${maxCaptures} foto untuk frame ini. Saat ini baru ${capturedPhotos.length} foto.`);
+      return;
+    }
+    
+    console.log(`🎯 Edit button clicked - Photos: ${capturedPhotos.length}, MaxCaptures: ${maxCaptures}`);
+    console.log('📸 Photos array:', capturedPhotos);
+    
+    // Debug frame information
+    const currentFrameConfig = frameProvider.getCurrentConfig();
+    const currentFrameName = frameProvider.getCurrentFrameName();
+    console.log('🖼️ Current frame name:', currentFrameName);
+    console.log('🖼️ Current frame config:', currentFrameConfig);
+    
+    // Save photos to localStorage before navigating
+    try {
+      // Clean up storage first
+      cleanUpStorage();
+      
+      const storageSize = calculateStorageSize(capturedPhotos);
+      console.log(`💾 About to save ${storageSize.kb}KB to localStorage`);
+      
+      // Normal save
+      localStorage.setItem('capturedPhotos', JSON.stringify(capturedPhotos));
+      console.log('✅ Photos saved successfully');
+    } catch (quotaError) {
+      console.error('❌ QuotaExceededError:', quotaError);
+      alert('Storage limit exceeded! Please refresh the page and try again.');
+      return; // Don't navigate if we can't save
+    }
+    
+    // Also save current frame info
+    const currentFrame = frameProvider.getCurrentConfig();
+    if (currentFrame) {
+      try {
+        localStorage.setItem('selectedFrame', currentFrame.id);
+        localStorage.setItem('frameConfig', JSON.stringify(currentFrame));
+        console.log(`🖼️ Frame saved: ${currentFrame.id}`);
+      } catch (quotaError) {
+        console.error('❌ QuotaExceededError when saving frame config:', quotaError);
+        alert('Warning: Could not save frame configuration due to storage limits.');
+      }
+    } else {
+      console.error('❌ No current frame found!');
+    }
+    
+    // Stop camera sebelum navigate ke editor
+    stopCamera();
+    console.log('📸 Camera stopped: navigating to editor');
+    console.log('🚀 Navigating to /edit-photo');
+    navigate('/edit-photo');
   };
 
   const stopCamera = () => {
@@ -687,6 +773,7 @@ export default function TakeMoment() {
                     <div
                       key={idx}
                       style={{
+                        position: 'relative',
                         aspectRatio: videoAspectRatio.toString(),
                         borderRadius: '8px',
                         overflow: 'hidden',
@@ -695,10 +782,10 @@ export default function TakeMoment() {
                         cursor: 'pointer'
                       }}
                       onMouseEnter={(e) => {
-                        e.target.style.transform = 'scale(1.02)';
+                        e.currentTarget.style.transform = 'scale(1.02)';
                       }}
                       onMouseLeave={(e) => {
-                        e.target.style.transform = 'scale(1)';
+                        e.currentTarget.style.transform = 'scale(1)';
                       }}
                     >
                       <img
@@ -712,6 +799,46 @@ export default function TakeMoment() {
                         onLoad={() => console.log(`Photo ${idx + 1} loaded in preview`)}
                         onError={(e) => console.log(`Photo ${idx + 1} failed to load in preview:`, e)}
                       />
+                      
+                      {/* Delete Button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Hapus foto ${idx + 1}?`)) {
+                            handleDeletePhoto(idx);
+                          }
+                        }}
+                        style={{
+                          position: 'absolute',
+                          top: '4px',
+                          right: '4px',
+                          width: '24px',
+                          height: '24px',
+                          borderRadius: '50%',
+                          border: 'none',
+                          background: 'rgba(255, 59, 48, 0.9)',
+                          color: 'white',
+                          fontSize: '12px',
+                          fontWeight: 'bold',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.background = 'rgba(255, 59, 48, 1)';
+                          e.target.style.transform = 'scale(1.1)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.background = 'rgba(255, 59, 48, 0.9)';
+                          e.target.style.transform = 'scale(1)';
+                        }}
+                        title={`Hapus foto ${idx + 1}`}
+                      >
+                        ×
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -835,8 +962,8 @@ export default function TakeMoment() {
                     console.error('❌ No current frame found!');
                   }
                   
-                  console.log('🚀 Navigating to /edit-photo');
-                  navigate('/edit-photo');
+                  console.log('🚀 Calling handleEdit');
+                  handleEdit();
                 }}
                 style={{
                   width: '100%',
@@ -847,26 +974,23 @@ export default function TakeMoment() {
                   borderRadius: '25px',
                   fontSize: '1.1rem',
                   fontWeight: '600',
-                  cursor: 'pointer',
+                  cursor: capturedPhotos.length >= maxCaptures ? 'pointer' : 'not-allowed',
                   boxShadow: '0 2px 10px rgba(0,0,0,0.15)',
                   transition: 'all 0.2s ease',
-                  marginTop: '1rem'
+                  marginTop: '1rem',
+                  opacity: capturedPhotos.length >= maxCaptures ? 1 : 0.6
                 }}
                 onMouseEnter={(e) => {
                   if (capturedPhotos.length >= maxCaptures) {
                     e.target.style.background = '#d49673';
-                  } else {
-                    e.target.style.background = '#64748B';
+                    e.target.style.transform = 'translateY(-2px)';
                   }
-                  e.target.style.transform = 'translateY(-2px)';
                 }}
                 onMouseLeave={(e) => {
                   if (capturedPhotos.length >= maxCaptures) {
                     e.target.style.background = '#E8A889';
-                  } else {
-                    e.target.style.background = '#94A3B8';
+                    e.target.style.transform = 'translateY(0)';
                   }
-                  e.target.style.transform = 'translateY(0)';
                 }}
               >
                 {capturedPhotos.length >= maxCaptures 

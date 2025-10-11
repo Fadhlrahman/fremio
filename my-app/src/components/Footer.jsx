@@ -1,4 +1,7 @@
+import { useNavigate } from 'react-router-dom';
+
 export default function Footer() {
+  const navigate = useNavigate();
   return (
     <footer className="bg-[#f9ede7] py-8 border-t border-[#e0b7a9]">
       <div className="container mx-auto px-6 grid grid-cols-4 gap-8 overflow-x-auto min-h-[200px]">
@@ -48,6 +51,25 @@ export default function Footer() {
             <li><a href="#" className="hover:underline">Call Center</a></li>
             <li><a href="#" className="hover:underline">Order Status</a></li>
           </ul>
+          
+          {/* Tablet Printer Access */}
+          <div className="mt-4 pt-4 border-t border-[#e0b7a9]">
+            <h5 className="font-medium mb-2 text-sm text-gray-600">🖨️ Print Operator</h5>
+            <button 
+              onClick={() => {
+                // Get current base path and construct proper URL
+                const basePath = window.location.pathname.split('/')[1]; // 'fremio'
+                const tabletPrinterUrl = `/${basePath}/tablet-printer`;
+                window.open(tabletPrinterUrl, '_blank');
+              }}
+              className="inline-flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-300 hover:shadow-lg"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M7 3h10v5H7V3zm0 7h10v8H7v-8zm-4-2h18v4H3V8zm3 2v8h12v-8H6z"/>
+              </svg>
+              Tablet Printer
+            </button>
+          </div>
         </div>
 
         {/* Company */}

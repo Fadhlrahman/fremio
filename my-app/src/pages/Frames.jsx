@@ -1,8 +1,7 @@
 
-import Testframe1 from "../assets/Testframe1.png";
-import Testframe2 from "../assets/Testframe2.png";
-import Testframe3 from "../assets/Testframe3.png";
-import Testframe4 from "../assets/Testframe4.png";
+import Testframe1 from "../assets/frames/Testframe1.png";
+import Testframe2 from "../assets/frames/Testframe2.png";
+import Testframe3 from "../assets/frames/Testframe3.png";
 import { useNavigate } from "react-router-dom";
 import frameProvider from '../utils/frameProvider.js';
 
@@ -27,13 +26,6 @@ const frames = [
     description: "4 slot foto grid",
     img: Testframe3,
     maxCaptures: 4
-  },
-  {
-    id: "Testframe4",
-    title: "Frame 3 Foto Baru", 
-    description: "3 slot foto layout khusus",
-    img: Testframe4,
-    maxCaptures: 3
   },
 ];
 

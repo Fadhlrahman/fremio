@@ -6,6 +6,7 @@ import Frames from "./pages/Frames.jsx";
 import TakeMoment from "./pages/TakeMoment.jsx";
 import Editor from "./pages/Editor.jsx";
 import EditPhoto from "./pages/EditPhoto.jsx";
+import TabletPrinter from "./pages/TabletPrinter.jsx";
 import FrameDebugSimple from "./pages/FrameDebugSimple.jsx";
 import FrameBuilder from "./pages/FrameBuilder.jsx";
 import NotFound from "./pages/NotFound.jsx";
@@ -25,6 +26,8 @@ export default function App() {
         <Route path="/frame-builder" element={<FrameBuilder />} />
         <Route path="*" element={<NotFound />} />
       </Route>
+      {/* Tablet Printer - Full Screen Route (No Layout) */}
+      <Route path="/tablet-printer" element={<TabletPrinter />} />
     </Routes>
   );
 }

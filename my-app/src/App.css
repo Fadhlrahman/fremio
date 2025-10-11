@@ -94,7 +94,7 @@
 .hero-h1{
   margin:0 0 12px;
   font-size: clamp(40px, 6vw, 55px);
-  line-height:1.05; font-weight:9050
+  line-height:1.05; font-weight:900;
 }
 .hero-h1 .accent{ color:var(--accent); font-weight:900; }
 .hero-sub{ margin: 20px 0 26px; max-width: 80ch; color:#444; }

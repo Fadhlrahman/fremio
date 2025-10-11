@@ -1,22 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { getFrameConfig } from '../config/frameConfigs.js';
-import Testframe1 from '../assets/Testframe1.png';
-import Testframe2 from '../assets/Testframe2.png';
-import Testframe3 from '../assets/Testframe3.png';
-import Testframe4 from '../assets/Testframe4.png';
+import Testframe1 from '../assets/frames/Testframe1.png';
+import Testframe2 from '../assets/frames/Testframe2.png';
+import Testframe3 from '../assets/frames/Testframe3.png';
 
 export default function FrameDebug() {
   const [selectedFrame, setSelectedFrame] = useState('Testframe1');
   const [frameConfig, setFrameConfig] = useState(null);
   const [frameImage, setFrameImage] = useState(null);
 
-  // Frame image mapping1
+  // Frame image mapping
   const getFrameImage = (frameName) => {
     const frameMap = {
       'Testframe1': Testframe1,
       'Testframe2': Testframe2,
-      'Testframe3': Testframe3,
-      'Testframe4': Testframe4
+      'Testframe3': Testframe3
     };
     return frameMap[frameName] || null;
   };  // Calculate slot dimensions in pixels
@@ -60,7 +58,6 @@ export default function FrameDebug() {
           <option value="Testframe1">Testframe1 (2 slots)</option>
           <option value="Testframe2">Testframe2 (3 slots)</option>
           <option value="Testframe3">Testframe3 (4 slots)</option>
-          <option value="Testframe4">Testframe4 (3 slots)</option>
         </select>
       </div>
 

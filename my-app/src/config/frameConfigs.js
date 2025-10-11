@@ -163,48 +163,6 @@ export const FRAME_CONFIGS = {
       orientation: 'portrait',
       backgroundColor: '#ffffff'
     }
-  },
-
-  Testframe4: {
-    id: 'Testframe4',
-    name: 'Frame 3 Foto Baru',
-    maxCaptures: 3,
-    description: '3 slot foto layout khusus',
-    imagePath: '/src/assets/Testframe4.png',
-    slots: [
-      {
-        id: 'slot_1',
-        left: 0.1,       // 10% dari kiri - slot pertama
-        top: 0.065,      // 6.5% dari atas - slot atas
-        width: 0.8,      // 80% lebar - slot besar landscape
-        height: 0.25,    // 25% tinggi - slot besar
-        aspectRatio: '16:9', // Landscape aspect ratio untuk slot yang lebih lebar
-        zIndex: 2
-      },
-      {
-        id: 'slot_2',
-        left: 0.1,       // 10% dari kiri - slot kedua
-        top: 0.33,       // 33% dari atas - slot tengah
-        width: 0.8,      // 80% lebar - slot landscape
-        height: 0.25,    // 25% tinggi - slot
-        aspectRatio: '16:9', // Landscape aspect ratio untuk konsistensi
-        zIndex: 2
-      },
-      {
-        id: 'slot_3',
-        left: 0.1,       // 10% dari kiri - slot ketiga
-        top: 0.59,       // 59% dari atas - slot bawah
-        width: 0.8,      // 80% lebar - slot landscape
-        height: 0.25,    // 25% tinggi - slot
-        aspectRatio: '16:9', // Landscape aspect ratio untuk konsistensi
-        zIndex: 2
-      }
-    ],
-    layout: {
-      aspectRatio: '2:3',
-      orientation: 'portrait',
-      backgroundColor: '#ffffff'
-    }
   }
 };
 

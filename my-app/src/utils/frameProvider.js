@@ -1,14 +1,21 @@
 // Frame data provider - utility untuk mengelola frame configurations
-import { FRAME_CONFIGS, getFrameConfig, isValidFrame } from '../config/frameConfigs.js';
+import { 
+  getFrameConfig, 
+  getFrameMetadata, 
+  isValidFrame, 
+  getAllFrames,
+  preloadFrameConfigs
+} from '../config/frameConfigManager.js';
 
 export class FrameDataProvider {
   constructor() {
     this.currentFrame = null;
     this.currentConfig = null;
+    this.isLoading = false;
   }
 
-  // Set frame yang akan digunakan
-  setFrame(frameName) {
+  // Set frame yang akan digunakan (now async)
+  async setFrame(frameName) {
     console.log(`🎯 setFrame called with: ${frameName}`);
     
     if (!isValidFrame(frameName)) {
@@ -16,83 +23,90 @@ export class FrameDataProvider {
       return false;
     }
 
-    this.currentFrame = frameName;
-    this.currentConfig = getFrameConfig(frameName);
+    this.isLoading = true;
     
-    // Special logging for Testframe3 and Testframe4
-    if (frameName === 'Testframe3' || frameName === 'Testframe4') {
-      console.log(`🔍 ${frameName.toUpperCase()} SET FRAME DEBUG:`);
-      console.log('  - isValidFrame result:', isValidFrame(frameName));
-      console.log('  - getFrameConfig result:', this.currentConfig);
-      console.log('  - maxCaptures:', this.currentConfig?.maxCaptures);
-      console.log('  - slots count:', this.currentConfig?.slots?.length);
+    try {
+      // Load frame configuration dynamically
+      this.currentConfig = await getFrameConfig(frameName);
+      
+      if (!this.currentConfig) {
+        console.error(`Failed to load configuration for frame "${frameName}"`);
+        this.isLoading = false;
+        return false;
+      }
+
+      this.currentFrame = frameName;
+      
+      // Special logging for debugging
+      if (frameName === 'Testframe3') {
+        console.log(`🔍 ${frameName.toUpperCase()} SET FRAME DEBUG:`);
+        console.log('  - isValidFrame result:', isValidFrame(frameName));
+        console.log('  - getFrameConfig result:', this.currentConfig);
+        console.log('  - maxCaptures:', this.currentConfig?.maxCaptures);
+        console.log('  - slots count:', this.currentConfig?.slots?.length);
+      }
+      
+      // Simpan ke localStorage untuk persistence
+      localStorage.setItem('selectedFrame', frameName);
+      localStorage.setItem('frameConfig', JSON.stringify(this.currentConfig));
+      
+      console.log(`✅ Frame "${frameName}" berhasil di-set dengan ${this.currentConfig.maxCaptures} slots`);
+      this.isLoading = false;
+      return true;
+    } catch (error) {
+      console.error(`❌ Error setting frame "${frameName}":`, error);
+      this.isLoading = false;
+      return false;
     }
-    
-    // Simpan ke localStorage untuk persistence
-    localStorage.setItem('selectedFrame', frameName);
-    localStorage.setItem('frameConfig', JSON.stringify(this.currentConfig));
-    
-    console.log(`✅ Frame "${frameName}" berhasil di-set dengan ${this.currentConfig.maxCaptures} slots`);
-    return true;
   }
 
-  // Load frame dari localStorage
-  loadFrameFromStorage() {
+  // Load frame dari localStorage (now async)
+  async loadFrameFromStorage() {
     const storedFrame = localStorage.getItem('selectedFrame');
     const storedConfig = localStorage.getItem('frameConfig');
-    const storedSlots = localStorage.getItem('frameSlots');
 
     console.log('📁 Checking localStorage for frame data...');
     console.log('Stored frame:', storedFrame);
-    console.log('Stored config:', storedConfig);
-    console.log('Stored slots:', storedSlots);
+    console.log('Stored config:', storedConfig ? 'Found' : 'Not found');
 
-    // Try new format first (frameConfig)
-    if (storedFrame && storedConfig) {
+    // Try loading from stored frame name
+    if (storedFrame) {
       try {
-        this.currentFrame = storedFrame;
-        this.currentConfig = JSON.parse(storedConfig);
-        
-        // Validasi ulang untuk memastikan config masih valid
+        // Validate frame exists
         if (!isValidFrame(storedFrame)) {
-          throw new Error('Stored frame tidak valid');
+          console.warn(`⚠️ Stored frame "${storedFrame}" is no longer valid`);
+          return false;
         }
-        
-        console.log(`📁 Frame "${storedFrame}" berhasil dimuat dari frameConfig`);
-        return true;
-      } catch (error) {
-        console.error('Error loading frame dari frameConfig:', error);
-      }
-    }
 
-    // Fallback: Try old format (selectedFrame + frameSlots)
-    if (storedFrame && storedSlots) {
-      try {
-        // Map old frame names to new format
-        let frameName = storedFrame;
-        if (storedFrame.includes('Testframe1')) frameName = 'Testframe1';
-        else if (storedFrame.includes('Testframe2')) frameName = 'Testframe2';  
-        else if (storedFrame.includes('Testframe3')) frameName = 'Testframe3';
+        // Try to use stored config first
+        if (storedConfig) {
+          try {
+            this.currentFrame = storedFrame;
+            this.currentConfig = JSON.parse(storedConfig);
+            console.log(`📁 Frame "${storedFrame}" loaded from cached config`);
+            return true;
+          } catch (error) {
+            console.warn('⚠️ Cached config is corrupted, reloading...');
+          }
+        }
+
+        // Reload configuration dynamically
+        console.log(`🔄 Reloading frame "${storedFrame}" configuration...`);
+        const success = await this.setFrame(storedFrame);
         
-        if (isValidFrame(frameName)) {
-          this.currentFrame = frameName;
-          this.currentConfig = getFrameConfig(frameName);
-          
-          // Update localStorage with new format
-          localStorage.setItem('selectedFrame', frameName);
-          localStorage.setItem('frameConfig', JSON.stringify(this.currentConfig));
-          
-          console.log(`📁 Frame "${frameName}" berhasil dimuat dari legacy format dan diupdate`);
+        if (success) {
+          console.log(`📁 Frame "${storedFrame}" reloaded successfully`);
           return true;
         }
+        
       } catch (error) {
-        console.error('Error loading frame dari legacy format:', error);
+        console.error('❌ Error loading frame from storage:', error);
       }
     }
-    
-    console.log('⚠️ No valid frame found in localStorage');
-    this.clearFrame();
-    return false;
+
+    // No valid frame found, use default
+    console.log('📁 No valid frame in storage, using default...');
+    return await this.setFrame('Testframe1');
   }
 
   // Mendapatkan konfigurasi frame saat ini
@@ -174,6 +188,38 @@ export class FrameDataProvider {
     localStorage.removeItem('selectedFrame');
     localStorage.removeItem('frameConfig');
     console.log('🗑️ Frame data berhasil dihapus');
+  }
+
+  // Get all available frames metadata
+  async getAllFrames() {
+    return getAllFrames();
+  }
+
+  // Get frame metadata without loading full config
+  getFrameMetadata(frameName) {
+    return getFrameMetadata(frameName);
+  }
+
+  // Check if currently loading
+  isFrameLoading() {
+    return this.isLoading;
+  }
+
+  // Preload frame configurations for better performance
+  async preloadFrames(frameNames) {
+    console.log('🚀 Preloading frames for better performance...');
+    return await preloadFrameConfigs(frameNames);
+  }
+
+  // Get frame image path with new structure
+  getFrameImagePath() {
+    return this.currentConfig ? this.currentConfig.imagePath : null;
+  }
+
+  // Legacy compatibility method
+  getFrameConfigSync(frameName) {
+    console.warn('⚠️ getFrameConfigSync is deprecated. Use async methods instead.');
+    return getFrameMetadata(frameName);
   }
 
   // Mendapatkan informasi frame untuk UI

@@ -2664,7 +2664,7 @@ export default function EditPhoto() {
                               +
                             </button>
                             
-                            {/* Reset Button */}
+                            {/* Reset Button */.}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();

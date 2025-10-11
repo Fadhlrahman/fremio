@@ -28,7 +28,7 @@ export default function EditPhoto() {
   const [selectedPhoto, setSelectedPhoto] = useState(0);
   const [draggedPhoto, setDraggedPhoto] = useState(null);
   const [dragOverSlot, setDragOverSlot] = useState(null);
-  const [photoPositions, setPhotoPositions] = useState({}); // Store photo positions for fine-tuning
+  const [photoPositions, setPhotoPositions] = useState({}); // .Store photo positions for fine-tuning
   const [debugMode, setDebugMode] = useState(false); // Debug mode toggle
   const [configReloadKey, setConfigReloadKey] = useState(0); // Force config reload
   const [isReloading, setIsReloading] = useState(false); // Loading state for reload

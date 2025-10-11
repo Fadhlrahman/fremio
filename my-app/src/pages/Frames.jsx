@@ -56,7 +56,7 @@ export default function Frames() {
                 onClick={() => {
                   console.log(`🎯 Selecting frame: ${frame.id}`);
                   
-                  // Set frame menggunakan frameProvider
+                  // Set frame menggunakan frameProvider,,
                   if (frameProvider.setFrame(frame.id)) {
                     console.log(`✅ Frame ${frame.id} berhasil dipilih`);
                     navigate("/take-moment");

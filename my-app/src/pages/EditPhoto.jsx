@@ -48,6 +48,17 @@ export default function EditPhoto() {
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
+  const getSlotPhotosStorageKey = (id) => (id ? `slotPhotos:${id}` : null);
+  const persistSlotPhotos = (id, data) => {
+    const storageKey = getSlotPhotosStorageKey(id);
+    if (!storageKey) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(data));
+    } catch (err) {
+      console.warn('⚠️ Failed to persist slotPhotos for', id, err);
+    }
+  };
+
   // Frame image mapping
   const getFrameImage = (frameId) => {
     const frameMap = {
@@ -197,9 +208,32 @@ export default function EditPhoto() {
             };
           });
           
-          // Set slot photos for Testframe2
-          setSlotPhotos(initialSlotPhotos);
-          console.log('🎯 Initialized slot photos for Testframe2:', Object.keys(initialSlotPhotos).length, 'slots');
+          const storageKey = getSlotPhotosStorageKey(frameFromStorage);
+          let normalizedSlotPhotos = initialSlotPhotos;
+          if (storageKey) {
+            const stored = localStorage.getItem(storageKey);
+            if (stored) {
+              try {
+                const parsed = JSON.parse(stored);
+                const merged = {};
+                frameConfigForDefaults.slots.forEach((_, slotIndex) => {
+                  if (parsed && Object.prototype.hasOwnProperty.call(parsed, slotIndex)) {
+                    merged[slotIndex] = parsed[slotIndex];
+                  } else {
+                    merged[slotIndex] = initialSlotPhotos[slotIndex] || null;
+                  }
+                });
+                normalizedSlotPhotos = merged;
+              } catch (err) {
+                console.warn('⚠️ Failed to parse stored slotPhotos for edit page, using defaults', err);
+              }
+            }
+          }
+
+          // Set slot photos for duplicate-photo frames
+          setSlotPhotos(normalizedSlotPhotos);
+          persistSlotPhotos(frameFromStorage, normalizedSlotPhotos);
+          console.log('🎯 Initialized slot photos for duplicate frame:', Object.keys(normalizedSlotPhotos).length, 'slots');
         } else {
           // Standard initialization for non-duplicate frames (one transform per photo)
           parsedPhotos.forEach((_, index) => {
@@ -336,69 +370,108 @@ export default function EditPhoto() {
     return () => clearInterval(interval);
   }, [selectedFrame]);
 
+  // Reset drag state on dragend event (global failsafe)
+  useEffect(() => {
+    const handleDragEnd = (e) => {
+      console.log('🏁 [DnD] Drag ended globally, resetting state');
+      setDraggedPhoto(null);
+      setDragOverSlot(null);
+    };
+
+    const handleEscape = (e) => {
+      if (e.key === 'Escape' && draggedPhoto) {
+        console.log('⏹️ [DnD] Escape pressed, canceling drag');
+        setDraggedPhoto(null);
+        setDragOverSlot(null);
+      }
+    };
+
+    document.addEventListener('dragend', handleDragEnd);
+    document.addEventListener('keydown', handleEscape);
+    
+    return () => {
+      document.removeEventListener('dragend', handleDragEnd);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [draggedPhoto]);
+
   // Handle drag start
   const handleDragStart = (e, photoIndex, slotIndex) => {
+    e.stopPropagation();
     setDraggedPhoto({ photoIndex, slotIndex });
     e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', `slot-${slotIndex}`);
+    console.log('🎯 [DnD] Drag start dari slot', slotIndex + 1, 'photoIndex:', photoIndex);
   };
 
   // Handle drag over
   const handleDragOver = (e, slotIndex) => {
     e.preventDefault();
+    e.stopPropagation();
     setDragOverSlot(slotIndex);
     e.dataTransfer.dropEffect = 'move';
+    console.log('👆 [DnD] Drag over slot', slotIndex + 1);
   };
 
   // Handle drag leave
-  const handleDragLeave = () => {
-    setDragOverSlot(null);
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Only clear if leaving the container completely
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setDragOverSlot(null);
+    }
   };
 
   // Handle drop
   const handleDrop = (e, targetSlotIndex) => {
     e.preventDefault();
+    e.stopPropagation();
     setDragOverSlot(null);
     
-    if (!draggedPhoto) return;
+    console.log('📸 [DnD] Drop ke slot', targetSlotIndex + 1);
+    console.log('📸 [DnD] draggedPhoto state:', draggedPhoto);
+    
+    if (!draggedPhoto) {
+      console.log('❌ [DnD] No draggedPhoto state found');
+      return;
+    }
     
     const { photoIndex: draggedPhotoIndex, slotIndex: sourceSlotIndex } = draggedPhoto;
     
     if (sourceSlotIndex === targetSlotIndex) {
+      console.log('❌ [DnD] Same slot, canceling');
       setDraggedPhoto(null);
       return;
     }
 
+    console.log('🔄 [DnD] Swapping slot', sourceSlotIndex + 1, '→', targetSlotIndex + 1);
+
     // Special handling for frames with duplicate photos (like Testframe2)
     if (frameConfig && frameConfig.duplicatePhotos) {
-      console.log('🎯 Processing Testframe2 independent slot drag & drop...');
-      
-      // For Testframe2, we swap individual slot photos directly
+      console.log('🎯 Processing', frameConfig.id, 'independent slot drag & drop...');
+
       const newSlotPhotos = { ...slotPhotos };
-      
-      // Swap photos between the specific slots only
-      const temp = newSlotPhotos[sourceSlotIndex];
-      newSlotPhotos[sourceSlotIndex] = newSlotPhotos[targetSlotIndex];
-      newSlotPhotos[targetSlotIndex] = temp;
-      
+
+      const srcSlot = frameConfig.slots[sourceSlotIndex];
+      const dstSlot = frameConfig.slots[targetSlotIndex];
+      const srcPhotoIdx = srcSlot?.photoIndex ?? sourceSlotIndex;
+      const dstPhotoIdx = dstSlot?.photoIndex ?? targetSlotIndex;
+
+      const srcImage = newSlotPhotos[sourceSlotIndex] ?? photos[srcPhotoIdx] ?? null;
+      const dstImage = newSlotPhotos[targetSlotIndex] ?? photos[dstPhotoIdx] ?? null;
+
+      newSlotPhotos[sourceSlotIndex] = dstImage;
+      newSlotPhotos[targetSlotIndex] = srcImage;
+
       setSlotPhotos(newSlotPhotos);
+      persistSlotPhotos(frameConfig?.id, newSlotPhotos);
       setDraggedPhoto(null);
-      
-      // Also update the main photos array for consistency and storage
-      const newPhotos = [...photos];
-      frameConfig.slots.forEach((slot, slotIndex) => {
-        const photoIndex = slot.photoIndex;
-        if (newSlotPhotos[slotIndex]) {
-          newPhotos[photoIndex] = newSlotPhotos[slotIndex];
-        }
-      });
-      setPhotos(newPhotos);
-      localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
-      
+
       // Recalculate smart scales for the two swapped slots only
       console.log(`🔄 Recalculating smart scales for swapped slots: ${sourceSlotIndex + 1} ↔ ${targetSlotIndex + 1}`);
       setTimeout(async () => {
         const affectedSlots = [sourceSlotIndex, targetSlotIndex];
-        
         for (const slotIndex of affectedSlots) {
           const newPhotoForSlot = newSlotPhotos[slotIndex];
           if (newPhotoForSlot) {
@@ -419,11 +492,10 @@ export default function EditPhoto() {
             }
           }
         }
-        
-        console.log(`✅ Smart scales updated for 2 independent slots`);
+        console.log(`✅ Smart scales updated for swapped slots`);
       }, 100);
-      
-      console.log(`🔄 Swapped individual slots in Testframe2: slot ${sourceSlotIndex + 1} ↔ slot ${targetSlotIndex + 1}`);
+
+      console.log(`🔄 Swapped individual slots in ${frameConfig.id}: slot ${sourceSlotIndex + 1} ↔ slot ${targetSlotIndex + 1}`);
       console.log(`📸 Only these 2 slots changed, other slots remain unchanged`);
       return;
     }
@@ -718,32 +790,71 @@ export default function EditPhoto() {
       // Use smart scale calculation for better fitting
       const smartScale = await calculateSmartScaleAsync(photos[photoIndex], photoIndex);
       console.log(`🔧 Initializing photo ${photoIndex + 1} with smart scale: ${smartScale.toFixed(2)}x`);
-      
-      setPhotoTransforms(prev => ({
-        ...prev,
-        [photoIndex]: {
-          scale: smartScale,
-          translateX: 0,
-          translateY: 0,
-          autoFillScale: smartScale
-        }
-      }));
+
+      // For duplicate-photo frames, apply the same smart scale to ALL slots that reference this photoIndex
+      if (frameConfig?.duplicatePhotos && Array.isArray(frameConfig.slots)) {
+        setPhotoTransforms(prev => {
+          const next = { ...prev };
+          frameConfig.slots.forEach((slot, slotIndex) => {
+            const slotPhotoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+            if (slotPhotoIndex === photoIndex) {
+              next[slotIndex] = {
+                scale: smartScale,
+                translateX: 0,
+                translateY: 0,
+                autoFillScale: smartScale
+              };
+            }
+          });
+          return next;
+        });
+      } else {
+        // Standard behavior: apply to this single index
+        setPhotoTransforms(prev => ({
+          ...prev,
+          [photoIndex]: {
+            scale: smartScale,
+            translateX: 0,
+            translateY: 0,
+            autoFillScale: smartScale
+          }
+        }));
+      }
     } catch (error) {
       console.error(`❌ Error initializing smart scale for photo ${photoIndex + 1}:`, error);
       
       // Fallback to basic auto-fit scale
       const autoFitScale = calculateAutoFillScale(photoIndex);
       console.log(`🔧 Fallback: Initializing photo ${photoIndex + 1} with auto-fit scale: ${autoFitScale.toFixed(2)}x`);
-      
-      setPhotoTransforms(prev => ({
-        ...prev,
-        [photoIndex]: {
-          scale: autoFitScale,
-          translateX: 0,
-          translateY: 0,
-          autoFillScale: autoFitScale
-        }
-      }));
+
+      if (frameConfig?.duplicatePhotos && Array.isArray(frameConfig.slots)) {
+        // Apply fallback consistently to all related slots
+        setPhotoTransforms(prev => {
+          const next = { ...prev };
+          frameConfig.slots.forEach((slot, slotIndex) => {
+            const slotPhotoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+            if (slotPhotoIndex === photoIndex) {
+              next[slotIndex] = {
+                scale: autoFitScale,
+                translateX: 0,
+                translateY: 0,
+                autoFillScale: autoFitScale
+              };
+            }
+          });
+          return next;
+        });
+      } else {
+        setPhotoTransforms(prev => ({
+          ...prev,
+          [photoIndex]: {
+            scale: autoFitScale,
+            translateX: 0,
+            translateY: 0,
+            autoFillScale: autoFitScale
+          }
+        }));
+      }
     }
   };
 
@@ -2145,13 +2256,15 @@ export default function EditPhoto() {
                       height: `${slot.height * 100}%`,
                       zIndex: 5,
                       overflow: 'hidden',
-                      backgroundColor: '#f8f9fa',
-                      border: dragOverSlot === slotIndex ? '1px dashed #E8A889' : 'none',
+                      backgroundColor: dragOverSlot === slotIndex ? 'rgba(232, 168, 137, 0.2)' : '#f8f9fa',
+                      border: dragOverSlot === slotIndex ? '3px solid #E8A889' : 
+                             draggedPhoto ? '2px dashed #ccc' : 'none',
                       transition: 'all 0.3s ease',
                       boxSizing: 'border-box',
                       // Pastikan aspect ratio 4:5 untuk slot
                       aspectRatio: slot.aspectRatio ? slot.aspectRatio.replace(':', '/') : '4/5'
                     }}
+                    // Drop zone events - attached to container, not image
                     onDragOver={(e) => handleDragOver(e, slotIndex)}
                     onDragLeave={handleDragLeave}
                     onDrop={(e) => handleDrop(e, slotIndex)}
@@ -2184,28 +2297,53 @@ export default function EditPhoto() {
                             alt={`Photo ${photoIndex + 1}${slot.photoIndex !== undefined ? ` (duplicate)` : ''}`}
                             style={{
                               ...calculatePhotoCropStyle(frameConfig, slotIndex),
-                              opacity: draggedPhoto?.slotIndex === slotIndex ? 0.6 : 1,
-                              cursor: selectedPhotoForEdit === slotIndex ? 'grab' : 'pointer',
-                              filter: draggedPhoto?.slotIndex === slotIndex ? 'blur(1px)' : 'none',
-                              transform: `${calculatePhotoCropStyle(frameConfig, slotIndex).transform} ${draggedPhoto?.slotIndex === slotIndex ? 'scale(0.95)' : ''}`,
-                              transition: 'all 0.2s ease'
+                              opacity: draggedPhoto?.slotIndex === slotIndex ? 0.5 : 1,
+                              cursor: draggedPhoto?.slotIndex === slotIndex ? 'grabbing' : 
+                                     selectedPhotoForEdit === slotIndex ? 'grab' : 'pointer',
+                              filter: draggedPhoto?.slotIndex === slotIndex ? 'blur(1px) brightness(0.8)' : 'none',
+                              transform: `${calculatePhotoCropStyle(frameConfig, slotIndex).transform} ${draggedPhoto?.slotIndex === slotIndex ? 'scale(0.9)' : ''}`,
+                              transition: draggedPhoto?.slotIndex === slotIndex ? 'none' : 'all 0.2s ease',
+                              pointerEvents: draggedPhoto && draggedPhoto.slotIndex !== slotIndex ? 'none' : 'auto'
                             }}
                             draggable={true} // Enable drag for all frames including Testframe2
                             onDragStart={(e) => {
+                              e.stopPropagation();
                               handleDragStart(e, photoIndex, slotIndex);
                             }}
-                            onClick={() => setSelectedPhotoForEdit(selectedPhotoForEdit === slotIndex ? null : slotIndex)}
+                            onClick={(e) => {
+                              // Only handle click if not dragging
+                              if (!draggedPhoto) {
+                                setSelectedPhotoForEdit(selectedPhotoForEdit === slotIndex ? null : slotIndex);
+                              }
+                            }}
                             onWheel={(e) => {
-                              if (selectedPhotoForEdit === slotIndex) {
+                              if (selectedPhotoForEdit === slotIndex && !draggedPhoto) {
                                 e.preventDefault();
                                 const delta = e.deltaY > 0 ? -1 : 1;
                                 handlePhotoZoom(slotIndex, delta);
                               }
                             }}
-                            onMouseDown={(e) => handlePhotoMouseDown(e, slotIndex)}
-                            onMouseMove={(e) => handlePhotoMouseMove(e, slotIndex)}
-                            onMouseUp={handlePhotoMouseUp}
-                            onMouseLeave={handlePhotoMouseUp}
+                            onMouseDown={(e) => {
+                              // Only handle mouse down if not in drag mode
+                              if (!draggedPhoto) {
+                                handlePhotoMouseDown(e, slotIndex);
+                              }
+                            }}
+                            onMouseMove={(e) => {
+                              if (!draggedPhoto) {
+                                handlePhotoMouseMove(e, slotIndex);
+                              }
+                            }}
+                            onMouseUp={(e) => {
+                              if (!draggedPhoto) {
+                                handlePhotoMouseUp(e);
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!draggedPhoto) {
+                                handlePhotoMouseUp(e);
+                              }
+                            }}
                           />
                           
                           {/* Modern Photo Edit Controls */}
@@ -2571,6 +2709,32 @@ export default function EditPhoto() {
                     }}
                   >
                     {isReloading ? '⏳ Loading...' : '🔄 Reload Config'}
+                  </button>
+                  
+                  <button
+                    onClick={() => {
+                      console.log('=== DRAG & DROP DEBUG ===');
+                      console.log('draggedPhoto:', draggedPhoto);
+                      console.log('dragOverSlot:', dragOverSlot);
+                      console.log('slotPhotos:', slotPhotos);
+                      console.log('photoTransforms:', photoTransforms);
+                      console.log('frameConfig.duplicatePhotos:', frameConfig?.duplicatePhotos);
+                      console.log('photos.length:', photos?.length);
+                      console.log('frameConfig.slots.length:', frameConfig?.slots?.length);
+                    }}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: '11px',
+                      backgroundColor: '#17a2b8',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      marginLeft: '5px'
+                    }}
+                  >
+                    🔍 Debug D&D
                   </button>
                 </div>
                 

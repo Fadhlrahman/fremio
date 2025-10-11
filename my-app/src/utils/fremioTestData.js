@@ -39,15 +39,15 @@ export function createFremioSeriesTestData() {
   // Store in localStorage
   localStorage.setItem('capturedPhotos', JSON.stringify(samplePhotos));
   
-  // Set a FremioSeries frame (Blue 3-slot)
-  localStorage.setItem('selectedFrame', 'FremioSeries-blue-3');
+  // Set a FremioSeries frame (Black 3-slot)
+  localStorage.setItem('selectedFrame', 'FremioSeries-black-3');
   
-  // Set frame config for FremioSeries-blue-3 (3 photos duplicated to 6 slots)
+  // Set frame config for FremioSeries-black-3 (3 photos duplicated to 6 slots)
   const frameConfig = {
-    id: 'FremioSeries-blue-3',
-    name: 'FremioSeries Blue 6 Foto',
+    id: 'FremioSeries-black-3',
+    name: 'FremioSeries Black 6 Foto',
     maxCaptures: 3,
-    description: '3 foto x 2 = 6 slot photobooth klasik - Blue Frame',
+    description: '3 foto x 2 = 6 slot photobooth klasik - Black Frame',
     imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-blue-3.png',
     duplicatePhotos: true,
     slots: [
@@ -62,10 +62,16 @@ export function createFremioSeriesTestData() {
   };
   
   localStorage.setItem('frameConfig', JSON.stringify(frameConfig));
+  const slotPhotoMap = {};
+  frameConfig.slots.forEach((slot, idx) => {
+    const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : idx;
+    slotPhotoMap[idx] = samplePhotos[photoIndex] || null;
+  });
+  localStorage.setItem(`slotPhotos:${frameConfig.id}`, JSON.stringify(slotPhotoMap));
   
   console.log('✅ FremioSeries test data created:');
   console.log('- 3 sample photos stored in capturedPhotos');
-  console.log('- FremioSeries-blue-3 selected as frame');
+  console.log('- FremioSeries-black-3 selected as frame');
   console.log('- Frame config with 6 slots (3 photos duplicated) stored');
   console.log('- Ready for Editor.jsx to preview!');
   
@@ -123,6 +129,12 @@ export function createTestframe2TestData() {
   };
   
   localStorage.setItem('frameConfig', JSON.stringify(frameConfig));
+  const slotPhotoMap = {};
+  frameConfig.slots.forEach((slot, idx) => {
+    const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : idx;
+    slotPhotoMap[idx] = samplePhotos[photoIndex] || null;
+  });
+  localStorage.setItem(`slotPhotos:${frameConfig.id}`, JSON.stringify(slotPhotoMap));
   
   console.log('✅ Testframe2 test data created');
   return { photos: samplePhotos, frame: 'Testframe2', config: frameConfig };
@@ -133,6 +145,11 @@ export function clearTestData() {
   localStorage.removeItem('selectedFrame');
   localStorage.removeItem('frameConfig');
   localStorage.removeItem('frameSlots'); // legacy
+  Object.keys(localStorage).forEach((key) => {
+    if (key.startsWith('slotPhotos:')) {
+      localStorage.removeItem(key);
+    }
+  });
   
   console.log('🗑️ Test data cleared from localStorage');
 }

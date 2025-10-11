@@ -11,7 +11,7 @@ const compressImage = (dataUrl, quality = 0.8, maxWidth = 600, maxHeight = 600) 
     const img = new Image();
     
     img.onload = () => {
-      // Calculate new dimensions - maintain better quality
+      // Calculate new dimensions - maintain better quality..
       let { width, height } = img;
       
       // Less aggressive sizing to preserve quality

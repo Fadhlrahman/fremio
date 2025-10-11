@@ -21,6 +21,9 @@ export const FRAME_REGISTRY = [
   'FremioSeries-blue-4'
 ];
 
+// Map of available frame-config modules (Vite will include and HMR-update these)
+const FRAME_MODULES = import.meta.glob('./frame-configs/*.js');
+
 // Frame metadata for quick access without loading full config
 export const FRAME_METADATA = {
   Testframe1: {
@@ -169,9 +172,14 @@ export const getFrameConfig = async (frameName) => {
 
   try {
     console.log(`📥 Loading ${frameName} configuration...`);
-    
-    // Dynamic import of frame configuration
-    const configModule = await import(`./frame-configs/${frameName}.js`);
+    const modulePath = `./frame-configs/${frameName}.js`;
+    const loader = FRAME_MODULES[modulePath];
+    if (!loader) {
+      console.error(`❌ No module loader found for ${modulePath}`);
+      return null;
+    }
+    // Dynamic import via Vite glob (HMR-aware)
+    const configModule = await loader();
     const config = configModule.frameConfig || configModule.default;
     
     // Cache the loaded configuration
@@ -217,6 +225,46 @@ export const isValidFrame = (frameName) => {
 export const clearFrameCache = () => {
   frameConfigCache.clear();
   console.log('🗑️ Frame configuration cache cleared');
+};
+
+/**
+ * Clear a specific frame configuration from cache
+ * @param {string} frameName
+ */
+export const clearFrameCacheFor = (frameName) => {
+  if (frameConfigCache.has(frameName)) {
+    frameConfigCache.delete(frameName);
+    console.log(`🧹 Cleared cache for frame: ${frameName}`);
+  }
+};
+
+/**
+ * Force-reload a frame configuration from disk (bypass cache)
+ * Useful when editing ./frame-configs/*.js and wanting instant preview updates.
+ * @param {string} frameName
+ * @returns {Promise<Object|null>} fresh frame config
+ */
+export const reloadFrameConfig = async (frameName) => {
+  try {
+    clearFrameCacheFor(frameName);
+    const modulePath = `./frame-configs/${frameName}.js`;
+    const loader = FRAME_MODULES[modulePath];
+    if (!loader) {
+      console.error(`❌ No module loader found for ${modulePath}`);
+      return null;
+    }
+    // Ask Vite to (re)load the module; in dev, HMR supplies latest code
+    const mod = await loader();
+    const config = mod.frameConfig || mod.default;
+    if (config) {
+      frameConfigCache.set(frameName, config);
+      console.log(`♻️ Reloaded frame config for ${frameName}`);
+      return config;
+    }
+  } catch (err) {
+    console.error(`❌ Failed to reload frame config for ${frameName}:`, err);
+  }
+  return null;
 };
 
 /**

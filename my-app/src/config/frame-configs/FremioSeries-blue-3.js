@@ -20,7 +20,7 @@ export const frameConfig = {
     },
     {
       id: 'slot_1b', 
-      left: 0.55,    // Kolom kanan
+  left: 0.545,    // Kolom kanan (standard)
       top: 0.03,     // Baris 1 (sama dengan 1a)
       width: 0.41,   // Lebar sama
       height: 0.28,  // Tinggi sama
@@ -41,7 +41,7 @@ export const frameConfig = {
     },
     {
       id: 'slot_2b',
-      left: 0.55,    // Kolom kanan
+  left: 0.545,    // Kolom kanan (standard)
       top: 0.33,     // Baris 2 (sama dengan 2a)
       width: 0.41,   
       height: 0.28,  
@@ -62,7 +62,7 @@ export const frameConfig = {
     },
     {
       id: 'slot_3b',
-      left: 0.55,    // Kolom kanan  
+  left: 0.545,    // Kolom kanan (standard)
       top: 0.63,     // Baris 3 (sama dengan 3a)
       width: 0.41,   
       height: 0.28,  

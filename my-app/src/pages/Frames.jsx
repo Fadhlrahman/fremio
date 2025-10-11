@@ -45,85 +45,85 @@ const frames = [
   // FremioSeries Frames
   {
     id: "FremioSeries-blue-2",
-    title: "FremioSeries Blue 2 Foto",
-    description: "2 slot foto vertikal - Blue Frame",
+    title: "Fremio Series Blue",
+    description: "",
     img: FremioSeriesBlue2,
     maxCaptures: 2
   },
   {
     id: "FremioSeries-babyblue-3",
-    title: "FremioSeries Baby Blue 6 Foto",
-    description: "3 foto x 2 = 6 slot photobooth klasik",
+    title: "Fremio Series Baby Blue",
+    description: "",
     img: FremioSeriesBabyblue3,
     maxCaptures: 3
   },
   {
     id: "FremioSeries-black-3",
-    title: "FremioSeries Black 6 Foto",
-    description: "3 foto x 2 = 6 slot photobooth klasik",
+    title: "Fremio Series Black",
+    description: "",
     img: FremioSeriesBlack3,
     maxCaptures: 3
   },
   {
     id: "FremioSeries-blue-3",
-    title: "FremioSeries Blue 6 Foto",
-    description: "3 foto x 2 = 6 slot photobooth klasik",
+    title: "Fremio Series Blue",
+    description: "",
     img: FremioSeriesBlue3,
     maxCaptures: 3
   },
   {
     id: "FremioSeries-cream-3",
-    title: "FremioSeries Cream 6 Foto",
-    description: "3 foto x 2 = 6 slot photobooth klasik",
+    title: "Fremio Series Cream",
+    description: "",
     img: FremioSeriesCream3,
     maxCaptures: 3
   },
   {
     id: "FremioSeries-green-3",
-    title: "FremioSeries Green 6 Foto",
-    description: "3 foto x 2 = 6 slot photobooth klasik",
+    title: "Fremio Series Green",
+    description: "",
     img: FremioSeriesGreen3,
     maxCaptures: 3
   },
   {
     id: "FremioSeries-maroon-3",
-    title: "FremioSeries Maroon 6 Foto",
-    description: "3 foto x 2 = 6 slot photobooth klasik",
+    title: "Fremio Series Maroon",
+    description: "",
     img: FremioSeriesMaroon3,
     maxCaptures: 3
   },
   {
     id: "FremioSeries-orange-3",
-    title: "FremioSeries Orange 6 Foto",
-    description: "3 foto x 2 = 6 slot photobooth klasik",
+    title: "Fremio Series Orange",
+    description: "",
     img: FremioSeriesOrange3,
     maxCaptures: 3
   },
   {
     id: "FremioSeries-pink-3",
-    title: "FremioSeries Pink 6 Foto",
-    description: "3 foto x 2 = 6 slot photobooth klasik",
+    title: "Fremio Series Pink",
+    description: "",
     img: FremioSeriesPink3,
     maxCaptures: 3
   },
   {
     id: "FremioSeries-purple-3",
-    title: "FremioSeries Purple 6 Foto",
-    description: "3 foto x 2 = 6 slot photobooth klasik",
+    title: "Fremio Series Purple",
+    description: "",
     img: FremioSeriesPurple3,
     maxCaptures: 3
   },
   {
     id: "FremioSeries-white-3",
-    title: "FremioSeries White 6 Foto",
-    description: "3 foto x 2 = 6 slot photobooth klasik",
+    title: "Fremio Series White",
+    description: "",
     img: FremioSeriesWhite3,
     maxCaptures: 3
   },
   {
     id: "FremioSeries-blue-4",
-    title: "FremioSeries Blue 4 Foto",
-    description: "4 slot foto grid 2x2",
+    title: "Fremio Series Blue",
+    description: "",
     img: FremioSeriesBlue4,
     maxCaptures: 4
   }
@@ -142,15 +142,13 @@ export default function Frames() {
       <h2 className="text-3xl font-bold text-center mb-10">
         Pilihan frame <span className="text-[#d9b9ab]">fremio</span>
       </h2>
-      {/* Frames */}
-        <div className="frames-wrapper">
+      {/* Frames - horizontally scrollable */}
+        <div className="frames-wrapper scroll-x">
           {frames.map((frame, idx) => (
             <div key={idx} className="frame-card">
               <img src={frame.img} alt={frame.title} />
               <div className="frame-title">{frame.title}</div>
-              <div className="frame-description text-xs text-gray-600 mb-2">
-                {frame.description} • Max {frame.maxCaptures} foto
-              </div>
+              {/* Description removed as requested; showing only title now */}
               <button
                 className="bg-[#e0b7a9] text-black rounded-full px-3 py-1 mt-1 shadow font-medium text-xs"
                 onClick={async () => {

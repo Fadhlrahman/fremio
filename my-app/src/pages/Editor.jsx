@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import frameProvider from '../utils/frameProvider.js';
 import { useNavigate } from 'react-router-dom';
-import filterIcon from '../assets/filter-icon.png';
-import adjustIcon from '../assets/adjust-icon.png';
 import { createSampleData, clearTestData } from '../utils/testData.js';
+import { reloadFrameConfig as reloadFrameConfigFromManager } from '../config/frameConfigManager.js';
 import { createFremioSeriesTestData, createTestframe2TestData } from '../utils/fremioTestData.js';
 import Testframe1 from '../assets/frames/Testframe1.png';
 import Testframe2 from '../assets/frames/Testframe2.png';
@@ -25,10 +24,11 @@ import FremioSeriesBlue4 from '../assets/frames/FremioSeries/FremioSeries-4/Frem
 
 export default function Editor() {
   const navigate = useNavigate();
-  const [selectedTool, setSelectedTool] = useState('Filter');
   const [photos, setPhotos] = useState([]);
   const [selectedFrame, setSelectedFrame] = useState(null);
   const [frameSlots, setFrameSlots] = useState(null);
+  const [frameId, setFrameId] = useState(null);
+  const [isReloading, setIsReloading] = useState(false);
 
   // Frame mapping for imported assets
   const getFrameAsset = (frameName) => {
@@ -90,6 +90,7 @@ export default function Editor() {
         if (frameAsset) {
           setSelectedFrame(frameAsset);
           setFrameSlots(frameConfig.slots); // Extract slots from frameConfig
+          setFrameId(frameName);
           
           console.log('✅ Loaded frame (new format):', frameName);
           console.log('✅ Frame asset:', frameAsset);
@@ -130,6 +131,7 @@ export default function Editor() {
           if (frameAsset) {
             setSelectedFrame(frameAsset);
             setFrameSlots(providerCfg.slots);
+            setFrameId(frameName);
             console.log('✅ Loaded frame via frameProvider fallback:', frameName);
             return;
           }
@@ -144,6 +146,7 @@ export default function Editor() {
         if (frameAsset) {
           setSelectedFrame(frameAsset);
           setFrameSlots(JSON.parse(legacySlotsData));
+          setFrameId(frameName);
           console.log('✅ Loaded frame (legacy format):', frameName);
           console.log('✅ Frame asset:', frameAsset);
           console.log('✅ Loaded slots (legacy format):', legacySlotsData);
@@ -154,29 +157,7 @@ export default function Editor() {
     }
   }, []);
 
-  const tools = [
-    { name: 'Filter', icon: '🎨' },
-    { name: 'Saturasi', icon: '🌈' }
-  ];
-
-  const filterOptions = [
-    { name: 'Normal', preview: '#ffffff' },
-    { name: 'Sepia', preview: '#deb887' },
-    { name: 'Grayscale', preview: '#808080' },
-    { name: 'Vintage', preview: '#d2b48c' },
-    { name: 'Cool', preview: '#87ceeb' },
-    { name: 'Warm', preview: '#ffa07a' }
-  ];
-
-  const saturasiOptions = [
-    { name: '0%', value: 0 },
-    { name: '25%', value: 25 },
-    { name: '50%', value: 50 },
-    { name: '75%', value: 75 },
-    { name: '100%', value: 100 },
-    { name: '125%', value: 125 },
-    { name: '150%', value: 150 }
-  ];
+  // Tools removed on this page per request; keeping only the preview
   return (
     <div style={{
       minHeight: '100vh',
@@ -253,103 +234,50 @@ export default function Editor() {
         </button>
       </div>
       
-      {/* Main Content */}
+      {/* Main Content: Preview centered (toggle tools removed) */}
       <div style={{
         flex: 1,
-        display: 'grid',
-        gridTemplateColumns: '200px 1fr 200px',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
         gap: '20px',
-        maxWidth: '1000px',
+        maxWidth: '800px',
         margin: '0 auto',
         width: '100%'
       }}>
-        {/* Tools Panel (Kiri) */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '10px',
-          height: '500px'
-        }}>
-          <h3 style={{
-            margin: '0 0 15px 0',
-            fontSize: '1.1rem',
-            fontWeight: '500',
-            color: '#333',
-            textAlign: 'center'
-          }}>
-            Tools
-          </h3>
-          
-          <div style={{
-            background: '#E8C4B8',
-            borderRadius: '50px',
-            padding: '30px 20px',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '30px',
-            flex: 1,
-            justifyContent: 'center'
-          }}>
-            {/* Tool 1 - Filter */}
-            <button
-              onClick={() => setSelectedTool('Filter')}
-              style={{
-                background: selectedTool === 'Filter' ? '#333' : 'transparent',
-                border: 'none',
-                borderRadius: '12px',
-                width: '60px',
-                height: '60px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                padding: '8px'
-              }}
-            >
-              <img 
-                src={filterIcon} 
-                alt="Filter" 
-                style={{
-                  width: '40px',
-                  height: '40px',
-                  filter: selectedTool === 'Filter' ? 'invert(1)' : 'none'
-                }}
-              />
-            </button>
-            
-            {/* Tool 2 - Adjust */}
-            <button
-              onClick={() => setSelectedTool('Saturasi')}
-              style={{
-                background: selectedTool === 'Saturasi' ? '#333' : 'transparent',
-                border: 'none',
-                borderRadius: '12px',
-                width: '60px',
-                height: '60px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                padding: '8px'
-              }}
-            >
-              <img 
-                src={adjustIcon} 
-                alt="Adjust" 
-                style={{
-                  width: '40px',
-                  height: '40px',
-                  filter: selectedTool === 'Saturasi' ? 'invert(1)' : 'none'
-                }}
-              />
-            </button>
-          </div>
+        {/* Actions */}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={async () => {
+              if (isReloading) return;
+              try {
+                setIsReloading(true);
+                const activeFrameId = frameId || localStorage.getItem('selectedFrame');
+                if (!activeFrameId) return;
+                const fresh = await reloadFrameConfigFromManager(activeFrameId);
+                if (fresh?.slots) {
+                  setFrameSlots(fresh.slots);
+                  localStorage.setItem('frameConfig', JSON.stringify(fresh));
+                  console.log('✅ Editor: reloaded frame slots');
+                }
+              } finally {
+                setIsReloading(false);
+              }
+            }}
+            style={{
+              padding: '6px 12px',
+              background: '#6c757d',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '0.85rem'
+            }}
+          >
+            {isReloading ? '⏳ Reloading...' : '🔄 Reload Config'}
+          </button>
         </div>
-
-        {/* Preview Area (Tengah) */}
+        {/* Preview Area */}
         <div style={{
           display: 'flex',
           flexDirection: 'column',
@@ -365,209 +293,76 @@ export default function Editor() {
           }}>
             Preview
           </h3>
-          
-          {/* Photo Preview Container with Frame */}
-          <div style={{
-            background: '#f0f0f0',
-            borderRadius: '20px',
-            padding: '30px',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            marginBottom: '20px',
-            flex: 1
-          }}>
-            {selectedFrame && frameSlots ? (
-              // Show with frame if frame data is available
-              <div style={{
-                position: 'relative',
-                width: '280px',
-                height: '420px',
-                background: '#ffffff',
-                borderRadius: '12px',
-                overflow: 'hidden',
-                border: '2px solid #e0e0e0'
-              }}>
-                {/* Debug info */}
-                <div style={{ 
-                  position: 'absolute', 
-                  top: '-50px', 
-                  left: 0, 
-                  fontSize: '10px', 
-                  color: '#666',
-                  background: '#f0f0f0',
-                  padding: '4px 8px',
-                  borderRadius: '4px',
-                  zIndex: 10,
-                  lineHeight: '1.2'
-                }}>
-                  <div>Frame: {selectedFrame ? '✅ Loaded' : '❌ Missing'}</div>
-                  <div>Slots: {frameSlots ? frameSlots.length : 0}</div>
-                  <div>Photos: {photos.length}</div>
-                  <div>Frame Name: {localStorage.getItem('selectedFrame')}</div>
-                </div>
-                
-                {/* Background layer */}
-                <div style={{ 
-                  position: 'absolute', 
-                  width: '100%', 
-                  height: '100%', 
-                  background: '#ffffff',
-                  zIndex: 1 
-                }} />
-                
-                {/* Photos in slots */}
-                {photos && photos.length > 0 && frameSlots && frameSlots.map((slot, idx) => {
-                  // For frames with photoIndex property (duplicated photos), use photoIndex
-                  // Otherwise use slot index directly
-                  const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : idx;
-                  const photo = photos[photoIndex];
-                  
-                  // Debug logging for photo mapping
-                  if (idx === 0) {
-                    console.log('🔍 Photo mapping debug:', {
-                      slotIdx: idx,
-                      photoIndex,
-                      hasPhoto: !!photo,
-                      totalPhotos: photos.length,
-                      slotHasPhotoIndex: slot.photoIndex !== undefined
-                    });
-                  }
-                  
-                  return (
-                    <div
-                      key={idx}
-                      style={{
-                        position: 'absolute',
-                        left: `${slot.left * 100}%`,
-                        top: `${slot.top * 100}%`,
-                        width: `${slot.width * 100}%`,
-                        height: `${slot.height * 100}%`,
-                        background: photo ? 'transparent' : '#f8f8f8',
-                        border: photo ? 'none' : '2px dashed #ddd',
-                        borderRadius: '6px',
-                        overflow: 'hidden',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '11px',
-                        color: '#999',
-                        zIndex: 2
-                      }}
-                    >
-                      {photo ? (
-                        <img
-                          src={photo}
-                          alt={`Photo ${idx + 1}`}
-                          style={{
-                            width: '100%',
-                            height: '100%',
-                            objectFit: 'cover',
-                            border: 'none'
-                          }}
-                        />
-                      ) : (
-                        <span>Empty Slot</span>
-                      )}
-                    </div>
-                  );
-                })}
-                
-                {/* Frame overlay */}
-                <img
-                  src={selectedFrame}
-                  alt="Frame"
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'contain',
-                    pointerEvents: 'none',
-                    zIndex: 3
-                  }}
-                  onLoad={() => console.log('✅ Frame image loaded successfully:', selectedFrame)}
-                  onError={(e) => console.error('❌ Frame image failed to load:', selectedFrame, e)}
-                />
-              </div>
-            ) : photos && photos.length > 0 ? (
-              // Fallback: show photos without frame if frame data is missing
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '15px',
-                alignItems: 'center',
-                maxWidth: '300px'
-              }}>
-                {photos.map((photo, index) => (
+          {/* Preview canvas */}
+          {selectedFrame && frameSlots && Array.isArray(frameSlots) ? (
+            <div style={{
+              position: 'relative',
+              width: '350px',
+              height: '525px',
+              background: '#fff',
+              borderRadius: '12px',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+              border: '1px solid #e5e5e5',
+              overflow: 'hidden'
+            }}>
+              {/* Photos placed into slots */}
+              {frameSlots.map((slot, idx) => {
+                const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : idx;
+                const src = photos[photoIndex];
+                if (!src) return null;
+                return (
                   <div
-                    key={index}
+                    key={`slot-${slot.id || idx}`}
                     style={{
-                      width: '200px',
-                      height: '150px',
-                      borderRadius: '12px',
+                      position: 'absolute',
+                      left: `${(slot.left || 0) * 100}%`,
+                      top: `${(slot.top || 0) * 100}%`,
+                      width: `${(slot.width || 0) * 100}%`,
+                      height: `${(slot.height || 0) * 100}%`,
                       overflow: 'hidden',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                      background: '#fff'
+                      borderRadius: '6px',
+                      background: '#ddd'
                     }}
                   >
                     <img
-                      src={photo}
-                      alt={`Photo ${index + 1}`}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover'
-                      }}
+                      src={src}
+                      alt={`Photo ${idx + 1}`}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{
-                textAlign: 'center',
-                color: '#999',
-                fontSize: '1.1rem'
-              }}>
-                Tidak ada foto yang tersedia.<br />
-                Silakan ambil foto terlebih dahulu.
-              </div>
-            )}
-          </div>
+                );
+              })}
 
-          {/* Action Buttons */}
-          <div style={{
-            display: 'flex',
-            gap: '0'
-          }}>
-            <button style={{
-              background: 'white',
-              color: '#333',
-              border: '1px solid #ddd',
-              borderRadius: '25px 0 0 25px',
-              padding: '12px 30px',
-              fontSize: '0.9rem',
-              fontWeight: '500',
-              cursor: 'pointer',
-              borderRight: '0.5px solid #ddd'
+              {/* Frame overlay */}
+              <img
+                src={selectedFrame}
+                alt="Frame"
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  pointerEvents: 'none'
+                }}
+              />
+            </div>
+          ) : (
+            <div style={{
+              height: '460px',
+              width: '350px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#666',
+              background: '#fff',
+              border: '1px dashed #ccc',
+              borderRadius: '12px'
             }}>
-              Save
-            </button>
-            <button style={{
-              background: 'white',
-              color: '#333',
-              border: '1px solid #ddd',
-              borderRadius: '0 25px 25px 0',
-              padding: '12px 30px',
-              fontSize: '0.9rem',
-              fontWeight: '500',
-              cursor: 'pointer',
-              borderLeft: '0.5px solid #ddd'
-            }}>
-              Print
-            </button>
-          </div>
+              No frame selected
+            </div>
+          )}
+        </div>
           
           {/* Debug Button */}
           <button 
@@ -634,208 +429,7 @@ export default function Editor() {
               Clear Test Data
             </button>
           </div>
-        </div>
-
-        {/* Sub-Tools Panel (Kanan) */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '10px',
-          height: '500px'
-        }}>
-          <h3 style={{
-            margin: '0 0 15px 0',
-            fontSize: '1.1rem',
-            fontWeight: '500',
-            color: '#333',
-            textAlign: 'center'
-          }}>
-            Sub - Tools
-          </h3>
-          
-          <div style={{
-            background: '#E8C4B8',
-            borderRadius: '50px',
-            padding: '30px 20px',
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}>
-            {selectedTool === 'Filter' && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '30px',
-                alignItems: 'center',
-                height: '100%',
-                justifyContent: 'center'
-              }}>
-                {/* Filter 1 - Dark Brown */}
-                <div
-                  style={{
-                    width: '50px',
-                    height: '50px',
-                    borderRadius: '50%',
-                    background: '#8B4513',
-                    cursor: 'pointer',
-                    border: '3px solid #fff',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                    transition: 'transform 0.2s ease',
-                  }}
-                  onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
-                  onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
-                />
-                
-                {/* Filter 2 - Medium Brown */}
-                <div
-                  style={{
-                    width: '50px',
-                    height: '50px',
-                    borderRadius: '50%',
-                    background: '#D2691E',
-                    cursor: 'pointer',
-                    border: '3px solid #fff',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                    transition: 'transform 0.2s ease',
-                  }}
-                  onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
-                  onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
-                />
-                
-                {/* Filter 3 - Light Brown */}
-                <div
-                  style={{
-                    width: '50px',
-                    height: '50px',
-                    borderRadius: '50%',
-                    background: '#F4A460',
-                    cursor: 'pointer',
-                    border: '3px solid #fff',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                    transition: 'transform 0.2s ease',
-                  }}
-                  onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
-                  onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
-                />
-                
-                {/* Filter 4 - Tan */}
-                <div
-                  style={{
-                    width: '50px',
-                    height: '50px',
-                    borderRadius: '50%',
-                    background: '#CD853F',
-                    cursor: 'pointer',
-                    border: '3px solid #fff',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                    transition: 'transform 0.2s ease',
-                  }}
-                  onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
-                  onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
-                />
-                
-                {/* Filter 5 - Light Tan */}
-                <div
-                  style={{
-                    width: '50px',
-                    height: '50px',
-                    borderRadius: '50%',
-                    background: '#DEB887',
-                    cursor: 'pointer',
-                    border: '3px solid #fff',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                    transition: 'transform 0.2s ease',
-                  }}
-                  onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
-                  onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
-                />
-              </div>
-            )}
-
-            {selectedTool === 'Saturasi' && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '60px',
-                alignItems: 'center',
-                height: '100%',
-                justifyContent: 'center'
-              }}>
-                {/* Slider 1 */}
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '10px'
-                }}>
-                  <div
-                    style={{
-                      width: '100px',
-                      height: '30px',
-                      background: '#333',
-                      borderRadius: '15px',
-                      position: 'relative',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      padding: '0 5px'
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: '20px',
-                        height: '20px',
-                        background: '#fff',
-                        borderRadius: '50%',
-                        position: 'absolute',
-                        left: '10px',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-                        transition: 'left 0.2s ease'
-                      }}
-                    />
-                  </div>
-                </div>
-                
-                {/* Slider 2 */}
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '10px'
-                }}>
-                  <div
-                    style={{
-                      width: '100px',
-                      height: '30px',
-                      background: '#333',
-                      borderRadius: '15px',
-                      position: 'relative',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      padding: '0 5px'
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: '20px',
-                        height: '20px',
-                        background: '#fff',
-                        borderRadius: '50%',
-                        position: 'absolute',
-                        left: '40px',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-                        transition: 'left 0.2s ease'
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+        {/* End of Preview section and actions */}
       </div>
     </div>
   );

@@ -20,7 +20,7 @@ export const frameConfig = {
     },
     {
       id: 'slot_1b', 
-      left: 0.55,
+      left: 0.545,
       top: 0.03,
       width: 0.41,
       height: 0.28,
@@ -41,7 +41,7 @@ export const frameConfig = {
     },
     {
       id: 'slot_2b',
-      left: 0.55,
+      left: 0.545,
       top: 0.33,
       width: 0.41,   
       height: 0.28,  
@@ -62,7 +62,7 @@ export const frameConfig = {
     },
     {
       id: 'slot_3b',
-      left: 0.55,
+      left: 0.545,
       top: 0.63,
       width: 0.41,   
       height: 0.28,  

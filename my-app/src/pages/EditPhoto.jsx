@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getFrameConfig, FRAME_CONFIGS } from '../config/frameConfigs.js';
+import { reloadFrameConfig as reloadFrameConfigFromManager } from '../config/frameConfigManager.js';
 import frameProvider from '../utils/frameProvider.js';
 import QRCode from 'qrcode';
 import Testframe1 from '../assets/frames/Testframe1.png';
@@ -785,62 +786,38 @@ export default function EditPhoto() {
   };
 
   // Fungsi untuk reload frame config secara live  
-  const reloadFrameConfig = () => {
+  const reloadFrameConfig = async () => {
     if (isReloading) return; // Prevent multiple calls
     
     setIsReloading(true);
     
     try {
-      // Get current selected frame
-      const selectedFrame = localStorage.getItem('selectedFrame') || 'Testframe1';
-      console.log('🔄 Attempting to reload config for:', selectedFrame);
-      
-      // Force component re-render with fresh import
-      const timestamp = Date.now();
-      
-      // Use dynamic import with cache busting
-      import(`../config/frameConfigs.js?t=${timestamp}`)
-        .then(module => {
-          console.log('📦 Module reloaded:', module);
-          const newConfig = module.getFrameConfig(selectedFrame);
-          if (newConfig) {
-            setFrameConfig(newConfig);
-            setConfigReloadKey(prev => prev + 1);
-            console.log('✅ Frame config reloaded successfully:', newConfig);
-            
-            // Re-apply smart scale after config reload
-            setTimeout(async () => {
-              for (const [index] of photos.entries()) {
-                await initializePhotoScale(index);
-              }
-            }, 200);
-          } else {
-            console.warn('⚠️ No config found for frame:', selectedFrame);
+      const frameId = localStorage.getItem('selectedFrame') || 'Testframe1';
+      console.log('🔄 Attempting to reload config via manager for:', frameId);
+      const newConfig = await reloadFrameConfigFromManager(frameId);
+      if (newConfig) {
+        setFrameConfig(newConfig);
+        localStorage.setItem('frameConfig', JSON.stringify(newConfig));
+        setConfigReloadKey(prev => prev + 1);
+        console.log('✅ Frame config reloaded (manager):', newConfig);
+        // Re-apply smart scale after config reload
+        setTimeout(async () => {
+          for (const [index] of photos.entries()) {
+            await initializePhotoScale(index);
           }
-        })
-        .catch(error => {
-          console.error('❌ Failed to reload module:', error);
-          // Fallback: use existing getFrameConfig
-          const fallbackConfig = getFrameConfig(selectedFrame);
-          if (fallbackConfig) {
-            setFrameConfig(fallbackConfig);
-            setConfigReloadKey(prev => prev + 1);
-            console.log('⚡ Using fallback config reload:', fallbackConfig);
-            
-            // Re-apply smart scale after fallback config
-            setTimeout(async () => {
-              for (const [index] of photos.entries()) {
-                await initializePhotoScale(index);
-              }
-            }, 200);
-          }
-        })
-        .finally(() => {
-          setIsReloading(false);
-        });
-        
+        }, 150);
+      } else {
+        console.warn('⚠️ Manager reload returned null, using fallback getFrameConfig');
+        const fallback = getFrameConfig(frameId);
+        if (fallback) {
+          setFrameConfig(fallback);
+          localStorage.setItem('frameConfig', JSON.stringify(fallback));
+          setConfigReloadKey(prev => prev + 1);
+        }
+      }
     } catch (error) {
       console.error('❌ Failed to reload frame config:', error);
+    } finally {
       setIsReloading(false);
     }
   };

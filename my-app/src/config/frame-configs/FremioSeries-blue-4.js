@@ -8,7 +8,7 @@ export const frameConfig = {
   slots: [
     {
       id: 'slot_1',
-      left: 0.3,     // 15% dari kiri (kiri atas) - margin untuk grid
+      left: 0.2,     // 15% dari kiri (kiri atas) - margin untuk grid
       top: 0.03,      // 18% dari atas - margin untuk grid
       width: 0.4,    // 32% lebar - untuk rasio 4:5 dalam grid 2x2
       height: 0.2,   // 28% tinggi - untuk rasio 4:5 dalam grid 2x2

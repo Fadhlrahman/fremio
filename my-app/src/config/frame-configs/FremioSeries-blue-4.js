@@ -19,7 +19,7 @@ export const frameConfig = {
     },
     {
       id: 'slot_1b',
-      left: 0.545,    // Kolom kanan atas
+      left: 0.545,    // Kolom kanan atas.
       top: 0.03,
       width: 0.41,
       height: 0.2,

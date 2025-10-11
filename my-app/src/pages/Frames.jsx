@@ -1,8 +1,3 @@
-
-import Testframe1 from "../assets/frames/Testframe1.png";
-import Testframe2 from "../assets/frames/Testframe2.png";
-import Testframe3 from "../assets/frames/Testframe3.png";
-
 // FremioSeries Imports
 import FremioSeriesBlue2 from "../assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png";
 import FremioSeriesBabyblue3 from "../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-babyblue-3.png";
@@ -21,27 +16,6 @@ import { useNavigate } from "react-router-dom";
 import frameProvider from '../utils/frameProvider.js';
 
 const frames = [
-  {
-    id: "Testframe1",
-    title: "Frame 2 Foto",
-    description: "2 slot foto vertikal",
-    img: Testframe1,
-    maxCaptures: 2
-  },
-  {
-    id: "Testframe2", 
-    title: "Frame 3 Foto",
-    description: "3 slot foto vertikal",
-    img: Testframe2,
-    maxCaptures: 3
-  },
-  {
-    id: "Testframe3",
-    title: "Frame 4 Foto", 
-    description: "4 slot foto grid",
-    img: Testframe3,
-    maxCaptures: 4
-  },
   // FremioSeries Frames
   {
     id: "FremioSeries-blue-2",

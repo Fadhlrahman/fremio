@@ -10,7 +10,6 @@ class FrameService {
     this.itemsPerPage = 20;
     this.categories = new Map();
     this.preloadedFrames = new Set([
-      'Testframe1', 'Testframe2', 'Testframe3',
       'FremioSeries-blue-2', 'FremioSeries-babyblue-3', 'FremioSeries-black-3',
       'FremioSeries-blue-3', 'FremioSeries-cream-3', 'FremioSeries-green-3',
       'FremioSeries-maroon-3', 'FremioSeries-orange-3', 'FremioSeries-pink-3',
@@ -159,7 +158,11 @@ class FrameService {
    */
   async preloadPopularFrames() {
     try {
-      const popularFrames = ['Testframe1', 'Testframe2', 'Testframe3'];
+      const popularFrames = [
+        'FremioSeries-blue-2',
+        'FremioSeries-blue-3',
+        'FremioSeries-blue-4'
+      ];
       
       const promises = popularFrames.map(frameId => 
         this.getFrameById(frameId)
@@ -310,28 +313,28 @@ class FrameService {
     return {
       frames: [
         {
-          id: 'Testframe1',
-          name: 'Frame 2 Foto',
-          description: '2 slot foto vertikal',
+          id: 'FremioSeries-blue-2',
+          name: 'Fremio Series Blue 2 Foto',
+          description: '2 slot foto vertikal - Blue Frame',
           category: 'portrait',
           maxCaptures: 2,
-          thumbnailUrl: '/src/assets/Testframe1.png'
+          thumbnailUrl: '/src/assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png'
         },
         {
-          id: 'Testframe2',
-          name: 'Frame 3 Foto',
-          description: '3 slot foto vertikal',
-          category: 'collage',
+          id: 'FremioSeries-blue-3',
+          name: 'Fremio Series Blue 6 Foto',
+          description: '3 foto x 2 = 6 slot photobooth klasik - Blue Frame',
+          category: 'photobooth',
           maxCaptures: 3,
-          thumbnailUrl: '/src/assets/Testframe2.png'
+          thumbnailUrl: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-blue-3.png'
         },
         {
-          id: 'Testframe3',
-          name: 'Frame 4 Foto',
-          description: '4 slot foto grid',
-          category: 'collage',
+          id: 'FremioSeries-blue-4',
+          name: 'Fremio Series Blue 4 Foto',
+          description: '4 slot foto grid 2x2 - Blue Frame',
+          category: 'grid',
           maxCaptures: 4,
-          thumbnailUrl: '/src/assets/Testframe3.png'
+          thumbnailUrl: '/src/assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png'
         }
       ],
       pagination: {

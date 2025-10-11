@@ -3,10 +3,7 @@ import frameProvider from '../utils/frameProvider.js';
 import { useNavigate } from 'react-router-dom';
 import { createSampleData, clearTestData } from '../utils/testData.js';
 import { reloadFrameConfig as reloadFrameConfigFromManager } from '../config/frameConfigManager.js';
-import { createFremioSeriesTestData, createTestframe2TestData } from '../utils/fremioTestData.js';
-import Testframe1 from '../assets/frames/Testframe1.png';
-import Testframe2 from '../assets/frames/Testframe2.png';
-import Testframe3 from '../assets/frames/Testframe3.png';
+import { createFremioSeriesTestData } from '../utils/fremioTestData.js';
 
 // FremioSeries Imports
 import FremioSeriesBlue2 from '../assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png';
@@ -48,10 +45,6 @@ export default function Editor() {
   // Frame mapping for imported assets
   const getFrameAsset = (frameName) => {
     const frameMap = {
-      'Testframe1': Testframe1,
-      'Testframe2': Testframe2,
-      'Testframe3': Testframe3,
-      // FremioSeries frames
       'FremioSeries-blue-2': FremioSeriesBlue2,
       'FremioSeries-babyblue-3': FremioSeriesBabyblue3,
       'FremioSeries-black-3': FremioSeriesBlack3,
@@ -145,23 +138,6 @@ export default function Editor() {
           console.log('✅ Loaded slots:', frameConfig.slots);
         } else {
           console.error('❌ Frame asset not found for:', frameName);
-          console.error('❌ Available frames in getFrameAsset:', Object.keys({
-            'Testframe1': 'Testframe1',
-            'Testframe2': 'Testframe2', 
-            'Testframe3': 'Testframe3',
-            'FremioSeries-blue-2': 'FremioSeries-blue-2',
-            'FremioSeries-babyblue-3': 'FremioSeries-babyblue-3',
-            'FremioSeries-black-3': 'FremioSeries-black-3',
-            'FremioSeries-blue-3': 'FremioSeries-blue-3',
-            'FremioSeries-cream-3': 'FremioSeries-cream-3',
-            'FremioSeries-green-3': 'FremioSeries-green-3',
-            'FremioSeries-maroon-3': 'FremioSeries-maroon-3',
-            'FremioSeries-orange-3': 'FremioSeries-orange-3',
-            'FremioSeries-pink-3': 'FremioSeries-pink-3',
-            'FremioSeries-purple-3': 'FremioSeries-purple-3',
-            'FremioSeries-white-3': 'FremioSeries-white-3',
-            'FremioSeries-blue-4': 'FremioSeries-blue-4'
-          }));
         }
       } catch (error) {
         console.error('❌ Error parsing frameConfig:', error);
@@ -189,8 +165,8 @@ export default function Editor() {
       
       if (legacyFrameData && legacySlotsData) {
         // Extract frame name from legacy path
-        const frameName = legacyFrameData.split('/').pop().replace('.png', '');
-        const frameAsset = getFrameAsset(frameName);
+  const frameName = legacyFrameData.split('/').pop().replace('.png', '');
+  const frameAsset = getFrameAsset(frameName);
         
         if (frameAsset) {
           setSelectedFrame(frameAsset);
@@ -433,23 +409,6 @@ export default function Editor() {
           }}
         >
           🎯 Load Black-3 Test Data
-        </button>
-        <button 
-          onClick={() => {
-            createTestframe2TestData();
-            window.location.reload();
-          }}
-          style={{
-            padding: '5px 10px',
-            background: '#28a745',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            fontSize: '12px',
-            cursor: 'pointer'
-          }}
-        >
-          Test Testframe2
         </button>
         <button 
           onClick={() => {

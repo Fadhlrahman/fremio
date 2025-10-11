@@ -3,9 +3,6 @@
 
 // Frame registry for available frames
 export const FRAME_REGISTRY = [
-  'Testframe1',
-  'Testframe2', 
-  'Testframe3',
   // FremioSeries frames
   'FremioSeries-blue-2',
   'FremioSeries-babyblue-3',
@@ -26,30 +23,6 @@ const FRAME_MODULES = import.meta.glob('./frame-configs/*.js');
 
 // Frame metadata for quick access without loading full config
 export const FRAME_METADATA = {
-  Testframe1: {
-    id: 'Testframe1',
-    name: 'Frame 2 Foto',
-    maxCaptures: 2,
-    description: '2 slot foto vertikal',
-    imagePath: '/src/assets/frames/Testframe1.png',
-    category: 'portrait'
-  },
-  Testframe2: {
-    id: 'Testframe2', 
-    name: 'Frame 6 Foto (Photobooth Style)',
-    maxCaptures: 3,
-    description: '3 foto x 2 = 6 slot photobooth klasik',
-    imagePath: '/src/assets/frames/Testframe2.png',
-    category: 'photobooth'
-  },
-  Testframe3: {
-    id: 'Testframe3',
-    name: 'Frame 4 Foto',
-    maxCaptures: 4,
-    description: '4 slot foto grid 2x2',
-    imagePath: '/src/assets/frames/Testframe3.png',
-    category: 'grid'
-  },
   // FremioSeries Metadata
   'FremioSeries-blue-2': {
     id: 'FremioSeries-blue-2',

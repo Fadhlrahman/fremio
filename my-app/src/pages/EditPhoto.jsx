@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { getFrameConfig, FRAME_CONFIGS } from '../config/frameConfigs.js';
 import { reloadFrameConfig as reloadFrameConfigFromManager } from '../config/frameConfigManager.js';
 import frameProvider from '../utils/frameProvider.js';
@@ -33,30 +32,25 @@ const FILTER_PRESET_MAP = FILTER_PRESETS.reduce((acc, preset) => {
   acc[preset.id] = preset;
   return acc;
 }, {});
-
 export default function EditPhoto() {
-  const navigate = useNavigate();
   const [photos, setPhotos] = useState([]);
   const [frameConfig, setFrameConfig] = useState(null);
   const [frameImage, setFrameImage] = useState(null);
   const [selectedFrame, setSelectedFrame] = useState('FremioSeries-blue-2');
-  const [activeToggle, setActiveToggle] = useState('photos');
-  const [selectedPhoto, setSelectedPhoto] = useState(0);
   const [draggedPhoto, setDraggedPhoto] = useState(null);
   const [dragOverSlot, setDragOverSlot] = useState(null);
-  const [photoPositions, setPhotoPositions] = useState({}); // .Store photo positions for fine-tuning
-  const [debugMode, setDebugMode] = useState(false); // Debug mode toggle
-  const [configReloadKey, setConfigReloadKey] = useState(0); // Force config reload
-  const [isReloading, setIsReloading] = useState(false); // Loading state for reload
-  const [photoTransforms, setPhotoTransforms] = useState({}); // Store zoom and pan for each photo
-  const [selectedPhotoForEdit, setSelectedPhotoForEdit] = useState(null); // Which photo is being edited
-  const [isDraggingPhoto, setIsDraggingPhoto] = useState(false); // Track if dragging for pan
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 }); // Drag start position
-  const [isSaving, setIsSaving] = useState(false); // Loading. state for save
-  const [slotPhotos, setSlotPhotos] = useState({}); // Store individual photos per slot for Testframe2
-  const [photoFilters, setPhotoFilters] = useState({}); // Store filter presets per slot
-  
-  // Print functionality states
+  const [photoPositions, setPhotoPositions] = useState({});
+  const [debugMode, setDebugMode] = useState(false);
+  const [configReloadKey, setConfigReloadKey] = useState(0);
+  const [isReloading, setIsReloading] = useState(false);
+  const [photoTransforms, setPhotoTransforms] = useState({});
+  const [selectedPhotoForEdit, setSelectedPhotoForEdit] = useState(null);
+  const [isDraggingPhoto, setIsDraggingPhoto] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [isSaving, setIsSaving] = useState(false);
+  const [slotPhotos, setSlotPhotos] = useState({});
+  const [photoFilters, setPhotoFilters] = useState({});
+
   const [printCode, setPrintCode] = useState(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -2219,51 +2213,29 @@ export default function EditPhoto() {
             flexDirection: 'column',
             gap: '1rem'
           }}>
-            {/* Photos Toggle */}
-            <button
-              onClick={() => setActiveToggle('photos')}
+            <div
               style={{
-                background: activeToggle === 'photos' ? '#E8A889' : '#f8f9fa',
-                color: activeToggle === 'photos' ? 'white' : '#333',
-                border: 'none',
+                background: '#fef6f0',
+                color: '#5a4637',
                 borderRadius: '15px',
                 padding: '1rem',
-                fontSize: '1rem',
+                fontSize: '0.95rem',
                 fontWeight: '500',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
                 display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '0.5rem'
+                gap: '0.5rem',
+                textAlign: 'center',
+                border: '1px solid rgba(232, 168, 137, 0.3)'
               }}
             >
-              <span style={{ fontSize: '1.5rem' }}>📷</span>
-              Photos
-            </button>
-            
-            {/* Filter Toggle */}
-            <button
-              onClick={() => setActiveToggle('filters')}
-              style={{
-                background: activeToggle === 'filters' ? '#E8A889' : '#f8f9fa',
-                color: activeToggle === 'filters' ? 'white' : '#333',
-                border: 'none',
-                borderRadius: '15px',
-                padding: '1rem',
-                fontSize: '1rem',
-                fontWeight: '500',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.5rem'
-              }}
-            >
-              <span style={{ fontSize: '1.5rem' }}>🎨</span>
-              Filter
-            </button>
+              <span style={{ fontSize: '1.8rem' }}>🎨</span>
+              <div>Filter aktif selalu terlihat di panel kanan.</div>
+              <div style={{ fontSize: '0.8rem', color: '#8a715f', fontWeight: '400' }}>
+                Klik slot foto pada preview untuk mengatur filter khusus.
+              </div>
+            </div>
             
             {/* Frame Info */}
             {frameConfig && (
@@ -2922,7 +2894,7 @@ export default function EditPhoto() {
             fontWeight: '600',
             color: '#333'
           }}>
-            {hasDevAccess && debugMode ? 'Debug Info' : (activeToggle === 'photos' ? 'All Photos' : 'Filter Presets')}
+            {hasDevAccess && debugMode ? 'Debug Info' : 'Filter Presets'}
           </h3>
           <div style={{ flex: 1, overflowY: 'auto', paddingRight: '0.5rem', minHeight: 0 }}>
           {hasDevAccess && debugMode ? (
@@ -3036,70 +3008,7 @@ export default function EditPhoto() {
                 </div>
               </div>
             )
-          ) : activeToggle === 'photos' ? (
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1rem'
-            }}>
-              <div style={{
-                fontSize: '0.9rem',
-                color: '#666',
-                textAlign: 'center',
-                marginBottom: '1rem'
-              }}>
-                {selectedPhotoForEdit !== null 
-                  ? `📸 Foto slot ${selectedPhotoForEdit + 1} siap diedit` 
-                  : 'Pilih foto pada preview untuk mengatur filter dan posisi.'
-                }
-              </div>
-              
-              {/* All Photos Grid */}
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(2, 1fr)',
-                gap: '0.5rem'
-              }}>
-                {photos.map((photo, index) => (
-                  <div
-                    key={index}
-                    style={{
-                      borderRadius: '8px',
-                      overflow: 'hidden',
-                      border: selectedPhoto === index ? '2px solid #E8A889' : '1px solid #e5e7eb',
-                      cursor: 'pointer',
-                      transition: 'all 0.3s ease',
-                      aspectRatio: '4/5', // Konsisten dengan rasio frame slot
-                      backgroundColor: '#f8f9fa'
-                    }}
-                    onClick={() => setSelectedPhoto(index)}
-                  >
-                    <img
-                      src={photo}
-                      alt={`Photo ${index + 1}`}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                        objectPosition: 'center center'
-                      }}
-                    />
-                  </div>
-                ))}
-              </div>
-              
-              {photos.length === 0 && (
-                <div style={{
-                  color: '#666',
-                  fontSize: '0.9rem',
-                  textAlign: 'center',
-                  padding: '2rem'
-                }}>
-                  No photos available. Take some photos first!
-                </div>
-              )}
-            </div>
-          ) : activeToggle === 'filters' ? (
+          ) : (
             <div style={{
               display: 'flex',
               flexDirection: 'column',
@@ -3283,7 +3192,7 @@ export default function EditPhoto() {
                 </button>
               )}
             </div>
-          ) : null}
+          )}
           </div>
         </div>
       </div>

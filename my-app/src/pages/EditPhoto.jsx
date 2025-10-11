@@ -238,14 +238,40 @@ export default function EditPhoto() {
     
     setSelectedFrame(frameFromStorage);
     console.log('🖼️ Loading frame:', frameFromStorage);
-    
-    const config = getFrameConfig(frameFromStorage);
-    console.log('⚙️ Frame config result:', config);
-    
+
+    // Try primary config source
+    let config = getFrameConfig(frameFromStorage);
+    console.log('⚙️ Frame config result (primary):', config);
+
+    // Fallback 1: use stored frameConfig JSON
+    if (!config) {
+      const storedConfigJson = localStorage.getItem('frameConfig');
+      if (storedConfigJson) {
+        try {
+          const parsed = JSON.parse(storedConfigJson);
+          if (parsed?.id === frameFromStorage && parsed?.slots?.length) {
+            config = parsed;
+            console.log('🧰 Using stored frameConfig from localStorage');
+          }
+        } catch (e) {
+          console.warn('⚠️ Could not parse stored frameConfig JSON', e);
+        }
+      }
+    }
+
+    // Fallback 2: ask frameProvider
+    if (!config && frameProvider?.getCurrentConfig) {
+      const providerCfg = frameProvider.getCurrentConfig();
+      if (providerCfg?.id === frameFromStorage) {
+        config = providerCfg;
+        console.log('🧠 Using frameProvider currentConfig');
+      }
+    }
+
     if (config) {
       setFrameConfig(config);
       setFrameImage(getFrameImage(frameFromStorage));
-      console.log('✅ Frame config loaded:', config);
+      console.log('✅ Frame config loaded (final):', config);
       
       // Extra verification for Testframe3
       if (frameFromStorage === 'Testframe3') {
@@ -256,14 +282,8 @@ export default function EditPhoto() {
         console.log('  - Frame image:', getFrameImage(frameFromStorage));
       }
     } else {
-      console.error('❌ Failed to load frame config for:', frameFromStorage);
-      
-      // Extra error logging for Testframe3
-      if (frameFromStorage === 'Testframe3') {
-        console.error(`❌ ${frameFromStorage.toUpperCase()} FAILED TO LOAD!`);
-        console.error('  - getFrameConfig returned:', config);
-        console.error('  - Available configs:', Object.keys(FRAME_CONFIGS || {}));
-      }
+      console.error('❌ Failed to resolve frame config after fallbacks for:', frameFromStorage);
+      console.error('  - Available configs:', Object.keys(FRAME_CONFIGS || {}));
     }
   }, []);
 

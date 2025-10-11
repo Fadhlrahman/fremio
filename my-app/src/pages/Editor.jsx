@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import frameProvider from '../utils/frameProvider.js';
 import { useNavigate } from 'react-router-dom';
 import filterIcon from '../assets/filter-icon.png';
 import adjustIcon from '../assets/adjust-icon.png';
@@ -66,9 +67,9 @@ export default function Editor() {
       console.log('⚠️ No captured photos found in localStorage');
     }
 
-    // Get frame data from localStorage (new format with frameConfig)
-    const frameName = localStorage.getItem('selectedFrame');
-    const frameConfigData = localStorage.getItem('frameConfig');
+  // Get frame data from localStorage (new format with frameConfig)
+  const frameName = localStorage.getItem('selectedFrame');
+  let frameConfigData = localStorage.getItem('frameConfig');
     
     console.log('🔍 Loading frame data:', { frameName, frameConfigData: !!frameConfigData });
     
@@ -120,6 +121,20 @@ export default function Editor() {
       // Fallback: try old format
       const legacyFrameData = localStorage.getItem('selectedFrame');
       const legacySlotsData = localStorage.getItem('frameSlots');
+      
+      // Try provider fallback first if available
+      if (frameProvider?.getCurrentConfig) {
+        const providerCfg = frameProvider.getCurrentConfig();
+        if (providerCfg?.id === frameName) {
+          const frameAsset = getFrameAsset(frameName);
+          if (frameAsset) {
+            setSelectedFrame(frameAsset);
+            setFrameSlots(providerCfg.slots);
+            console.log('✅ Loaded frame via frameProvider fallback:', frameName);
+            return;
+          }
+        }
+      }
       
       if (legacyFrameData && legacySlotsData) {
         // Extract frame name from legacy path

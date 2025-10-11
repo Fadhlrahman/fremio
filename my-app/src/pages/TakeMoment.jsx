@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import frameProvider from '../utils/frameProvider.js';
 import { getFrameConfig } from '../config/frameConfigs.js';
 
-// Utility function to compress image
+// Utility function to compress image ..
 const compressImage = (dataUrl, quality = 0.8, maxWidth = 600, maxHeight = 600) => {
   return new Promise((resolve) => {
     const canvas = document.createElement('canvas');

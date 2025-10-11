@@ -44,6 +44,72 @@ export default function EditPhoto() {
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
+  const isBrowser = typeof window !== 'undefined';
+  const isDevEnv = import.meta.env.DEV;
+  const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+  const getDevApiBaseUrl = () => {
+    if (!isBrowser) {
+      return 'http://localhost:3001';
+    }
+
+    const { protocol, hostname } = window.location;
+    const safeHostname = (() => {
+      if (!hostname || hostname === '0.0.0.0') {
+        return 'localhost';
+      }
+      return hostname;
+    })();
+
+    const formattedHost = safeHostname.includes(':') && !safeHostname.startsWith('[')
+      ? `[${safeHostname}]`
+      : safeHostname;
+
+    const preferredProtocol = protocol === 'https:' ? 'https:' : 'http:';
+
+    return `${preferredProtocol}//${formattedHost}:3001`;
+  };
+
+  const inferredBaseUrl = (() => {
+    if (rawApiBaseUrl && rawApiBaseUrl.trim().length > 0) {
+      return rawApiBaseUrl.trim();
+    }
+
+    if (isDevEnv) {
+      return getDevApiBaseUrl();
+    }
+
+    if (isBrowser) {
+      return window.location.origin;
+    }
+
+    return '';
+  })();
+  const apiBaseUrl = inferredBaseUrl.replace(/\/$/, '');
+
+  const [hasDevAccess, setHasDevAccess] = useState(false);
+  const [devAccessInitialized, setDevAccessInitialized] = useState(!isBrowser);
+  const [devTokenInput, setDevTokenInput] = useState('');
+  const [devAuthStatus, setDevAuthStatus] = useState({ loading: false, error: null, success: false });
+  const [showDevUnlockPanel, setShowDevUnlockPanel] = useState(false);
+
+  useEffect(() => {
+    if (devAccessInitialized) return;
+
+    if (!isBrowser) {
+      setDevAccessInitialized(true);
+      return;
+    }
+
+    try {
+      sessionStorage.removeItem('fremioDevAccess');
+    } catch (error) {
+      console.warn('⚠️ Failed to reset developer access flag from sessionStorage.', error);
+    } finally {
+      setHasDevAccess(false);
+      setDevAccessInitialized(true);
+    }
+  }, [devAccessInitialized, isBrowser]);
+
   const getSlotPhotosStorageKey = (id) => (id ? `slotPhotos:${id}` : null);
   const persistSlotPhotos = (id, data) => {
     const storageKey = getSlotPhotosStorageKey(id);
@@ -53,6 +119,52 @@ export default function EditPhoto() {
     } catch (err) {
       console.warn('⚠️ Failed to persist slotPhotos for', id, err);
     }
+  };
+
+  const handleDeveloperUnlock = async (event) => {
+    event.preventDefault();
+    if (hasDevAccess) return;
+
+    const trimmedToken = devTokenInput.trim();
+    if (!trimmedToken) {
+      setDevAuthStatus({ loading: false, error: 'Masukkan token developer terlebih dahulu.', success: false });
+      return;
+    }
+
+    setDevAuthStatus({ loading: true, error: null, success: false });
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/dev/debug-auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: trimmedToken })
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data?.success) {
+        const errorMessage = data?.error || 'Token developer tidak valid.';
+        throw new Error(errorMessage);
+      }
+
+      setHasDevAccess(true);
+      setDevTokenInput('');
+      setDevAuthStatus({ loading: false, error: null, success: true });
+      setShowDevUnlockPanel(false);
+    } catch (error) {
+      setDevAuthStatus({
+        loading: false,
+        error: error?.message || 'Gagal memverifikasi token developer.',
+        success: false
+      });
+    }
+  };
+
+  const handleDeveloperLock = () => {
+    setHasDevAccess(false);
+    setDevTokenInput('');
+    setDevAuthStatus({ loading: false, error: null, success: false });
+    setShowDevUnlockPanel(false);
   };
 
   // Frame image mapping
@@ -719,6 +831,56 @@ export default function EditPhoto() {
     }
   }, [photos.length, frameConfig?.id]);
 
+  useEffect(() => {
+    if (!hasDevAccess && debugMode) {
+      setDebugMode(false);
+    }
+  }, [hasDevAccess, debugMode]);
+
+  useEffect(() => {
+    if (!isBrowser || !devAccessInitialized) return;
+    if (hasDevAccess) {
+      sessionStorage.setItem('fremioDevAccess', 'granted');
+    } else {
+      sessionStorage.removeItem('fremioDevAccess');
+    }
+  }, [hasDevAccess, isBrowser, devAccessInitialized]);
+
+  useEffect(() => {
+    if (hasDevAccess) {
+      setShowDevUnlockPanel(false);
+    }
+  }, [hasDevAccess]);
+
+  useEffect(() => {
+    if (!isBrowser || hasDevAccess || !devAccessInitialized) return;
+
+    const handleKeyDown = (event) => {
+      if (event.defaultPrevented) return;
+      const modifierPressed = event.ctrlKey || event.metaKey;
+      if (modifierPressed && event.shiftKey && event.key.toLowerCase() === 'd') {
+        event.preventDefault();
+        setShowDevUnlockPanel(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [hasDevAccess, isBrowser, devAccessInitialized]);
+
+  useEffect(() => {
+    if (!isBrowser || hasDevAccess || showDevUnlockPanel || !devAccessInitialized) return;
+
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('devtools') === 'unlock') {
+        setShowDevUnlockPanel(true);
+      }
+    } catch (err) {
+      console.warn('⚠️ Unable to parse query params for dev unlock', err);
+    }
+  }, [hasDevAccess, isBrowser, showDevUnlockPanel, devAccessInitialized]);
+
   // Helper function to get photo image for a slot - SYNC VERSION FOR IMMEDIATE USE
 
   const calculateAutoFillScale_ORIGINAL = (slotIndex) => {
@@ -1165,6 +1327,7 @@ export default function EditPhoto() {
 
   // Debug function untuk melihat state saat save
   const debugSaveState = () => {
+    if (!hasDevAccess) return;
     console.log('🔍 DEBUG SAVE STATE:');
     console.log('📷 Photos:', photos);
     console.log('🖼️ Frame Config:', frameConfig);
@@ -1176,7 +1339,9 @@ export default function EditPhoto() {
   const handleSave = async () => {
     if (isSaving) return; // Prevent multiple saves
     
-    debugSaveState(); // Debug current state
+    if (hasDevAccess) {
+      debugSaveState(); // Debug current state
+    }
     
     setIsSaving(true);
     try {
@@ -1923,169 +2088,13 @@ export default function EditPhoto() {
         margin: '0 auto'
       }}>
         
-        {/* Left Panel - Toggle Tools */}
+        {/* Left Panel - Edit Controls */}
         <div style={{
           background: '#fff',
           borderRadius: '20px',
           padding: '1.5rem',
           height: 'fit-content'
         }}>
-          <h3 style={{
-            textAlign: 'center',
-            marginBottom: '2rem',
-            fontSize: '1.2rem',
-            fontWeight: '600',
-            color: '#333'
-          }}>
-            Toggle Tools
-          </h3>
-
-          {/* Testing Controls */}
-          <div style={{
-            marginBottom: '1.5rem',
-            padding: '1rem',
-            backgroundColor: '#fff3cd',
-            borderRadius: '10px',
-            border: '1px solid #ffeaa7'
-          }}>
-            <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: '#856404' }}>Testing Controls</h4>
-            
-            {/* Debug Info */}
-            <div style={{ 
-              fontSize: '0.7rem', 
-              marginBottom: '0.5rem', 
-              padding: '0.3rem', 
-              backgroundColor: '#f8f9fa', 
-              borderRadius: '4px',
-              color: '#6c757d'
-            }}>
-              Selected: {selectedFrame || 'None'}<br/>
-              Provider: {frameProvider?.currentFrame || 'None'}<br/>
-              Storage: {localStorage.getItem('selectedFrame') || 'None'}
-            </div>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <button
-                onClick={async () => {
-                  console.log('🔄 Setting FremioSeries-blue-3...');
-                  console.log('📋 Before setFrame - selectedFrame:', selectedFrame);
-                  console.log('📋 Before setFrame - frameProvider.currentFrame:', frameProvider.currentFrame);
-                  console.log('📋 Before setFrame - localStorage:', localStorage.getItem('selectedFrame'));
-                  
-                  const result = await frameProvider.setFrame('FremioSeries-blue-3');
-                  console.log('📋 setFrame result:', result);
-                  
-                  console.log('📋 After setFrame - frameProvider.currentFrame:', frameProvider.currentFrame);
-                  console.log('📋 After setFrame - localStorage:', localStorage.getItem('selectedFrame'));
-                  
-                  // Force immediate update
-                  const newFrame = frameProvider.currentFrame || localStorage.getItem('selectedFrame');
-                  if (newFrame && newFrame !== selectedFrame) {
-                    console.log('🔄 Forcing immediate frame update to:', newFrame);
-                    setSelectedFrame(newFrame);
-                    
-                    const config = getFrameConfig(newFrame);
-                    if (config) {
-                      setFrameConfig(config);
-                      setFrameImage(getFrameImage(newFrame));
-                      console.log('✅ Forced frame config update:', config);
-                    }
-                  }
-                }}
-                style={{
-                  padding: '0.4rem 0.8rem',
-                  fontSize: '0.8rem',
-                  backgroundColor: '#007bff',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer'
-                }}
-              >
-                Set Fremio Blue 3
-              </button>
-              <button
-                onClick={async () => {
-                  console.log('🔄 Setting FremioSeries-green-3...');
-                  await frameProvider.setFrame('FremioSeries-green-3');
-                  // Force re-render dengan mengupdate state
-                  setActiveToggle(activeToggle === 'filter' ? 'adjust' : 'filter');
-                  setTimeout(() => setActiveToggle('filter'), 10);
-                }}
-                style={{
-                  padding: '0.4rem 0.8rem',
-                  fontSize: '0.8rem',
-                  backgroundColor: '#28a745',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer'
-                }}
-              >
-                Set Fremio Green 3
-              </button>
-              <button
-                onClick={async () => {
-                  console.log('🔄 Setting FremioSeries-blue-4...');
-                  await frameProvider.setFrame('FremioSeries-blue-4');
-                  // Force re-render dengan mengupdate state
-                  setActiveToggle(activeToggle === 'filter' ? 'adjust' : 'filter');
-                  setTimeout(() => setActiveToggle('filter'), 10);
-                }}
-                style={{
-                  padding: '0.4rem 0.8rem',
-                  fontSize: '0.8rem',
-                  backgroundColor: '#17a2b8',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer'
-                }}
-              >
-                Set Fremio Blue 4
-              </button>
-              <button
-                onClick={() => {
-                  console.log('🗑️ Clearing localStorage...');
-                  localStorage.removeItem('selectedFrame');
-                  localStorage.removeItem('capturedPhotos');
-                  frameProvider.currentFrame = null;
-                  frameProvider.currentConfig = null;
-                  // Force re-render
-                  setSelectedFrame('');
-                  setFrameConfig(null);
-                  setFrameImage(null);
-                }}
-                style={{
-                  padding: '0.4rem 0.8rem',
-                  fontSize: '0.8rem',
-                  backgroundColor: '#dc3545',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer'
-                }}
-              >
-                Clear Test Data
-              </button>
-              
-              <button
-                onClick={() => window.location.reload()}
-                style={{
-                  padding: '0.4rem 0.8rem',
-                  fontSize: '0.8rem',
-                  backgroundColor: '#6c757d',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer'
-                }}
-              >
-                Reload Page
-              </button>
-            </div>
-          </div>
-          
           <div style={{
             display: 'flex',
             flexDirection: 'column',
@@ -2157,29 +2166,135 @@ export default function EditPhoto() {
                 </div>
               </div>
             )}
-
-            {/* Debug Toggle */}
-            <button
-              onClick={() => setDebugMode(!debugMode)}
-              style={{
-                background: debugMode ? '#ff6b6b' : '#f8f9fa',
-                color: debugMode ? '#fff' : '#666',
-                border: 'none',
-                borderRadius: '15px',
-                padding: '1rem',
-                fontSize: '1rem',
-                fontWeight: '500',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.5rem'
-              }}
-            >
-              <span style={{ fontSize: '1.5rem' }}>🔧</span>
-              {debugMode ? 'Hide Debug' : 'Show Debug'}
-            </button>
+            {devAccessInitialized && hasDevAccess ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <button
+                  onClick={() => setDebugMode(!debugMode)}
+                  style={{
+                    background: debugMode ? '#ff6b6b' : '#f8f9fa',
+                    color: debugMode ? '#fff' : '#666',
+                    border: 'none',
+                    borderRadius: '15px',
+                    padding: '1rem',
+                    fontSize: '1rem',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.5rem'
+                  }}
+                >
+                  <span style={{ fontSize: '1.5rem' }}>🔧</span>
+                  {debugMode ? 'Hide Debug' : 'Show Debug'}
+                </button>
+                <div style={{
+                  fontSize: '0.75rem',
+                  color: '#2e7d32',
+                  textAlign: 'center',
+                  fontWeight: '600'
+                }}>
+                  Developer tools unlocked
+                </div>
+                {!isDevEnv && (
+                  <button
+                    type="button"
+                    onClick={handleDeveloperLock}
+                    style={{
+                      background: '#f8f9fa',
+                      color: '#555',
+                      border: '1px solid #e0e0e0',
+                      borderRadius: '10px',
+                      padding: '0.6rem 0.8rem',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Lock Developer Tools
+                  </button>
+                )}
+              </div>
+            ) : (
+              showDevUnlockPanel && devAccessInitialized && (
+                <div style={{
+                  marginTop: '1rem',
+                  padding: '1rem',
+                  background: '#fff7e6',
+                  borderRadius: '12px',
+                  border: '1px dashed #f0c36d',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.75rem'
+                }}>
+                  <div style={{
+                    fontSize: '0.9rem',
+                    fontWeight: '600',
+                    color: '#8c6d1f',
+                    textAlign: 'center'
+                  }}>
+                    Developer Access Required
+                  </div>
+                  <p style={{
+                    fontSize: '0.75rem',
+                    color: '#9a7b00',
+                    margin: 0,
+                    textAlign: 'center'
+                  }}>
+                    Masukkan token developer untuk membuka tools debug.
+                  </p>
+                  <form onSubmit={handleDeveloperUnlock} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <input
+                      type="password"
+                      value={devTokenInput}
+                      onChange={(e) => setDevTokenInput(e.target.value)}
+                      placeholder="Developer token"
+                      style={{
+                        borderRadius: '10px',
+                        border: '1px solid #e0c48a',
+                        padding: '0.6rem 0.8rem',
+                        fontSize: '0.85rem'
+                      }}
+                    />
+                    <button
+                      type="submit"
+                      disabled={devAuthStatus.loading}
+                      style={{
+                        background: '#E8A889',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '10px',
+                        padding: '0.6rem 0.8rem',
+                        fontSize: '0.85rem',
+                        fontWeight: '600',
+                        cursor: devAuthStatus.loading ? 'wait' : 'pointer',
+                        opacity: devAuthStatus.loading ? 0.7 : 1
+                      }}
+                    >
+                      {devAuthStatus.loading ? 'Checking...' : 'Unlock Tools'}
+                    </button>
+                  </form>
+                  {devAuthStatus.error && (
+                    <div style={{
+                      fontSize: '0.75rem',
+                      color: '#b00020',
+                      textAlign: 'center'
+                    }}>
+                      {devAuthStatus.error}
+                    </div>
+                  )}
+                  {devAuthStatus.success && (
+                    <div style={{
+                      fontSize: '0.75rem',
+                      color: '#2e7d32',
+                      textAlign: 'center'
+                    }}>
+                      Developer tools unlocked for this session.
+                    </div>
+                  )}
+                </div>
+              )
+            )}
           </div>
         </div>
 
@@ -2518,7 +2633,7 @@ export default function EditPhoto() {
                 </div>
 
                 {/* Debug Overlay */}
-                {debugMode && frameConfig.slots.map((slot, slotIndex) => {
+                {hasDevAccess && debugMode && frameConfig.slots.map((slot, slotIndex) => {
                   const pixels = calculateSlotPixels(frameConfig, slotIndex);
                   return (
                     <div
@@ -2569,21 +2684,22 @@ export default function EditPhoto() {
             flexDirection: 'column',
             alignItems: 'center'
           }}>
-            {/* Debug Button */}
-            <button
-              onClick={debugSaveState}
-              style={{
-                background: '#f0f0f0',
-                border: '1px solid #ccc',
-                color: '#666',
-                borderRadius: '15px',
-                padding: '0.5rem 1rem',
-                fontSize: '0.8rem',
-                cursor: 'pointer'
-              }}
-            >
-              🔍 Debug Save Data
-            </button>
+            {hasDevAccess && (
+              <button
+                onClick={debugSaveState}
+                style={{
+                  background: '#f0f0f0',
+                  border: '1px solid #ccc',
+                  color: '#666',
+                  borderRadius: '15px',
+                  padding: '0.5rem 1rem',
+                  fontSize: '0.8rem',
+                  cursor: 'pointer'
+                }}
+              >
+                🔍 Debug Save Data
+              </button>
+            )}
             
             <div style={{
               display: 'flex',
@@ -2666,10 +2782,10 @@ export default function EditPhoto() {
             fontWeight: '600',
             color: '#333'
           }}>
-            {debugMode ? 'Debug Info' : (activeToggle === 'filter' ? 'All Photos' : 'Adjust Settings')}
+            {hasDevAccess && debugMode ? 'Debug Info' : (activeToggle === 'filter' ? 'All Photos' : 'Adjust Settings')}
           </h3>
           
-          {debugMode ? (
+          {hasDevAccess && debugMode ? (
             /* Debug Panel */
             frameConfig && (
               <div>

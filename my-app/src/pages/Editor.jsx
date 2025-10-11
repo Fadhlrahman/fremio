@@ -228,7 +228,7 @@ export default function Editor() {
     persistSlotPhotos(activeFrameId, initial);
   }, [duplicatePhotos, frameSlots, photos]);
 
-  // Drag and Drop handlers for preview
+  // Drag and Drop handlers for preview.
   const handleDragStart = (e, slotIndex) => {
     e.stopPropagation();
     setDraggedPhoto({ slotIndex });

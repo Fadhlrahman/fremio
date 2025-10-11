@@ -52,7 +52,7 @@ export default function EditPhoto() {
   const [selectedPhotoForEdit, setSelectedPhotoForEdit] = useState(null); // Which photo is being edited
   const [isDraggingPhoto, setIsDraggingPhoto] = useState(false); // Track if dragging for pan
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 }); // Drag start position
-  const [isSaving, setIsSaving] = useState(false); // Loading state for save
+  const [isSaving, setIsSaving] = useState(false); // Loading. state for save
   const [slotPhotos, setSlotPhotos] = useState({}); // Store individual photos per slot for Testframe2
   const [photoFilters, setPhotoFilters] = useState({}); // Store filter presets per slot
   

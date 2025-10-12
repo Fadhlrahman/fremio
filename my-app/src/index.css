@@ -7,13 +7,13 @@
   background: #f3e1da;
   border-radius: 2rem;
   box-shadow: 0 4px 24px rgba(0,0,0,0.08);
-  padding: 2.5rem;
+  padding: clamp(1.75rem, 4vw, 2.5rem);
   max-width: 900px;
   margin: 0 auto;
 }
 
 .take-moment-title {
-  font-size: 2.5rem;
+  font-size: clamp(2rem, 5vw, 2.5rem);
   font-weight: bold;
   text-align: center;
   margin-bottom: 1.5rem;
@@ -36,6 +36,7 @@
   gap: 1.5rem;
   justify-content: center;
   margin-bottom: 1rem;
+  flex-wrap: wrap;
 }
 
 .take-moment-btn {
@@ -125,6 +126,64 @@
 .take-moment-edit-btn:hover {
   background: #f3e1da;
 }
+
+@media (max-width: 900px) {
+  .take-moment-row {
+    gap: 2rem;
+  }
+  .take-moment-card {
+    border-radius: 1.75rem;
+  }
+}
+
+@media (max-width: 680px) {
+  .take-moment-card {
+    padding: 1.75rem 1.5rem;
+  }
+  .take-moment-upload {
+    flex-direction: column;
+  }
+  .take-moment-capture {
+    min-height: 220px;
+    padding: 1.25rem;
+    text-align: center;
+  }
+  .take-moment-preview-card {
+    padding: 1.25rem;
+  }
+  .take-moment-preview-card img {
+    max-height: 240px;
+    width: 100%;
+  }
+  .take-moment-history-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  .take-moment-history-card button {
+    align-self: flex-end;
+  }
+  .take-moment-edit-btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .take-moment-card {
+    padding: 1.5rem 1.25rem;
+    border-radius: 1.5rem;
+  }
+  .take-moment-history-card {
+    padding: 1.1rem 1.5rem;
+  }
+  .take-moment-preview-card {
+    padding: 1rem;
+  }
+  .take-moment-preview-card img {
+    max-height: 200px;
+  }
+}
+/* Tailwind layers */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -165,21 +224,34 @@ body {
 }
 
 .hero-grid {
-  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6rem;
-  /* jarak antar kolom lebih besar */
+  gap: clamp(2rem, 6vw, 6rem);
+  width: 100%;
 }
 
 .hero-left,
 .hero-right {
   display: flex;
   flex-direction: column;
-  align-items: center;
   justify-content: center;
 }
 
+.hero-left {
+  align-items: flex-start;
+  text-align: left;
+}
+
+.hero-right {
+  align-items: center;
+}
+
+@media (max-width: 1080px) {
+  .hero-left {
+    align-items: center;
+    text-align: center;
+  }
+}
 .pad {
   padding: 56px 0;
 }
@@ -199,6 +271,11 @@ code {
   border-radius: 6px;
 }
 
+@media (max-width: 480px) {
+  .container {
+    padding: 0 12px;
+  }
+}
 /* Custom styles for Frames pa.ge */
 .frames-wrapper {
   display: flex;
@@ -210,6 +287,7 @@ code {
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
   padding: 8px 12px;
+  scroll-snap-type: x proximity;
 }
 
 /* Optional: style scroll bar */
@@ -242,6 +320,7 @@ code {
   min-width: 180px;
   height: 260px;
   margin: 0 6px;
+  scroll-snap-align: start;
 }
 
 
@@ -258,6 +337,57 @@ code {
   font-size: 13px;
   text-align: center;
   margin-bottom: 4px;
+}
+
+.frames-page{
+  padding-top: clamp(40px, 8vw, 60px);
+}
+
+@media (max-width: 900px) {
+  .frames-wrapper {
+    gap: 14px;
+  }
+  .frame-card {
+    padding: 24px;
+    min-width: 160px;
+    height: auto;
+  }
+  .frame-card img {
+    height: 110px;
+  }
+}
+
+@media (max-width: 680px) {
+  .frames-wrapper {
+    padding: 0;
+    margin: 28px 0 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 18px;
+    overflow: visible;
+  }
+  .frame-card {
+    min-width: unset;
+    margin: 0;
+  }
+  .frame-card img {
+    height: 100px;
+  }
+}
+
+@media (max-width: 420px) {
+  .frame-card {
+    padding: 20px 18px;
+  }
+  .frame-card img {
+    height: 90px;
+  }
+  .frame-card .frame-title {
+    font-size: 12px;
+  }
+  .frames-page h2 {
+    font-size: 1.75rem;
+  }
 }
 
 /* Countdown Overlay */

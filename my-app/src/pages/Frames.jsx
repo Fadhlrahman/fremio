@@ -16,7 +16,7 @@ import { useNavigate } from "react-router-dom";
 import frameProvider from '../utils/frameProvider.js';
 
 const frames = [
-  // FremioSeries Frames.
+  // FremioSeries Frames
   {
     id: "FremioSeries-blue-2",
     title: "Fremio Series Blue",
@@ -106,9 +106,9 @@ const frames = [
 export default function Frames() {
   const navigate = useNavigate();
   return (
-    <section className="container py-12">
+    <section className="container py-12 frames-page">
       {/* Filter Tabs */}
-      <div className="flex gap-4 mb-8 justify-center">
+      <div className="flex flex-wrap gap-3 mb-8 justify-center px-2">
         <button className="bg-white border rounded-full px-8 py-2 shadow text-lg font-medium">Creator</button>
         <button className="bg-[#e0b7a9] text-black rounded-full px-8 py-2 shadow text-lg font-medium">All frames</button>
       </div>
@@ -118,8 +118,8 @@ export default function Frames() {
       </h2>
       {/* Frames - horizontally scrollable */}
         <div className="frames-wrapper scroll-x">
-          {frames.map((frame, idx) => (
-            <div key={idx} className="frame-card">
+          {frames.map((frame) => (
+            <div key={frame.id} className="frame-card">
               <img src={frame.img} alt={frame.title} />
               <div className="frame-title">{frame.title}</div>
               {/* Description removed as requested; showing only title now */}

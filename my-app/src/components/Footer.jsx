@@ -4,9 +4,9 @@ export default function Footer() {
   const navigate = useNavigate();
   return (
     <footer className="bg-[#f9ede7] py-8 border-t border-[#e0b7a9]">
-      <div className="container mx-auto px-6 grid grid-cols-4 gap-8 overflow-x-auto min-h-[200px]">
+      <div className="container mx-auto px-4 sm:px-6 grid gap-10 md:gap-8 min-h-[200px] grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         {/* Brand + contact */}
-        <div>
+  <div>
           <div className="text-3xl font-bold mb-2">fremio</div>
           <p className="text-base text-gray-600 mb-4">Think Outside the box!</p>
           <ul className="space-y-2 text-sm text-gray-700">
@@ -62,7 +62,7 @@ export default function Footer() {
                 const tabletPrinterUrl = `/${basePath}/tablet-printer`;
                 window.open(tabletPrinterUrl, '_blank');
               }}
-              className="inline-flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-300 hover:shadow-lg"
+              className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-3 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-300 hover:shadow-lg"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M7 3h10v5H7V3zm0 7h10v8H7v-8zm-4-2h18v4H3V8zm3 2v8h12v-8H6z"/>
@@ -85,7 +85,7 @@ export default function Footer() {
         {/* Socials */}
         <div>
           <h4 className="font-semibold mb-2 text-lg">Follow Us</h4>
-          <div className="flex gap-4">
+          <div className="flex flex-wrap gap-4">
             <a href="#" aria-label="YouTube" className="p-2 rounded-full border border-black hover:bg-[#e0b7a9] transition">
               <svg width="24" height="24" viewBox="0 0 24 24">
                 <path d="M10 15l5.2-3L10 9v6z" />

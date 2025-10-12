@@ -1,6 +1,44 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
 
 export default function Header() {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const location = useLocation();
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname]);
+
+  const navLinks = (
+    <>
+      <NavLink
+        to="/"
+        end
+        className={({ isActive }) =>
+          "nav-link" + (isActive ? " active" : "")
+        }
+      >
+        Home
+      </NavLink>
+      <NavLink
+        to="/about"
+        className={({ isActive }) =>
+          "nav-link" + (isActive ? " active" : "")
+        }
+      >
+        About
+      </NavLink>
+      <NavLink
+        to="/frames"
+        className={({ isActive }) =>
+          "nav-link" + (isActive ? " active" : "")
+        }
+      >
+        Frames
+      </NavLink>
+    </>
+  );
+
   return (
     <header className="site-header">
       <div className="container header-bar">
@@ -8,33 +46,7 @@ export default function Header() {
         <div className="logo">fremio</div>
 
         {/* Center: Nav */}
-        <nav className="main-nav">
-          <NavLink
-            to="/"
-            end
-            className={({ isActive }) =>
-              "nav-link" + (isActive ? " active" : "")
-            }
-          >
-            Home
-          </NavLink>
-          <NavLink
-            to="/about"
-            className={({ isActive }) =>
-              "nav-link" + (isActive ? " active" : "")
-            }
-          >
-            About
-          </NavLink>
-          <NavLink
-            to="/frames"
-            className={({ isActive }) =>
-              "nav-link" + (isActive ? " active" : "")
-            }
-          >
-            Frames
-          </NavLink>
-        </nav>
+        <nav className="main-nav">{navLinks}</nav>
 
         {/* Right: Action */}
         <div className="header-actions">
@@ -42,6 +54,25 @@ export default function Header() {
             Login/Register
           </NavLink>
         </div>
+
+        <button
+          type="button"
+          className="menu-toggle"
+          aria-label="Toggle navigation"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((prev) => !prev)}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
+      </div>
+
+      <div className={`mobile-menu ${menuOpen ? "open" : ""}`}>
+        <nav className="mobile-nav">{navLinks}</nav>
+        <NavLink to="/login" className="btn-login mobile">
+          Login/Register
+        </NavLink>
       </div>
     </header>
   );

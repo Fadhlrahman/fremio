@@ -1129,7 +1129,7 @@ export default function EditPhoto() {
     
     const slot = frameConfig.slots[slotIndex];
     
-    // Use same logic as handlePhotoZoom for minimum scale calculation
+    // Use same logic as handlePhotoZoom for minimum ..scale calculation
     let photoAspectRatio = 4 / 3; // Default camera landscape
     let slotAspectRatio = slot.width / slot.height;
     

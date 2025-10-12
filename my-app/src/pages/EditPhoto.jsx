@@ -1330,17 +1330,49 @@ export default function EditPhoto() {
       return { success: false, reason: 'no-playable-video' };
     }
 
+    const TIMER_PLAYBACK_TARGETS = {
+      3: 4,
+      5: 6,
+      10: 6
+    };
+    const DEFAULT_TARGET_DURATION = 6;
+
+    const clampDuration = (value, hardCap = DEFAULT_TARGET_DURATION) => {
+      if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) {
+        return null;
+      }
+      if (typeof hardCap === 'number' && hardCap > 0) {
+        return Math.min(value, hardCap);
+      }
+      return value;
+    };
+
     const getTargetDuration = (entry) => {
       if (!entry) return 0;
-      const infoDuration = entry.info?.duration;
-      if (typeof infoDuration === 'number' && !Number.isNaN(infoDuration) && infoDuration > 0) {
+
+      const timerTarget = (() => {
+        const timer = entry.info?.timer;
+        if (typeof timer === 'number' && TIMER_PLAYBACK_TARGETS[timer]) {
+          return TIMER_PLAYBACK_TARGETS[timer];
+        }
+        return null;
+      })();
+
+      if (timerTarget) {
+        return timerTarget;
+      }
+
+      const infoDuration = clampDuration(entry.info?.duration, DEFAULT_TARGET_DURATION);
+      if (infoDuration) {
         return infoDuration;
       }
-      const mediaDuration = entry.video?.duration;
-      if (typeof mediaDuration === 'number' && !Number.isNaN(mediaDuration) && mediaDuration > 0) {
+
+      const mediaDuration = clampDuration(entry.video?.duration, DEFAULT_TARGET_DURATION);
+      if (mediaDuration) {
         return mediaDuration;
       }
-      return 0;
+
+      return DEFAULT_TARGET_DURATION;
     };
 
     const slotTargetDurations = slotVideoElements.map(getTargetDuration);

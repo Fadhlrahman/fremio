@@ -33,7 +33,7 @@ export default function FrameBuilder() {
   };
   const handleMouseUp = () => setDragSlot(null);
 
-  // Export JSON config
+  // Export JSON config.
   const exportConfig = () => {
     const config = {
       frame_id: 'custom_frame',

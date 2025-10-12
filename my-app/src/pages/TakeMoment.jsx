@@ -9,6 +9,7 @@ const TIMER_VIDEO_DURATION_MAP = {
   5: { record: 6, playback: 6 },
   10: { record: 6, playback: 6 },
 };
+const POST_CAPTURE_BUFFER_SECONDS = 1;
 
 // Utility function to compress image ..
 const compressImage = (dataUrl, quality = 0.8, maxWidth = 600, maxHeight = 600) => {
@@ -301,6 +302,9 @@ export default function TakeMoment() {
       playback: timerSeconds + 1,
     };
 
+    const desiredStopSeconds = timerSeconds + POST_CAPTURE_BUFFER_SECONDS;
+    const delayBeforeStartSeconds = Math.max(0, desiredStopSeconds - recordSeconds);
+
     const streamForRecording = baseStream.clone();
     const mimeCandidates = [
       'video/webm;codecs=vp9',
@@ -341,6 +345,9 @@ export default function TakeMoment() {
 
     const chunks = [];
     let stopTimeout;
+    let startTimeout;
+    let hasRecordingStarted = false;
+    let hasRecordingStopped = false;
 
     const controller = {
       stop: () => {
@@ -348,6 +355,21 @@ export default function TakeMoment() {
           clearTimeout(stopTimeout);
           stopTimeout = null;
         }
+        if (startTimeout) {
+          clearTimeout(startTimeout);
+          startTimeout = null;
+        }
+
+        if (!hasRecordingStarted) {
+          hasRecordingStopped = true;
+          streamForRecording.getTracks().forEach((track) => track.stop());
+          if (rejectPromise) {
+            rejectPromise(new Error('Recording cancelled before start'));
+          }
+          return;
+        }
+
+        hasRecordingStopped = true;
         if (recorder.state !== 'inactive') {
           try {
             recorder.stop();
@@ -359,7 +381,9 @@ export default function TakeMoment() {
       promise: null,
     };
 
+    let rejectPromise;
     controller.promise = new Promise((resolve, reject) => {
+      rejectPromise = reject;
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
           chunks.push(event.data);
@@ -374,14 +398,16 @@ export default function TakeMoment() {
       };
 
       recorder.onstop = async () => {
+        hasRecordingStopped = true;
         try {
           const blob = new Blob(chunks, { type: recorder.mimeType || supportedMimeType || 'video/webm' });
           const dataUrl = await blobToDataURL(blob);
           resolve({
             dataUrl,
             mimeType: blob.type || recorder.mimeType || supportedMimeType || 'video/webm',
-            duration: playbackSeconds,
+            duration: recordSeconds,
             timer: timerSeconds,
+            actualDelay: delayBeforeStartSeconds,
           });
         } catch (error) {
           reject(error);
@@ -391,17 +417,32 @@ export default function TakeMoment() {
       };
     });
 
-    try {
-      recorder.start();
-      stopTimeout = setTimeout(() => {
-        if (recorder.state !== 'inactive') {
-          recorder.stop();
+    const startRecording = () => {
+      if (hasRecordingStarted || hasRecordingStopped) {
+        return;
+      }
+      hasRecordingStarted = true;
+      try {
+        recorder.start();
+        stopTimeout = setTimeout(() => {
+          if (recorder.state !== 'inactive') {
+            recorder.stop();
+          }
+        }, recordSeconds * 1000);
+      } catch (error) {
+        console.error('❌ Failed to start MediaRecorder:', error);
+        streamForRecording.getTracks().forEach((track) => track.stop());
+        hasRecordingStopped = true;
+        if (rejectPromise) {
+          rejectPromise(error);
         }
-      }, recordSeconds * 1000);
-    } catch (error) {
-      console.error('❌ Failed to start MediaRecorder:', error);
-      streamForRecording.getTracks().forEach((track) => track.stop());
-      return null;
+      }
+    };
+
+    if (delayBeforeStartSeconds > 0) {
+      startTimeout = setTimeout(startRecording, delayBeforeStartSeconds * 1000);
+    } else {
+      startRecording();
     }
 
     controller.promise.finally(() => {

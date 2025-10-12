@@ -63,6 +63,20 @@ export default function EditPhoto() {
       .filter(Boolean)
   ), [videos]);
 
+  const photoVideoMap = useMemo(() => {
+    const map = new Map();
+    photos.forEach((photo, index) => {
+      if (!photo) return;
+      const video = videos[index];
+      if (!video || !video.dataUrl) return;
+      map.set(photo, {
+        ...video,
+        baseVideoIndex: index
+      });
+    });
+    return map;
+  }, [photos, videos]);
+
   const formatSeconds = (value) => {
     if (typeof value !== 'number' || Number.isNaN(value)) return '—';
     return Number.isInteger(value) ? `${value}` : value.toFixed(1);
@@ -240,33 +254,75 @@ export default function EditPhoto() {
     return photos[photoIndex] ?? null;
   };
 
+  const resolveVideoForPhoto = (photoData) => {
+    if (!photoData) return null;
+    const mapped = photoVideoMap.get(photoData);
+    if (!mapped) return null;
+    const { baseVideoIndex, ...rest } = mapped;
+    return {
+      ...rest,
+      baseVideoIndex
+    };
+  };
+
   const getVideoSourceForSlot = (slotIndex) => {
     if (!frameConfig || slotIndex === null || slotIndex === undefined) return null;
 
     const slot = frameConfig.slots?.[slotIndex];
     if (!slot) return null;
 
-    const baseVideoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
-
-    let candidate = null;
+    let targetPhoto = null;
 
     if (frameConfig?.duplicatePhotos) {
-      candidate = slotVideos[slotIndex]
-        ?? slotVideos[baseVideoIndex]
-        ?? videos[baseVideoIndex]
-        ?? null;
+      targetPhoto = slotPhotos[slotIndex];
+      if (!targetPhoto) {
+        const fallbackIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+        targetPhoto = photos[fallbackIndex] ?? null;
+      }
     } else {
-      candidate = slotVideos[slotIndex] ?? videos[baseVideoIndex] ?? null;
+      targetPhoto = slotPhotos[slotIndex];
+      if (!targetPhoto) {
+        const fallbackIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+        targetPhoto = photos[fallbackIndex] ?? null;
+      }
     }
 
-    if (!candidate || !candidate.dataUrl) {
-      return null;
+    const resolvedByPhoto = resolveVideoForPhoto(targetPhoto);
+    if (resolvedByPhoto) {
+      return resolvedByPhoto;
     }
 
-    return {
-      ...candidate,
-      baseVideoIndex
-    };
+    const slotOverride = slotVideos[slotIndex];
+    if (slotOverride && slotOverride.dataUrl) {
+      const baseVideoIndex = slotOverride.baseVideoIndex ?? (slot.photoIndex !== undefined ? slot.photoIndex : slotIndex);
+      return {
+        ...slotOverride,
+        baseVideoIndex
+      };
+    }
+
+    if (frameConfig?.duplicatePhotos) {
+      const sharedIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+      const sharedOverride = slotVideos[sharedIndex];
+      if (sharedOverride && sharedOverride.dataUrl) {
+        const baseVideoIndex = sharedOverride.baseVideoIndex ?? sharedIndex;
+        return {
+          ...sharedOverride,
+          baseVideoIndex
+        };
+      }
+    }
+
+    const baseIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+    const fallbackVideo = videos[baseIndex];
+    if (fallbackVideo && fallbackVideo.dataUrl) {
+      return {
+        ...fallbackVideo,
+        baseVideoIndex: baseIndex
+      };
+    }
+
+    return null;
   };
 
   const createImageFromDataUrl = (dataUrl) => new Promise((resolve, reject) => {
@@ -675,7 +731,6 @@ export default function EditPhoto() {
           setSlotPhotos(normalizedSlotPhotos);
           setSlotVideos(normalizedSlotVideos);
           persistSlotPhotos(frameFromStorage, normalizedSlotPhotos);
-          persistSlotVideos(frameFromStorage, normalizedSlotVideos);
           console.log('🎯 Initialized slot photos for duplicate frame:', Object.keys(normalizedSlotPhotos).length, 'slots');
         } else {
           // Standard initialization for non-duplicate frames (one transform per photo)
@@ -869,7 +924,28 @@ export default function EditPhoto() {
   // Handle drag start
   const handleDragStart = (e, photoIndex, slotIndex) => {
     e.stopPropagation();
-    setDraggedPhoto({ photoIndex, slotIndex });
+
+    const slot = frameConfig?.slots?.[slotIndex];
+    const baseIndex = slot?.photoIndex ?? slotIndex;
+
+    let photoData = null;
+    let videoData = null;
+
+    if (frameConfig?.duplicatePhotos) {
+      photoData = slotPhotos[slotIndex] ?? photos[baseIndex] ?? null;
+      videoData = slotVideos[slotIndex] ?? videos[baseIndex] ?? null;
+    } else {
+      photoData = photos[photoIndex] ?? null;
+      videoData = slotVideos[slotIndex] ?? videos[baseIndex] ?? null;
+    }
+
+    setDraggedPhoto({
+      photoIndex,
+      slotIndex,
+      baseIndex,
+      photoData,
+      videoData
+    });
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', `slot-${slotIndex}`);
     console.log('🎯 [DnD] Drag start dari slot', slotIndex + 1, 'photoIndex:', photoIndex);
@@ -930,20 +1006,31 @@ export default function EditPhoto() {
       const srcPhotoIdx = srcSlot?.photoIndex ?? sourceSlotIndex;
       const dstPhotoIdx = dstSlot?.photoIndex ?? targetSlotIndex;
 
-      const srcImage = newSlotPhotos[sourceSlotIndex] ?? photos[srcPhotoIdx] ?? null;
+      const srcImage = draggedPhoto.photoData
+        ?? newSlotPhotos[sourceSlotIndex]
+        ?? photos[srcPhotoIdx]
+        ?? null;
       const dstImage = newSlotPhotos[targetSlotIndex] ?? photos[dstPhotoIdx] ?? null;
-      const srcVideo = newSlotVideos[sourceSlotIndex] ?? videos[srcPhotoIdx] ?? null;
+      const srcVideo = draggedPhoto.videoData
+        ?? newSlotVideos[sourceSlotIndex]
+        ?? videos[srcPhotoIdx]
+        ?? null;
       const dstVideo = newSlotVideos[targetSlotIndex] ?? videos[dstPhotoIdx] ?? null;
+
+      if (!srcImage && !dstImage) {
+        console.warn('⚠️ [DnD] No media found to swap between duplicate slots');
+        setDraggedPhoto(null);
+        return;
+      }
 
       newSlotPhotos[sourceSlotIndex] = dstImage;
       newSlotPhotos[targetSlotIndex] = srcImage;
       newSlotVideos[sourceSlotIndex] = dstVideo;
       newSlotVideos[targetSlotIndex] = srcVideo;
 
-      setSlotPhotos(newSlotPhotos);
-      setSlotVideos(newSlotVideos);
-      persistSlotPhotos(frameConfig?.id, newSlotPhotos);
-      persistSlotVideos(frameConfig?.id, newSlotVideos);
+  setSlotPhotos(newSlotPhotos);
+  setSlotVideos(newSlotVideos);
+  persistSlotPhotos(frameConfig?.id, newSlotPhotos);
       setDraggedPhoto(null);
 
       // Recalculate smart scales for the two swapped slots only
@@ -981,6 +1068,7 @@ export default function EditPhoto() {
     // Standard drag & drop logic for other frames
   const newPhotos = [...photos];
   const newVideos = [...videos];
+  const newSlotVideos = { ...slotVideos };
     const newPhotoPositions = { ...photoPositions };
     const newPhotoTransforms = { ...photoTransforms };
     
@@ -1003,8 +1091,19 @@ export default function EditPhoto() {
   newVideos[sourceSlotIndex] = newVideos[targetSlotIndex];
   newVideos[targetSlotIndex] = tempVideo;
 
+  const sourceSlotHasVideo = Object.prototype.hasOwnProperty.call(newSlotVideos, sourceSlotIndex);
+  const targetSlotHasVideo = Object.prototype.hasOwnProperty.call(newSlotVideos, targetSlotIndex);
+  if (sourceSlotHasVideo || targetSlotHasVideo) {
+    const tempSlotVideo = newSlotVideos[sourceSlotIndex];
+    newSlotVideos[sourceSlotIndex] = newSlotVideos[targetSlotIndex];
+    newSlotVideos[targetSlotIndex] = tempSlotVideo;
+  }
+
   setPhotos(newPhotos);
   setVideos(newVideos);
+  if (sourceSlotHasVideo || targetSlotHasVideo) {
+    setSlotVideos(newSlotVideos);
+  }
     setPhotoPositions(newPhotoPositions);
     setPhotoTransforms(newPhotoTransforms);
     localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
@@ -1218,6 +1317,8 @@ export default function EditPhoto() {
         continue;
       }
 
+      video.loop = false;
+
       const entry = { video, info, baseVideoIndex: baseKey };
       videoElementCache.set(baseKey, entry);
       slotVideoElements.push(entry);
@@ -1229,18 +1330,21 @@ export default function EditPhoto() {
       return { success: false, reason: 'no-playable-video' };
     }
 
-    const getEntryDuration = (entry) => {
+    const getTargetDuration = (entry) => {
       if (!entry) return 0;
-      const durations = [entry.video?.duration, entry.info?.duration];
-      return durations.reduce((max, value) => {
-        if (typeof value === 'number' && !Number.isNaN(value) && value > 0) {
-          return Math.max(max, value);
-        }
-        return max;
-      }, 0);
+      const infoDuration = entry.info?.duration;
+      if (typeof infoDuration === 'number' && !Number.isNaN(infoDuration) && infoDuration > 0) {
+        return infoDuration;
+      }
+      const mediaDuration = entry.video?.duration;
+      if (typeof mediaDuration === 'number' && !Number.isNaN(mediaDuration) && mediaDuration > 0) {
+        return mediaDuration;
+      }
+      return 0;
     };
 
-    const maxDuration = activeVideos.reduce((max, entry) => Math.max(max, getEntryDuration(entry)), 0);
+    const slotTargetDurations = slotVideoElements.map(getTargetDuration);
+    const maxDuration = slotTargetDurations.reduce((max, value) => Math.max(max, value), 0);
     if (!maxDuration) {
       console.warn('🎬 Recorded videos report zero duration; skipping framed video export');
       return { success: false, reason: 'zero-duration' };
@@ -1424,9 +1528,9 @@ export default function EditPhoto() {
       }
 
       const elapsed = (performance.now() - animationStart) / 1000;
-      const allVideosEnded = slotVideoElements.every((entry) => {
+      const allVideosEnded = slotVideoElements.every((entry, index) => {
         if (!entry) return true;
-        const duration = getEntryDuration(entry) || maxDuration;
+        const duration = slotTargetDurations[index] || maxDuration;
         return entry.video.ended || entry.video.currentTime >= duration;
       });
 

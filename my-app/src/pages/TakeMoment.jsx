@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import frameProvider from '../utils/frameProvider.js';
 import { getFrameConfig } from '../config/frameConfigs.js';
@@ -91,6 +91,14 @@ const blobToDataURL = (blob) => new Promise((resolve, reject) => {
   reader.readAsDataURL(blob);
 });
 
+const normalizeFacingMode = (value, fallback) => {
+  if (!value) return fallback;
+  const lower = value.toLowerCase();
+  if (lower.includes('environment') || lower.includes('rear')) return 'environment';
+  if (lower.includes('user') || lower.includes('front')) return 'user';
+  return fallback;
+};
+
 export default function TakeMoment() {
   const navigate = useNavigate();
   const fileInputRef = useRef();
@@ -110,46 +118,159 @@ export default function TakeMoment() {
   const [videoAspectRatio, setVideoAspectRatio] = useState(4/3); // Default aspect ratio
   const [maxCaptures, setMaxCaptures] = useState(4); // Default to 4, will be updated from frame config
   const [frameConfig, setFrameConfig] = useState(null); // Frame configuration
+  const [cameraFacingMode, setCameraFacingMode] = useState('user');
+  const [shouldMirrorVideo, setShouldMirrorVideo] = useState(true);
+  const [canSwitchCamera, setCanSwitchCamera] = useState(false);
+  const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
 
-  // Initialize with empty photos and load frame configuration
-  useEffect(() => {
-    console.log('🔄 TakeMoment component initializing...');
-    
-    // Clear any existing photos and start fresh
-  setCapturedPhotos([]);
-  setCapturedVideos([]);
-  localStorage.removeItem('capturedPhotos'); // Clear localStorage to ensure clean start
-  localStorage.removeItem('capturedVideos');
-  try {
-    const keysToClear = [];
-    for (let index = 0; index < localStorage.length; index += 1) {
-      const key = localStorage.key(index);
-      if (key && (key.startsWith('slotPhotos:') || key.startsWith('slotVideos:'))) {
-        keysToClear.push(key);
+  const showSwitchCameraToggle = isMobileDevice && cameraActive && (canSwitchCamera || cameraFacingMode === 'environment');
+  const isUsingBackCamera = cameraFacingMode === 'environment';
+  const isSwitchDisabled = !cameraActive || capturing || isSwitchingCamera;
+
+  const updateVideoDeviceAvailability = useCallback(async () => {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) {
+      return;
+    }
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter((device) => device.kind === 'videoinput');
+      setCanSwitchCamera(videoInputs.length > 1);
+    } catch (error) {
+      console.warn('⚠️ Failed to enumerate media devices:', error);
+    }
+  }, []);
+
+  const startCamera = async (desiredFacingMode = cameraFacingMode) => {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      alert('Browser tidak mendukung akses kamera.');
+      return;
+    }
+
+    const requestStream = async (facingMode) => navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        facingMode: facingMode ? { ideal: facingMode } : undefined,
+      }
+    });
+
+    let stream = null;
+    let activeFacing = desiredFacingMode;
+
+    try {
+      stopCamera();
+      stream = await requestStream(desiredFacingMode);
+    } catch (error) {
+      console.warn(`⚠️ Failed to access ${desiredFacingMode} camera:`, error);
+      if (desiredFacingMode === 'environment') {
+        try {
+          stream = await requestStream('user');
+          activeFacing = 'user';
+          alert('Kamera belakang tidak tersedia. Menggunakan kamera depan.');
+        } catch (fallbackError) {
+          console.error('❌ Fallback to front camera failed:', fallbackError);
+          alert('Tidak dapat mengakses kamera.');
+          throw fallbackError;
+        }
+      } else {
+        alert('Tidak dapat mengakses kamera.');
+        throw error;
       }
     }
-    keysToClear.forEach((key) => localStorage.removeItem(key));
-  } catch (storageError) {
-    console.warn('⚠️ Failed to clear slot media caches on init:', storageError);
-  }
-    
-    // Load frame configuration asynchronously
+
+    if (!stream) {
+      alert('Stream kamera tidak tersedia.');
+      return;
+    }
+
+    cameraStreamRef.current = stream;
+
+    const videoTrack = stream.getVideoTracks()[0];
+    const trackFacing = videoTrack?.getSettings?.().facingMode;
+    const normalizedFacing = normalizeFacingMode(trackFacing, activeFacing);
+
+    setCameraFacingMode(normalizedFacing);
+    setShouldMirrorVideo(normalizedFacing !== 'environment');
+    setCameraActive(true);
+
+    setTimeout(() => {
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play()
+          .then(() => {
+            console.log('▶️ Video play successful');
+          })
+          .catch((playError) => {
+            console.error('❌ Video play failed:', playError);
+          });
+      } else {
+        console.error('❌ Video ref not available');
+      }
+    }, 100);
+
+    await updateVideoDeviceAvailability();
+  };
+
+  const handleCameraClick = async () => {
+    if (cameraActive || isSwitchingCamera) return;
+    try {
+      await startCamera(cameraFacingMode);
+    } catch (error) {
+      console.error('❌ Failed to start camera:', error);
+    }
+  };
+
+  const handleSwitchCamera = async () => {
+    if (!cameraActive || isSwitchingCamera) return;
+    const nextFacingMode = cameraFacingMode === 'environment' ? 'user' : 'environment';
+    setIsSwitchingCamera(true);
+    try {
+      await startCamera(nextFacingMode);
+    } catch (error) {
+      console.error('❌ Failed to switch camera:', error);
+    } finally {
+      setIsSwitchingCamera(false);
+    }
+  };
+
+  useEffect(() => {
+    console.log('🔄 TakeMoment component initializing...');
+
+    setCapturedPhotos([]);
+    setCapturedVideos([]);
+    localStorage.removeItem('capturedPhotos');
+    localStorage.removeItem('capturedVideos');
+    try {
+      const keysToClear = [];
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (key && (key.startsWith('slotPhotos:') || key.startsWith('slotVideos:'))) {
+          keysToClear.push(key);
+        }
+      }
+      keysToClear.forEach((key) => localStorage.removeItem(key));
+    } catch (storageError) {
+      console.warn('⚠️ Failed to clear slot media caches on init:', storageError);
+    }
+
     const loadFrameConfig = async () => {
       try {
         await frameProvider.loadFrameFromStorage();
         const frameConfig = frameProvider.getCurrentConfig();
-        
+
         console.log('🖼️ frameProvider.getCurrentConfig():', frameConfig);
-        
+
         if (frameConfig && frameConfig.maxCaptures) {
           setMaxCaptures(frameConfig.maxCaptures);
-          setFrameConfig(frameConfig); // Store frame config for crop guides
+          setFrameConfig(frameConfig);
           console.log(`📸 Frame loaded: ${frameConfig.name} - Max captures: ${frameConfig.maxCaptures}`);
         } else {
-          // Load from localStorage as fallback
           const selectedFrame = localStorage.getItem('selectedFrame') || 'Testframe1';
           console.log('📦 selectedFrame from localStorage:', selectedFrame);
-          
+
           const config = await frameProvider.setFrame(selectedFrame);
           if (config) {
             const loadedConfig = frameProvider.getCurrentConfig();
@@ -158,64 +279,47 @@ export default function TakeMoment() {
             console.log(`📸 Frame loaded from localStorage: ${loadedConfig.name} - MaxCaptures: ${loadedConfig.maxCaptures}`);
           } else {
             console.log('⚠️ No frame selected, using default max captures: 4');
-            setMaxCaptures(4); // Default fallback
+            setMaxCaptures(4);
           }
         }
       } catch (error) {
         console.error('❌ Error loading frame configuration:', error);
-        setMaxCaptures(4); // Fallback
+        setMaxCaptures(4);
       }
     };
-    
+
     loadFrameConfig();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const checkMobileDevice = () => {
+      const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+      const isTouchDevice = /Mobi|Android|iPhone|iPad|iPod/i.test(userAgent);
+      setIsMobileDevice(isTouchDevice || window.innerWidth <= 768);
+    };
+
+    checkMobileDevice();
+    window.addEventListener('resize', checkMobileDevice);
+    return () => window.removeEventListener('resize', checkMobileDevice);
+  }, []);
+
+  useEffect(() => {
+    updateVideoDeviceAvailability();
+  }, [updateVideoDeviceAvailability]);
+
+  useEffect(() => {
+    if (isMobileDevice && !cameraActive && cameraFacingMode === 'user') {
+      setCameraFacingMode('environment');
+    }
+  }, [isMobileDevice, cameraActive, cameraFacingMode]);
 
   // Debug: Log when capturedPhotos changes
   useEffect(() => {
     console.log('capturedPhotos state updated:', capturedPhotos.length, 'photos');
     console.log('Photos array:', capturedPhotos.map((photo, idx) => `${idx}: ${photo.substring(0, 30)}...`));
   }, [capturedPhotos]);
-
-  const handleCameraClick = async () => {
-    try {
-      console.log('� Starting camera...');
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: 'user'
-        } 
-      });
-      console.log('✅ Camera stream obtained:', stream);
-      cameraStreamRef.current = stream;
-      
-      // Set camera active FIRST so video element renders
-      setCameraActive(true);
-      
-      // Wait for React to render the video element
-      setTimeout(() => {
-        if (videoRef.current) {
-          console.log('📺 Assigning stream to video element...');
-          videoRef.current.srcObject = stream;
-          
-          // Force play the video
-          videoRef.current.play()
-            .then(() => {
-              console.log('▶️ Video play successful');
-            })
-            .catch((playError) => {
-              console.error('❌ Video play failed:', playError);
-            });
-        } else {
-          console.error('❌ Video ref not available');
-        }
-      }, 100);
-      
-    } catch (error) {
-      console.error('❌ Error accessing camera:', error);
-      alert('Error accessing camera: ' + error.message);
-    }
-  };
 
   const handleFileSelect = async (event) => {
     const files = Array.from(event.target.files || []);
@@ -318,7 +422,7 @@ export default function TakeMoment() {
       });
     };
 
-    if (videoRef.current) {
+  if (shouldMirrorVideo && videoRef.current) {
       try {
         const mirrorCanvas = document.createElement('canvas');
         const canCaptureStream = typeof mirrorCanvas.captureStream === 'function';
@@ -628,10 +732,14 @@ export default function TakeMoment() {
     });
     
   const ctx = canvas.getContext('2d');
-  ctx.save();
-  ctx.scale(-1, 1);
-  ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
-  ctx.restore();
+  if (shouldMirrorVideo) {
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+    ctx.restore();
+  } else {
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  }
     
     const dataUrl = canvas.toDataURL('image/png');
     setCurrentPhoto(dataUrl);
@@ -941,7 +1049,8 @@ export default function TakeMoment() {
               display: 'flex',
               gap: '1rem',
               marginBottom: '1.5rem',
-              alignItems: 'center'
+              alignItems: 'center',
+              flexWrap: 'wrap'
             }}>
               <input
                 ref={fileInputRef}
@@ -991,6 +1100,37 @@ export default function TakeMoment() {
               >
                 {cameraActive ? 'Stop Camera' : 'Camera'}
               </button>
+
+              {showSwitchCameraToggle && (
+                <button
+                  onClick={handleSwitchCamera}
+                  disabled={isSwitchDisabled}
+                  title={isSwitchingCamera
+                    ? 'Sedang mengganti kamera'
+                    : isUsingBackCamera
+                      ? 'Beralih ke kamera depan'
+                      : 'Beralih ke kamera belakang'}
+                  style={{
+                    padding: '0.75rem 1.5rem',
+                    background: isSwitchDisabled ? '#f1f1f1' : (isUsingBackCamera ? '#E8A889' : '#fff'),
+                    color: isSwitchDisabled ? '#999' : (isUsingBackCamera ? '#fff' : '#333'),
+                    border: `1px solid ${isUsingBackCamera ? '#E8A889' : '#ddd'}`,
+                    borderRadius: '25px',
+                    fontSize: '1rem',
+                    fontWeight: '500',
+                    cursor: isSwitchDisabled ? 'not-allowed' : 'pointer',
+                    boxShadow: isSwitchDisabled ? 'none' : '0 2px 8px rgba(0,0,0,0.1)',
+                    opacity: isSwitchDisabled ? 0.6 : 1,
+                    transition: 'background 0.2s ease, color 0.2s ease'
+                  }}
+                >
+                  {isSwitchingCamera
+                    ? 'Mengganti...'
+                    : isUsingBackCamera
+                      ? 'Gunakan Kamera Depan'
+                      : 'Gunakan Kamera Belakang'}
+                </button>
+              )}
 
               {/* Timer Dropdown */}
               <div style={{
@@ -1057,7 +1197,7 @@ export default function TakeMoment() {
                       objectFit: 'cover',
                       borderRadius: '20px',
                       backgroundColor: '#000',
-                      transform: 'scaleX(-1)'
+                      transform: shouldMirrorVideo ? 'scaleX(-1)' : 'none'
                     }}
                     onLoadedMetadata={() => {
                       console.log('📊 Video metadata loaded');
@@ -1453,36 +1593,40 @@ export default function TakeMoment() {
       {showConfirmation && currentPhoto && (
         <div style={{
           position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
+          inset: 0,
           background: 'rgba(0,0,0,0.8)',
           display: 'flex',
-          alignItems: 'center',
+          alignItems: 'flex-start',
           justifyContent: 'center',
+          overflowY: 'auto',
+          padding: 'calc(env(safe-area-inset-top, 0px) + 1rem) clamp(0.75rem, 4vw, 1.25rem) calc(env(safe-area-inset-bottom, 0px) + 1rem)',
           zIndex: 1000
         }}>
           <div style={{
             background: '#fff',
-            borderRadius: '20px',
-            padding: '2rem',
-            maxWidth: '500px',
-            width: '90%',
+            borderRadius: '18px',
+            padding: 'clamp(1rem, 5vw, 1.75rem)',
+            width: 'min(420px, 100%)',
+            maxHeight: 'calc(100vh - (env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px) + 2rem))',
             textAlign: 'center',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.3)'
+            boxShadow: '0 10px 30px rgba(0,0,0,0.25)',
+            overflowY: 'auto',
+            margin: '0 auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1.25rem'
           }}>
             <h3 style={{
               fontSize: '1.5rem',
               fontWeight: 'bold',
               color: '#333',
-              marginBottom: '1.5rem'
+              marginBottom: 0
             }}>
               📸 Foto berhasil diambil!
             </h3>
             
             <div style={{
-              marginBottom: '2rem'
+              marginBottom: 'clamp(1rem, 4vw, 1.5rem)'
             }}>
               <div style={{
                 display: 'flex',
@@ -1493,8 +1637,9 @@ export default function TakeMoment() {
                   src={currentPhoto}
                   alt="Captured"
                   style={{
-                    maxWidth: '100%',
-                    maxHeight: '300px',
+                    width: '100%',
+                    maxWidth: '360px',
+                    maxHeight: 'min(300px, 60vh)',
                     borderRadius: '12px',
                     boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
                   }}
@@ -1516,6 +1661,7 @@ export default function TakeMoment() {
                     style={{
                       width: '100%',
                       maxWidth: '360px',
+                      maxHeight: 'min(240px, 50vh)',
                       borderRadius: '12px',
                       boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
                     }}
@@ -1543,14 +1689,18 @@ export default function TakeMoment() {
 
             <div style={{
               display: 'flex',
-              gap: '1rem',
-              justifyContent: 'center'
+              gap: '0.75rem',
+              justifyContent: 'center',
+              flexWrap: 'wrap',
+              width: '100%',
+              maxWidth: '360px',
+              margin: '0 auto'
             }}>
               <button
                 onClick={handleChoosePhoto}
                 disabled={isVideoProcessing}
                 style={{
-                  padding: '0.75rem 2rem',
+                  padding: '0.75rem 1.75rem',
                   background: isVideoProcessing ? '#6c757d' : '#28a745',
                   color: 'white',
                   border: 'none',
@@ -1560,7 +1710,9 @@ export default function TakeMoment() {
                   cursor: isVideoProcessing ? 'not-allowed' : 'pointer',
                   boxShadow: '0 2px 8px rgba(40,167,69,0.3)',
                   transition: 'all 0.2s ease',
-                  opacity: isVideoProcessing ? 0.7 : 1
+                  opacity: isVideoProcessing ? 0.7 : 1,
+                  minWidth: 'min(160px, 100%)',
+                  flex: '1 1 140px'
                 }}
               >
                 {isVideoProcessing ? '⏳ Sedang menyiapkan...' : '✓ Pilih'}
@@ -1569,7 +1721,7 @@ export default function TakeMoment() {
               <button
                 onClick={handleRetakePhoto}
                 style={{
-                  padding: '0.75rem 2rem',
+                  padding: '0.75rem 1.75rem',
                   background: '#6c757d',
                   color: 'white',
                   border: 'none',
@@ -1578,7 +1730,9 @@ export default function TakeMoment() {
                   fontWeight: '600',
                   cursor: 'pointer',
                   boxShadow: '0 2px 8px rgba(108,117,125,0.3)',
-                  transition: 'all 0.2s ease'
+                  transition: 'all 0.2s ease',
+                  minWidth: 'min(160px, 100%)',
+                  flex: '1 1 140px'
                 }}
               >
                 🔄 Ulangi

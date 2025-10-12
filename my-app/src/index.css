@@ -1,192 +1,421 @@
+/* Tailwind layers */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* TakeMoment (Upload/Capture) custom styles */
 .take-moment-bg {
+  min-height: 100vh;
   background: linear-gradient(135deg, #f3e1da 0%, #fff 50%, #f3e1da 100%);
+  padding: clamp(1.5rem, 5vw, 3rem);
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
 }
 
 .take-moment-card {
-  background: #f3e1da;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: clamp(1.75rem, 4vw, 2.5rem);
   border-radius: 2rem;
   box-shadow: 0 4px 24px rgba(0,0,0,0.08);
-  padding: clamp(1.75rem, 4vw, 2.5rem);
-  max-width: 900px;
-  margin: 0 auto;
+  background: transparent;
+}
+
+.take-moment-shell {
+  background: #e8c4b8;
+  border-radius: inherit;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  padding: clamp(1.5rem, 4vw, 2.25rem);
+}
+
+.take-moment-header {
+  text-align: center;
+  margin-bottom: clamp(1.5rem, 4vw, 2rem);
 }
 
 .take-moment-title {
-  font-size: clamp(2rem, 5vw, 2.5rem);
-  font-weight: bold;
-  text-align: center;
-  margin-bottom: 1.5rem;
+  font-size: clamp(2rem, 5vw, 2.6rem);
+  font-weight: 700;
+  color: #333;
+  margin: 0;
+}
+
+.take-moment-accent {
+  color: #e8a889;
 }
 
 .take-moment-row {
   display: flex;
   flex-direction: column;
-  gap: 2.5rem;
+  gap: clamp(1.75rem, 4vw, 2.5rem);
+  align-items: stretch;
 }
-@media (min-width: 768px) {
+
+@media (min-width: 900px) {
   .take-moment-row {
     flex-direction: row;
-    gap: 2.5rem;
   }
 }
 
-.take-moment-upload {
+.take-moment-column {
+  flex: 1;
+  min-width: 0;
   display: flex;
+  flex-direction: column;
   gap: 1.5rem;
-  justify-content: center;
-  margin-bottom: 1rem;
+}
+
+.take-moment-actions {
+  display: flex;
   flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: flex-start;
 }
 
 .take-moment-btn {
   background: #fff;
   border-radius: 999px;
-  font-weight: bold;
+  font-weight: 600;
   box-shadow: 0 2px 8px rgba(0,0,0,0.07);
-  padding: 0.75rem 2rem;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-.take-moment-btn:hover {
-  background: #f3e1da;
+  padding: 0.75rem 1.75rem;
+  border: 1px solid rgba(0,0,0,0.08);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.take-moment-capture {
-  background: #f9f4f2;
-  border-radius: 1.25rem;
-  min-height: 260px;
-  border: 1px solid #e0b7a9;
+.take-moment-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 18px rgba(0,0,0,0.12);
+}
+
+.take-moment-actions .take-moment-btn {
+  flex: 1 1 160px;
+  text-align: center;
+}
+
+.take-moment-timer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1rem;
+  background: #fff;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,0.08);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+}
+
+.take-moment-timer label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #333;
+}
+
+.take-moment-timer select {
+  border: none;
+  background: transparent;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+}
+
+.take-moment-capture-area {
+  background: #fff;
+  border-radius: 20px;
+  min-height: 360px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.1rem;
-  color: #bfa6a0;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
 }
 
-.take-moment-history {
-  margin-top: 1.5rem;
-}
-.take-moment-history-title {
-  font-weight: bold;
-  font-size: 1.1rem;
-  margin-bottom: 0.75rem;
-}
-.take-moment-history-card {
-  background: #fff;
-  border-radius: 1.25rem;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
-  border: 1px solid #e0b7a9;
-  padding: 1.25rem 2rem;
+.take-moment-countdown {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  color: #bfa6a0;
+  justify-content: center;
+  color: #fff;
+  font-size: 3rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  border-radius: inherit;
+  text-shadow: 2px 4px 12px rgba(0,0,0,0.4);
 }
-.take-moment-history-card button {
-  font-size: 1.5rem;
-  color: #bfa6a0;
-  transition: color 0.2s;
+
+.take-moment-capture-placeholder {
+  text-align: center;
+  color: #999;
+  font-size: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  height: 100%;
+  padding: 3rem 1rem;
 }
-.take-moment-history-card button:hover {
-  color: #e0b7a9;
+
+.take-moment-capture-placeholder > div {
+  font-size: 3.5rem;
+}
+
+.take-moment-capture-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  text-align: center;
+  align-items: center;
+}
+
+.take-moment-photo-count {
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.take-moment-capture-btn {
+  border: none;
+  border-radius: 25px;
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 600;
+  padding: 1rem 2rem;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  width: min(100%, 320px);
+}
+
+.take-moment-capture-btn:not(:disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(0,0,0,0.12);
+}
+
+.take-moment-summary {
+  gap: 1.25rem;
 }
 
 .take-moment-preview-title {
-  font-weight: bold;
-  font-size: 1.1rem;
-  margin-bottom: 1rem;
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: #333;
   text-align: center;
+  margin: 0;
 }
+
+.take-moment-preview-wrapper {
+  min-height: 320px;
+  width: 100%;
+}
+
 .take-moment-preview-card {
   background: #fff;
-  border-radius: 1.25rem;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
-  border: 1px solid #e0b7a9;
+  border-radius: 20px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+  border: 1px solid rgba(0,0,0,0.05);
   padding: 1.5rem;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.take-moment-preview-card img {
-  max-height: 320px;
-  border-radius: 1rem;
-  object-fit: contain;
+
+.take-moment-preview-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  width: 100%;
 }
+
+.take-moment-preview-item {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  background: #000;
+  transition: transform 0.2s ease;
+}
+
+.take-moment-preview-item:hover {
+  transform: scale(1.02);
+}
+
+.take-moment-preview-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.take-moment-preview-delete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,59,48,0.9);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.take-moment-preview-delete:hover {
+  transform: scale(1.1);
+  background: rgba(255,59,48,1);
+}
+
+.take-moment-preview-empty {
+  text-align: center;
+  color: #666;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.take-moment-preview-empty > div {
+  font-size: 3rem;
+}
+
+.take-moment-preview-empty > p {
+  font-size: 1.1rem;
+  font-weight: 500;
+  margin: 0;
+}
+
+.take-moment-preview-empty > span {
+  font-size: 0.9rem;
+  color: #777;
+}
+
 .take-moment-edit-btn {
   background: #fff;
   border-radius: 999px;
-  font-weight: bold;
+  font-weight: 600;
   box-shadow: 0 2px 8px rgba(0,0,0,0.07);
   padding: 0.9rem 2.5rem;
-  margin-top: 2rem;
+  margin-top: 1.5rem;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background 0.2s ease, transform 0.2s ease;
+  width: 100%;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
 }
+
 .take-moment-edit-btn:hover {
-  background: #f3e1da;
+  background: #fde6df;
+  transform: translateY(-2px);
 }
 
 @media (max-width: 900px) {
-  .take-moment-row {
-    gap: 2rem;
-  }
-  .take-moment-card {
-    border-radius: 1.75rem;
+  .take-moment-shell {
+    border-radius: 1.85rem;
   }
 }
 
 @media (max-width: 680px) {
   .take-moment-card {
-    padding: 1.75rem 1.5rem;
+    padding: 1.5rem 1.25rem;
   }
-  .take-moment-upload {
+  .take-moment-actions {
     flex-direction: column;
+    align-items: stretch;
   }
-  .take-moment-capture {
-    min-height: 220px;
-    padding: 1.25rem;
-    text-align: center;
-  }
-  .take-moment-preview-card {
-    padding: 1.25rem;
-  }
-  .take-moment-preview-card img {
-    max-height: 240px;
+  .take-moment-actions .take-moment-btn {
     width: 100%;
   }
-  .take-moment-history-card {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-  }
-  .take-moment-history-card button {
-    align-self: flex-end;
-  }
-  .take-moment-edit-btn {
+  .take-moment-timer {
     width: 100%;
+    justify-content: space-between;
+  }
+  .take-moment-capture-area {
+    min-height: 280px;
+  }
+  .take-moment-preview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .take-moment-preview-wrapper {
+    min-height: 260px;
   }
 }
 
 @media (max-width: 420px) {
+  .take-moment-bg {
+    padding: calc(env(safe-area-inset-top, 0px) + 0.75rem) 0.75rem calc(env(safe-area-inset-bottom, 0px) + 1rem);
+  }
   .take-moment-card {
-    padding: 1.5rem 1.25rem;
+    padding: 1.1rem 0.85rem;
     border-radius: 1.5rem;
   }
-  .take-moment-history-card {
-    padding: 1.1rem 1.5rem;
+  .take-moment-shell {
+    padding: 1.1rem;
+    border-radius: inherit;
+  }
+  .take-moment-header {
+    margin-bottom: 1.25rem;
+  }
+  .take-moment-title {
+    font-size: clamp(1.75rem, 7vw, 2.1rem);
+  }
+  .take-moment-actions {
+    gap: 0.5rem;
+  }
+  .take-moment-actions .take-moment-btn {
+    flex: 1 1 100%;
+  }
+  .take-moment-timer {
+    width: 100%;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
+  }
+  .take-moment-capture-area {
+    min-height: 200px;
+  }
+  .take-moment-preview-grid {
+    grid-template-columns: 1fr;
+  }
+  .take-moment-preview-card {
+    padding: 1.1rem;
+  }
+  .take-moment-preview-wrapper {
+    min-height: 210px;
+  }
+}
+
+@media (max-width: 360px) {
+  .take-moment-card {
+    padding: 1rem 0.75rem;
+  }
+  .take-moment-shell {
+    padding: 1rem;
+  }
+  .take-moment-title {
+    font-size: clamp(1.6rem, 8vw, 1.9rem);
+  }
+  .take-moment-capture-btn {
+    font-size: 1rem;
+    padding: 0.9rem 1.5rem;
   }
   .take-moment-preview-card {
     padding: 1rem;
   }
-  .take-moment-preview-card img {
-    max-height: 200px;
+  .take-moment-preview-wrapper {
+    min-height: 190px;
   }
 }
-/* Tailwind layers */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
 
 :root {
   --bg: #ffffff;

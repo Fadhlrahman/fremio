@@ -287,6 +287,21 @@ export default function EditPhoto() {
   const [slotPhotos, setSlotPhotos] = useState({});
   const [slotVideos, setSlotVideos] = useState({});
   const [photoFilters, setPhotoFilters] = useState({});
+  const [isMobile, setIsMobile] = useState(false);
+  const [isCompact, setIsCompact] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const updateBreakpoint = () => {
+      setIsMobile(window.innerWidth <= 768);
+      setIsCompact(window.innerWidth <= 480);
+    };
+
+    updateBreakpoint();
+    window.addEventListener('resize', updateBreakpoint);
+    return () => window.removeEventListener('resize', updateBreakpoint);
+  }, []);
 
   const recordedClips = useMemo(() => (
     videos
@@ -296,6 +311,18 @@ export default function EditPhoto() {
       })
       .filter(Boolean)
   ), [videos]);
+
+  const pagePadding = useMemo(() => {
+    if (!isMobile) {
+      return '2rem';
+    }
+
+    const topPadding = `calc(env(safe-area-inset-top, 0px) + ${isCompact ? '0.75rem' : '1rem'})`;
+    const sidePadding = 'clamp(0.75rem, 5vw, 1.5rem)';
+    const bottomPadding = `calc(env(safe-area-inset-bottom, 0px) + ${isCompact ? '1rem' : '1.25rem'})`;
+
+    return `${topPadding} ${sidePadding} ${bottomPadding}`;
+  }, [isCompact, isMobile]);
 
   const photoVideoMap = useMemo(() => {
     const map = new Map();
@@ -3416,27 +3443,40 @@ export default function EditPhoto() {
   };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #f5f1eb 0%, #e8ddd4 100%)',
-      padding: '2rem'
-    }}>
+    <div
+      style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #f5f1eb 0%, #e8ddd4 100%)',
+        padding: pagePadding
+      }}
+    >
       {/* Main Editor Layout */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '250px 1fr 250px',
-        gap: '2rem',
-        maxWidth: '1400px',
-        margin: '0 auto'
-      }}>
+      <div
+        style={isMobile ? {
+          display: 'flex',
+          flexDirection: 'column',
+          gap: isCompact ? '1.25rem' : '1.5rem',
+          maxWidth: '100%',
+          margin: '0 auto'
+        } : {
+          display: 'grid',
+          gridTemplateColumns: '250px 1fr 250px',
+          gap: '2rem',
+          maxWidth: '1400px',
+          margin: '0 auto'
+        }}
+      >
         
         {/* Left Panel - Edit Controls */}
-        <div style={{
-          background: '#fff',
-          borderRadius: '20px',
-          padding: '1.5rem',
-          height: 'fit-content'
-        }}>
+        <div
+          style={{
+            background: '#fff',
+            borderRadius: '20px',
+            padding: isMobile ? (isCompact ? '1rem' : '1.25rem') : '1.5rem',
+            height: 'fit-content',
+            boxShadow: isMobile ? '0 6px 16px rgba(0,0,0,0.08)' : 'none'
+          }}
+        >
           <div style={{
             display: 'flex',
             flexDirection: 'column',
@@ -3619,41 +3659,54 @@ export default function EditPhoto() {
         </div>
 
         {/* Center Panel - Preview */}
-        <div style={{
-          background: '#fff',
-          borderRadius: '20px',
-          padding: '2rem',
-          textAlign: 'center'
-        }}>
-          <h3 style={{
-            marginBottom: '2rem',
-            fontSize: '1.4rem',
-            fontWeight: '600',
-            color: '#333'
-          }}>
+        <div
+          style={{
+            background: '#fff',
+            borderRadius: '20px',
+            padding: isMobile ? (isCompact ? 'clamp(1rem, 5vw, 1.5rem)' : 'clamp(1.25rem, 5vw, 1.75rem)') : '2rem',
+            textAlign: 'center',
+            boxShadow: isMobile ? '0 6px 16px rgba(0,0,0,0.08)' : 'none'
+          }}
+        >
+          <h3
+            style={{
+              marginBottom: isMobile ? (isCompact ? '1rem' : '1.25rem') : '2rem',
+              fontSize: isMobile ? (isCompact ? '1.1rem' : '1.2rem') : '1.4rem',
+              fontWeight: '600',
+              color: '#333'
+            }}
+          >
             Preview
           </h3>
           
           {/* Frame Preview Area */}
-          <div style={{
-            background: '#f8f9fa',
-            borderRadius: '15px',
-            padding: '3rem 2rem',
-            marginBottom: '2rem',
-            minHeight: '500px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            position: 'relative'
-          }}>
+          <div
+            style={{
+              background: '#f8f9fa',
+              borderRadius: '15px',
+              padding: isMobile
+                ? (isCompact ? '1.4rem 1rem' : '1.75rem 1.25rem')
+                : '3rem 2rem',
+              marginBottom: isMobile ? (isCompact ? '1.25rem' : '1.5rem') : '2rem',
+              minHeight: isMobile ? (isCompact ? '320px' : '350px') : '500px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              position: 'relative'
+            }}
+          >
             {frameConfig && frameImage ? (
-              <div style={{
-                position: 'relative',
-                width: '350px',
-                aspectRatio: '2/3',
-                maxWidth: '100%',
-                margin: '0 auto'
-              }}>
+              <div
+                style={{
+                  position: 'relative',
+                  width: isMobile
+                    ? (isCompact ? 'min(260px, 88vw)' : 'min(280px, 85vw)')
+                    : '350px',
+                  aspectRatio: '2/3',
+                  maxWidth: '100%',
+                  margin: '0 auto'
+                }}
+              >
                 {/* Frame Image - RIGID, tidak berubah */}
                 <img
                   src={frameImage}
@@ -4038,11 +4091,15 @@ export default function EditPhoto() {
               </button>
             )}
             
-            <div style={{
-              display: 'flex',
-              gap: '1rem',
-              justifyContent: 'center'
-            }}>
+            <div
+              style={{
+                display: 'flex',
+                gap: isMobile ? (isCompact ? '0.5rem' : '0.75rem') : '1rem',
+                justifyContent: 'center',
+                flexWrap: isMobile ? 'wrap' : 'nowrap',
+                width: '100%'
+              }}
+            >
             <button
               onClick={handleSave}
               disabled={isSaving}
@@ -4051,12 +4108,13 @@ export default function EditPhoto() {
                 border: '2px solid #E8A889',
                 color: isSaving ? '#999' : '#E8A889',
                 borderRadius: '25px',
-                padding: '0.8rem 2rem',
-                fontSize: '1rem',
+                padding: isMobile ? (isCompact ? '0.7rem 1.5rem' : '0.75rem 1.8rem') : '0.8rem 2rem',
+                fontSize: isMobile ? (isCompact ? '0.95rem' : '1rem') : '1rem',
                 fontWeight: '600',
                 cursor: isSaving ? 'not-allowed' : 'pointer',
                 transition: 'all 0.3s ease',
-                opacity: isSaving ? 0.7 : 1
+                opacity: isSaving ? 0.7 : 1,
+                width: isMobile ? '100%' : 'auto'
               }}
               onMouseEnter={(e) => {
                 if (!isSaving) {
@@ -4081,12 +4139,13 @@ export default function EditPhoto() {
                 border: 'none',
                 color: isUploading ? '#999' : 'white',
                 borderRadius: '25px',
-                padding: '0.8rem 2rem',
-                fontSize: '1rem',
+                padding: isMobile ? (isCompact ? '0.7rem 1.5rem' : '0.75rem 1.8rem') : '0.8rem 2rem',
+                fontSize: isMobile ? (isCompact ? '0.95rem' : '1rem') : '1rem',
                 fontWeight: '600',
                 cursor: isUploading ? 'not-allowed' : 'pointer',
                 transition: 'all 0.3s ease',
-                opacity: isUploading ? 0.7 : 1
+                opacity: isUploading ? 0.7 : 1,
+                width: isMobile ? '100%' : 'auto'
               }}
               onMouseEnter={(e) => {
                 if (!isUploading) {
@@ -4106,26 +4165,38 @@ export default function EditPhoto() {
         </div>
 
         {/* Right Panel - Filter or Adjust */}
-        <div style={{
-          background: '#fff',
-          borderRadius: '20px',
-          padding: '1.5rem',
-          height: 'fit-content',
-          display: 'flex',
-          flexDirection: 'column',
-          maxHeight: '72vh',
-          overflow: 'hidden'
-        }}>
-          <h3 style={{
-            textAlign: 'center',
-            marginBottom: '2rem',
-            fontSize: '1.2rem',
-            fontWeight: '600',
-            color: '#333'
-          }}>
+        <div
+          style={{
+            background: '#fff',
+            borderRadius: '20px',
+            padding: isMobile ? (isCompact ? '1rem' : '1.25rem') : '1.5rem',
+            height: 'fit-content',
+            display: 'flex',
+            flexDirection: 'column',
+            maxHeight: isMobile ? 'none' : '72vh',
+            overflow: isMobile ? 'visible' : 'hidden',
+            boxShadow: isMobile ? '0 6px 16px rgba(0,0,0,0.08)' : 'none'
+          }}
+        >
+          <h3
+            style={{
+              textAlign: 'center',
+              marginBottom: isMobile ? (isCompact ? '1rem' : '1.25rem') : '2rem',
+              fontSize: isMobile ? (isCompact ? '1.05rem' : '1.1rem') : '1.2rem',
+              fontWeight: '600',
+              color: '#333'
+            }}
+          >
             {hasDevAccess && debugMode ? 'Debug Info' : 'Filter Presets'}
           </h3>
-          <div style={{ flex: 1, overflowY: 'auto', paddingRight: '0.5rem', minHeight: 0 }}>
+          <div
+            style={{
+              flex: 1,
+              overflowY: 'auto',
+              paddingRight: isMobile ? 0 : '0.5rem',
+              minHeight: 0
+            }}
+          >
           {hasDevAccess && debugMode ? (
             /* Debug Panel */
             frameConfig && (

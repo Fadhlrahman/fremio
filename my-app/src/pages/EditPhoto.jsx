@@ -160,6 +160,24 @@ export default function EditPhoto() {
     }
   };
 
+  const clearCapturedMediaStorage = (frameId) => {
+    if (!isBrowser) return;
+    try {
+      localStorage.removeItem('capturedPhotos');
+      localStorage.removeItem('capturedVideos');
+      const slotPhotosKey = getSlotPhotosStorageKey(frameId);
+      const slotVideosKey = getSlotVideosStorageKey(frameId);
+      if (slotPhotosKey) {
+        localStorage.removeItem(slotPhotosKey);
+      }
+      if (slotVideosKey) {
+        localStorage.removeItem(slotVideosKey);
+      }
+    } catch (err) {
+      console.warn('⚠️ Failed to clear captured media storage:', err);
+    }
+  };
+
   const getFilterCssValue = (filterId) => {
     const preset = FILTER_PRESET_MAP[filterId];
     return preset?.css ?? '';
@@ -2597,6 +2615,7 @@ export default function EditPhoto() {
       }
 
       alert(confirmationMessageParts.join(' '));
+      clearCapturedMediaStorage(selectedFrame);
       
     } catch (error) {
       console.error('❌ Save error:', error);

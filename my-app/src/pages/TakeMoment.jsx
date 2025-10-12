@@ -119,6 +119,18 @@ export default function TakeMoment() {
   setCapturedVideos([]);
   localStorage.removeItem('capturedPhotos'); // Clear localStorage to ensure clean start
   localStorage.removeItem('capturedVideos');
+  try {
+    const keysToClear = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key && (key.startsWith('slotPhotos:') || key.startsWith('slotVideos:'))) {
+        keysToClear.push(key);
+      }
+    }
+    keysToClear.forEach((key) => localStorage.removeItem(key));
+  } catch (storageError) {
+    console.warn('⚠️ Failed to clear slot media caches on init:', storageError);
+  }
     
     // Load frame configuration asynchronously
     const loadFrameConfig = async () => {

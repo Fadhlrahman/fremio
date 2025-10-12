@@ -3,6 +3,13 @@ import { useNavigate } from "react-router-dom";
 import frameProvider from '../utils/frameProvider.js';
 import { getFrameConfig } from '../config/frameConfigs.js';
 
+const TIMER_OPTIONS = [3, 5, 10];
+const TIMER_VIDEO_DURATION_MAP = {
+  3: { record: 4, playback: 4 },
+  5: { record: 6, playback: 6 },
+  10: { record: 6, playback: 6 },
+};
+
 // Utility function to compress image ..
 const compressImage = (dataUrl, quality = 0.8, maxWidth = 600, maxHeight = 600) => {
   return new Promise((resolve) => {
@@ -76,16 +83,28 @@ const compressPhotosArray = async (photos, quality = 0.6, maxWidth = 400, maxHei
   return compressed;
 };
 
+const blobToDataURL = (blob) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onloadend = () => resolve(reader.result);
+  reader.onerror = (error) => reject(error);
+  reader.readAsDataURL(blob);
+});
+
 export default function TakeMoment() {
   const navigate = useNavigate();
   const fileInputRef = useRef();
   const videoRef = useRef();
+  const cameraStreamRef = useRef(null);
+  const activeRecordingRef = useRef(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [capturedPhotos, setCapturedPhotos] = useState([]);
+  const [capturedVideos, setCapturedVideos] = useState([]);
   const [capturing, setCapturing] = useState(false);
   const [countdown, setCountdown] = useState(null);
-  const [timer, setTimer] = useState(3); // Default 3 seconds
+  const [timer, setTimer] = useState(TIMER_OPTIONS[0]); // Default 3 seconds
   const [currentPhoto, setCurrentPhoto] = useState(null); // For captured photo
+  const [currentVideo, setCurrentVideo] = useState(null);
+  const [isVideoProcessing, setIsVideoProcessing] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false); // Show confirmation modal
   const [videoAspectRatio, setVideoAspectRatio] = useState(4/3); // Default aspect ratio
   const [maxCaptures, setMaxCaptures] = useState(4); // Default to 4, will be updated from frame config
@@ -96,8 +115,10 @@ export default function TakeMoment() {
     console.log('🔄 TakeMoment component initializing...');
     
     // Clear any existing photos and start fresh
-    setCapturedPhotos([]);
-    localStorage.removeItem('capturedPhotos'); // Clear localStorage to ensure clean start
+  setCapturedPhotos([]);
+  setCapturedVideos([]);
+  localStorage.removeItem('capturedPhotos'); // Clear localStorage to ensure clean start
+  localStorage.removeItem('capturedVideos');
     
     // Load frame configuration asynchronously
     const loadFrameConfig = async () => {
@@ -153,6 +174,7 @@ export default function TakeMoment() {
         } 
       });
       console.log('✅ Camera stream obtained:', stream);
+      cameraStreamRef.current = stream;
       
       // Set camera active FIRST so video element renders
       setCameraActive(true);
@@ -233,9 +255,12 @@ export default function TakeMoment() {
     }
 
     const newPhotos = [...capturedPhotos, ...compressedList];
+    const newVideos = [...capturedVideos, ...Array(compressedList.length).fill(null)];
     setCapturedPhotos(newPhotos);
+    setCapturedVideos(newVideos);
     try {
       localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
+      localStorage.setItem('capturedVideos', JSON.stringify(newVideos));
       console.log(`✅ ${compressedList.length} photo(s) added from files. Total: ${newPhotos.length}/${maxCaptures}`);
     } catch (quotaError) {
       console.error('❌ QuotaExceededError when saving selected files:', quotaError);
@@ -245,8 +270,145 @@ export default function TakeMoment() {
     event.target.value = '';
   };
 
+  const determineVideoBitrate = (seconds) => {
+    if (seconds >= 15) return 320_000;
+    if (seconds >= 10) return 280_000;
+    if (seconds >= 6) return 240_000;
+    return 200_000;
+  };
+
+  const startVideoRecording = (timerSeconds) => {
+    const baseStream = cameraStreamRef.current || (videoRef.current ? videoRef.current.srcObject : null);
+    if (!baseStream) {
+      console.warn('⚠️ No camera stream available for video recording');
+      return null;
+    }
+
+    const { record: recordSeconds, playback: playbackSeconds } = TIMER_VIDEO_DURATION_MAP[timerSeconds] || {
+      record: timerSeconds + 1,
+      playback: timerSeconds + 1,
+    };
+
+    const streamForRecording = baseStream.clone();
+    const mimeCandidates = [
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm',
+      'video/mp4;codecs=h264',
+    ];
+
+    const supportedMimeType = mimeCandidates.find((candidate) => {
+      try {
+        return candidate && MediaRecorder.isTypeSupported(candidate);
+      } catch (error) {
+        return false;
+      }
+    }) || '';
+
+    const tunedBitrate = determineVideoBitrate(recordSeconds);
+    const hasAudioTrack = streamForRecording.getAudioTracks().length > 0;
+
+    let recorder;
+    try {
+      const tunedOptions = supportedMimeType
+        ? { mimeType: supportedMimeType, videoBitsPerSecond: tunedBitrate, ...(hasAudioTrack ? { audioBitsPerSecond: 64_000 } : {}) }
+        : { videoBitsPerSecond: tunedBitrate, ...(hasAudioTrack ? { audioBitsPerSecond: 64_000 } : {}) };
+      recorder = new MediaRecorder(streamForRecording, tunedOptions);
+    } catch (error) {
+      console.warn('⚠️ Failed to create tuned MediaRecorder; falling back to default options.', error);
+      try {
+        recorder = supportedMimeType
+          ? new MediaRecorder(streamForRecording, { mimeType: supportedMimeType })
+          : new MediaRecorder(streamForRecording);
+      } catch (fallbackError) {
+        console.error('❌ Failed to create MediaRecorder:', fallbackError);
+        streamForRecording.getTracks().forEach((track) => track.stop());
+        return null;
+      }
+    }
+
+    const chunks = [];
+    let stopTimeout;
+
+    const controller = {
+      stop: () => {
+        if (stopTimeout) {
+          clearTimeout(stopTimeout);
+          stopTimeout = null;
+        }
+        if (recorder.state !== 'inactive') {
+          try {
+            recorder.stop();
+          } catch (error) {
+            console.warn('⚠️ Error stopping recorder:', error);
+          }
+        }
+      },
+      promise: null,
+    };
+
+    controller.promise = new Promise((resolve, reject) => {
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+
+      recorder.onerror = (event) => {
+        console.error('❌ MediaRecorder error:', event.error || event);
+        controller.stop();
+        streamForRecording.getTracks().forEach((track) => track.stop());
+        reject(event.error || new Error('MediaRecorder error'));
+      };
+
+      recorder.onstop = async () => {
+        try {
+          const blob = new Blob(chunks, { type: recorder.mimeType || supportedMimeType || 'video/webm' });
+          const dataUrl = await blobToDataURL(blob);
+          resolve({
+            dataUrl,
+            mimeType: blob.type || recorder.mimeType || supportedMimeType || 'video/webm',
+            duration: playbackSeconds,
+            timer: timerSeconds,
+          });
+        } catch (error) {
+          reject(error);
+        } finally {
+          streamForRecording.getTracks().forEach((track) => track.stop());
+        }
+      };
+    });
+
+    try {
+      recorder.start();
+      stopTimeout = setTimeout(() => {
+        if (recorder.state !== 'inactive') {
+          recorder.stop();
+        }
+      }, recordSeconds * 1000);
+    } catch (error) {
+      console.error('❌ Failed to start MediaRecorder:', error);
+      streamForRecording.getTracks().forEach((track) => track.stop());
+      return null;
+    }
+
+    controller.promise.finally(() => {
+      if (activeRecordingRef.current === controller) {
+        activeRecordingRef.current = null;
+      }
+    });
+
+    activeRecordingRef.current = controller;
+    return controller;
+  };
+
   const handleCapture = () => {
     if (!videoRef.current || capturing) return;
+
+    if (!cameraActive) {
+      alert('Aktifkan kamera terlebih dahulu sebelum mengambil foto.');
+      return;
+    }
     
     // Check if maximum captures reached
     if (capturedPhotos.length >= maxCaptures) {
@@ -254,17 +416,40 @@ export default function TakeMoment() {
       return;
     }
     
-    setCapturing(true);
-    
-    // If timer is 0, capture immediately
-    if (timer === 0) {
-      capturePhoto();
-      setCapturing(false);
+    const effectiveTimer = TIMER_OPTIONS.includes(timer) ? timer : TIMER_OPTIONS[0];
+    if (effectiveTimer !== timer) {
+      setTimer(effectiveTimer);
+    }
+
+    if (activeRecordingRef.current) {
+      console.warn('⚠️ A recording is already in progress');
       return;
     }
+
+    setCapturing(true);
+    setIsVideoProcessing(true);
+    setCurrentVideo(null);
     
-    // Otherwise, start countdown
-    setCountdown(timer);
+    const recordingController = startVideoRecording(effectiveTimer);
+    if (recordingController) {
+      recordingController.promise
+        .then((videoData) => {
+          console.log('🎬 Video recording completed', videoData);
+          setCurrentVideo(videoData);
+        })
+        .catch((error) => {
+          console.error('❌ Failed to record video:', error);
+          alert('Perekaman video gagal. Silakan coba lagi.');
+        })
+        .finally(() => {
+          setIsVideoProcessing(false);
+        });
+    } else {
+      setIsVideoProcessing(false);
+    }
+    
+    // Start countdown for the selected timer
+    setCountdown(effectiveTimer);
     
     const countdownInterval = setInterval(() => {
       setCountdown(prev => {
@@ -336,10 +521,12 @@ export default function TakeMoment() {
         }
         
         const newPhotos = [...capturedPhotos, compressedPhoto];
+        let storedVideo = currentVideo || null;
+        const newVideos = [...capturedVideos, storedVideo];
         console.log('New photos array:', newPhotos.length, 'photos');
         
-        // Calculate storage size
-        const storageSize = calculateStorageSize(newPhotos);
+        // Calculate storage size including videos
+        const storageSize = calculateStorageSize({ photos: newPhotos, videos: newVideos });
         console.log(`💾 Storage size: ${storageSize.kb}KB (${storageSize.mb}MB)`);
         
         // Check if we're getting close to localStorage limit
@@ -358,15 +545,33 @@ export default function TakeMoment() {
           
           newPhotos[newPhotos.length - 1] = moderateCompressed;
           
-          const newSize = calculateStorageSize(newPhotos);
+          const newSize = calculateStorageSize({ photos: newPhotos, videos: newVideos });
           console.log(`💾 Moderate-compressed size: ${newSize.kb}KB (${newSize.mb}MB)`);
+        }
+
+        // Emergency compression if we're still near the storage limit
+        const postModerateSize = calculateStorageSize({ photos: newPhotos, videos: newVideos });
+        if (parseFloat(postModerateSize.mb) > 4.3) {
+          console.warn('⚠️ Applying emergency compression to avoid storage overflow');
+          const emergencyCompressed = await compressImage(newPhotos[newPhotos.length - 1], 0.5, 360, 360);
+          newPhotos[newPhotos.length - 1] = emergencyCompressed;
+        }
+
+        const finalSizeCheck = calculateStorageSize({ photos: newPhotos, videos: newVideos });
+        if (parseFloat(finalSizeCheck.mb) > 4.6) {
+          console.warn('⚠️ Storage still high after compression; discarding associated video to protect captures.');
+          storedVideo = null;
+          newVideos[newVideos.length - 1] = null;
+          alert('Penyimpanan hampir penuh. Video countdown terakhir tidak akan disimpan, tapi foto tetap aman.');
         }
         
         setCapturedPhotos(newPhotos);
+        setCapturedVideos(newVideos);
         
         // Save with error handling
         try {
           localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
+          localStorage.setItem('capturedVideos', JSON.stringify(newVideos));
           console.log('✅ Photos saved to localStorage successfully');
         } catch (quotaError) {
           console.error('❌ QuotaExceededError caught:', quotaError);
@@ -374,8 +579,10 @@ export default function TakeMoment() {
           return;
         }
         
-        setCurrentPhoto(null);
-        setShowConfirmation(false);
+  setCurrentPhoto(null);
+  setCurrentVideo(null);
+    setShowConfirmation(false);
+    setIsVideoProcessing(false);
         
         // Auto-close kamera HANYA jika sudah mencapai maksimal foto
         if (newPhotos.length >= maxCaptures) {
@@ -388,16 +595,21 @@ export default function TakeMoment() {
         console.error('❌ Error compressing photo:', error);
         // Fallback to original photo if compression fails
         const newPhotos = [...capturedPhotos, currentPhoto];
+        const newVideos = [...capturedVideos, currentVideo || null];
         setCapturedPhotos(newPhotos);
+        setCapturedVideos(newVideos);
         try {
           localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
+          localStorage.setItem('capturedVideos', JSON.stringify(newVideos));
         } catch (quotaError) {
           console.error('❌ QuotaExceededError on fallback:', quotaError);
           alert('Storage limit exceeded! Please refresh the page and try again.');
           return;
         }
         setCurrentPhoto(null);
-        setShowConfirmation(false);
+    setCurrentVideo(null);
+    setShowConfirmation(false);
+    setIsVideoProcessing(false);
         
         // Auto-close kamera HANYA jika sudah mencapai maksimal foto
         const finalPhotos = [...capturedPhotos, currentPhoto];
@@ -413,16 +625,21 @@ export default function TakeMoment() {
 
   const handleRetakePhoto = () => {
     setCurrentPhoto(null);
+    setCurrentVideo(null);
+    setIsVideoProcessing(false);
     setShowConfirmation(false);
   };
 
   const handleDeletePhoto = (indexToDelete) => {
     const newPhotos = capturedPhotos.filter((_, index) => index !== indexToDelete);
+    const newVideos = capturedVideos.filter((_, index) => index !== indexToDelete);
     setCapturedPhotos(newPhotos);
+    setCapturedVideos(newVideos);
     
     // Update localStorage
     try {
       localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
+      localStorage.setItem('capturedVideos', JSON.stringify(newVideos));
       console.log(`✅ Photo ${indexToDelete + 1} deleted successfully`);
     } catch (error) {
       console.error('❌ Error updating localStorage after delete:', error);
@@ -452,6 +669,13 @@ export default function TakeMoment() {
       
       const storageSize = calculateStorageSize(capturedPhotos);
       console.log(`💾 About to save ${storageSize.kb}KB to localStorage`);
+
+      // Ensure videos array matches photos length
+      const normalizedVideos = [...capturedVideos];
+      while (normalizedVideos.length < capturedPhotos.length) {
+        normalizedVideos.push(null);
+      }
+      localStorage.setItem('capturedVideos', JSON.stringify(normalizedVideos));
       
       // Normal save
       localStorage.setItem('capturedPhotos', JSON.stringify(capturedPhotos));
@@ -485,10 +709,24 @@ export default function TakeMoment() {
   };
 
   const stopCamera = () => {
+    if (activeRecordingRef.current) {
+      try {
+        activeRecordingRef.current.stop?.();
+      } catch (error) {
+        console.warn('⚠️ Error stopping active recording:', error);
+      }
+      activeRecordingRef.current = null;
+    }
+
     if (videoRef.current && videoRef.current.srcObject) {
       const tracks = videoRef.current.srcObject.getTracks();
       tracks.forEach(track => track.stop());
       videoRef.current.srcObject = null;
+    }
+
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach(track => track.stop());
+      cameraStreamRef.current = null;
     }
     setCameraActive(false);
   };
@@ -621,7 +859,10 @@ export default function TakeMoment() {
                 </label>
                 <select
                   value={timer}
-                  onChange={(e) => setTimer(Number(e.target.value))}
+                  onChange={(e) => {
+                    const nextValue = Number(e.target.value);
+                    setTimer(TIMER_OPTIONS.includes(nextValue) ? nextValue : TIMER_OPTIONS[0]);
+                  }}
                   disabled={capturing}
                   style={{
                     padding: '0.5rem 1rem',
@@ -635,10 +876,9 @@ export default function TakeMoment() {
                     outline: 'none'
                   }}
                 >
-                  <option value={0}>0s (Instant)</option>
-                  <option value={3}>3s</option>
-                  <option value={5}>5s</option>
-                  <option value={10}>10s</option>
+                  {TIMER_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{option}s</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -753,7 +993,7 @@ export default function TakeMoment() {
                 
                 <button
                   onClick={handleCapture}
-                  disabled={capturing || capturedPhotos.length >= maxCaptures}
+                  disabled={capturing || isVideoProcessing || capturedPhotos.length >= maxCaptures}
                   style={{
                     padding: '1rem 2rem',
                     background: (capturing || capturedPhotos.length >= maxCaptures) ? '#6c757d' : '#E8A889',
@@ -770,8 +1010,10 @@ export default function TakeMoment() {
                   {capturedPhotos.length >= maxCaptures 
                     ? '📸 Maksimal foto tercapai'
                     : capturing 
-                      ? (timer === 0 ? "📸 Capturing..." : `📸 Capturing in ${countdown}...`) 
-                      : (timer === 0 ? '📸 Capture (Instant)' : `📸 Capture (${timer}s timer)`)
+                      ? `📸 Capturing in ${(countdown ?? timer)}s...`
+                      : isVideoProcessing
+                        ? '🎬 Menyimpan video...'
+                        : `📸 Capture (${timer}s timer)`
                   }
                 </button>
               </div>
@@ -949,8 +1191,18 @@ export default function TakeMoment() {
                       console.log(`💾 Emergency compressed size: ${newSize.kb}KB`);
                       
                       localStorage.setItem('capturedPhotos', JSON.stringify(emergencyCompressed));
+                      const normalizedVideos = [...capturedVideos];
+                      while (normalizedVideos.length < emergencyCompressed.length) {
+                        normalizedVideos.push(null);
+                      }
+                      localStorage.setItem('capturedVideos', JSON.stringify(normalizedVideos));
                     } else {
                       localStorage.setItem('capturedPhotos', JSON.stringify(capturedPhotos));
+                      const normalizedVideos = [...capturedVideos];
+                      while (normalizedVideos.length < capturedPhotos.length) {
+                        normalizedVideos.push(null);
+                      }
+                      localStorage.setItem('capturedVideos', JSON.stringify(normalizedVideos));
                     }
                     
                     console.log('💾 Photos saved to localStorage');
@@ -973,6 +1225,11 @@ export default function TakeMoment() {
                       }
                       
                       localStorage.setItem('capturedPhotos', JSON.stringify(strongCompressed));
+                      const normalizedVideos = [...capturedVideos];
+                      while (normalizedVideos.length < strongCompressed.length) {
+                        normalizedVideos.push(null);
+                      }
+                      localStorage.setItem('capturedVideos', JSON.stringify(normalizedVideos));
                       console.log('✅ Saved with strong compression');
                     } catch (finalError) {
                       alert('Storage limit exceeded! Please refresh the page and try again.');
@@ -1077,20 +1334,63 @@ export default function TakeMoment() {
             </h3>
             
             <div style={{
-              marginBottom: '2rem',
-              display: 'flex',
-              justifyContent: 'center'
+              marginBottom: '2rem'
             }}>
-              <img
-                src={currentPhoto}
-                alt="Captured"
-                style={{
-                  maxWidth: '100%',
-                  maxHeight: '300px',
-                  borderRadius: '12px',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
-                }}
-              />
+              <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                marginBottom: currentVideo ? '1.5rem' : 0
+              }}>
+                <img
+                  src={currentPhoto}
+                  alt="Captured"
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '300px',
+                    borderRadius: '12px',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+                  }}
+                />
+              </div>
+
+              {currentVideo && (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}>
+                  <video
+                    src={currentVideo.dataUrl}
+                    controls
+                    playsInline
+                    muted
+                    style={{
+                      width: '100%',
+                      maxWidth: '360px',
+                      borderRadius: '12px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+                    }}
+                  />
+                  <div style={{
+                    fontSize: '0.9rem',
+                    color: '#555'
+                  }}>
+                    🎬 Video durasi {currentVideo.duration || '-'} detik siap disimpan
+                  </div>
+                </div>
+              )}
+
+              {isVideoProcessing && (
+                <div style={{
+                  marginTop: '1rem',
+                  fontSize: '0.95rem',
+                  color: '#E8A889',
+                  fontWeight: '600'
+                }}>
+                  ⏳ Menyiapkan video, mohon tunggu sebentar...
+                </div>
+              )}
             </div>
 
             <div style={{
@@ -1100,20 +1400,22 @@ export default function TakeMoment() {
             }}>
               <button
                 onClick={handleChoosePhoto}
+                disabled={isVideoProcessing}
                 style={{
                   padding: '0.75rem 2rem',
-                  background: '#28a745',
+                  background: isVideoProcessing ? '#6c757d' : '#28a745',
                   color: 'white',
                   border: 'none',
                   borderRadius: '25px',
                   fontSize: '1rem',
                   fontWeight: '600',
-                  cursor: 'pointer',
+                  cursor: isVideoProcessing ? 'not-allowed' : 'pointer',
                   boxShadow: '0 2px 8px rgba(40,167,69,0.3)',
-                  transition: 'all 0.2s ease'
+                  transition: 'all 0.2s ease',
+                  opacity: isVideoProcessing ? 0.7 : 1
                 }}
               >
-                ✓ Pilih
+                {isVideoProcessing ? '⏳ Sedang menyiapkan...' : '✓ Pilih'}
               </button>
               
               <button

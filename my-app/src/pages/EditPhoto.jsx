@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { getFrameConfig, FRAME_CONFIGS } from '../config/frameConfigs.js';
 import { reloadFrameConfig as reloadFrameConfigFromManager } from '../config/frameConfigManager.js';
 import frameProvider from '../utils/frameProvider.js';
 import QRCode from 'qrcode';
+import { convertBlobToMp4 } from '../utils/videoTranscoder.js';
 // FremioSeries Imports
 import FremioSeriesBlue2 from '../assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png';
 import FremioSeriesBabyblue3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-babyblue-3.png';
@@ -34,6 +35,7 @@ const FILTER_PRESET_MAP = FILTER_PRESETS.reduce((acc, preset) => {
 }, {});
 export default function EditPhoto() {
   const [photos, setPhotos] = useState([]);
+  const [videos, setVideos] = useState([]);
   const [frameConfig, setFrameConfig] = useState(null);
   const [frameImage, setFrameImage] = useState(null);
   const [selectedFrame, setSelectedFrame] = useState('FremioSeries-blue-2');
@@ -49,7 +51,22 @@ export default function EditPhoto() {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [isSaving, setIsSaving] = useState(false);
   const [slotPhotos, setSlotPhotos] = useState({});
+  const [slotVideos, setSlotVideos] = useState({});
   const [photoFilters, setPhotoFilters] = useState({});
+
+  const recordedClips = useMemo(() => (
+    videos
+      .map((clip, index) => {
+        if (!clip || !clip.dataUrl) return null;
+        return { index, clip };
+      })
+      .filter(Boolean)
+  ), [videos]);
+
+  const formatSeconds = (value) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return '—';
+    return Number.isInteger(value) ? `${value}` : value.toFixed(1);
+  };
 
   const [printCode, setPrintCode] = useState(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -132,6 +149,17 @@ export default function EditPhoto() {
     }
   };
 
+  const getSlotVideosStorageKey = (id) => (id ? `slotVideos:${id}` : null);
+  const persistSlotVideos = (id, data) => {
+    const storageKey = getSlotVideosStorageKey(id);
+    if (!storageKey) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(data));
+    } catch (err) {
+      console.warn('⚠️ Failed to persist slotVideos for', id, err);
+    }
+  };
+
   const getFilterCssValue = (filterId) => {
     const preset = FILTER_PRESET_MAP[filterId];
     return preset?.css ?? '';
@@ -192,6 +220,178 @@ export default function EditPhoto() {
     if (!slot) return null;
     const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
     return photos[photoIndex] ?? null;
+  };
+
+  const getVideoSourceForSlot = (slotIndex) => {
+    if (!frameConfig || slotIndex === null || slotIndex === undefined) return null;
+
+    const slot = frameConfig.slots?.[slotIndex];
+    if (!slot) return null;
+
+    const baseVideoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+
+    let candidate = null;
+
+    if (frameConfig?.duplicatePhotos) {
+      candidate = slotVideos[slotIndex]
+        ?? slotVideos[baseVideoIndex]
+        ?? videos[baseVideoIndex]
+        ?? null;
+    } else {
+      candidate = slotVideos[slotIndex] ?? videos[baseVideoIndex] ?? null;
+    }
+
+    if (!candidate || !candidate.dataUrl) {
+      return null;
+    }
+
+    return {
+      ...candidate,
+      baseVideoIndex
+    };
+  };
+
+  const createImageFromDataUrl = (dataUrl) => new Promise((resolve, reject) => {
+    if (!dataUrl) {
+      resolve(null);
+      return;
+    }
+
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = (error) => {
+      console.error('❌ Failed to load image:', error);
+      resolve(null);
+    };
+    img.src = dataUrl;
+  });
+
+  const triggerBlobDownload = (blob, filename) => {
+    if (!blob) {
+      console.warn('⚠️ No blob provided for download');
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const dataUrlToBlob = async (dataUrl) => {
+    if (!dataUrl) return null;
+    try {
+      const response = await fetch(dataUrl);
+      if (!response.ok) {
+        console.warn('⚠️ Failed to fetch data URL for blob conversion');
+        return null;
+      }
+      return await response.blob();
+    } catch (error) {
+      console.error('❌ Failed to convert data URL to blob:', error);
+      return null;
+    }
+  };
+
+  const downloadRecordedCountdownClips = async (timestampSuffix = '') => {
+    if (!recordedClips.length) {
+      return {
+        totalRequested: 0,
+        downloaded: 0,
+        mp4Downloads: 0,
+        fallbackDownloads: 0
+      };
+    }
+
+  let downloaded = 0;
+  let mp4Downloads = 0;
+  let fallbackDownloads = 0;
+    const safeTimestamp = timestampSuffix || new Date().toISOString().replace(/[:.]/g, '-');
+
+    for (const { index, clip } of recordedClips) {
+      if (!clip?.dataUrl) continue;
+
+      const blob = await dataUrlToBlob(clip.dataUrl);
+      if (!blob) {
+        console.warn(`⚠️ Skipping countdown clip ${index + 1}: failed to create blob`);
+        continue;
+      }
+
+      const baseFilename = `fremio-countdown-${safeTimestamp}-slot-${index + 1}`;
+      let finalBlob = blob;
+      let finalExtension = 'mp4';
+
+      if (!blob.type.includes('mp4')) {
+        try {
+          const mp4Blob = await convertBlobToMp4(blob, { outputPrefix: baseFilename });
+          if (mp4Blob) {
+            finalBlob = mp4Blob;
+            mp4Downloads += 1;
+          } else {
+            finalExtension = (clip?.mimeType && clip.mimeType.includes('/'))
+              ? clip.mimeType.split('/')[1]
+              : 'webm';
+            fallbackDownloads += 1;
+          }
+        } catch (conversionError) {
+          console.error(`❌ Failed to convert countdown clip ${index + 1} to MP4:`, conversionError);
+          finalExtension = (clip?.mimeType && clip.mimeType.includes('/'))
+            ? clip.mimeType.split('/')[1]
+            : 'webm';
+          fallbackDownloads += 1;
+        }
+      } else {
+        mp4Downloads += 1; // already mp4
+      }
+
+      const filename = `${baseFilename}.${finalExtension}`;
+      triggerBlobDownload(finalBlob, filename);
+      downloaded += 1;
+    }
+
+    return {
+      totalRequested: recordedClips.length,
+      downloaded,
+      mp4Downloads,
+      fallbackDownloads
+    };
+  };
+
+  const createRecorderFromStream = (stream, options = {}) => {
+    if (!stream) return null;
+
+    const preferredTypes = [
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm',
+      'video/mp4;codecs=h264'
+    ];
+
+    let recorder = null;
+    for (const mimeType of preferredTypes) {
+      try {
+        if (mimeType && MediaRecorder.isTypeSupported(mimeType)) {
+          recorder = new MediaRecorder(stream, { mimeType, ...options });
+          break;
+        }
+      } catch (error) {
+        console.warn(`⚠️ Failed to initialize MediaRecorder with ${mimeType}:`, error);
+      }
+    }
+
+    if (!recorder) {
+      try {
+        recorder = new MediaRecorder(stream, options);
+      } catch (error) {
+        console.error('❌ Failed to initialize MediaRecorder with default options:', error);
+        return null;
+      }
+    }
+
+    return recorder;
   };
 
   const handleDeveloperUnlock = async (event) => {
@@ -338,16 +538,38 @@ export default function EditPhoto() {
     console.log('🖼️ Frame from localStorage:', frameFromStorage);
     
     // Load photos from localStorage
-    const savedPhotos = localStorage.getItem('capturedPhotos');
-    console.log('📦 Raw savedPhotos from localStorage:', savedPhotos);
+  const savedPhotos = localStorage.getItem('capturedPhotos');
+  const savedVideos = localStorage.getItem('capturedVideos');
+  console.log('📦 Raw savedPhotos from localStorage:', savedPhotos);
+  console.log('🎬 Raw savedVideos from localStorage:', savedVideos);
     
     if (savedPhotos) {
       try {
         const parsedPhotos = JSON.parse(savedPhotos);
         console.log('📸 Parsed photos array:', parsedPhotos);
         console.log('📊 Number of photos:', parsedPhotos.length);
-        
+
+        let parsedVideos = [];
+        if (savedVideos) {
+          try {
+            const maybeVideos = JSON.parse(savedVideos);
+            if (Array.isArray(maybeVideos)) {
+              parsedVideos = [...maybeVideos];
+            }
+          } catch (videoParseError) {
+            console.warn('⚠️ Failed to parse capturedVideos from localStorage:', videoParseError);
+          }
+        }
+
+        while (parsedVideos.length < parsedPhotos.length) {
+          parsedVideos.push(null);
+        }
+        if (parsedVideos.length > parsedPhotos.length) {
+          parsedVideos = parsedVideos.slice(0, parsedPhotos.length);
+        }
+
         setPhotos(parsedPhotos);
+        setVideos(parsedVideos);
         
         // Initialize photo positions with correct defaults for each frame type
         const positions = {};
@@ -360,6 +582,7 @@ export default function EditPhoto() {
         if (frameConfigForDefaults?.duplicatePhotos && frameConfigForDefaults.slots) {
           // Initialize slot-specific photos for independent slot behavior
           const initialSlotPhotos = {};
+          const initialSlotVideos = {};
           
           // Initialize transforms for all slots
           frameConfigForDefaults.slots.forEach((slot, slotIndex) => {
@@ -370,6 +593,7 @@ export default function EditPhoto() {
             
             // Store photo for this specific slot
             initialSlotPhotos[slotIndex] = parsedPhotos[photoIndex];
+            initialSlotVideos[slotIndex] = parsedVideos[photoIndex] || null;
             
             // Calculate proper default scale based on frame type
             let defaultScale = 1.6; // Standard auto-fill for portrait frames
@@ -387,6 +611,7 @@ export default function EditPhoto() {
           
           const storageKey = getSlotPhotosStorageKey(frameFromStorage);
           let normalizedSlotPhotos = initialSlotPhotos;
+          let normalizedSlotVideos = initialSlotVideos;
           if (storageKey) {
             const stored = localStorage.getItem(storageKey);
             if (stored) {
@@ -407,9 +632,32 @@ export default function EditPhoto() {
             }
           }
 
+          const videoStorageKey = getSlotVideosStorageKey(frameFromStorage);
+          if (videoStorageKey) {
+            const storedVideos = localStorage.getItem(videoStorageKey);
+            if (storedVideos) {
+              try {
+                const parsed = JSON.parse(storedVideos);
+                const merged = {};
+                frameConfigForDefaults.slots.forEach((_, slotIndex) => {
+                  if (parsed && Object.prototype.hasOwnProperty.call(parsed, slotIndex)) {
+                    merged[slotIndex] = parsed[slotIndex];
+                  } else {
+                    merged[slotIndex] = initialSlotVideos[slotIndex] || null;
+                  }
+                });
+                normalizedSlotVideos = merged;
+              } catch (err) {
+                console.warn('⚠️ Failed to parse stored slotVideos for edit page, using defaults', err);
+              }
+            }
+          }
+
           // Set slot photos for duplicate-photo frames
           setSlotPhotos(normalizedSlotPhotos);
+          setSlotVideos(normalizedSlotVideos);
           persistSlotPhotos(frameFromStorage, normalizedSlotPhotos);
+          persistSlotVideos(frameFromStorage, normalizedSlotVideos);
           console.log('🎯 Initialized slot photos for duplicate frame:', Object.keys(normalizedSlotPhotos).length, 'slots');
         } else {
           // Standard initialization for non-duplicate frames (one transform per photo)
@@ -657,6 +905,7 @@ export default function EditPhoto() {
       console.log('🎯 Processing', frameConfig.id, 'independent slot drag & drop...');
 
       const newSlotPhotos = { ...slotPhotos };
+      const newSlotVideos = { ...slotVideos };
 
       const srcSlot = frameConfig.slots[sourceSlotIndex];
       const dstSlot = frameConfig.slots[targetSlotIndex];
@@ -665,12 +914,18 @@ export default function EditPhoto() {
 
       const srcImage = newSlotPhotos[sourceSlotIndex] ?? photos[srcPhotoIdx] ?? null;
       const dstImage = newSlotPhotos[targetSlotIndex] ?? photos[dstPhotoIdx] ?? null;
+      const srcVideo = newSlotVideos[sourceSlotIndex] ?? videos[srcPhotoIdx] ?? null;
+      const dstVideo = newSlotVideos[targetSlotIndex] ?? videos[dstPhotoIdx] ?? null;
 
       newSlotPhotos[sourceSlotIndex] = dstImage;
       newSlotPhotos[targetSlotIndex] = srcImage;
+      newSlotVideos[sourceSlotIndex] = dstVideo;
+      newSlotVideos[targetSlotIndex] = srcVideo;
 
       setSlotPhotos(newSlotPhotos);
+      setSlotVideos(newSlotVideos);
       persistSlotPhotos(frameConfig?.id, newSlotPhotos);
+      persistSlotVideos(frameConfig?.id, newSlotVideos);
       setDraggedPhoto(null);
 
       // Recalculate smart scales for the two swapped slots only
@@ -706,7 +961,8 @@ export default function EditPhoto() {
     }
 
     // Standard drag & drop logic for other frames
-    const newPhotos = [...photos];
+  const newPhotos = [...photos];
+  const newVideos = [...videos];
     const newPhotoPositions = { ...photoPositions };
     const newPhotoTransforms = { ...photoTransforms };
     
@@ -725,10 +981,16 @@ export default function EditPhoto() {
     newPhotoTransforms[sourceSlotIndex] = newPhotoTransforms[targetSlotIndex];
     newPhotoTransforms[targetSlotIndex] = tempTransform;
     
-    setPhotos(newPhotos);
+  const tempVideo = newVideos[sourceSlotIndex];
+  newVideos[sourceSlotIndex] = newVideos[targetSlotIndex];
+  newVideos[targetSlotIndex] = tempVideo;
+
+  setPhotos(newPhotos);
+  setVideos(newVideos);
     setPhotoPositions(newPhotoPositions);
     setPhotoTransforms(newPhotoTransforms);
     localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
+  localStorage.setItem('capturedVideos', JSON.stringify(newVideos));
     setDraggedPhoto(null);
     
     // Re-initialize smart scale for swapped photos
@@ -807,6 +1069,396 @@ export default function EditPhoto() {
     // Original logic for portrait frames (Testframe1, 2, 3)
     // Default scale for when photo image not available
     return 1.6; // Conservative default
+  };
+
+  const generateFramedVideo = async ({ loadedPhotos, canvasWidth, canvasHeight, timestamp }) => {
+    if (!isBrowser) {
+      console.log('🎬 Skipping framed video generation outside browser environment');
+      return { success: false, reason: 'no-browser' };
+    }
+
+    if (!frameConfig?.slots || frameConfig.slots.length === 0) {
+      console.warn('🎬 Frame configuration missing slots; skipping framed video generation');
+      return { success: false, reason: 'no-frame-slots' };
+    }
+
+    const slotVideoInfos = frameConfig.slots.map((_, index) => getVideoSourceForSlot(index));
+    const hasVideo = slotVideoInfos.some((info) => info && info.dataUrl);
+    if (!hasVideo) {
+      console.log('🎬 No recorded videos available for framing. Skipping video export.');
+      return { success: false, reason: 'no-source-video' };
+    }
+
+    const imageCache = new Map();
+    loadedPhotos.forEach(({ img, index }) => {
+      const photoDataUrl = photos[index];
+      if (photoDataUrl && img) {
+        imageCache.set(photoDataUrl, img);
+      }
+    });
+
+    const getImageElement = async (dataUrl) => {
+      if (!dataUrl) return null;
+      if (imageCache.has(dataUrl)) return imageCache.get(dataUrl);
+      const img = await createImageFromDataUrl(dataUrl);
+      if (img) {
+        imageCache.set(dataUrl, img);
+      }
+      return img;
+    };
+
+    const slotPhotoElements = await Promise.all(frameConfig.slots.map(async (slot, slotIndex) => {
+      let photoData;
+      if (frameConfig.duplicatePhotos) {
+        const slotSpecificPhoto = slotPhotos[slotIndex];
+        if (slotSpecificPhoto) {
+          photoData = slotSpecificPhoto;
+        } else {
+          const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+          photoData = photos[photoIndex];
+        }
+      } else {
+        const targetIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+        photoData = photos[targetIndex];
+      }
+      if (!photoData) return null;
+      return getImageElement(photoData);
+    }));
+
+    let frameOverlayImage = null;
+    if (frameImage) {
+      frameOverlayImage = await getImageElement(frameImage);
+    }
+
+    const ensureVideoReady = (video, slotNumber) => new Promise((resolve) => {
+      let resolved = false;
+
+      const finalize = () => {
+        if (resolved) return;
+        resolved = true;
+        video.onloadedmetadata = null;
+        video.oncanplay = null;
+        video.onerror = null;
+        resolve(video.readyState >= 2);
+      };
+
+      video.onloadedmetadata = () => {
+        if (video.readyState >= 1) {
+          try {
+            video.currentTime = 0;
+          } catch (resetError) {
+            console.warn('⚠️ Unable to reset recorded video timeline:', resetError);
+          }
+        }
+      };
+
+      video.oncanplay = () => {
+        finalize();
+      };
+
+      video.onerror = (event) => {
+        console.error(`❌ Failed to load recorded video for slot ${slotNumber}:`, event);
+        finalize();
+      };
+
+      if (video.readyState >= 2) {
+        finalize();
+      }
+    });
+
+    const videoElementCache = new Map();
+    const slotVideoElements = [];
+
+    for (let i = 0; i < slotVideoInfos.length; i++) {
+      const info = slotVideoInfos[i];
+      if (!info || !info.dataUrl) {
+        slotVideoElements.push(null);
+        continue;
+      }
+
+      const baseKey = info.baseVideoIndex ?? i;
+
+      if (videoElementCache.has(baseKey)) {
+        slotVideoElements.push(videoElementCache.get(baseKey));
+        continue;
+      }
+
+      const video = document.createElement('video');
+      video.src = info.dataUrl;
+      video.muted = true;
+      video.loop = true;
+      video.playsInline = true;
+      video.crossOrigin = 'anonymous';
+      video.preload = 'auto';
+      video.setAttribute('playsinline', '');
+
+      const isReady = await ensureVideoReady(video, i + 1);
+
+      if (!isReady || !Number.isFinite(video.duration) || video.duration <= 0) {
+        console.warn(`⚠️ Recorded video for slot ${i + 1} is not ready or has invalid duration; skipping`);
+        slotVideoElements.push(null);
+        continue;
+      }
+
+      const entry = { video, info, baseVideoIndex: baseKey };
+      videoElementCache.set(baseKey, entry);
+      slotVideoElements.push(entry);
+    }
+
+    const activeVideos = Array.from(videoElementCache.values()).filter(Boolean);
+    if (!activeVideos.length) {
+      console.warn('🎬 No playable recorded videos after preparation; skipping video export');
+      return { success: false, reason: 'no-playable-video' };
+    }
+
+    const getEntryDuration = (entry) => {
+      if (!entry) return 0;
+      const durations = [entry.video?.duration, entry.info?.duration];
+      return durations.reduce((max, value) => {
+        if (typeof value === 'number' && !Number.isNaN(value) && value > 0) {
+          return Math.max(max, value);
+        }
+        return max;
+      }, 0);
+    };
+
+    const maxDuration = activeVideos.reduce((max, entry) => Math.max(max, getEntryDuration(entry)), 0);
+    if (!maxDuration) {
+      console.warn('🎬 Recorded videos report zero duration; skipping framed video export');
+      return { success: false, reason: 'zero-duration' };
+    }
+
+    const videoCanvas = document.createElement('canvas');
+    videoCanvas.width = canvasWidth;
+    videoCanvas.height = canvasHeight;
+    const videoCtx = videoCanvas.getContext('2d');
+
+    const stream = videoCanvas.captureStream(30);
+    const recorder = createRecorderFromStream(stream, { videoBitsPerSecond: 5_000_000 });
+    if (!recorder) {
+      console.warn('🎬 Unable to initialize MediaRecorder; framed video export skipped');
+      return { success: false, reason: 'recorder-init-failed' };
+    }
+
+    const recordedChunks = [];
+    const recordingPromise = new Promise((resolve, reject) => {
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordedChunks.push(event.data);
+        }
+      };
+      recorder.onerror = (event) => {
+        console.error('❌ MediaRecorder error during framed video creation:', event);
+        reject(event.error || new Error('MediaRecorder error'));
+      };
+      recorder.onstop = () => {
+        try {
+          const mimeType = recorder.mimeType || 'video/webm';
+          resolve(new Blob(recordedChunks, { type: mimeType }));
+        } catch (blobError) {
+          reject(blobError);
+        }
+      };
+    });
+
+    recorder.start();
+
+    await Promise.all(activeVideos.map(async ({ video }) => {
+      try {
+        video.currentTime = 0;
+        if (video.paused) {
+          await video.play();
+        }
+      } catch (error) {
+        console.warn('⚠️ Video playback interrupted during framed video render:', error);
+      }
+    }));
+
+    const PREVIEW_WIDTH = 350;
+    const PREVIEW_HEIGHT = 525;
+    const SCALE_RATIO = canvasWidth / PREVIEW_WIDTH;
+
+    const getMediaDimensions = (media) => {
+      if (!media) return null;
+      if (media.videoWidth && media.videoHeight) {
+        return { width: media.videoWidth, height: media.videoHeight };
+      }
+      if (media.naturalWidth && media.naturalHeight) {
+        return { width: media.naturalWidth, height: media.naturalHeight };
+      }
+      if (media.width && media.height) {
+        return { width: media.width, height: media.height };
+      }
+      return null;
+    };
+
+    const getSlotTransform = (slotIndex) => {
+      const existing = photoTransforms?.[slotIndex];
+      if (existing) return existing;
+      const fallback = calculateAutoFillScale(slotIndex) || 1.6;
+      return {
+        scale: fallback,
+        translateX: 0,
+        translateY: 0,
+        autoFillScale: fallback
+      };
+    };
+
+    const drawMediaInSlot = (media, slotIndex) => {
+      if (!media) return;
+      const slot = frameConfig.slots[slotIndex];
+      if (!slot) return;
+
+      const dimensions = getMediaDimensions(media);
+      if (!dimensions) return;
+
+      const transform = getSlotTransform(slotIndex);
+      const filterCss = getFilterCssValue(resolveSlotFilterId(slotIndex));
+
+      const previewSlotX = slot.left * PREVIEW_WIDTH;
+      const previewSlotY = slot.top * PREVIEW_HEIGHT;
+      const previewSlotWidth = slot.width * PREVIEW_WIDTH;
+      const previewSlotHeight = slot.height * PREVIEW_HEIGHT;
+
+      const slotX = previewSlotX * SCALE_RATIO;
+      const slotY = previewSlotY * SCALE_RATIO;
+      const slotWidth = previewSlotWidth * SCALE_RATIO;
+      const slotHeight = previewSlotHeight * SCALE_RATIO;
+
+      const imgAspectRatio = dimensions.width / dimensions.height;
+      const slotAspectRatio = slot.width / slot.height;
+
+      let mediaDisplayWidth;
+      let mediaDisplayHeight;
+      if (imgAspectRatio > slotAspectRatio) {
+        mediaDisplayWidth = slotWidth;
+        mediaDisplayHeight = slotWidth / imgAspectRatio;
+      } else {
+        mediaDisplayWidth = slotHeight * imgAspectRatio;
+        mediaDisplayHeight = slotHeight;
+      }
+
+      const slotCenterX = slotX + (slotWidth / 2);
+      const slotCenterY = slotY + (slotHeight / 2);
+
+      const scaledTranslateX = (transform.translateX || 0) * SCALE_RATIO;
+      const scaledTranslateY = (transform.translateY || 0) * SCALE_RATIO;
+
+      const finalWidth = mediaDisplayWidth * (transform.scale || 1);
+      const finalHeight = mediaDisplayHeight * (transform.scale || 1);
+      const finalX = slotCenterX - (finalWidth / 2) + scaledTranslateX;
+      const finalY = slotCenterY - (finalHeight / 2) + scaledTranslateY;
+
+      videoCtx.save();
+      videoCtx.beginPath();
+      videoCtx.rect(slotX, slotY, slotWidth, slotHeight);
+      videoCtx.clip();
+      videoCtx.filter = filterCss && filterCss !== 'none' ? filterCss : 'none';
+      videoCtx.drawImage(media, finalX, finalY, finalWidth, finalHeight);
+      videoCtx.restore();
+      videoCtx.filter = 'none';
+    };
+
+    const animationStart = performance.now();
+    const totalDuration = maxDuration + 0.25;
+    let animationFrameId = null;
+    let recorderStopped = false;
+
+    const stopRecording = () => {
+      if (recorderStopped) return;
+      recorderStopped = true;
+      slotVideoElements.forEach((entry) => {
+        if (entry?.video) {
+          try {
+            entry.video.pause();
+          } catch (pauseError) {
+            console.warn('⚠️ Failed to pause video during cleanup:', pauseError);
+          }
+        }
+      });
+      if (recorder.state !== 'inactive') {
+        recorder.stop();
+      }
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
+
+    const renderFrame = () => {
+      videoCtx.clearRect(0, 0, canvasWidth, canvasHeight);
+      videoCtx.fillStyle = '#2563eb';
+      videoCtx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+      frameConfig.slots.forEach((_, slotIndex) => {
+        const videoEntry = slotVideoElements[slotIndex];
+        if (videoEntry && videoEntry.video.readyState >= 2) {
+          drawMediaInSlot(videoEntry.video, slotIndex);
+        } else {
+          const fallbackImage = slotPhotoElements[slotIndex];
+          if (fallbackImage) {
+            drawMediaInSlot(fallbackImage, slotIndex);
+          }
+        }
+      });
+
+      if (frameOverlayImage) {
+        videoCtx.drawImage(frameOverlayImage, 0, 0, canvasWidth, canvasHeight);
+      }
+
+      const elapsed = (performance.now() - animationStart) / 1000;
+      const allVideosEnded = slotVideoElements.every((entry) => {
+        if (!entry) return true;
+        const duration = getEntryDuration(entry) || maxDuration;
+        return entry.video.ended || entry.video.currentTime >= duration;
+      });
+
+      if (elapsed >= totalDuration || allVideosEnded) {
+        stopRecording();
+        return;
+      }
+
+      animationFrameId = requestAnimationFrame(renderFrame);
+    };
+
+    renderFrame();
+
+    let videoBlob;
+    try {
+      videoBlob = await recordingPromise;
+    } catch (recordingError) {
+      console.error('❌ Failed to finalize framed video recording:', recordingError);
+      stopRecording();
+      return { success: false, reason: 'recording-finalize-failed', error: recordingError };
+    }
+
+    let finalVideoBlob = videoBlob;
+    let videoFilename = `photobooth-${selectedFrame}-${timestamp}.webm`;
+    let convertedToMp4 = false;
+
+    if (!videoBlob.type.includes('mp4')) {
+      try {
+        const mp4Blob = await convertBlobToMp4(videoBlob, { outputPrefix: `photobooth-${selectedFrame}` });
+        if (mp4Blob) {
+          finalVideoBlob = mp4Blob;
+          videoFilename = `photobooth-${selectedFrame}-${timestamp}.mp4`;
+          convertedToMp4 = true;
+        } else {
+          console.warn('⚠️ MP4 conversion failed; falling back to original WebM download.');
+        }
+      } catch (conversionError) {
+        console.error('❌ MP4 conversion threw an error; falling back to WebM download.', conversionError);
+      }
+    }
+
+    triggerBlobDownload(finalVideoBlob, videoFilename);
+    console.log('🎬 Framed video saved successfully!');
+    return {
+      success: true,
+      blob: finalVideoBlob,
+      filename: videoFilename,
+      duration: maxDuration,
+      convertedToMp4
+    };
   };
 
   // Helper function to get photo image for a slot - ASYNC VERSION
@@ -1902,36 +2554,49 @@ export default function EditPhoto() {
       // Debug: Log canvas final state
       console.log('🔍 Canvas final state - creating blob...');
       
-      // Convert canvas ke blob dan trigger download
-      canvas.toBlob((blob) => {
-        if (!blob) {
-          console.error('❌ Failed to generate blob from canvas');
-          alert('Failed to generate image');
-          return;
-        }
-        
-        console.log('✅ Blob created:', blob.size, 'bytes');
-        
-        // Create download link
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        
-        // Generate filename dengan timestamp
-        const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
-        link.download = `photobooth-${selectedFrame}-${timestamp}.png`;
-        
-        // Trigger download
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        // Cleanup
-        URL.revokeObjectURL(url);
-        
-        console.log('💾 Photo saved successfully!');
-        alert('Photo saved successfully!');
-      }, 'image/png', 0.95);
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+
+      let photoBlob;
+      try {
+        photoBlob = await new Promise((resolve, reject) => {
+          canvas.toBlob((blob) => {
+            if (!blob) {
+              reject(new Error('Failed to generate image blob'));
+              return;
+            }
+            resolve(blob);
+          }, 'image/png', 0.95);
+        });
+      } catch (blobError) {
+        console.error('❌ Failed to generate blob from canvas:', blobError);
+        alert('Failed to generate image');
+        return;
+      }
+
+      console.log('✅ Blob created:', photoBlob.size, 'bytes');
+      triggerBlobDownload(photoBlob, `photobooth-${selectedFrame}-${timestamp}.png`);
+      console.log('💾 Photo saved successfully!');
+
+      let framedVideoResult = null;
+      try {
+        framedVideoResult = await generateFramedVideo({
+          loadedPhotos,
+          canvasWidth,
+          canvasHeight,
+          timestamp
+        });
+      } catch (videoError) {
+        console.error('⚠️ Failed to generate framed video:', videoError);
+      }
+
+      const confirmationMessageParts = ['Photo saved successfully!'];
+      if (framedVideoResult?.success) {
+        confirmationMessageParts.push('Framed video downloaded with animated slots.');
+      } else if (framedVideoResult && !framedVideoResult.success) {
+        confirmationMessageParts.push('Framed video unavailable.');
+      }
+
+      alert(confirmationMessageParts.join(' '));
       
     } catch (error) {
       console.error('❌ Save error:', error);
@@ -2664,7 +3329,7 @@ export default function EditPhoto() {
                               +
                             </button>
                             
-                            {/* Reset Button */.}
+                            {/* Reset Button */}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -3023,6 +3688,136 @@ export default function EditPhoto() {
                   ? `Pilih filter untuk slot ${selectedPhotoForEdit + 1}. Gunakan tombol preset untuk menerapkan ke slot ini saja.`
                   : 'Tidak memilih slot? Filter akan diterapkan ke semua foto pada preview secara instan.'}
               </div>
+
+              {recordedClips.length > 0 && (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.75rem',
+                  padding: '1rem',
+                  borderRadius: '12px',
+                  border: '1px solid #e5e7eb',
+                  background: '#f8f9fa'
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
+                  }}>
+                    <span style={{
+                      fontWeight: '600',
+                      color: '#333'
+                    }}>
+                      Countdown Videos
+                    </span>
+                    <span style={{
+                      fontSize: '0.8rem',
+                      color: '#777'
+                    }}>
+                      {recordedClips.length} klip
+                    </span>
+                  </div>
+
+                  <div style={{
+                    fontSize: '0.85rem',
+                    color: '#666'
+                  }}>
+                    Rekaman countdown terbaru siap diunduh atau dipakai untuk preview frame video.
+                  </div>
+
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.75rem',
+                    maxHeight: '220px',
+                    overflowY: 'auto',
+                    paddingRight: '0.25rem'
+                  }}>
+                    {recordedClips.map(({ index, clip }) => {
+                      const extension = (() => {
+                        if (!clip?.mimeType) return 'webm';
+                        const parts = clip.mimeType.split('/');
+                        return parts.length > 1 ? parts[1] : 'webm';
+                      })();
+
+                      return (
+                        <div
+                          key={`countdown-clip-${index}`}
+                          style={{
+                            display: 'flex',
+                            gap: '0.75rem',
+                            alignItems: 'flex-start'
+                          }}
+                        >
+                          <div style={{
+                            flex: '0 0 90px',
+                            borderRadius: '10px',
+                            overflow: 'hidden',
+                            border: '1px solid #e5e7eb',
+                            background: '#fff'
+                          }}>
+                            <video
+                              src={clip?.dataUrl}
+                              controls
+                              style={{
+                                width: '100%',
+                                display: 'block',
+                                background: '#000'
+                              }}
+                            />
+                          </div>
+
+                          <div style={{
+                            flex: 1,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.35rem'
+                          }}>
+                            <div style={{
+                              fontWeight: '600',
+                              color: '#333'
+                            }}>
+                              Klip #{index + 1}
+                            </div>
+                            <div style={{
+                              fontSize: '0.8rem',
+                              color: '#555'
+                            }}>
+                              Durasi: {formatSeconds(clip?.duration)} detik · Timer: {formatSeconds(clip?.timer)} detik
+                            </div>
+                            <div style={{
+                              display: 'flex',
+                              gap: '0.5rem',
+                              flexWrap: 'wrap'
+                            }}>
+                              <a
+                                href={clip?.dataUrl || '#'}
+                                download={`fremio-countdown-${index + 1}.${extension}`}
+                                style={{
+                                  fontSize: '0.8rem',
+                                  color: '#E8A889',
+                                  textDecoration: 'none',
+                                  fontWeight: '600'
+                                }}
+                              >
+                                ⬇️ Download
+                              </a>
+                              {clip?.mimeType && (
+                                <span style={{
+                                  fontSize: '0.75rem',
+                                  color: '#888'
+                                }}>
+                                  {clip.mimeType}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {selectedPhotoForEdit !== null && (
                 <div style={{

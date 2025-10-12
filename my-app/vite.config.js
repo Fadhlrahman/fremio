@@ -7,4 +7,7 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [tailwindcss(), react()],
   base: "/fremio/", // ganti sesuai subpath deploy
+  optimizeDeps: {
+    exclude: ['@ffmpeg/ffmpeg']
+  }
 });

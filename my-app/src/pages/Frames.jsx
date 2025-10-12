@@ -1,4 +1,4 @@
-// FremioSeries Imports.
+// FremioSeries Imports
 import FremioSeriesBlue2 from "../assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png";
 import FremioSeriesBabyblue3 from "../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-babyblue-3.png";
 import FremioSeriesBlack3 from "../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-black-3.png";
@@ -16,7 +16,7 @@ import { useNavigate } from "react-router-dom";
 import frameProvider from '../utils/frameProvider.js';
 
 const frames = [
-  // FremioSeries Frames
+  // FremioSeries Frames.
   {
     id: "FremioSeries-blue-2",
     title: "Fremio Series Blue",

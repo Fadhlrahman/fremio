@@ -532,11 +532,8 @@ export default function TakeMoment() {
       videoAspectRatio: videoAspectRatio
     });
     
-    const ctx = canvas.getContext('2d');
-    
-    // Flip the canvas horizontally to counter the video flip
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     
     const dataUrl = canvas.toDataURL('image/png');
     setCurrentPhoto(dataUrl);
@@ -961,8 +958,7 @@ export default function TakeMoment() {
                       height: '100%',
                       objectFit: 'cover',
                       borderRadius: '20px',
-                      backgroundColor: '#000',
-                      transform: 'scaleX(-1)' // Flip horizontally to fix mirror effect
+                      backgroundColor: '#000'
                     }}
                     onLoadedMetadata={() => {
                       console.log('📊 Video metadata loaded');

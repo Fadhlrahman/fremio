@@ -395,12 +395,25 @@ export default function EditPhoto() {
       }
 
       const baseFilename = `fremio-countdown-${safeTimestamp}-slot-${index + 1}`;
+      const targetDuration = (() => {
+        if (typeof clip?.duration === 'number' && !Number.isNaN(clip.duration) && clip.duration > 0) {
+          return clip.duration;
+        }
+        if (clip?.timer === 3) return 4;
+        if (clip?.timer === 5) return 6;
+        if (clip?.timer === 10) return 6;
+        return 6;
+      })();
       let finalBlob = blob;
       let finalExtension = 'mp4';
 
       if (!blob.type.includes('mp4')) {
         try {
-          const mp4Blob = await convertBlobToMp4(blob, { outputPrefix: baseFilename });
+          const mp4Blob = await convertBlobToMp4(blob, {
+            outputPrefix: baseFilename,
+            frameRate: 30,
+            durationSeconds: targetDuration
+          });
           if (mp4Blob) {
             finalBlob = mp4Blob;
             mp4Downloads += 1;
@@ -1446,9 +1459,19 @@ export default function EditPhoto() {
       return null;
     };
 
-    const getSlotTransform = (slotIndex) => {
+    const getSlotTransform = (slotIndex, isVideo = false) => {
       const existing = photoTransforms?.[slotIndex];
       if (existing) return existing;
+
+      if (isVideo) {
+        return {
+          scale: null,
+          translateX: 0,
+          translateY: 0,
+          autoFillScale: null
+        };
+      }
+
       const fallback = calculateAutoFillScale(slotIndex) || 1.6;
       return {
         scale: fallback,
@@ -1458,7 +1481,28 @@ export default function EditPhoto() {
       };
     };
 
-    const drawMediaInSlot = (media, slotIndex) => {
+    const calculateDefaultVideoScale = ({
+      baseWidth,
+      baseHeight,
+      slotWidth,
+      slotHeight
+    }) => {
+      if (!baseWidth || !baseHeight || !slotWidth || !slotHeight) {
+        return 1;
+      }
+
+      const MAX_ZOOM = 6;
+      const BUFFER = 1.008;
+
+      const widthScale = slotWidth / baseWidth;
+      const heightScale = slotHeight / baseHeight;
+      const coverageScale = Math.max(widthScale, heightScale, 1);
+
+      const bufferedScale = Math.min(MAX_ZOOM, coverageScale * BUFFER);
+      return Number(bufferedScale.toFixed(4));
+    };
+
+    const drawMediaInSlot = (media, slotIndex, options = {}) => {
       if (!media) return;
       const slot = frameConfig.slots[slotIndex];
       if (!slot) return;
@@ -1466,7 +1510,9 @@ export default function EditPhoto() {
       const dimensions = getMediaDimensions(media);
       if (!dimensions) return;
 
-      const transform = getSlotTransform(slotIndex);
+    const isVideoMedia = media instanceof HTMLVideoElement;
+    const transform = getSlotTransform(slotIndex, isVideoMedia);
+      const { mirrored = false } = options;
       const filterCss = getFilterCssValue(resolveSlotFilterId(slotIndex));
 
       const previewSlotX = slot.left * PREVIEW_WIDTH;
@@ -1498,8 +1544,23 @@ export default function EditPhoto() {
       const scaledTranslateX = (transform.translateX || 0) * SCALE_RATIO;
       const scaledTranslateY = (transform.translateY || 0) * SCALE_RATIO;
 
-      const finalWidth = mediaDisplayWidth * (transform.scale || 1);
-      const finalHeight = mediaDisplayHeight * (transform.scale || 1);
+      let transformScale = transform?.scale;
+      if (!(typeof transformScale === 'number' && Number.isFinite(transformScale) && transformScale > 0)) {
+        if (isVideoMedia) {
+          transformScale = calculateDefaultVideoScale({
+            baseWidth: mediaDisplayWidth,
+            baseHeight: mediaDisplayHeight,
+            slotWidth,
+            slotHeight
+          });
+        } else {
+          const fallbackScale = calculateAutoFillScale(slotIndex) || 1.6;
+          transformScale = fallbackScale;
+        }
+      }
+
+      const finalWidth = mediaDisplayWidth * transformScale;
+      const finalHeight = mediaDisplayHeight * transformScale;
       const finalX = slotCenterX - (finalWidth / 2) + scaledTranslateX;
       const finalY = slotCenterY - (finalHeight / 2) + scaledTranslateY;
 
@@ -1508,7 +1569,12 @@ export default function EditPhoto() {
       videoCtx.rect(slotX, slotY, slotWidth, slotHeight);
       videoCtx.clip();
       videoCtx.filter = filterCss && filterCss !== 'none' ? filterCss : 'none';
-      videoCtx.drawImage(media, finalX, finalY, finalWidth, finalHeight);
+    const shouldMirrorVideo = isVideoMedia && !mirrored;
+      if (shouldMirrorVideo) {
+        videoCtx.drawImage(media, finalX + finalWidth, finalY, -finalWidth, finalHeight);
+      } else {
+        videoCtx.drawImage(media, finalX, finalY, finalWidth, finalHeight);
+      }
       videoCtx.restore();
       videoCtx.filter = 'none';
     };
@@ -1546,7 +1612,9 @@ export default function EditPhoto() {
       frameConfig.slots.forEach((_, slotIndex) => {
         const videoEntry = slotVideoElements[slotIndex];
         if (videoEntry && videoEntry.video.readyState >= 2) {
-          drawMediaInSlot(videoEntry.video, slotIndex);
+          drawMediaInSlot(videoEntry.video, slotIndex, {
+            mirrored: Boolean(videoEntry.info?.mirrored)
+          });
         } else {
           const fallbackImage = slotPhotoElements[slotIndex];
           if (fallbackImage) {
@@ -1591,7 +1659,11 @@ export default function EditPhoto() {
 
     if (!videoBlob.type.includes('mp4')) {
       try {
-        const mp4Blob = await convertBlobToMp4(videoBlob, { outputPrefix: `photobooth-${selectedFrame}` });
+        const mp4Blob = await convertBlobToMp4(videoBlob, {
+          outputPrefix: `photobooth-${selectedFrame}`,
+          frameRate: 30,
+          durationSeconds: Math.max(0.1, maxDuration)
+        });
         if (mp4Blob) {
           finalVideoBlob = mp4Blob;
           videoFilename = `photobooth-${selectedFrame}-${timestamp}.mp4`;
@@ -3894,6 +3966,7 @@ export default function EditPhoto() {
                         const parts = clip.mimeType.split('/');
                         return parts.length > 1 ? parts[1] : 'webm';
                       })();
+                      const isMirroredClip = Boolean(clip?.mirrored);
 
                       return (
                         <div
@@ -3917,7 +3990,8 @@ export default function EditPhoto() {
                               style={{
                                 width: '100%',
                                 display: 'block',
-                                background: '#000'
+                                background: '#000',
+                                transform: isMirroredClip ? 'none' : 'scaleX(-1)'
                               }}
                             />
                           </div>

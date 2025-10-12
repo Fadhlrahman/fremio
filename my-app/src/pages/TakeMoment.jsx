@@ -297,15 +297,109 @@ export default function TakeMoment() {
       return null;
     }
 
-    const { record: recordSeconds, playback: playbackSeconds } = TIMER_VIDEO_DURATION_MAP[timerSeconds] || {
+    const { record: recordSeconds } = TIMER_VIDEO_DURATION_MAP[timerSeconds] || {
       record: timerSeconds + 1,
-      playback: timerSeconds + 1,
     };
 
     const desiredStopSeconds = timerSeconds + POST_CAPTURE_BUFFER_SECONDS;
     const delayBeforeStartSeconds = Math.max(0, desiredStopSeconds - recordSeconds);
 
-    const streamForRecording = baseStream.clone();
+    const rawRecordingStream = baseStream.clone();
+
+    let recordingStream = rawRecordingStream;
+    let mirrorApplied = false;
+    let mirrorCleanup = () => {
+      rawRecordingStream.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch (stopError) {
+          console.warn('⚠️ Failed to stop raw recording track:', stopError);
+        }
+      });
+    };
+
+    if (videoRef.current) {
+      try {
+        const mirrorCanvas = document.createElement('canvas');
+        const canCaptureStream = typeof mirrorCanvas.captureStream === 'function';
+        const mirrorCtx = mirrorCanvas.getContext('2d');
+
+        if (canCaptureStream && mirrorCtx) {
+          const sourceVideo = videoRef.current;
+          const videoTrack = rawRecordingStream.getVideoTracks()[0];
+          const trackSettings = videoTrack?.getSettings ? videoTrack.getSettings() : {};
+
+          const resolveDimensions = () => {
+            const width = sourceVideo.videoWidth || trackSettings?.width || 640;
+            const height = sourceVideo.videoHeight || trackSettings?.height || 480;
+
+            if (mirrorCanvas.width !== width || mirrorCanvas.height !== height) {
+              mirrorCanvas.width = width;
+              mirrorCanvas.height = height;
+            }
+          };
+
+          let animationFrameId = null;
+
+          const renderMirroredFrame = () => {
+            resolveDimensions();
+            if (sourceVideo.readyState >= 2) {
+              mirrorCtx.save();
+              mirrorCtx.setTransform(-1, 0, 0, 1, mirrorCanvas.width, 0);
+              mirrorCtx.clearRect(0, 0, mirrorCanvas.width, mirrorCanvas.height);
+              mirrorCtx.drawImage(sourceVideo, 0, 0, mirrorCanvas.width, mirrorCanvas.height);
+              mirrorCtx.restore();
+            }
+            animationFrameId = requestAnimationFrame(renderMirroredFrame);
+          };
+
+          renderMirroredFrame();
+
+          const canvasStream = mirrorCanvas.captureStream(30);
+          rawRecordingStream.getAudioTracks().forEach((track) => {
+            try {
+              canvasStream.addTrack(track);
+            } catch (addError) {
+              console.warn('⚠️ Failed to attach audio track to mirrored canvas stream:', addError);
+            }
+          });
+
+          recordingStream = canvasStream;
+          mirrorApplied = true;
+
+          mirrorCleanup = () => {
+            if (animationFrameId) {
+              cancelAnimationFrame(animationFrameId);
+              animationFrameId = null;
+            }
+            canvasStream.getTracks().forEach((track) => {
+              try {
+                track.stop();
+              } catch (stopError) {
+                console.warn('⚠️ Failed to stop mirrored canvas track:', stopError);
+              }
+            });
+            rawRecordingStream.getTracks().forEach((track) => {
+              try {
+                track.stop();
+              } catch (stopError) {
+                console.warn('⚠️ Failed to stop raw recording track during cleanup:', stopError);
+              }
+            });
+          };
+        }
+      } catch (mirrorError) {
+        console.warn('⚠️ Mirrored recording initialization failed, falling back to raw stream:', mirrorError);
+      }
+    }
+
+    const stopRecordingStream = () => {
+      if (mirrorCleanup) {
+        mirrorCleanup();
+        mirrorCleanup = null;
+      }
+    };
+
     const mimeCandidates = [
       'video/webm;codecs=vp9',
       'video/webm;codecs=vp8',
@@ -321,24 +415,24 @@ export default function TakeMoment() {
       }
     }) || '';
 
-    const tunedBitrate = determineVideoBitrate(recordSeconds);
-    const hasAudioTrack = streamForRecording.getAudioTracks().length > 0;
+  const tunedBitrate = determineVideoBitrate(recordSeconds);
+  const hasAudioTrack = recordingStream.getAudioTracks().length > 0;
 
     let recorder;
     try {
       const tunedOptions = supportedMimeType
         ? { mimeType: supportedMimeType, videoBitsPerSecond: tunedBitrate, ...(hasAudioTrack ? { audioBitsPerSecond: 64_000 } : {}) }
         : { videoBitsPerSecond: tunedBitrate, ...(hasAudioTrack ? { audioBitsPerSecond: 64_000 } : {}) };
-      recorder = new MediaRecorder(streamForRecording, tunedOptions);
+      recorder = new MediaRecorder(recordingStream, tunedOptions);
     } catch (error) {
       console.warn('⚠️ Failed to create tuned MediaRecorder; falling back to default options.', error);
       try {
         recorder = supportedMimeType
-          ? new MediaRecorder(streamForRecording, { mimeType: supportedMimeType })
-          : new MediaRecorder(streamForRecording);
+          ? new MediaRecorder(recordingStream, { mimeType: supportedMimeType })
+          : new MediaRecorder(recordingStream);
       } catch (fallbackError) {
         console.error('❌ Failed to create MediaRecorder:', fallbackError);
-        streamForRecording.getTracks().forEach((track) => track.stop());
+        stopRecordingStream();
         return null;
       }
     }
@@ -362,7 +456,7 @@ export default function TakeMoment() {
 
         if (!hasRecordingStarted) {
           hasRecordingStopped = true;
-          streamForRecording.getTracks().forEach((track) => track.stop());
+          stopRecordingStream();
           if (rejectPromise) {
             rejectPromise(new Error('Recording cancelled before start'));
           }
@@ -393,7 +487,7 @@ export default function TakeMoment() {
       recorder.onerror = (event) => {
         console.error('❌ MediaRecorder error:', event.error || event);
         controller.stop();
-        streamForRecording.getTracks().forEach((track) => track.stop());
+        stopRecordingStream();
         reject(event.error || new Error('MediaRecorder error'));
       };
 
@@ -408,11 +502,12 @@ export default function TakeMoment() {
             duration: recordSeconds,
             timer: timerSeconds,
             actualDelay: delayBeforeStartSeconds,
+            mirrored: mirrorApplied,
           });
         } catch (error) {
           reject(error);
         } finally {
-          streamForRecording.getTracks().forEach((track) => track.stop());
+          stopRecordingStream();
         }
       };
     });
@@ -431,7 +526,7 @@ export default function TakeMoment() {
         }, recordSeconds * 1000);
       } catch (error) {
         console.error('❌ Failed to start MediaRecorder:', error);
-        streamForRecording.getTracks().forEach((track) => track.stop());
+        stopRecordingStream();
         hasRecordingStopped = true;
         if (rejectPromise) {
           rejectPromise(error);
@@ -533,7 +628,10 @@ export default function TakeMoment() {
     });
     
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.scale(-1, 1);
+  ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+  ctx.restore();
     
     const dataUrl = canvas.toDataURL('image/png');
     setCurrentPhoto(dataUrl);
@@ -958,7 +1056,8 @@ export default function TakeMoment() {
                       height: '100%',
                       objectFit: 'cover',
                       borderRadius: '20px',
-                      backgroundColor: '#000'
+                      backgroundColor: '#000',
+                      transform: 'scaleX(-1)'
                     }}
                     onLoadedMetadata={() => {
                       console.log('📊 Video metadata loaded');

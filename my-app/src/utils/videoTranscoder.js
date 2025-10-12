@@ -64,17 +64,29 @@ export const convertBlobToMp4 = async (inputBlob, options = {}) => {
 
     await ffmpeg.writeFile(inputName, inputData);
 
-    const ffmpegArgs = options.ffmpegArgs || [
+    const baseArgs = options.ffmpegArgs || [
       '-i', inputName,
       '-c:v', 'libx264',
       '-preset', 'veryfast',
       '-pix_fmt', 'yuv420p',
       '-movflags', 'faststart',
-      '-an',
-      outputName
+      '-an'
     ];
 
-    await ffmpeg.exec(ffmpegArgs);
+    const derivedArgs = [...baseArgs];
+
+    if (options.frameRate && Number.isFinite(options.frameRate) && options.frameRate > 0) {
+      derivedArgs.push('-r', String(options.frameRate));
+    }
+
+    if (options.durationSeconds && Number.isFinite(options.durationSeconds) && options.durationSeconds > 0) {
+      const clampedDuration = Math.max(0.1, options.durationSeconds);
+      derivedArgs.push('-t', clampedDuration.toFixed(3));
+    }
+
+    derivedArgs.push(outputName);
+
+    await ffmpeg.exec(derivedArgs);
 
     const outputData = await ffmpeg.readFile(outputName);
     if (!outputData) {

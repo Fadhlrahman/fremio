@@ -19,7 +19,7 @@ export default function FrameBuilder() {
     setSlots([...slots, { x: 100, y: 100, width: 200, height: 250, shape: 'rect', id: Date.now() }]);
   };
 
-  // Drag & resize logic (sederhana)
+  // Drag & resize logic (sederhana).
   const handleMouseDown = (e, idx) => {
     setDragSlot({ idx, offsetX: e.nativeEvent.offsetX - slots[idx].x, offsetY: e.nativeEvent.offsetY - slots[idx].y });
   };

@@ -1,4 +1,4 @@
-// Frame configuration for FremioSeries-black-3
+// Frame configuration for FremioSeries-black-3..
 export const frameConfig = {
   id: 'FremioSeries-black-3',
   name: 'FremioSeries Black 6 Foto',

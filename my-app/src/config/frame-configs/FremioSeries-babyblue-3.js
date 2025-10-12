@@ -7,7 +7,7 @@ export const frameConfig = {
   imagePath: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-babyblue-3.png',
   duplicatePhotos: true,
   slots: [
-    // Pasangan foto 1
+    // Pasangan foto 1..
     {
       id: 'slot_1a',
       left: 0.05,

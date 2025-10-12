@@ -197,6 +197,16 @@ export default function EditPhoto() {
     return preset?.css ?? '';
   };
 
+  const getSlotFilterCss = (slotIndex) => {
+    if (slotIndex === null || slotIndex === undefined) return 'none';
+    const filterId = resolveSlotFilterId(slotIndex);
+    const rawCss = getFilterCssValue(filterId);
+    if (typeof rawCss === 'string' && rawCss.trim().length > 0 && rawCss !== 'none') {
+      return rawCss;
+    }
+    return 'none';
+  };
+
   const resolveSlotFilterId = (slotIndex) => {
     if (slotIndex === null || slotIndex === undefined) return 'none';
     return Object.prototype.hasOwnProperty.call(photoFilters, slotIndex)
@@ -1526,10 +1536,10 @@ export default function EditPhoto() {
       const dimensions = getMediaDimensions(media);
       if (!dimensions) return;
 
-    const isVideoMedia = media instanceof HTMLVideoElement;
-    const transform = getSlotTransform(slotIndex, isVideoMedia);
-      const { mirrored = false } = options;
-      const filterCss = getFilterCssValue(resolveSlotFilterId(slotIndex));
+      const isVideoMedia = media instanceof HTMLVideoElement;
+      const transform = getSlotTransform(slotIndex, isVideoMedia);
+      const { mirrored = false, filterCssOverride } = options;
+      const slotFilterCss = filterCssOverride ?? getSlotFilterCss(slotIndex);
 
       const previewSlotX = slot.left * PREVIEW_WIDTH;
       const previewSlotY = slot.top * PREVIEW_HEIGHT;
@@ -1586,7 +1596,7 @@ export default function EditPhoto() {
       videoCtx.beginPath();
       videoCtx.rect(slotX, slotY, slotWidth, slotHeight);
       videoCtx.clip();
-      videoCtx.filter = filterCss && filterCss !== 'none' ? filterCss : 'none';
+      videoCtx.filter = slotFilterCss && slotFilterCss !== 'none' ? slotFilterCss : 'none';
     const shouldMirrorVideo = isVideoMedia && !mirrored;
       if (shouldMirrorVideo) {
         videoCtx.drawImage(media, finalX + finalWidth, finalY, -finalWidth, finalHeight);
@@ -1630,13 +1640,17 @@ export default function EditPhoto() {
       frameConfig.slots.forEach((_, slotIndex) => {
         const videoEntry = slotVideoElements[slotIndex];
         if (videoEntry && videoEntry.video.readyState >= 2) {
+          const slotFilterCss = getSlotFilterCss(slotIndex);
           drawMediaInSlot(videoEntry.video, slotIndex, {
-            mirrored: Boolean(videoEntry.info?.mirrored)
+            mirrored: Boolean(videoEntry.info?.mirrored),
+            filterCssOverride: slotFilterCss
           });
         } else {
           const fallbackImage = slotPhotoElements[slotIndex];
           if (fallbackImage) {
-            drawMediaInSlot(fallbackImage, slotIndex);
+            drawMediaInSlot(fallbackImage, slotIndex, {
+              filterCssOverride: getSlotFilterCss(slotIndex)
+            });
           }
         }
       });

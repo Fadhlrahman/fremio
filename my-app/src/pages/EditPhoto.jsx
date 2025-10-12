@@ -964,7 +964,7 @@ export default function EditPhoto() {
   const handleDragLeave = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    // Only clear if leaving the container completely
+    // Only clear if leaving the container completely..
     if (!e.currentTarget.contains(e.relatedTarget)) {
       setDragOverSlot(null);
     }

@@ -33,6 +33,240 @@ const FILTER_PRESET_MAP = FILTER_PRESETS.reduce((acc, preset) => {
   acc[preset.id] = preset;
   return acc;
 }, {});
+
+const FILTER_PIPELINES = {
+  none: [],
+  warm: [
+    { type: 'sepia', amount: 0.15 },
+    { type: 'saturate', amount: 1.2 },
+    { type: 'hueRotate', amount: -5 },
+    { type: 'contrast', amount: 1.05 }
+  ],
+  mono: [
+    { type: 'grayscale', amount: 1 },
+    { type: 'contrast', amount: 1.1 }
+  ],
+  vintage: [
+    { type: 'sepia', amount: 0.4 },
+    { type: 'saturate', amount: 0.9 },
+    { type: 'brightness', amount: 1.05 },
+    { type: 'contrast', amount: 0.95 }
+  ],
+  cool: [
+    { type: 'hueRotate', amount: 15 },
+    { type: 'saturate', amount: 1.15 },
+    { type: 'contrast', amount: 1.05 }
+  ],
+  vivid: [
+    { type: 'saturate', amount: 1.35 },
+    { type: 'contrast', amount: 1.15 }
+  ],
+  soft: [
+    { type: 'saturate', amount: 0.85 },
+    { type: 'brightness', amount: 1.1 }
+  ],
+  dramatic: [
+    { type: 'contrast', amount: 1.3 },
+    { type: 'brightness', amount: 0.95 },
+    { type: 'saturate', amount: 1.05 }
+  ]
+};
+
+const clampChannel = (value) => Math.min(255, Math.max(0, value));
+
+const applyBrightness = (data, amount) => {
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = clampChannel(data[i] * amount);
+    data[i + 1] = clampChannel(data[i + 1] * amount);
+    data[i + 2] = clampChannel(data[i + 2] * amount);
+  }
+};
+
+const applyContrast = (data, amount) => {
+  const factor = amount;
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = clampChannel((data[i] - 128) * factor + 128);
+    data[i + 1] = clampChannel((data[i + 1] - 128) * factor + 128);
+    data[i + 2] = clampChannel((data[i + 2] - 128) * factor + 128);
+  }
+};
+
+const applySaturate = (data, amount) => {
+  const rw = 0.299;
+  const gw = 0.587;
+  const bw = 0.114;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const gray = rw * r + gw * g + bw * b;
+    data[i] = clampChannel(gray + (r - gray) * amount);
+    data[i + 1] = clampChannel(gray + (g - gray) * amount);
+    data[i + 2] = clampChannel(gray + (b - gray) * amount);
+  }
+};
+
+const applySepia = (data, amount) => {
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+
+    const sr = clampChannel(0.393 * r + 0.769 * g + 0.189 * b);
+    const sg = clampChannel(0.349 * r + 0.686 * g + 0.168 * b);
+    const sb = clampChannel(0.272 * r + 0.534 * g + 0.131 * b);
+
+    data[i] = clampChannel(r * (1 - amount) + sr * amount);
+    data[i + 1] = clampChannel(g * (1 - amount) + sg * amount);
+    data[i + 2] = clampChannel(b * (1 - amount) + sb * amount);
+  }
+};
+
+const applyGrayscale = (data, amount) => {
+  const rw = 0.2126;
+  const gw = 0.7152;
+  const bw = 0.0722;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const gray = rw * r + gw * g + bw * b;
+    data[i] = clampChannel(r * (1 - amount) + gray * amount);
+    data[i + 1] = clampChannel(g * (1 - amount) + gray * amount);
+    data[i + 2] = clampChannel(b * (1 - amount) + gray * amount);
+  }
+};
+
+const rgbToHsl = (r, g, b) => {
+  const nr = r / 255;
+  const ng = g / 255;
+  const nb = b / 255;
+  const max = Math.max(nr, ng, nb);
+  const min = Math.min(nr, ng, nb);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case nr:
+        h = ((ng - nb) / d + (ng < nb ? 6 : 0)) / 6;
+        break;
+      case ng:
+        h = ((nb - nr) / d + 2) / 6;
+        break;
+      default:
+        h = ((nr - ng) / d + 4) / 6;
+        break;
+    }
+  }
+
+  return { h, s, l };
+};
+
+const hueToRgb = (p, q, t) => {
+  let tempT = t;
+  if (tempT < 0) tempT += 1;
+  if (tempT > 1) tempT -= 1;
+  if (tempT < 1 / 6) return p + (q - p) * 6 * tempT;
+  if (tempT < 1 / 2) return q;
+  if (tempT < 2 / 3) return p + (q - p) * (2 / 3 - tempT) * 6;
+  return p;
+};
+
+const hslToRgb = (h, s, l) => {
+  if (s === 0) {
+    const val = clampChannel(l * 255);
+    return { r: val, g: val, b: val };
+  }
+
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+
+  const r = hueToRgb(p, q, h + 1 / 3);
+  const g = hueToRgb(p, q, h);
+  const b = hueToRgb(p, q, h - 1 / 3);
+
+  return {
+    r: clampChannel(r * 255),
+    g: clampChannel(g * 255),
+    b: clampChannel(b * 255)
+  };
+};
+
+const applyHueRotate = (data, degrees) => {
+  if (!degrees) return;
+  const shift = degrees / 360;
+  for (let i = 0; i < data.length; i += 4) {
+    const { h, s, l } = rgbToHsl(data[i], data[i + 1], data[i + 2]);
+    let rotatedHue = h + shift;
+    rotatedHue = rotatedHue - Math.floor(rotatedHue);
+    if (rotatedHue < 0) {
+      rotatedHue += 1;
+    }
+    const { r, g, b } = hslToRgb(rotatedHue, s, l);
+    data[i] = r;
+    data[i + 1] = g;
+    data[i + 2] = b;
+  }
+};
+
+const applyPipelineToImageData = (imageData, pipeline) => {
+  if (!pipeline || pipeline.length === 0) {
+    return imageData;
+  }
+
+  const { data } = imageData;
+  pipeline.forEach(({ type, amount }) => {
+    switch (type) {
+      case 'brightness':
+        applyBrightness(data, amount);
+        break;
+      case 'contrast':
+        applyContrast(data, amount);
+        break;
+      case 'saturate':
+        applySaturate(data, amount);
+        break;
+      case 'sepia':
+        applySepia(data, amount);
+        break;
+      case 'grayscale':
+        applyGrayscale(data, amount);
+        break;
+      case 'hueRotate':
+        applyHueRotate(data, amount);
+        break;
+      default:
+        break;
+    }
+  });
+  return imageData;
+};
+
+const detectCanvasFilterSupport = () => {
+  if (typeof document === 'undefined') {
+    return false;
+  }
+
+  try {
+    const testCanvas = document.createElement('canvas');
+    const testContext = testCanvas.getContext('2d');
+    if (!testContext || typeof testContext.filter === 'undefined') {
+      return false;
+    }
+    const originalFilter = testContext.filter;
+    testContext.filter = 'brightness(1.1)';
+    const supported = testContext.filter === 'brightness(1.1)';
+    testContext.filter = originalFilter || 'none';
+    return supported;
+  } catch (error) {
+    console.warn('⚠️ Canvas filter support detection failed:', error);
+    return false;
+  }
+};
 export default function EditPhoto() {
   const [photos, setPhotos] = useState([]);
   const [videos, setVideos] = useState([]);
@@ -87,6 +321,7 @@ export default function EditPhoto() {
   const [isUploading, setIsUploading] = useState(false);
 
   const isBrowser = typeof window !== 'undefined';
+  const canvasFilterSupported = useMemo(() => (isBrowser ? detectCanvasFilterSupport() : false), [isBrowser]);
   const isDevEnv = import.meta.env.DEV;
   const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL;
   const getDevApiBaseUrl = () => {
@@ -241,6 +476,64 @@ export default function EditPhoto() {
   const anySlotHasFilter = () => {
     if (!frameConfig?.slots) return false;
     return frameConfig.slots.some((_, index) => resolveSlotFilterId(index) !== 'none');
+  };
+
+  const drawImageWithFilter = (ctx, image, dx, dy, dWidth, dHeight, options = {}) => {
+    if (!ctx || !image) return;
+    if (!Number.isFinite(dWidth) || !Number.isFinite(dHeight) || dWidth === 0 || dHeight === 0) {
+      return;
+    }
+
+    const { filterId: filterIdOverride, filterCss: filterCssOverride } = options;
+    const effectiveFilterId = filterIdOverride ?? 'none';
+    const cssFilter = filterCssOverride ?? (effectiveFilterId === 'none' ? 'none' : getFilterCssValue(effectiveFilterId));
+
+    if (canvasFilterSupported && cssFilter && cssFilter !== 'none') {
+      ctx.filter = cssFilter;
+      ctx.drawImage(image, dx, dy, dWidth, dHeight);
+      ctx.filter = 'none';
+      return;
+    }
+
+    if (!effectiveFilterId || effectiveFilterId === 'none') {
+      ctx.drawImage(image, dx, dy, dWidth, dHeight);
+      return;
+    }
+
+    const pipeline = FILTER_PIPELINES[effectiveFilterId];
+    if (!pipeline || pipeline.length === 0) {
+      ctx.drawImage(image, dx, dy, dWidth, dHeight);
+      return;
+    }
+
+    if (typeof document === 'undefined') {
+      ctx.drawImage(image, dx, dy, dWidth, dHeight);
+      return;
+    }
+
+    const targetWidth = Math.max(1, Math.round(dWidth));
+    const targetHeight = Math.max(1, Math.round(dHeight));
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = targetWidth;
+    offscreen.height = targetHeight;
+    const offCtx = offscreen.getContext('2d');
+    if (!offCtx) {
+      ctx.drawImage(image, dx, dy, dWidth, dHeight);
+      return;
+    }
+
+    offCtx.imageSmoothingEnabled = ctx.imageSmoothingEnabled;
+    if (ctx.imageSmoothingQuality) {
+      offCtx.imageSmoothingQuality = ctx.imageSmoothingQuality;
+    }
+
+    offCtx.drawImage(image, 0, 0, targetWidth, targetHeight);
+    const imageData = offCtx.getImageData(0, 0, targetWidth, targetHeight);
+    applyPipelineToImageData(imageData, pipeline);
+    offCtx.putImageData(imageData, 0, 0);
+
+    ctx.drawImage(offscreen, dx, dy, dWidth, dHeight);
   };
 
   const getPhotoSourceForSlot = (slotIndex) => {
@@ -1538,8 +1831,18 @@ export default function EditPhoto() {
 
       const isVideoMedia = media instanceof HTMLVideoElement;
       const transform = getSlotTransform(slotIndex, isVideoMedia);
-      const { mirrored = false, filterCssOverride } = options;
-      const slotFilterCss = filterCssOverride ?? getSlotFilterCss(slotIndex);
+      const { mirrored = false, filterCssOverride, filterIdOverride } = options;
+      const resolvedFilterId = filterIdOverride ?? resolveSlotFilterId(slotIndex);
+      const slotFilterCss = (() => {
+        if (filterCssOverride !== undefined) {
+          return filterCssOverride;
+        }
+        if (!resolvedFilterId || resolvedFilterId === 'none') {
+          return 'none';
+        }
+        const cssValue = getFilterCssValue(resolvedFilterId);
+        return cssValue && cssValue.trim().length > 0 ? cssValue : 'none';
+      })();
 
       const previewSlotX = slot.left * PREVIEW_WIDTH;
       const previewSlotY = slot.top * PREVIEW_HEIGHT;
@@ -1596,15 +1899,23 @@ export default function EditPhoto() {
       videoCtx.beginPath();
       videoCtx.rect(slotX, slotY, slotWidth, slotHeight);
       videoCtx.clip();
-      videoCtx.filter = slotFilterCss && slotFilterCss !== 'none' ? slotFilterCss : 'none';
-    const shouldMirrorVideo = isVideoMedia && !mirrored;
+      const shouldMirrorVideo = isVideoMedia && !mirrored;
       if (shouldMirrorVideo) {
-        videoCtx.drawImage(media, finalX + finalWidth, finalY, -finalWidth, finalHeight);
+        videoCtx.save();
+        videoCtx.translate(finalX + finalWidth, finalY);
+        videoCtx.scale(-1, 1);
+        drawImageWithFilter(videoCtx, media, 0, 0, finalWidth, finalHeight, {
+          filterId: resolvedFilterId,
+          filterCss: slotFilterCss
+        });
+        videoCtx.restore();
       } else {
-        videoCtx.drawImage(media, finalX, finalY, finalWidth, finalHeight);
+        drawImageWithFilter(videoCtx, media, finalX, finalY, finalWidth, finalHeight, {
+          filterId: resolvedFilterId,
+          filterCss: slotFilterCss
+        });
       }
       videoCtx.restore();
-      videoCtx.filter = 'none';
     };
 
     const animationStart = performance.now();
@@ -1640,17 +1951,13 @@ export default function EditPhoto() {
       frameConfig.slots.forEach((_, slotIndex) => {
         const videoEntry = slotVideoElements[slotIndex];
         if (videoEntry && videoEntry.video.readyState >= 2) {
-          const slotFilterCss = getSlotFilterCss(slotIndex);
           drawMediaInSlot(videoEntry.video, slotIndex, {
-            mirrored: Boolean(videoEntry.info?.mirrored),
-            filterCssOverride: slotFilterCss
+            mirrored: Boolean(videoEntry.info?.mirrored)
           });
         } else {
           const fallbackImage = slotPhotoElements[slotIndex];
           if (fallbackImage) {
-            drawMediaInSlot(fallbackImage, slotIndex, {
-              filterCssOverride: getSlotFilterCss(slotIndex)
-            });
+            drawMediaInSlot(fallbackImage, slotIndex);
           }
         }
       });
@@ -2616,13 +2923,12 @@ export default function EditPhoto() {
           
           console.log(`📐 Slot ${slotIndex + 1}: Final photo ${finalPhotoWidth.toFixed(1)}x${finalPhotoHeight.toFixed(1)} at ${finalPhotoX.toFixed(1)},${finalPhotoY.toFixed(1)}`);
           
-          // Draw photo dengan ukuran dan posisi final + filter
-          const slotFilterCss = getFilterCssValue(resolveSlotFilterId(slotIndex));
-          ctx.filter = slotFilterCss && slotFilterCss !== 'none' ? slotFilterCss : 'none';
-          ctx.drawImage(img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight);
-          
+          const slotFilterId = resolveSlotFilterId(slotIndex);
+          drawImageWithFilter(ctx, img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight, {
+            filterId: slotFilterId
+          });
+
           ctx.restore();
-          ctx.filter = 'none';
           
           renderedCount++;
           console.log(`✅ Slot ${slotIndex + 1}: Rendered successfully`);
@@ -2763,13 +3069,12 @@ export default function EditPhoto() {
         
         console.log(`Final photo dimensions: ${finalPhotoWidth.toFixed(1)}x${finalPhotoHeight.toFixed(1)} at ${finalPhotoX.toFixed(1)},${finalPhotoY.toFixed(1)}`);
         
-        // Draw photo dengan ukuran dan posisi final
-  const standardFilterCss = getFilterCssValue(resolveSlotFilterId(index));
-  ctx.filter = standardFilterCss && standardFilterCss !== 'none' ? standardFilterCss : 'none';
-  ctx.drawImage(img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight);
-        
-  ctx.restore();
-  ctx.filter = 'none';
+        const slotFilterId = resolveSlotFilterId(index);
+        drawImageWithFilter(ctx, img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight, {
+          filterId: slotFilterId
+        });
+
+        ctx.restore();
         
         renderedCount++;
         console.log(`Slot/Photo ${index + 1}: Rendered successfully`);
@@ -3028,11 +3333,11 @@ export default function EditPhoto() {
                 const imgX = slotX + (slotWidth - scaledWidth) / 2 + (transform.translateX || 0);
                 const imgY = slotY + (slotHeight - scaledHeight) / 2 + (transform.translateY || 0);
                 
-                const slotFilterCss = getFilterCssValue(resolveSlotFilterId(slotIndex));
-                ctx.filter = slotFilterCss && slotFilterCss !== 'none' ? slotFilterCss : 'none';
-                ctx.drawImage(img, imgX, imgY, scaledWidth, scaledHeight);
+                const slotFilterId = resolveSlotFilterId(slotIndex);
+                drawImageWithFilter(ctx, img, imgX, imgY, scaledWidth, scaledHeight, {
+                  filterId: slotFilterId
+                });
                 ctx.restore();
-                ctx.filter = 'none';
                 resolve();
               };
               img.src = actualPhotoSrc;
@@ -3071,11 +3376,11 @@ export default function EditPhoto() {
                 const imgX = slotX + (slotWidth - scaledWidth) / 2 + transform.x;
                 const imgY = slotY + (slotHeight - scaledHeight) / 2 + transform.y;
                 
-                const slotFilterCss = getFilterCssValue(resolveSlotFilterId(i));
-                ctx.filter = slotFilterCss && slotFilterCss !== 'none' ? slotFilterCss : 'none';
-                ctx.drawImage(img, imgX, imgY, scaledWidth, scaledHeight);
+                const slotFilterId = resolveSlotFilterId(i);
+                drawImageWithFilter(ctx, img, imgX, imgY, scaledWidth, scaledHeight, {
+                  filterId: slotFilterId
+                });
                 ctx.restore();
-                ctx.filter = 'none';
                 resolve();
               };
               img.src = photos[i];

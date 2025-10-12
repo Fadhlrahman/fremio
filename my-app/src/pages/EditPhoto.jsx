@@ -1460,8 +1460,12 @@ export default function EditPhoto() {
     };
 
     const getSlotTransform = (slotIndex, isVideo = false) => {
-      const existing = photoTransforms?.[slotIndex];
-      if (existing) return existing;
+      if (!isVideo) {
+        const existingPhotoTransform = photoTransforms?.[slotIndex];
+        if (existingPhotoTransform) {
+          return existingPhotoTransform;
+        }
+      }
 
       if (isVideo) {
         return {
@@ -1482,24 +1486,36 @@ export default function EditPhoto() {
     };
 
     const calculateDefaultVideoScale = ({
-      baseWidth,
-      baseHeight,
+      mediaWidth,
+      mediaHeight,
+      displayWidth,
+      displayHeight,
       slotWidth,
       slotHeight
     }) => {
-      if (!baseWidth || !baseHeight || !slotWidth || !slotHeight) {
+      if (!mediaWidth || !mediaHeight || !displayWidth || !displayHeight || !slotWidth || !slotHeight) {
         return 1;
       }
 
-      const MAX_ZOOM = 6;
-      const BUFFER = 1.008;
+      const isPortraitVideo = mediaHeight >= mediaWidth;
+      const targetSlotDimension = isPortraitVideo ? slotWidth : slotHeight;
+      const currentDisplayDimension = isPortraitVideo ? displayWidth : displayHeight;
 
-      const widthScale = slotWidth / baseWidth;
-      const heightScale = slotHeight / baseHeight;
-      const coverageScale = Math.max(widthScale, heightScale, 1);
+      if (!targetSlotDimension || !currentDisplayDimension) {
+        return 1;
+      }
 
-      const bufferedScale = Math.min(MAX_ZOOM, coverageScale * BUFFER);
-      return Number(bufferedScale.toFixed(4));
+      let computedScale = targetSlotDimension / currentDisplayDimension;
+
+      // Only allow zooming out (scale <= 1) using this auto adjustment
+      if (computedScale > 1) {
+        computedScale = 1;
+      }
+
+      const MIN_SCALE = 0.2;
+      const clampedScale = Math.max(MIN_SCALE, computedScale);
+
+      return Number(clampedScale.toFixed(4));
     };
 
     const drawMediaInSlot = (media, slotIndex, options = {}) => {
@@ -1548,8 +1564,10 @@ export default function EditPhoto() {
       if (!(typeof transformScale === 'number' && Number.isFinite(transformScale) && transformScale > 0)) {
         if (isVideoMedia) {
           transformScale = calculateDefaultVideoScale({
-            baseWidth: mediaDisplayWidth,
-            baseHeight: mediaDisplayHeight,
+            mediaWidth: dimensions.width,
+            mediaHeight: dimensions.height,
+            displayWidth: mediaDisplayWidth,
+            displayHeight: mediaDisplayHeight,
             slotWidth,
             slotHeight
           });
@@ -3915,138 +3933,6 @@ export default function EditPhoto() {
                   ? `Pilih filter untuk slot ${selectedPhotoForEdit + 1}. Gunakan tombol preset untuk menerapkan ke slot ini saja.`
                   : 'Tidak memilih slot? Filter akan diterapkan ke semua foto pada preview secara instan.'}
               </div>
-
-              {recordedClips.length > 0 && (
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.75rem',
-                  padding: '1rem',
-                  borderRadius: '12px',
-                  border: '1px solid #e5e7eb',
-                  background: '#f8f9fa'
-                }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between'
-                  }}>
-                    <span style={{
-                      fontWeight: '600',
-                      color: '#333'
-                    }}>
-                      Countdown Videos
-                    </span>
-                    <span style={{
-                      fontSize: '0.8rem',
-                      color: '#777'
-                    }}>
-                      {recordedClips.length} klip
-                    </span>
-                  </div>
-
-                  <div style={{
-                    fontSize: '0.85rem',
-                    color: '#666'
-                  }}>
-                    Rekaman countdown terbaru siap diunduh atau dipakai untuk preview frame video.
-                  </div>
-
-                  <div style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.75rem',
-                    maxHeight: '220px',
-                    overflowY: 'auto',
-                    paddingRight: '0.25rem'
-                  }}>
-                    {recordedClips.map(({ index, clip }) => {
-                      const extension = (() => {
-                        if (!clip?.mimeType) return 'webm';
-                        const parts = clip.mimeType.split('/');
-                        return parts.length > 1 ? parts[1] : 'webm';
-                      })();
-                      const isMirroredClip = Boolean(clip?.mirrored);
-
-                      return (
-                        <div
-                          key={`countdown-clip-${index}`}
-                          style={{
-                            display: 'flex',
-                            gap: '0.75rem',
-                            alignItems: 'flex-start'
-                          }}
-                        >
-                          <div style={{
-                            flex: '0 0 90px',
-                            borderRadius: '10px',
-                            overflow: 'hidden',
-                            border: '1px solid #e5e7eb',
-                            background: '#fff'
-                          }}>
-                            <video
-                              src={clip?.dataUrl}
-                              controls
-                              style={{
-                                width: '100%',
-                                display: 'block',
-                                background: '#000',
-                                transform: isMirroredClip ? 'none' : 'scaleX(-1)'
-                              }}
-                            />
-                          </div>
-
-                          <div style={{
-                            flex: 1,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '0.35rem'
-                          }}>
-                            <div style={{
-                              fontWeight: '600',
-                              color: '#333'
-                            }}>
-                              Klip #{index + 1}
-                            </div>
-                            <div style={{
-                              fontSize: '0.8rem',
-                              color: '#555'
-                            }}>
-                              Durasi: {formatSeconds(clip?.duration)} detik · Timer: {formatSeconds(clip?.timer)} detik
-                            </div>
-                            <div style={{
-                              display: 'flex',
-                              gap: '0.5rem',
-                              flexWrap: 'wrap'
-                            }}>
-                              <a
-                                href={clip?.dataUrl || '#'}
-                                download={`fremio-countdown-${index + 1}.${extension}`}
-                                style={{
-                                  fontSize: '0.8rem',
-                                  color: '#E8A889',
-                                  textDecoration: 'none',
-                                  fontWeight: '600'
-                                }}
-                              >
-                                ⬇️ Download
-                              </a>
-                              {clip?.mimeType && (
-                                <span style={{
-                                  fontSize: '0.75rem',
-                                  color: '#888'
-                                }}>
-                                  {clip.mimeType}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
 
               {selectedPhotoForEdit !== null && (
                 <div style={{

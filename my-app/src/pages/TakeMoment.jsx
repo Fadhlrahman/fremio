@@ -247,6 +247,140 @@ export default function TakeMoment() {
     return 1_200_000;
   };
 
+  const renderConfirmationModal = () => {
+    if (!showConfirmation || !currentPhoto) return null;
+
+    return (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.85)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1000,
+          padding: "1.5rem",
+        }}
+      >
+        <div
+          style={{
+            background: "#fff",
+            borderRadius: "18px",
+            width: "min(420px, 100%)",
+            maxHeight: "calc(100vh - 3rem)",
+            padding: "1.75rem",
+            boxShadow: "0 24px 48px rgba(0,0,0,0.25)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "1.5rem",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexDirection: "column",
+              gap: "0.75rem",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "1.4rem",
+                fontWeight: 700,
+                color: "#333",
+              }}
+            >
+              📸 Foto berhasil diambil!
+            </div>
+            <img
+              src={currentPhoto}
+              alt="Captured"
+              style={{
+                width: "100%",
+                maxHeight: "320px",
+                borderRadius: "12px",
+                objectFit: "contain",
+                boxShadow: "0 12px 24px rgba(0,0,0,0.2)",
+              }}
+            />
+            {currentVideo && (
+              <video
+                src={currentVideo.dataUrl}
+                controls
+                playsInline
+                muted
+                style={{
+                  width: "100%",
+                  maxHeight: "240px",
+                  borderRadius: "12px",
+                  objectFit: "contain",
+                  boxShadow: "0 12px 24px rgba(0,0,0,0.2)",
+                  transform: currentVideo.requiresPreviewMirror ? "scaleX(-1)" : "none",
+                }}
+              />
+            )}
+            {isVideoProcessing && (
+              <div
+                style={{
+                  fontSize: "0.95rem",
+                  fontWeight: 600,
+                  color: "#E8A889",
+                }}
+              >
+                ⏳ Menyiapkan video, mohon tunggu sebentar...
+              </div>
+            )}
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              gap: "1rem",
+              flexWrap: "wrap",
+              justifyContent: "center",
+            }}
+          >
+            <button
+              onClick={handleChoosePhoto}
+              disabled={isVideoProcessing}
+              style={{
+                flex: "1 1 120px",
+                padding: "0.85rem 1.5rem",
+                borderRadius: "999px",
+                border: "none",
+                background: isVideoProcessing ? "#6c757d" : "#28a745",
+                color: "#fff",
+                fontWeight: 600,
+                cursor: isVideoProcessing ? "not-allowed" : "pointer",
+                boxShadow: "0 16px 32px rgba(40,167,69,0.35)",
+              }}
+            >
+              {isVideoProcessing ? "⏳ Sedang menyiapkan..." : "✓ Pilih"}
+            </button>
+            <button
+              onClick={handleRetakePhoto}
+              style={{
+                flex: "1 1 120px",
+                padding: "0.85rem 1.5rem",
+                borderRadius: "999px",
+                border: "none",
+                background: "#6c757d",
+                color: "#fff",
+                fontWeight: 600,
+                cursor: "pointer",
+                boxShadow: "0 16px 32px rgba(108,117,125,0.35)",
+              }}
+            >
+              🔄 Ulangi
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const startCamera = useCallback(
     async (desiredFacingMode = "user") => {
       try {
@@ -656,6 +790,26 @@ export default function TakeMoment() {
     isVideoProcessing,
   ]);
 
+  useEffect(() => {
+    if (!cameraActive) return;
+
+    const handleKeyDown = (event) => {
+      if (event.repeat) return;
+      if (event.code !== "Space" && event.key !== " ") return;
+
+      const target = event.target;
+      const tagName = target?.tagName;
+      if (tagName && ["INPUT", "TEXTAREA", "SELECT"].includes(tagName)) return;
+      if (target?.isContentEditable) return;
+
+      event.preventDefault();
+      handleCapture();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [cameraActive, handleCapture]);
+
   const handleChoosePhoto = useCallback(async () => {
     if (!currentPhoto) return;
 
@@ -879,23 +1033,35 @@ export default function TakeMoment() {
 
   const renderPreviewPanel = (variant) => {
     const isMobileVariant = variant === "mobile";
-
-    return (
-      <div
-        style={{
+    const containerStyle = isMobileVariant
+      ? {
           background: "#fff",
-          borderRadius: isMobileVariant ? "16px" : "20px",
-          padding: isMobileVariant ? "1rem" : "1.5rem",
-          margin: isMobileVariant ? "0 0 1rem" : "0 auto",
-          minHeight: isMobileVariant ? "260px" : "320px",
+          borderRadius: "14px",
+          padding: "0.85rem",
+          margin: "0 0 1rem",
+          minHeight: "220px",
           display: "flex",
           flexDirection: "column",
-          gap: "1rem",
+          gap: "0.75rem",
           width: "100%",
-          maxWidth: isMobileVariant ? "100%" : "min(920px, 100%)",
-          boxShadow: isMobileVariant ? "none" : "0 24px 48px rgba(148,163,184,0.18)",
-        }}
-      >
+          boxShadow: "none",
+        }
+      : {
+          background: "rgba(232,168,137,0.24)",
+          borderRadius: "24px",
+          padding: "0.85rem 1.1rem",
+          minHeight: "150px",
+          width: "min(420px, 100%)",
+          display: "flex",
+          flexDirection: "column",
+          gap: "0.6rem",
+          boxShadow: "0 24px 48px rgba(232,168,137,0.22)",
+          border: "1px solid rgba(232,168,137,0.28)",
+          alignSelf: "center",
+        };
+
+    return (
+      <div style={containerStyle}>
         <header
           style={{
             display: "flex",
@@ -906,7 +1072,7 @@ export default function TakeMoment() {
         >
           <h3
             style={{
-              fontSize: isMobileVariant ? "1.1rem" : "1.5rem",
+              fontSize: isMobileVariant ? "1.05rem" : "1.05rem",
               fontWeight: "bold",
               color: "#333",
               margin: 0,
@@ -940,10 +1106,11 @@ export default function TakeMoment() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: capturedPhotos.length > 1 ? "repeat(auto-fit, minmax(160px, 1fr))" : "1fr",
-                gap: isMobileVariant ? "0.5rem" : "0.75rem",
+                gridTemplateColumns:
+                  capturedPhotos.length > 1 ? "repeat(auto-fit, minmax(110px, 1fr))" : "1fr",
+                gap: isMobileVariant ? "0.45rem" : "0.45rem",
                 width: "100%",
-                maxWidth: isMobileVariant ? "260px" : "100%",
+                maxWidth: isMobileVariant ? "240px" : "100%",
               }}
             >
               {capturedPhotos.map((photo, idx) => (
@@ -952,9 +1119,9 @@ export default function TakeMoment() {
                   style={{
                     position: "relative",
                     aspectRatio: videoAspectRatio.toString(),
-                    borderRadius: "10px",
+                    borderRadius: "12px",
                     overflow: "hidden",
-                    boxShadow: "0 2px 12px rgba(0,0,0,0.12)",
+                    boxShadow: isMobileVariant ? "0 2px 10px rgba(0,0,0,0.12)" : "0 10px 20px rgba(15,23,42,0.15)",
                     transition: "transform 0.2s ease",
                   }}
                 >
@@ -974,13 +1141,13 @@ export default function TakeMoment() {
                       position: "absolute",
                       top: "6px",
                       right: "6px",
-                      width: "26px",
-                      height: "26px",
-                      borderRadius: "13px",
+                      width: "22px",
+                      height: "22px",
+                      borderRadius: "11px",
                       border: "none",
                       background: "rgba(255, 59, 48, 0.95)",
                       color: "white",
-                      fontSize: "16px",
+                      fontSize: "14px",
                       fontWeight: "bold",
                       cursor: "pointer",
                       display: "flex",
@@ -1000,7 +1167,7 @@ export default function TakeMoment() {
               style={{
                 textAlign: "center",
                 color: "#999",
-                fontSize: isMobileVariant ? "0.95rem" : "1rem",
+                fontSize: isMobileVariant ? "0.9rem" : "0.82rem",
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
@@ -1009,7 +1176,7 @@ export default function TakeMoment() {
             >
               <div
                 style={{
-                  fontSize: "2.75rem",
+                  fontSize: isMobileVariant ? "2.35rem" : "1.9rem",
                   lineHeight: 1,
                 }}
               >
@@ -1024,7 +1191,7 @@ export default function TakeMoment() {
               </div>
               <div
                 style={{
-                  fontSize: "0.85rem",
+                  fontSize: isMobileVariant ? "0.8rem" : "0.72rem",
                   color: "#666",
                 }}
               >
@@ -1039,15 +1206,15 @@ export default function TakeMoment() {
           disabled={capturedPhotos.length < maxCaptures}
           style={{
             width: "100%",
-            padding: isMobileVariant ? "0.85rem" : "1rem",
-            background: capturedPhotos.length >= maxCaptures ? "#E8A889" : "#d0d7de",
+            padding: isMobileVariant ? "0.75rem" : "0.65rem",
+            background: capturedPhotos.length >= maxCaptures ? "#1E293B" : "#d7dde5",
             color: "white",
             border: "none",
             borderRadius: "999px",
-            fontSize: "1rem",
+            fontSize: isMobileVariant ? "0.95rem" : "0.88rem",
             fontWeight: 600,
             cursor: capturedPhotos.length >= maxCaptures ? "pointer" : "not-allowed",
-            boxShadow: "0 8px 16px rgba(0,0,0,0.1)",
+            boxShadow: isMobileVariant ? "0 8px 16px rgba(0,0,0,0.1)" : "0 14px 28px rgba(30,41,59,0.15)",
             transition: "transform 0.2s ease",
             opacity: capturedPhotos.length >= maxCaptures ? 1 : 0.7,
           }}
@@ -1056,140 +1223,6 @@ export default function TakeMoment() {
             ? "✨ Edit Photos"
             : `📝 ${capturedPhotos.length}/${maxCaptures} foto`}
         </button>
-      </div>
-    );
-  };
-
-  const renderConfirmationModal = () => {
-    if (!showConfirmation || !currentPhoto) return null;
-
-    return (
-      <div
-        style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(0,0,0,0.85)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          zIndex: 1000,
-          padding: "1.5rem",
-        }}
-      >
-        <div
-          style={{
-            background: "#fff",
-            borderRadius: "18px",
-            width: "min(420px, 100%)",
-            maxHeight: "calc(100vh - 3rem)",
-            padding: "1.75rem",
-            boxShadow: "0 24px 48px rgba(0,0,0,0.25)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "1.5rem",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexDirection: "column",
-              gap: "0.75rem",
-            }}
-          >
-            <div
-              style={{
-                fontSize: "1.4rem",
-                fontWeight: 700,
-                color: "#333",
-              }}
-            >
-              📸 Foto berhasil diambil!
-            </div>
-            <img
-              src={currentPhoto}
-              alt="Captured"
-              style={{
-                width: "100%",
-                maxHeight: "320px",
-                borderRadius: "12px",
-                objectFit: "contain",
-                boxShadow: "0 12px 24px rgba(0,0,0,0.2)",
-              }}
-            />
-            {currentVideo && (
-              <video
-                src={currentVideo.dataUrl}
-                controls
-                playsInline
-                muted
-                style={{
-                  width: "100%",
-                  maxHeight: "240px",
-                  borderRadius: "12px",
-                  objectFit: "contain",
-                  boxShadow: "0 12px 24px rgba(0,0,0,0.2)",
-                  transform: currentVideo.requiresPreviewMirror ? "scaleX(-1)" : "none",
-                }}
-              />
-            )}
-            {isVideoProcessing && (
-              <div
-                style={{
-                  fontSize: "0.95rem",
-                  fontWeight: 600,
-                  color: "#E8A889",
-                }}
-              >
-                ⏳ Menyiapkan video, mohon tunggu sebentar...
-              </div>
-            )}
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              gap: "1rem",
-              flexWrap: "wrap",
-              justifyContent: "center",
-            }}
-          >
-            <button
-              onClick={handleChoosePhoto}
-              disabled={isVideoProcessing}
-              style={{
-                flex: "1 1 120px",
-                padding: "0.85rem 1.5rem",
-                borderRadius: "999px",
-                border: "none",
-                background: isVideoProcessing ? "#6c757d" : "#28a745",
-                color: "#fff",
-                fontWeight: 600,
-                cursor: isVideoProcessing ? "not-allowed" : "pointer",
-                boxShadow: "0 16px 32px rgba(40,167,69,0.35)",
-              }}
-            >
-              {isVideoProcessing ? "⏳ Sedang menyiapkan..." : "✓ Pilih"}
-            </button>
-            <button
-              onClick={handleRetakePhoto}
-              style={{
-                flex: "1 1 120px",
-                padding: "0.85rem 1.5rem",
-                borderRadius: "999px",
-                border: "none",
-                background: "#6c757d",
-                color: "#fff",
-                fontWeight: 600,
-                cursor: "pointer",
-                boxShadow: "0 16px 32px rgba(108,117,125,0.35)",
-              }}
-            >
-              🔄 Ulangi
-            </button>
-          </div>
-        </div>
       </div>
     );
   };
@@ -1409,7 +1442,11 @@ export default function TakeMoment() {
           borderRadius: isMobileVariant ? "18px" : "20px",
           overflow: "hidden",
           position: "relative",
-          minHeight: isMobileVariant ? "360px" : "420px",
+          minHeight: isMobileVariant ? "360px" : "320px",
+          maxWidth: isMobileVariant ? "100%" : "640px",
+          width: "100%",
+          margin: "0 auto",
+          aspectRatio: isMobileVariant ? undefined : "4 / 3",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -1526,9 +1563,65 @@ export default function TakeMoment() {
   };
 
   const renderCaptureButton = (variant) => {
-    if (!cameraActive) return null;
-
     const isMobileVariant = variant === "mobile";
+    const disableCapture = isCaptureDisabled || !cameraActive;
+
+    if (isMobileVariant) {
+      return (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "0.9rem",
+            padding: "1.25rem 0",
+          }}
+        >
+          <div
+            style={{
+              fontSize: "0.95rem",
+              fontWeight: 600,
+              color: hasReachedMaxPhotos ? "#ef4444" : "#475569",
+              textAlign: "center",
+            }}
+          >
+            Foto: {capturedPhotos.length}/{maxCaptures}
+            {hasReachedMaxPhotos && " - maksimal tercapai!"}
+          </div>
+
+          <button
+            onClick={handleCapture}
+            disabled={disableCapture}
+            style={{
+              width: "88px",
+              height: "88px",
+              borderRadius: "50%",
+              border: "none",
+              background: disableCapture ? "#e2e8f0" : "#E8A889",
+              color: "white",
+              fontSize: "1.5rem",
+              fontWeight: 700,
+              boxShadow: disableCapture ? "none" : "0 20px 40px rgba(232,168,137,0.4)",
+              cursor: disableCapture ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {capturedPhotos.length >= maxCaptures
+              ? "🚫"
+              : capturing
+              ? `⏳ ${countdown ?? timer}s`
+              : isVideoProcessing
+              ? "🎬"
+              : cameraActive
+              ? "📸"
+              : "📷"}
+          </button>
+        </div>
+      );
+    }
 
     return (
       <div
@@ -1538,163 +1631,169 @@ export default function TakeMoment() {
           alignItems: "center",
           justifyContent: "center",
           gap: "0.75rem",
-          padding: isMobileVariant ? "1.25rem 0" : "1.5rem 0",
+          padding: "1.25rem 0 0.5rem",
         }}
       >
+        <button
+          onClick={handleCapture}
+          disabled={disableCapture}
+          style={{
+            padding: "0.85rem 1.9rem",
+            borderRadius: "999px",
+            border: "none",
+            background: disableCapture ? "#e2e8f0" : "#1E293B",
+            color: disableCapture ? "#94a3b8" : "#fff",
+            fontSize: "1.05rem",
+            fontWeight: 600,
+            cursor: disableCapture ? "not-allowed" : "pointer",
+            boxShadow: disableCapture ? "none" : "0 18px 36px rgba(15,23,42,0.2)",
+            minWidth: "200px",
+            transition: "transform 0.2s ease, box-shadow 0.2s ease",
+          }}
+        >
+          {disableCapture && !cameraActive ? "Aktifkan kamera" : "Capture"}
+        </button>
+
+        <div
+          style={{
+            fontSize: "0.9rem",
+            color: "#475569",
+            fontWeight: 500,
+            textAlign: "center",
+          }}
+        >
+          Tekan spasi untuk capture
+        </div>
+
         <div
           style={{
             fontSize: "0.95rem",
             fontWeight: 600,
             color: hasReachedMaxPhotos ? "#ef4444" : "#475569",
+            textAlign: "center",
           }}
         >
           Foto: {capturedPhotos.length}/{maxCaptures}
           {hasReachedMaxPhotos && " - maksimal tercapai!"}
         </div>
-
-        <button
-          onClick={handleCapture}
-          disabled={isCaptureDisabled}
-          style={{
-            width: isMobileVariant ? "88px" : "120px",
-            height: isMobileVariant ? "88px" : "120px",
-            borderRadius: "50%",
-            border: "none",
-            background: isCaptureDisabled ? "#e2e8f0" : "#E8A889",
-            color: "white",
-            fontSize: "1.5rem",
-            fontWeight: 700,
-            boxShadow: isCaptureDisabled ? "none" : "0 20px 40px rgba(232,168,137,0.4)",
-            cursor: isCaptureDisabled ? "not-allowed" : "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          {capturedPhotos.length >= maxCaptures
-            ? "🚫"
-            : capturing
-            ? `⏳ ${countdown ?? timer}s`
-            : isVideoProcessing
-            ? "🎬"
-            : "📸"}
-        </button>
       </div>
     );
   };
 
-  const renderDesktopLayout = () => (
-    <main
-      style={{
-        minHeight: "100vh",
-        background: "#F4E6DA",
-        padding: "3rem",
-        display: "flex",
-        flexDirection: "column",
-        gap: "2rem",
-      }}
-    >
-      <header
+  const renderDesktopLayout = () => {
+    const captureControls = renderCaptureButton("desktop");
+
+    return (
+      <main
         style={{
+          minHeight: "100vh",
+          background: "#F4E6DA",
+          padding: "3rem",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "1.5rem",
+          flexDirection: "column",
+          gap: "2rem",
         }}
       >
-        <img src={fremioLogo} alt="Fremio" style={{ width: "48px", height: "48px" }} />
-        <h1
-          style={{
-            fontSize: "2.6rem",
-            fontWeight: 700,
-            color: "#1E293B",
-            margin: 0,
-          }}
-        >
-          Take your <span style={{ color: "#E8A889" }}>moment</span>
-        </h1>
-        <nav
+        <header
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "1rem",
-            fontWeight: 600,
+            justifyContent: "space-between",
+            gap: "1.5rem",
           }}
         >
-          <button
-            onClick={() => navigate("/frames")}
+          <img src={fremioLogo} alt="Fremio" style={{ width: "48px", height: "48px" }} />
+          <h1
             style={{
-              padding: "0.75rem 1.25rem",
-              borderRadius: "999px",
-              border: "1px solid #e2e8f0",
-              background: "#fff",
-              cursor: "pointer",
-              color: "#475569",
-              boxShadow: "0 12px 24px rgba(15,23,42,0.08)",
+              fontSize: "2.6rem",
+              fontWeight: 700,
+              color: "#1E293B",
+              margin: 0,
             }}
           >
-            Pilih frame lain
-          </button>
-          <button
-            onClick={() => navigate("/frames")}
+            Take your <span style={{ color: "#E8A889" }}>moment</span>
+          </h1>
+          <nav
             style={{
-              padding: "0.75rem 1.25rem",
-              borderRadius: "999px",
-              border: "none",
-              background: "#E8A889",
-              color: "#fff",
-              cursor: "pointer",
-              boxShadow: "0 20px 40px rgba(232,168,137,0.4)",
+              display: "flex",
+              alignItems: "center",
+              gap: "1rem",
+              fontWeight: 600,
             }}
           >
-            History
-          </button>
-        </nav>
-      </header>
+            <button
+              onClick={() => navigate("/frames")}
+              style={{
+                padding: "0.75rem 1.25rem",
+                borderRadius: "999px",
+                border: "1px solid #e2e8f0",
+                background: "#fff",
+                cursor: "pointer",
+                color: "#475569",
+                boxShadow: "0 12px 24px rgba(15,23,42,0.08)",
+              }}
+            >
+              Pilih frame lain
+            </button>
+            <button
+              onClick={() => navigate("/frames")}
+              style={{
+                padding: "0.75rem 1.25rem",
+                borderRadius: "999px",
+                border: "none",
+                background: "#E8A889",
+                color: "#fff",
+                cursor: "pointer",
+                boxShadow: "0 20px 40px rgba(232,168,137,0.4)",
+              }}
+            >
+              History
+            </button>
+          </nav>
+        </header>
 
-      <section
-        style={{
-          background: "rgba(255,255,255,0.6)",
-          borderRadius: "28px",
-          padding: "2.5rem",
-          display: "flex",
-          justifyContent: "center",
-          boxShadow: "0 40px 80px rgba(148,163,184,0.25)",
-        }}
-      >
-        <div
+        <section
           style={{
-            width: "min(1100px, 100%)",
+            background: "rgba(255,255,255,0.6)",
+            borderRadius: "28px",
+            padding: "2.5rem",
             display: "flex",
-            flexDirection: "column",
-            gap: "2rem",
-            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 40px 80px rgba(148,163,184,0.25)",
           }}
         >
-          <div style={{ width: "100%", maxWidth: "880px" }}>{renderCameraControls("desktop")}</div>
-
           <div
             style={{
-              width: "100%",
-              maxWidth: "880px",
+              width: "min(1100px, 100%)",
               display: "flex",
               flexDirection: "column",
-              alignItems: "center",
               gap: "1.75rem",
+              alignItems: "center",
             }}
           >
-            <div style={{ width: "100%" }}>{renderCaptureArea("desktop")}</div>
-            {renderCaptureButton("desktop")}
+            <div style={{ width: "100%", maxWidth: "820px" }}>{renderCameraControls("desktop")}</div>
+
+            <div style={{ width: "100%", maxWidth: "820px" }}>{renderCaptureArea("desktop")}</div>
+
+            <div style={{ width: "100%", maxWidth: "820px" }}>{captureControls}</div>
+
+            <div
+              style={{
+                width: "100%",
+                display: "flex",
+                justifyContent: "center",
+              }}
+            >
+              {renderPreviewPanel("desktop")}
+            </div>
           </div>
+        </section>
 
-          <div style={{ width: "100%" }}>{renderPreviewPanel("desktop")}</div>
-        </div>
-      </section>
-
-      {renderStorageDebugPanel()}
-      {renderConfirmationModal()}
-    </main>
-  );
+        {renderStorageDebugPanel()}
+        {renderConfirmationModal()}
+      </main>
+    );
+  };
 
   const renderMobileLayout = () => (
     <main

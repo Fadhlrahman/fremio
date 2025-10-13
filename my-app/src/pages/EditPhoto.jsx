@@ -344,7 +344,7 @@ export default function EditPhoto() {
 
   const pagePadding = useMemo(() => {
     if (!isMobile) {
-      return '2rem';
+      return '1.5rem';
     }
 
     const topPadding = `calc(env(safe-area-inset-top, 0px) + ${isCompact ? '0.75rem' : '1rem'})`;
@@ -3328,9 +3328,9 @@ export default function EditPhoto() {
           margin: '0 auto'
         } : {
           display: 'grid',
-          gridTemplateColumns: '250px 1fr 250px',
-          gap: '2rem',
-          maxWidth: '1400px',
+          gridTemplateColumns: '210px minmax(0, 1fr) 210px',
+          gap: '1.5rem',
+          maxWidth: '1100px',
           margin: '0 auto'
         }}
       >
@@ -3339,8 +3339,8 @@ export default function EditPhoto() {
         <div
           style={{
             background: '#fff',
-            borderRadius: '20px',
-            padding: isMobile ? (isCompact ? '1rem' : '1.25rem') : '1.5rem',
+            borderRadius: '16px',
+            padding: isMobile ? (isCompact ? '0.9rem' : '1.1rem') : '1.25rem',
             height: 'fit-content',
             boxShadow: isMobile ? '0 6px 16px rgba(0,0,0,0.08)' : 'none'
           }}
@@ -3354,9 +3354,9 @@ export default function EditPhoto() {
               style={{
                 background: '#fef6f0',
                 color: '#5a4637',
-                borderRadius: '15px',
-                padding: '1rem',
-                fontSize: '0.95rem',
+                borderRadius: '12px',
+                padding: '0.9rem',
+                fontSize: '0.9rem',
                 fontWeight: '500',
                 display: 'flex',
                 flexDirection: 'column',
@@ -3367,9 +3367,9 @@ export default function EditPhoto() {
                 border: '1px solid rgba(232, 168, 137, 0.3)'
               }}
             >
-              <span style={{ fontSize: '1.8rem' }}>🎨</span>
+              <span style={{ fontSize: '1.6rem' }}>🎨</span>
               <div>Filter aktif selalu terlihat di panel kanan.</div>
-              <div style={{ fontSize: '0.8rem', color: '#8a715f', fontWeight: '400' }}>
+              <div style={{ fontSize: '0.75rem', color: '#8a715f', fontWeight: '400' }}>
                 Klik slot foto pada preview untuk mengatur filter khusus.
               </div>
             </div>
@@ -3377,11 +3377,11 @@ export default function EditPhoto() {
             {/* Frame Info */}
             {frameConfig && (
               <div style={{
-                marginTop: '1rem',
-                padding: '1rem',
+                marginTop: '0.75rem',
+                padding: '0.85rem',
                 background: '#f8f9fa',
                 borderRadius: '10px',
-                fontSize: '0.85rem',
+                fontSize: '0.8rem',
                 color: '#666'
               }}>
                 <div style={{ fontWeight: '600', marginBottom: '0.5rem' }}>
@@ -3399,12 +3399,12 @@ export default function EditPhoto() {
                 <button
                   onClick={() => setDebugMode(!debugMode)}
                   style={{
-                    background: debugMode ? '#ff6b6b' : '#f8f9fa',
-                    color: debugMode ? '#fff' : '#666',
+                      background: debugMode ? '#ff6b6b' : '#f4f5f7',
+                      color: debugMode ? '#fff' : '#555',
                     border: 'none',
-                    borderRadius: '15px',
-                    padding: '1rem',
-                    fontSize: '1rem',
+                      borderRadius: '13px',
+                      padding: '0.85rem',
+                      fontSize: '0.95rem',
                     fontWeight: '500',
                     cursor: 'pointer',
                     transition: 'all 0.3s ease',
@@ -3430,12 +3430,12 @@ export default function EditPhoto() {
                     type="button"
                     onClick={handleDeveloperLock}
                     style={{
-                      background: '#f8f9fa',
+                      background: '#f4f5f7',
                       color: '#555',
                       border: '1px solid #e0e0e0',
                       borderRadius: '10px',
-                      padding: '0.6rem 0.8rem',
-                      fontSize: '0.8rem',
+                      padding: '0.55rem 0.75rem',
+                      fontSize: '0.78rem',
                       cursor: 'pointer'
                     }}
                   >
@@ -3446,14 +3446,14 @@ export default function EditPhoto() {
             ) : (
               showDevUnlockPanel && devAccessInitialized && (
                 <div style={{
-                  marginTop: '1rem',
-                  padding: '1rem',
+                  marginTop: '0.85rem',
+                  padding: '0.9rem',
                   background: '#fff7e6',
                   borderRadius: '12px',
                   border: '1px dashed #f0c36d',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '0.75rem'
+                  gap: '0.7rem'
                 }}>
                   <div style={{
                     fontSize: '0.9rem',
@@ -3530,16 +3530,16 @@ export default function EditPhoto() {
         <div
           style={{
             background: '#fff',
-            borderRadius: '20px',
-            padding: isMobile ? (isCompact ? 'clamp(1rem, 5vw, 1.5rem)' : 'clamp(1.25rem, 5vw, 1.75rem)') : '2rem',
+            borderRadius: '16px',
+            padding: isMobile ? (isCompact ? 'clamp(1rem, 5vw, 1.5rem)' : 'clamp(1.25rem, 5vw, 1.75rem)') : '1.5rem',
             textAlign: 'center',
             boxShadow: isMobile ? '0 6px 16px rgba(0,0,0,0.08)' : 'none'
           }}
         >
           <h3
             style={{
-              marginBottom: isMobile ? (isCompact ? '1rem' : '1.25rem') : '2rem',
-              fontSize: isMobile ? (isCompact ? '1.1rem' : '1.2rem') : '1.4rem',
+              marginBottom: isMobile ? (isCompact ? '0.9rem' : '1.15rem') : '1.6rem',
+              fontSize: isMobile ? (isCompact ? '1.1rem' : '1.2rem') : '1.3rem',
               fontWeight: '600',
               color: '#333'
             }}
@@ -3551,12 +3551,12 @@ export default function EditPhoto() {
           <div
             style={{
               background: '#f8f9fa',
-              borderRadius: '15px',
+              borderRadius: '12px',
               padding: isMobile
                 ? (isCompact ? '1.4rem 1rem' : '1.75rem 1.25rem')
-                : '3rem 2rem',
-              marginBottom: isMobile ? (isCompact ? '1.25rem' : '1.5rem') : '2rem',
-              minHeight: isMobile ? (isCompact ? '320px' : '350px') : '500px',
+                : '2.25rem 1.5rem',
+              marginBottom: isMobile ? (isCompact ? '1.25rem' : '1.5rem') : '1.6rem',
+              minHeight: isMobile ? (isCompact ? '320px' : '350px') : '420px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -3607,7 +3607,7 @@ export default function EditPhoto() {
                   position: 'relative',
                   width: isMobile
                     ? (isCompact ? 'min(260px, 88vw)' : 'min(280px, 85vw)')
-                    : '350px',
+                    : '280px',
                   aspectRatio: '2/3',
                   maxWidth: '100%',
                   margin: '0 auto'
@@ -3909,17 +3909,17 @@ export default function EditPhoto() {
                 {/* Frame Info */}
                 <div style={{
                   position: 'absolute',
-                  bottom: '-40px',
+                  bottom: '-32px',
                   left: '50%',
                   transform: 'translateX(-50%)',
-                  fontSize: '0.8rem',
+                  fontSize: '0.7rem',
                   color: '#666',
                   textAlign: 'center',
                   whiteSpace: 'nowrap',
                   background: 'rgba(255,255,255,0.9)',
-                  padding: '4px 8px',
-                  borderRadius: '6px',
-                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                  padding: '3px 7px',
+                  borderRadius: '5px',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.08)'
                 }}>
                   {frameConfig.name} | {photos.filter(p => p).length}/{frameConfig.maxCaptures} photos
                 </div>
@@ -4070,8 +4070,8 @@ export default function EditPhoto() {
         <div
           style={{
             background: '#fff',
-            borderRadius: '20px',
-            padding: isMobile ? (isCompact ? '1rem' : '1.25rem') : '1.5rem',
+            borderRadius: '16px',
+            padding: isMobile ? (isCompact ? '0.95rem' : '1.15rem') : '1.25rem',
             height: 'fit-content',
             display: 'flex',
             flexDirection: 'column',
@@ -4083,8 +4083,8 @@ export default function EditPhoto() {
           <h3
             style={{
               textAlign: 'center',
-              marginBottom: isMobile ? (isCompact ? '1rem' : '1.25rem') : '2rem',
-              fontSize: isMobile ? (isCompact ? '1.05rem' : '1.1rem') : '1.2rem',
+              marginBottom: isMobile ? (isCompact ? '0.9rem' : '1.1rem') : '1.5rem',
+              fontSize: isMobile ? (isCompact ? '1.05rem' : '1.1rem') : '1.15rem',
               fontWeight: '600',
               color: '#333'
             }}
@@ -4214,10 +4214,10 @@ export default function EditPhoto() {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: '1.5rem'
+              gap: '1.25rem'
             }}>
               <div style={{
-                fontSize: '0.9rem',
+                fontSize: '0.85rem',
                 color: '#666',
                 textAlign: 'center'
               }}>
@@ -4230,7 +4230,7 @@ export default function EditPhoto() {
                 <div style={{
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '1rem'
+                  gap: '0.85rem'
                 }}>
                   <div style={{
                     textAlign: 'center',

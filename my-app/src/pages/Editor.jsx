@@ -314,8 +314,8 @@ export default function Editor() {
     <div style={{
       minHeight: '100vh',
       background: '#f5f5f5',
-      padding: '20px',
-      paddingTop: '80px',
+      padding: '12px',
+      paddingTop: '44px',
       display: 'flex',
       flexDirection: 'column',
       fontFamily: 'system-ui, -apple-system, sans-serif'
@@ -329,9 +329,9 @@ export default function Editor() {
         gap: '5px',
         zIndex: 1000,
         background: 'rgba(255, 255, 255, 0.9)',
-        padding: '10px',
-        borderRadius: '8px',
-        border: '1px solid #ddd'
+        padding: '8px',
+        borderRadius: '6px',
+        border: '1px solid #e1e1e1'
       }}>
         <button 
           onClick={() => {
@@ -399,12 +399,12 @@ export default function Editor() {
             window.location.reload();
           }}
           style={{
-            padding: '5px 10px',
+            padding: '4px 9px',
             background: '#e74c3c',
             color: 'white',
             border: 'none',
-            borderRadius: '4px',
-            fontSize: '12px',
+            borderRadius: '3px',
+            fontSize: '11px',
             cursor: 'pointer'
           }}
         >
@@ -416,12 +416,12 @@ export default function Editor() {
             window.location.reload();
           }}
           style={{
-            padding: '5px 10px',
+            padding: '4px 9px',
             background: '#dc3545',
             color: 'white',
             border: 'none',
-            borderRadius: '4px',
-            fontSize: '12px',
+            borderRadius: '3px',
+            fontSize: '11px',
             cursor: 'pointer'
           }}
         >
@@ -435,13 +435,13 @@ export default function Editor() {
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        gap: '20px',
-        maxWidth: '800px',
+        gap: '10px',
+        maxWidth: '460px',
         margin: '0 auto',
         width: '100%'
       }}>
         {/* Actions */}
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
           <button
             onClick={async () => {
               if (isReloading) return;
@@ -473,13 +473,13 @@ export default function Editor() {
               }
             }}
             style={{
-              padding: '6px 12px',
+              padding: '5px 10px',
               background: '#6c757d',
               color: '#fff',
               border: 'none',
-              borderRadius: '8px',
+              borderRadius: '6px',
               cursor: 'pointer',
-              fontSize: '0.85rem'
+              fontSize: '0.78rem'
             }}
           >
             {isReloading ? '⏳ Reloading...' : '🔄 Reload Config'}
@@ -487,12 +487,12 @@ export default function Editor() {
           
           {/* Drag & Drop Instructions */}
           <div style={{
-            padding: '6px 12px',
-            background: '#e3f2fd',
-            color: '#1565c0',
-            borderRadius: '8px',
-            fontSize: '0.8rem',
-            border: '1px solid #bbdefb'
+            padding: '3px 8px',
+            background: '#e8f2ff',
+            color: '#0f3d8c',
+            borderRadius: '999px',
+            fontSize: '0.7rem',
+            border: '1px solid #c7ddff'
           }}>
             💡 Drag foto antar slot untuk menukar posisi
           </div>
@@ -502,11 +502,11 @@ export default function Editor() {
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          height: '500px'
+          minHeight: '300px'
         }}>
           <h3 style={{
-            margin: '0 0 15px 0',
-            fontSize: '1.1rem',
+            margin: '0 0 6px 0',
+            fontSize: '0.85rem',
             fontWeight: '500',
             color: '#333',
             textAlign: 'center'
@@ -517,12 +517,12 @@ export default function Editor() {
           {selectedFrame && frameSlots && Array.isArray(frameSlots) ? (
             <div style={{
               position: 'relative',
-              width: '350px',
-              height: '525px',
+              width: '188px',
+              height: '282px',
               background: '#fff',
-              borderRadius: '12px',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-              border: '1px solid #e5e5e5',
+              borderRadius: '10px',
+              boxShadow: '0 3px 10px rgba(15,23,42,0.12)',
+              border: '1px solid #e2e8f0',
               overflow: 'hidden'
             }}>
               {/* Photos placed into slots */}
@@ -590,15 +590,15 @@ export default function Editor() {
             </div>
           ) : (
             <div style={{
-              height: '460px',
-              width: '350px',
+              height: '260px',
+              width: '188px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               color: '#666',
               background: '#fff',
-              border: '1px dashed #ccc',
-              borderRadius: '12px'
+              border: '1px dashed #cbd5f5',
+              borderRadius: '10px'
             }}>
               No frame selected
             </div>
@@ -622,13 +622,13 @@ export default function Editor() {
               console.log('LocalStorage frameSlots (legacy):', safeStorage.getItem('frameSlots'));
             }}
             style={{
-              marginTop: '10px',
+              marginTop: '8px',
               background: '#17a2b8',
               color: 'white',
               border: 'none',
-              borderRadius: '15px',
-              padding: '8px 20px',
-              fontSize: '0.8rem',
+              borderRadius: '13px',
+              padding: '7px 18px',
+              fontSize: '0.75rem',
               cursor: 'pointer'
             }}
           >
@@ -636,7 +636,7 @@ export default function Editor() {
           </button>
           
           {/* Test Data Buttons */}
-          <div style={{ marginTop: '10px', display: 'flex', gap: '5px' }}>
+          <div style={{ marginTop: '8px', display: 'flex', gap: '4px' }}>
             <button 
               onClick={() => {
                 const data = createSampleData();
@@ -647,9 +647,9 @@ export default function Editor() {
                 background: '#28a745',
                 color: 'white',
                 border: 'none',
-                borderRadius: '12px',
-                padding: '6px 12px',
-                fontSize: '0.7rem',
+                borderRadius: '10px',
+                padding: '5px 10px',
+                fontSize: '0.68rem',
                 cursor: 'pointer'
               }}
             >
@@ -665,9 +665,9 @@ export default function Editor() {
                 background: '#dc3545',
                 color: 'white',
                 border: 'none',
-                borderRadius: '12px',
-                padding: '6px 12px',
-                fontSize: '0.7rem',
+                borderRadius: '10px',
+                padding: '5px 10px',
+                fontSize: '0.68rem',
                 cursor: 'pointer'
               }}
             >

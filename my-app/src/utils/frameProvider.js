@@ -6,6 +6,7 @@ import {
   getAllFrames,
   preloadFrameConfigs
 } from '../config/frameConfigManager.js';
+import safeStorage from './safeStorage.js';
 
 export class FrameDataProvider {
   constructor() {
@@ -47,8 +48,8 @@ export class FrameDataProvider {
       }
       
       // Simpan ke localStorage untuk persistence
-      localStorage.setItem('selectedFrame', frameName);
-      localStorage.setItem('frameConfig', JSON.stringify(this.currentConfig));
+      safeStorage.setItem('selectedFrame', frameName);
+      safeStorage.setJSON('frameConfig', this.currentConfig);
       
       console.log(`✅ Frame "${frameName}" berhasil di-set dengan ${this.currentConfig.maxCaptures} slots`);
       this.isLoading = false;
@@ -62,8 +63,8 @@ export class FrameDataProvider {
 
   // Load frame dari localStorage (now async)
   async loadFrameFromStorage() {
-    const storedFrame = localStorage.getItem('selectedFrame');
-    const storedConfig = localStorage.getItem('frameConfig');
+    const storedFrame = safeStorage.getItem('selectedFrame');
+    const storedConfig = safeStorage.getJSON('frameConfig');
 
     console.log('📁 Checking localStorage for frame data...');
     console.log('Stored frame:', storedFrame);
@@ -82,7 +83,7 @@ export class FrameDataProvider {
         if (storedConfig) {
           try {
             this.currentFrame = storedFrame;
-            this.currentConfig = JSON.parse(storedConfig);
+            this.currentConfig = storedConfig;
             console.log(`📁 Frame "${storedFrame}" loaded from cached config`);
             return true;
           } catch (error) {
@@ -185,8 +186,8 @@ export class FrameDataProvider {
   clearFrame() {
     this.currentFrame = null;
     this.currentConfig = null;
-    localStorage.removeItem('selectedFrame');
-    localStorage.removeItem('frameConfig');
+    safeStorage.removeItem('selectedFrame');
+    safeStorage.removeItem('frameConfig');
     console.log('🗑️ Frame data berhasil dihapus');
   }
 

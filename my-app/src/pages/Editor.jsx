@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { createSampleData, clearTestData } from '../utils/testData.js';
 import { reloadFrameConfig as reloadFrameConfigFromManager } from '../config/frameConfigManager.js';
 import { createFremioSeriesTestData } from '../utils/fremioTestData.js';
+import safeStorage from '../utils/safeStorage.js';
 
 // FremioSeries Imports
 import FremioSeriesBlue2 from '../assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png';
@@ -36,7 +37,7 @@ export default function Editor() {
     const storageKey = getSlotPhotosStorageKey(id);
     if (!storageKey) return;
     try {
-      localStorage.setItem(storageKey, JSON.stringify(data));
+      safeStorage.setJSON(storageKey, data);
     } catch (err) {
       console.warn('⚠️ Failed to persist slotPhotos', err);
     }
@@ -66,24 +67,24 @@ export default function Editor() {
     console.log('🔄 Editor useEffect started - loading data...');
     
     // Get captured photos from localStorage
-    const capturedPhotos = localStorage.getItem('capturedPhotos');
+    const capturedPhotos = safeStorage.getJSON('capturedPhotos');
     if (capturedPhotos) {
-      const parsedPhotos = JSON.parse(capturedPhotos);
+      const parsedPhotos = Array.isArray(capturedPhotos) ? capturedPhotos : [];
       setPhotos(parsedPhotos);
       console.log('✅ Loaded photos:', parsedPhotos.length);
     } else {
       console.log('⚠️ No captured photos found in localStorage');
     }
 
-  // Get frame data from localStorage (new format with frameConfig)
-  const frameName = localStorage.getItem('selectedFrame');
-  let frameConfigData = localStorage.getItem('frameConfig');
+    // Get frame data from localStorage (new format with frameConfig)
+    const frameName = safeStorage.getItem('selectedFrame');
+    const frameConfigData = safeStorage.getJSON('frameConfig');
     
     console.log('🔍 Loading frame data:', { frameName, frameConfigData: !!frameConfigData });
     
     if (frameName && frameConfigData) {
       try {
-        const frameConfig = JSON.parse(frameConfigData);
+        const frameConfig = frameConfigData;
         
         // Get the imported frame asset
         const frameAsset = getFrameAsset(frameName);
@@ -111,22 +112,17 @@ export default function Editor() {
                   const storageKey = getSlotPhotosStorageKey(frameName);
                   let normalized = initial;
                   if (storageKey) {
-                    const stored = localStorage.getItem(storageKey);
+                    const stored = safeStorage.getJSON(storageKey);
                     if (stored) {
-                      try {
-                        const parsed = JSON.parse(stored);
-                        const merged = {};
-                        frameConfig.slots.forEach((_, idx) => {
-                          if (parsed && Object.prototype.hasOwnProperty.call(parsed, idx)) {
-                            merged[idx] = parsed[idx];
-                          } else {
-                            merged[idx] = initial[idx] || null;
-                          }
-                        });
-                        normalized = merged;
-                      } catch (err) {
-                        console.warn('⚠️ Failed to parse stored slotPhotos, using initial', err);
-                      }
+                      const merged = {};
+                      frameConfig.slots.forEach((_, idx) => {
+                        if (stored && Object.prototype.hasOwnProperty.call(stored, idx)) {
+                          merged[idx] = stored[idx];
+                        } else {
+                          merged[idx] = initial[idx] || null;
+                        }
+                      });
+                      normalized = merged;
                     }
                   }
                   setSlotPhotos(normalized);
@@ -144,8 +140,8 @@ export default function Editor() {
       }
     } else {
       // Fallback: try old format
-      const legacyFrameData = localStorage.getItem('selectedFrame');
-      const legacySlotsData = localStorage.getItem('frameSlots');
+    const legacyFrameData = safeStorage.getItem('selectedFrame');
+    const legacySlotsData = safeStorage.getItem('frameSlots');
       
       // Try provider fallback first if available
       if (frameProvider?.getCurrentConfig) {
@@ -165,12 +161,16 @@ export default function Editor() {
       
       if (legacyFrameData && legacySlotsData) {
         // Extract frame name from legacy path
-  const frameName = legacyFrameData.split('/').pop().replace('.png', '');
-  const frameAsset = getFrameAsset(frameName);
+    const frameName = legacyFrameData.split('/').pop().replace('.png', '');
+    const frameAsset = getFrameAsset(frameName);
         
         if (frameAsset) {
           setSelectedFrame(frameAsset);
-          setFrameSlots(JSON.parse(legacySlotsData));
+          try {
+            setFrameSlots(JSON.parse(legacySlotsData));
+          } catch (error) {
+            console.warn('⚠️ Failed to parse legacy slots data', error);
+          }
           setFrameId(frameName);
           console.log('✅ Loaded frame (legacy format):', frameName);
           console.log('✅ Frame asset:', frameAsset);
@@ -200,7 +200,7 @@ export default function Editor() {
       }
     });
     setSlotPhotos(initial);
-    const activeFrameId = frameId || localStorage.getItem('selectedFrame');
+    const activeFrameId = frameId || safeStorage.getItem('selectedFrame');
     persistSlotPhotos(activeFrameId, initial);
   }, [duplicatePhotos, frameSlots, photos]);
 
@@ -270,7 +270,7 @@ export default function Editor() {
 
     // Duplicate-photo frames: swap only the targeted slots...
     if (duplicatePhotos && Array.isArray(frameSlots)) {
-      const newSlotPhotos = { ...slotPhotos };
+  const newSlotPhotos = { ...slotPhotos };
       const srcSlot = frameSlots[sourceSlotIndex];
       const dstSlot = frameSlots[targetSlotIndex];
       const srcPhotoIdx = srcSlot?.photoIndex !== undefined ? srcSlot.photoIndex : sourceSlotIndex;
@@ -281,8 +281,8 @@ export default function Editor() {
       newSlotPhotos[sourceSlotIndex] = dstImg;
       newSlotPhotos[targetSlotIndex] = srcImg;
 
-      setSlotPhotos(newSlotPhotos);
-      const activeFrameId = frameId || localStorage.getItem('selectedFrame');
+  setSlotPhotos(newSlotPhotos);
+  const activeFrameId = frameId || safeStorage.getItem('selectedFrame');
       persistSlotPhotos(activeFrameId, newSlotPhotos);
 
       setDraggedPhoto(null);
@@ -301,8 +301,8 @@ export default function Editor() {
       const tmp = newPhotos[srcPhotoIdx];
       newPhotos[srcPhotoIdx] = newPhotos[dstPhotoIdx];
       newPhotos[dstPhotoIdx] = tmp;
-      setPhotos(newPhotos);
-      localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
+  setPhotos(newPhotos);
+  safeStorage.setJSON('capturedPhotos', newPhotos);
       console.log('[DnD] ✅ Berhasil tukar slot', sourceSlotIndex + 1, '↔', targetSlotIndex + 1, '(standard frame)');
     }
 
@@ -366,8 +366,8 @@ export default function Editor() {
               createSamplePhoto('#3498db', '3')  // Blue
             ];
 
-            localStorage.setItem('capturedPhotos', JSON.stringify(samplePhotos));
-            localStorage.setItem('selectedFrame', 'FremioSeries-black-3');
+            safeStorage.setJSON('capturedPhotos', samplePhotos);
+            safeStorage.setItem('selectedFrame', 'FremioSeries-black-3');
             
             const frameConfig = {
               id: 'FremioSeries-black-3',
@@ -384,13 +384,13 @@ export default function Editor() {
               ]
             };
             
-            localStorage.setItem('frameConfig', JSON.stringify(frameConfig));
+            safeStorage.setJSON('frameConfig', frameConfig);
             const slotPhotoMap = {};
             frameConfig.slots.forEach((slot, idx) => {
               const pIdx = slot.photoIndex !== undefined ? slot.photoIndex : idx;
               slotPhotoMap[idx] = samplePhotos[pIdx] || null;
             });
-            localStorage.setItem(`slotPhotos:${frameConfig.id}`, JSON.stringify(slotPhotoMap));
+            safeStorage.setJSON(`slotPhotos:${frameConfig.id}`, slotPhotoMap);
             
             console.log('✅ Test data created for FremioSeries-black-3');
             console.log('Photos:', samplePhotos.length);
@@ -447,7 +447,7 @@ export default function Editor() {
               if (isReloading) return;
               try {
                 setIsReloading(true);
-                const activeFrameId = frameId || localStorage.getItem('selectedFrame');
+                const activeFrameId = frameId || safeStorage.getItem('selectedFrame');
                 if (!activeFrameId) return;
                 const fresh = await reloadFrameConfigFromManager(activeFrameId);
                 if (fresh?.slots) {
@@ -465,7 +465,7 @@ export default function Editor() {
                   } else {
                     setSlotPhotos({});
                   }
-                  localStorage.setItem('frameConfig', JSON.stringify(fresh));
+                  safeStorage.setJSON('frameConfig', fresh);
                   console.log('✅ Editor: reloaded frame slots');
                 }
               } finally {
@@ -616,10 +616,10 @@ export default function Editor() {
               console.log('SlotPhotos:', slotPhotos);
               console.log('DraggedPhoto:', draggedPhoto);
               console.log('DragOverSlot:', dragOverSlot);
-              console.log('LocalStorage capturedPhotos:', localStorage.getItem('capturedPhotos'));
-              console.log('LocalStorage selectedFrame:', localStorage.getItem('selectedFrame'));
-              console.log('LocalStorage frameConfig:', localStorage.getItem('frameConfig'));
-              console.log('LocalStorage frameSlots (legacy):', localStorage.getItem('frameSlots'));
+              console.log('LocalStorage capturedPhotos:', safeStorage.getItem('capturedPhotos'));
+              console.log('LocalStorage selectedFrame:', safeStorage.getItem('selectedFrame'));
+              console.log('LocalStorage frameConfig:', safeStorage.getItem('frameConfig'));
+              console.log('LocalStorage frameSlots (legacy):', safeStorage.getItem('frameSlots'));
             }}
             style={{
               marginTop: '10px',

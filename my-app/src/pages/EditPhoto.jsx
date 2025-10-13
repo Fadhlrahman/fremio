@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { getFrameConfig, FRAME_CONFIGS } from '../config/frameConfigs.js';
 import { reloadFrameConfig as reloadFrameConfigFromManager } from '../config/frameConfigManager.js';
 import frameProvider from '../utils/frameProvider.js';
+import safeStorage from '../utils/safeStorage.js';
 import QRCode from 'qrcode';
 import { convertBlobToMp4 } from '../utils/videoTranscoder.js';
 // FremioSeries Imports
@@ -419,7 +420,7 @@ export default function EditPhoto() {
     const storageKey = getSlotPhotosStorageKey(id);
     if (!storageKey) return;
     try {
-      localStorage.setItem(storageKey, JSON.stringify(data));
+  safeStorage.setItem(storageKey, JSON.stringify(data));
     } catch (err) {
       console.warn('⚠️ Failed to persist slotPhotos for', id, err);
     }
@@ -430,7 +431,7 @@ export default function EditPhoto() {
     const storageKey = getSlotVideosStorageKey(id);
     if (!storageKey) return;
     try {
-      localStorage.setItem(storageKey, JSON.stringify(data));
+  safeStorage.setItem(storageKey, JSON.stringify(data));
     } catch (err) {
       console.warn('⚠️ Failed to persist slotVideos for', id, err);
     }
@@ -439,15 +440,15 @@ export default function EditPhoto() {
   const clearCapturedMediaStorage = (frameId) => {
     if (!isBrowser) return;
     try {
-      localStorage.removeItem('capturedPhotos');
-      localStorage.removeItem('capturedVideos');
+  safeStorage.removeItem('capturedPhotos');
+  safeStorage.removeItem('capturedVideos');
       const slotPhotosKey = getSlotPhotosStorageKey(frameId);
       const slotVideosKey = getSlotVideosStorageKey(frameId);
       if (slotPhotosKey) {
-        localStorage.removeItem(slotPhotosKey);
+  safeStorage.removeItem(slotPhotosKey);
       }
       if (slotVideosKey) {
-        localStorage.removeItem(slotVideosKey);
+  safeStorage.removeItem(slotVideosKey);
       }
     } catch (err) {
       console.warn('⚠️ Failed to clear captured media storage:', err);
@@ -951,12 +952,12 @@ export default function EditPhoto() {
     console.log('🔄 EditPhoto component mounting...');
     
     // Load selected frame from localStorage first
-  const frameFromStorage = localStorage.getItem('selectedFrame') || 'FremioSeries-blue-2';
+  const frameFromStorage = safeStorage.getItem('selectedFrame') || 'FremioSeries-blue-2';
     console.log('🖼️ Frame from localStorage:', frameFromStorage);
     
     // Load photos from localStorage
-  const savedPhotos = localStorage.getItem('capturedPhotos');
-  const savedVideos = localStorage.getItem('capturedVideos');
+  const savedPhotos = safeStorage.getItem('capturedPhotos');
+  const savedVideos = safeStorage.getItem('capturedVideos');
   console.log('📦 Raw savedPhotos from localStorage:', savedPhotos);
   console.log('🎬 Raw savedVideos from localStorage:', savedVideos);
     
@@ -1030,7 +1031,7 @@ export default function EditPhoto() {
           let normalizedSlotPhotos = initialSlotPhotos;
           let normalizedSlotVideos = initialSlotVideos;
           if (storageKey) {
-            const stored = localStorage.getItem(storageKey);
+            const stored = safeStorage.getItem(storageKey);
             if (stored) {
               try {
                 const parsed = JSON.parse(stored);
@@ -1051,7 +1052,7 @@ export default function EditPhoto() {
 
           const videoStorageKey = getSlotVideosStorageKey(frameFromStorage);
           if (videoStorageKey) {
-            const storedVideos = localStorage.getItem(videoStorageKey);
+            const storedVideos = safeStorage.getItem(videoStorageKey);
             if (storedVideos) {
               try {
                 const parsed = JSON.parse(storedVideos);
@@ -1108,8 +1109,8 @@ export default function EditPhoto() {
     if (frameFromStorage === 'Testframe3') {
       console.log(`🔍 ${frameFromStorage.toUpperCase()} LOADING DEBUG:`);
       console.log('  - selectedFrame value:', frameFromStorage);
-      console.log('  - frameConfig from localStorage:', localStorage.getItem('frameConfig'));
-      console.log('  - capturedPhotos from localStorage:', localStorage.getItem('capturedPhotos'));
+  console.log('  - frameConfig from localStorage:', safeStorage.getItem('frameConfig'));
+  console.log('  - capturedPhotos from localStorage:', safeStorage.getItem('capturedPhotos'));
     }
     
     setSelectedFrame(frameFromStorage);
@@ -1121,7 +1122,7 @@ export default function EditPhoto() {
 
     // Fallback 1: use stored frameConfig JSON
     if (!config) {
-      const storedConfigJson = localStorage.getItem('frameConfig');
+  const storedConfigJson = safeStorage.getItem('frameConfig');
       if (storedConfigJson) {
         try {
           const parsed = JSON.parse(storedConfigJson);
@@ -1205,7 +1206,7 @@ export default function EditPhoto() {
   useEffect(() => {
     const checkFrameChange = () => {
       const currentFrameFromProvider = frameProvider.currentFrame;
-      const currentFrameFromStorage = localStorage.getItem('selectedFrame');
+  const currentFrameFromStorage = safeStorage.getItem('selectedFrame');
       
       if (currentFrameFromProvider && currentFrameFromProvider !== selectedFrame) {
         console.log('🔄 Frame changed via frameProvider:', currentFrameFromProvider);
@@ -1449,8 +1450,8 @@ export default function EditPhoto() {
   }
     setPhotoPositions(newPhotoPositions);
     setPhotoTransforms(newPhotoTransforms);
-    localStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
-  localStorage.setItem('capturedVideos', JSON.stringify(newVideos));
+    safeStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
+  safeStorage.setItem('capturedVideos', JSON.stringify(newVideos));
     setDraggedPhoto(null);
     
     // Re-initialize smart scale for swapped photos
@@ -2402,12 +2403,12 @@ export default function EditPhoto() {
     setIsReloading(true);
     
     try {
-      const frameId = localStorage.getItem('selectedFrame') || 'Testframe1';
+  const frameId = safeStorage.getItem('selectedFrame') || 'Testframe1';
       console.log('🔄 Attempting to reload config via manager for:', frameId);
       const newConfig = await reloadFrameConfigFromManager(frameId);
       if (newConfig) {
         setFrameConfig(newConfig);
-        localStorage.setItem('frameConfig', JSON.stringify(newConfig));
+  safeStorage.setItem('frameConfig', JSON.stringify(newConfig));
         setConfigReloadKey(prev => prev + 1);
         console.log('✅ Frame config reloaded (manager):', newConfig);
         // Re-apply smart scale after config reload
@@ -2421,7 +2422,7 @@ export default function EditPhoto() {
         const fallback = getFrameConfig(frameId);
         if (fallback) {
           setFrameConfig(fallback);
-          localStorage.setItem('frameConfig', JSON.stringify(fallback));
+          safeStorage.setItem('frameConfig', JSON.stringify(fallback));
           setConfigReloadKey(prev => prev + 1);
         }
       }
@@ -4525,9 +4526,9 @@ export default function EditPhoto() {
               console.log('  - frameConfig:', frameConfig);
               console.log('  - photos:', photos);
               console.log('  - photoTransforms:', photoTransforms);
-              console.log('  - localStorage selectedFrame:', localStorage.getItem('selectedFrame'));
-              console.log('  - localStorage frameConfig:', localStorage.getItem('frameConfig'));
-              console.log('  - localStorage capturedPhotos:', localStorage.getItem('capturedPhotos'));
+              console.log('  - localStorage selectedFrame:', safeStorage.getItem('selectedFrame'));
+              console.log('  - localStorage frameConfig:', safeStorage.getItem('frameConfig'));
+              console.log('  - localStorage capturedPhotos:', safeStorage.getItem('capturedPhotos'));
             }}
             style={{
               background: 'white',

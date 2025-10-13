@@ -1,6 +1,7 @@
 // Test data for development - creates sample photos and frame selection
 
 import FremioSeriesBlue2Config from '../config/frame-configs/FremioSeries-blue-2.js';
+import safeStorage from './safeStorage.js';
 
 export function createSampleData() {
   // Create sample base64 photos (small colored rectangles)
@@ -31,10 +32,10 @@ export function createSampleData() {
   ];
 
   // Store in localStorage
-  localStorage.setItem('capturedPhotos', JSON.stringify(samplePhotos));
+  safeStorage.setJSON('capturedPhotos', samplePhotos);
   
   // Set a sample frame (FremioSeries-blue-2)
-  localStorage.setItem('selectedFrame', 'FremioSeries-blue-2');
+  safeStorage.setItem('selectedFrame', 'FremioSeries-blue-2');
   
   // Persist frame config for FremioSeries-blue-2
   const frameConfig = {
@@ -42,7 +43,7 @@ export function createSampleData() {
     id: 'FremioSeries-blue-2'
   };
   
-  localStorage.setItem('frameConfig', JSON.stringify(frameConfig));
+  safeStorage.setJSON('frameConfig', frameConfig);
   
   console.log('✅ Sample data created:');
   console.log('- 3 sample photos stored in capturedPhotos');
@@ -57,10 +58,10 @@ export function createSampleData() {
 }
 
 export function clearTestData() {
-  localStorage.removeItem('capturedPhotos');
-  localStorage.removeItem('selectedFrame');
-  localStorage.removeItem('frameConfig');
-  localStorage.removeItem('frameSlots'); // legacy
+  safeStorage.removeItem('capturedPhotos');
+  safeStorage.removeItem('selectedFrame');
+  safeStorage.removeItem('frameConfig');
+  safeStorage.removeItem('frameSlots'); // legacy
   
   console.log('🗑️ Test data cleared from localStorage');
 }

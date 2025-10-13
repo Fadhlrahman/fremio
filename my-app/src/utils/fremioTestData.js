@@ -1,5 +1,7 @@
 // Enhanced test data for FremioSeries frames
 
+import safeStorage from './safeStorage.js';
+
 export function createFremioSeriesTestData() {
   // Create sample base64 photos (small colored rectangles)
   const createSamplePhoto = (color, text, width = 200, height = 150) => {
@@ -37,10 +39,10 @@ export function createFremioSeriesTestData() {
   ];
 
   // Store in localStorage
-  localStorage.setItem('capturedPhotos', JSON.stringify(samplePhotos));
+  safeStorage.setJSON('capturedPhotos', samplePhotos);
   
   // Set a FremioSeries frame (Black 3-slot)
-  localStorage.setItem('selectedFrame', 'FremioSeries-black-3');
+  safeStorage.setItem('selectedFrame', 'FremioSeries-black-3');
   
   // Set frame config for FremioSeries-black-3 (3 photos duplicated to 6 slots)
   const frameConfig = {
@@ -61,13 +63,13 @@ export function createFremioSeriesTestData() {
     layout: { aspectRatio: '2:3', orientation: 'portrait', backgroundColor: '#ffffff' }
   };
   
-  localStorage.setItem('frameConfig', JSON.stringify(frameConfig));
+  safeStorage.setJSON('frameConfig', frameConfig);
   const slotPhotoMap = {};
   frameConfig.slots.forEach((slot, idx) => {
     const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : idx;
     slotPhotoMap[idx] = samplePhotos[photoIndex] || null;
   });
-  localStorage.setItem(`slotPhotos:${frameConfig.id}`, JSON.stringify(slotPhotoMap));
+  safeStorage.setJSON(`slotPhotos:${frameConfig.id}`, slotPhotoMap);
   
   console.log('✅ FremioSeries test data created:');
   console.log('- 3 sample photos stored in capturedPhotos');
@@ -83,15 +85,18 @@ export function createFremioSeriesTestData() {
 }
 
 export function clearTestData() {
-  localStorage.removeItem('capturedPhotos');
-  localStorage.removeItem('selectedFrame');
-  localStorage.removeItem('frameConfig');
-  localStorage.removeItem('frameSlots'); // legacy
-  Object.keys(localStorage).forEach((key) => {
-    if (key.startsWith('slotPhotos:')) {
-      localStorage.removeItem(key);
-    }
-  });
+  safeStorage.removeItem('capturedPhotos');
+  safeStorage.removeItem('selectedFrame');
+  safeStorage.removeItem('frameConfig');
+  safeStorage.removeItem('frameSlots'); // legacy
+
+  if (safeStorage.isAvailable() && typeof window !== 'undefined') {
+    Object.keys(window.localStorage).forEach((key) => {
+      if (key.startsWith('slotPhotos:')) {
+        window.localStorage.removeItem(key);
+      }
+    });
+  }
   
   console.log('🗑️ Test data cleared from localStorage');
 }

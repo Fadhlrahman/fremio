@@ -15,7 +15,11 @@ export const FRAME_REGISTRY = [
   'FremioSeries-pink-3',
   'FremioSeries-purple-3',
   'FremioSeries-white-3',
-  'FremioSeries-blue-4'
+  'FremioSeries-blue-4',
+  // Legacy/Test frames
+  'Testframe1',
+  'Testframe2',
+  'Testframe3'
 ];
 
 // Map of available frame-config modules (Vite will include and HMR-update these)
@@ -118,6 +122,31 @@ export const FRAME_METADATA = {
     maxCaptures: 4,
     description: '4 slot foto grid 2x2 - Blue Frame',
     imagePath: '/src/assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png',
+    category: 'grid'
+  },
+  // Legacy/Test frames metadata
+  'Testframe1': {
+    id: 'Testframe1',
+    name: 'Frame 2 Foto',
+    maxCaptures: 2,
+    description: '2 slot foto vertikal',
+    imagePath: '/src/assets/frames/Testframe1.png',
+    category: 'portrait'
+  },
+  'Testframe2': {
+    id: 'Testframe2',
+    name: 'Frame 6 Foto (Photobooth Style)',
+    maxCaptures: 3,
+    description: '3 foto x 2 = 6 slot photobooth klasik',
+    imagePath: '/src/assets/frames/Testframe2.png',
+    category: 'photobooth'
+  },
+  'Testframe3': {
+    id: 'Testframe3',
+    name: 'Frame 4 Foto',
+    maxCaptures: 4,
+    description: '4 slot foto grid 2x2',
+    imagePath: '/src/assets/frames/Testframe3.png',
     category: 'grid'
   }
 };

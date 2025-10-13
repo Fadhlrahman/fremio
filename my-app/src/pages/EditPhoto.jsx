@@ -2358,7 +2358,7 @@ export default function EditPhoto() {
     }
   };
 
-  // Fungsi untuk menghitung ukuran slot dalam pixel
+  // Fungsi untuk menghitung ukuran slot dalam pixel.
   const calculateSlotDimensions = (frameConfig, slotIndex) => {
     const FRAME_WIDTH = 350; // px - ukuran frame di preview
     const FRAME_HEIGHT = 525; // px - aspect ratio 2:3

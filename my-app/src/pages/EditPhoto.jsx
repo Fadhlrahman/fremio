@@ -6,7 +6,7 @@ import safeStorage from '../utils/safeStorage.js';
 import QRCode from 'qrcode';
 import { convertBlobToMp4 } from '../utils/videoTranscoder.js';
 import swapIcon from '../assets/swap.png';
-// FremioSeries Imports
+// FremioSeries Imports.
 import FremioSeriesBlue2 from '../assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png';
 import FremioSeriesBabyblue3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-babyblue-3.png';
 import FremioSeriesBlack3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-black-3.png';

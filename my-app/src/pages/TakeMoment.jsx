@@ -46,6 +46,26 @@ const calculateStorageSize = ({ photos = [], videos = [] }) => {
   };
 };
 
+const STORAGE_SAFETY_LIMIT_BYTES = 4.8 * 1024 * 1024; // ~4.8 MB guard below browser quota
+
+const calculateProjectedStorageSize = ({ photos = [], videos = [] }) => {
+  const photosBytes = safeStorage.estimateJSONBytes(photos);
+  const videosBytes = safeStorage.estimateJSONBytes(videos);
+  const totalBytes = photosBytes + videosBytes;
+  const kb = totalBytes / 1024;
+  const mb = kb / 1024;
+
+  return {
+    bytes: totalBytes,
+    kb: kb.toFixed(1),
+    mb: mb.toFixed(2),
+    breakdown: {
+      photosBytes,
+      videosBytes,
+    },
+  };
+};
+
 const detectMobile = () => {
   if (typeof window === "undefined") return false;
   const ua = navigator.userAgent || navigator.vendor || window.opera;
@@ -203,7 +223,11 @@ export default function TakeMoment() {
     if (!capturedPhotos.length) return;
 
     const storageSize = calculateStorageSize({ photos: capturedPhotos, videos: capturedVideos });
-    console.log("💾 Storage size", storageSize);
+    const projectedSize = calculateProjectedStorageSize({ photos: capturedPhotos, videos: capturedVideos });
+    console.log("💾 Storage size", {
+      raw: storageSize,
+      projected: projectedSize,
+    });
   }, [capturedPhotos, capturedVideos]);
 
   useEffect(() => {
@@ -282,30 +306,61 @@ export default function TakeMoment() {
   }, [cameraActive, isUsingBackCamera, isSwitchingCamera, startCamera, stopCamera]);
 
   const handleFileSelect = useCallback(
-    (event) => {
-      const files = Array.from(event.target.files || []);
-      if (!files.length) return;
+    async (event) => {
+      const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith("image/"));
+      if (!files.length) {
+        event.target.value = "";
+        return;
+      }
 
-      const readers = files.map(
-        (file) =>
-          new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.readAsDataURL(file);
-          })
-      );
-
-      Promise.all(readers).then((photos) => {
-        setCapturedPhotos((prev) => {
-          const next = [...prev, ...photos].slice(0, maxCaptures);
-          safeStorage.setJSON("capturedPhotos", next);
-          return next;
+      const fileToDataUrl = (file) =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
+          reader.readAsDataURL(file);
         });
-      });
 
-      event.target.value = "";
+      try {
+        const rawPhotos = await Promise.all(files.map(fileToDataUrl));
+        const normalizedPhotos = await Promise.all(
+          rawPhotos.map(async (dataUrl) => {
+            try {
+              return await compressImage(dataUrl, { quality: 0.8, maxWidth: 850, maxHeight: 850 });
+            } catch (compressionError) {
+              console.warn("⚠️ Failed to compress uploaded photo, using original", compressionError);
+              return dataUrl;
+            }
+          })
+        );
+
+        const mergedPhotos = [...capturedPhotos, ...normalizedPhotos].slice(0, maxCaptures);
+        const mergedVideos = (() => {
+          const base = [...capturedVideos].slice(0, mergedPhotos.length);
+          while (base.length < mergedPhotos.length) {
+            base.push(null);
+          }
+          return base;
+        })();
+
+        setCapturedPhotos(mergedPhotos);
+        setCapturedVideos(mergedVideos);
+
+        try {
+          safeStorage.setJSON("capturedPhotos", mergedPhotos);
+          safeStorage.setJSON("capturedVideos", mergedVideos);
+        } catch (storageError) {
+          console.error("❌ Failed to persist uploaded photos", storageError);
+          alert("Penyimpanan penuh. Silakan hapus beberapa foto sebelum upload lagi.");
+        }
+      } catch (error) {
+        console.error("❌ Failed to process uploaded photos", error);
+        alert("Gagal memproses foto dari galeri. Coba pilih file lain.");
+      } finally {
+        event.target.value = "";
+      }
     },
-    [maxCaptures]
+    [capturedPhotos, capturedVideos, maxCaptures]
   );
 
   const renderCountdownOverlay = () => {
@@ -349,91 +404,16 @@ export default function TakeMoment() {
       const desiredStopSeconds = timerSeconds + POST_CAPTURE_BUFFER_SECONDS;
       const delayBeforeStartSeconds = Math.max(0, desiredStopSeconds - recordSeconds);
 
-      const rawRecordingStream = baseStream.clone();
-      let recordingStream = rawRecordingStream;
-      let mirrorCleanup = () => {
-        rawRecordingStream.getTracks().forEach((track) => {
+      const recordingStream = baseStream.clone();
+
+      const stopRecordingStream = () => {
+        recordingStream.getTracks().forEach((track) => {
           try {
             track.stop();
           } catch (stopError) {
-            console.warn("⚠️ Failed to stop raw recording track", stopError);
+            console.warn("⚠️ Failed to stop recording track", stopError);
           }
         });
-      };
-
-      if (shouldMirrorVideo && videoRef.current) {
-        try {
-          const mirrorCanvas = document.createElement("canvas");
-          const canCaptureStream = typeof mirrorCanvas.captureStream === "function";
-          const mirrorCtx = mirrorCanvas.getContext("2d");
-
-          if (canCaptureStream && mirrorCtx) {
-            const sourceVideo = videoRef.current;
-            const videoTrack = rawRecordingStream.getVideoTracks()[0];
-            const trackSettings = videoTrack?.getSettings ? videoTrack.getSettings() : {};
-
-            const resolveDimensions = () => {
-              const width = sourceVideo.videoWidth || trackSettings?.width || 640;
-              const height = sourceVideo.videoHeight || trackSettings?.height || 480;
-              if (mirrorCanvas.width !== width || mirrorCanvas.height !== height) {
-                mirrorCanvas.width = width;
-                mirrorCanvas.height = height;
-              }
-            };
-
-            let animationFrameId = null;
-            const renderFrame = () => {
-              resolveDimensions();
-              if (sourceVideo.readyState >= 2) {
-                mirrorCtx.save();
-                mirrorCtx.setTransform(-1, 0, 0, 1, mirrorCanvas.width, 0);
-                mirrorCtx.clearRect(0, 0, mirrorCanvas.width, mirrorCanvas.height);
-                mirrorCtx.drawImage(sourceVideo, 0, 0, mirrorCanvas.width, mirrorCanvas.height);
-                mirrorCtx.restore();
-              }
-              animationFrameId = requestAnimationFrame(renderFrame);
-            };
-
-            renderFrame();
-
-            const canvasStream = mirrorCanvas.captureStream(30);
-            rawRecordingStream.getAudioTracks().forEach((track) => {
-              try {
-                canvasStream.addTrack(track);
-              } catch (addError) {
-                console.warn("⚠️ Failed to attach audio track", addError);
-              }
-            });
-
-            recordingStream = canvasStream;
-            mirrorCleanup = () => {
-              if (animationFrameId) cancelAnimationFrame(animationFrameId);
-              canvasStream.getTracks().forEach((track) => {
-                try {
-                  track.stop();
-                } catch (stopError) {
-                  console.warn("⚠️ Failed to stop mirrored canvas track", stopError);
-                }
-              });
-              rawRecordingStream.getTracks().forEach((track) => {
-                try {
-                  track.stop();
-                } catch (stopError) {
-                  console.warn("⚠️ Failed to stop raw recording track", stopError);
-                }
-              });
-            };
-          }
-        } catch (mirrorError) {
-          console.warn("⚠️ Mirrored recording init failed", mirrorError);
-        }
-      }
-
-      const stopRecordingStream = () => {
-        if (mirrorCleanup) {
-          mirrorCleanup();
-          mirrorCleanup = null;
-        }
       };
 
       const mimeCandidates = [
@@ -541,6 +521,10 @@ export default function TakeMoment() {
               duration: recordSeconds,
               timer: timerSeconds,
               actualDelay: delayBeforeStartSeconds,
+              facingMode: shouldMirrorVideo ? "user" : "environment",
+              requiresPreviewMirror: shouldMirrorVideo,
+              skipAutoMirror: shouldMirrorVideo,
+              mirrored: false,
             });
           } catch (error) {
             reject(error);
@@ -726,7 +710,12 @@ export default function TakeMoment() {
       }
 
       const finalSizeCheck = calculateStorageSize({ photos: newPhotos, videos: newVideos });
-      if (parseFloat(finalSizeCheck.mb) > 4.6) {
+      const projectedSize = calculateProjectedStorageSize({ photos: newPhotos, videos: newVideos });
+      if (projectedSize.bytes > STORAGE_SAFETY_LIMIT_BYTES) {
+        console.warn("⚠️ Projected storage usage exceeds safety limit", {
+          raw: finalSizeCheck,
+          projected: projectedSize,
+        });
         storedVideo = null;
         newVideos[newVideos.length - 1] = null;
         alert(
@@ -897,11 +886,14 @@ export default function TakeMoment() {
           background: "#fff",
           borderRadius: isMobileVariant ? "16px" : "20px",
           padding: isMobileVariant ? "1rem" : "1.5rem",
-          marginBottom: isMobileVariant ? "1rem" : "1.5rem",
+          margin: isMobileVariant ? "0 0 1rem" : "0 auto",
           minHeight: isMobileVariant ? "260px" : "320px",
           display: "flex",
           flexDirection: "column",
           gap: "1rem",
+          width: "100%",
+          maxWidth: isMobileVariant ? "100%" : "min(920px, 100%)",
+          boxShadow: isMobileVariant ? "none" : "0 24px 48px rgba(148,163,184,0.18)",
         }}
       >
         <header
@@ -941,16 +933,17 @@ export default function TakeMoment() {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            width: "100%",
           }}
         >
           {capturedPhotos.length > 0 ? (
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: capturedPhotos.length > 1 ? "repeat(2, 1fr)" : "1fr",
+                gridTemplateColumns: capturedPhotos.length > 1 ? "repeat(auto-fit, minmax(160px, 1fr))" : "1fr",
                 gap: isMobileVariant ? "0.5rem" : "0.75rem",
                 width: "100%",
-                maxWidth: isMobileVariant ? "260px" : "320px",
+                maxWidth: isMobileVariant ? "260px" : "100%",
               }}
             >
               {capturedPhotos.map((photo, idx) => (
@@ -1137,6 +1130,7 @@ export default function TakeMoment() {
                   borderRadius: "12px",
                   objectFit: "contain",
                   boxShadow: "0 12px 24px rgba(0,0,0,0.2)",
+                  transform: currentVideo.requiresPreviewMirror ? "scaleX(-1)" : "none",
                 }}
               />
             )}
@@ -1202,6 +1196,8 @@ export default function TakeMoment() {
 
   const renderStorageDebugPanel = () => {
     const storageSize = calculateStorageSize({ photos: capturedPhotos, videos: capturedVideos });
+    const projectedSize = calculateProjectedStorageSize({ photos: capturedPhotos, videos: capturedVideos });
+    const projectedMbNumber = Number.parseFloat(projectedSize.mb);
 
     return (
       <details
@@ -1230,10 +1226,11 @@ export default function TakeMoment() {
           <span
             style={{
               fontSize: "0.9rem",
-              color: parseFloat(storageSize.mb) > 4.3 ? "#dc2626" : "#38a169",
+              color:
+                projectedMbNumber > 4.3 || parseFloat(storageSize.mb) > 4.3 ? "#dc2626" : "#38a169",
             }}
           >
-            {storageSize.mb} MB
+            {storageSize.mb} MB • projected {projectedSize.mb} MB
           </span>
         </summary>
         <div
@@ -1246,6 +1243,8 @@ export default function TakeMoment() {
         >
           <div>Photos: {capturedPhotos.length}</div>
           <div>Videos: {capturedVideos.filter(Boolean).length}</div>
+          <div>Raw size: {storageSize.mb} MB</div>
+          <div>Projected storage: {projectedSize.mb} MB</div>
           <button
             onClick={clearCapturedMedia}
             style={{
@@ -1658,18 +1657,38 @@ export default function TakeMoment() {
           background: "rgba(255,255,255,0.6)",
           borderRadius: "28px",
           padding: "2.5rem",
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 2.2fr) minmax(0, 1fr)",
-          gap: "2rem",
+          display: "flex",
+          justifyContent: "center",
           boxShadow: "0 40px 80px rgba(148,163,184,0.25)",
         }}
       >
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          {renderCameraControls("desktop")}
-          {renderCaptureArea("desktop")}
-          {renderCaptureButton("desktop")}
+        <div
+          style={{
+            width: "min(1100px, 100%)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "2rem",
+            alignItems: "center",
+          }}
+        >
+          <div style={{ width: "100%", maxWidth: "880px" }}>{renderCameraControls("desktop")}</div>
+
+          <div
+            style={{
+              width: "100%",
+              maxWidth: "880px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "1.75rem",
+            }}
+          >
+            <div style={{ width: "100%" }}>{renderCaptureArea("desktop")}</div>
+            {renderCaptureButton("desktop")}
+          </div>
+
+          <div style={{ width: "100%" }}>{renderPreviewPanel("desktop")}</div>
         </div>
-        <aside>{renderPreviewPanel("desktop")}</aside>
       </section>
 
       {renderStorageDebugPanel()}

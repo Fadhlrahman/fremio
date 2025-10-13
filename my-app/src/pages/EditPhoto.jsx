@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { getFrameConfig, FRAME_CONFIGS } from '../config/frameConfigs.js';
 import { reloadFrameConfig as reloadFrameConfigFromManager } from '../config/frameConfigManager.js';
 import frameProvider from '../utils/frameProvider.js';
 import safeStorage from '../utils/safeStorage.js';
 import QRCode from 'qrcode';
 import { convertBlobToMp4 } from '../utils/videoTranscoder.js';
+import swapIcon from '../assets/swap.png';
 // FremioSeries Imports
 import FremioSeriesBlue2 from '../assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png';
 import FremioSeriesBabyblue3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-babyblue-3.png';
@@ -274,8 +275,8 @@ export default function EditPhoto() {
   const [frameConfig, setFrameConfig] = useState(null);
   const [frameImage, setFrameImage] = useState(null);
   const [selectedFrame, setSelectedFrame] = useState('FremioSeries-blue-2');
-  const [draggedPhoto, setDraggedPhoto] = useState(null);
-  const [dragOverSlot, setDragOverSlot] = useState(null);
+  const [swapModeActive, setSwapModeActive] = useState(false);
+  const [swapSourceSlot, setSwapSourceSlot] = useState(null);
   const [photoPositions, setPhotoPositions] = useState({});
   const [debugMode, setDebugMode] = useState(false);
   const [configReloadKey, setConfigReloadKey] = useState(0);
@@ -291,6 +292,16 @@ export default function EditPhoto() {
   const [isMobile, setIsMobile] = useState(false);
   const [isCompact, setIsCompact] = useState(false);
 
+  const resetSwapMode = useCallback(() => {
+    setSwapModeActive(false);
+    setSwapSourceSlot(null);
+  }, []);
+
+  const beginSwapFromSlot = useCallback((slotIndex) => {
+    setSwapModeActive(true);
+    setSwapSourceSlot(slotIndex);
+  }, []);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -303,6 +314,24 @@ export default function EditPhoto() {
     window.addEventListener('resize', updateBreakpoint);
     return () => window.removeEventListener('resize', updateBreakpoint);
   }, []);
+
+  useEffect(() => {
+    if (!swapModeActive) return;
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        resetSwapMode();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [resetSwapMode, swapModeActive]);
+
+  useEffect(() => {
+    resetSwapMode();
+  }, [frameConfig?.id, resetSwapMode]);
 
   const recordedClips = useMemo(() => (
     videos
@@ -1240,231 +1269,166 @@ export default function EditPhoto() {
     return () => clearInterval(interval);
   }, [selectedFrame]);
 
-  // Reset drag state on dragend event (global failsafe)
-  useEffect(() => {
-    const handleDragEnd = (e) => {
-      console.log('🏁 [DnD] Drag ended globally, resetting state');
-      setDraggedPhoto(null);
-      setDragOverSlot(null);
-    };
-
-    const handleEscape = (e) => {
-      if (e.key === 'Escape' && draggedPhoto) {
-        console.log('⏹️ [DnD] Escape pressed, canceling drag');
-        setDraggedPhoto(null);
-        setDragOverSlot(null);
-      }
-    };
-
-    document.addEventListener('dragend', handleDragEnd);
-    document.addEventListener('keydown', handleEscape);
-    
-    return () => {
-      document.removeEventListener('dragend', handleDragEnd);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [draggedPhoto]);
-
-  // Handle drag start
-  const handleDragStart = (e, photoIndex, slotIndex) => {
-    e.stopPropagation();
-
-    const slot = frameConfig?.slots?.[slotIndex];
-    const baseIndex = slot?.photoIndex ?? slotIndex;
-
-    let photoData = null;
-    let videoData = null;
-
-    if (frameConfig?.duplicatePhotos) {
-      photoData = slotPhotos[slotIndex] ?? photos[baseIndex] ?? null;
-      videoData = slotVideos[slotIndex] ?? videos[baseIndex] ?? null;
-    } else {
-      photoData = photos[photoIndex] ?? null;
-      videoData = slotVideos[slotIndex] ?? videos[baseIndex] ?? null;
-    }
-
-    setDraggedPhoto({
-      photoIndex,
-      slotIndex,
-      baseIndex,
-      photoData,
-      videoData
-    });
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', `slot-${slotIndex}`);
-    console.log('🎯 [DnD] Drag start dari slot', slotIndex + 1, 'photoIndex:', photoIndex);
-  };
-
-  // Handle drag over
-  const handleDragOver = (e, slotIndex) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOverSlot(slotIndex);
-    e.dataTransfer.dropEffect = 'move';
-    console.log('👆 [DnD] Drag over slot', slotIndex + 1);
-  };
-
-  // Handle drag leave
-  const handleDragLeave = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    // Only clear if leaving the container completely
-    if (!e.currentTarget.contains(e.relatedTarget)) {
-      setDragOverSlot(null);
-    }
-  };
-
-  // Handle drop
-  const handleDrop = (e, targetSlotIndex) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOverSlot(null);
-    
-    console.log('📸 [DnD] Drop ke slot', targetSlotIndex + 1);
-    console.log('📸 [DnD] draggedPhoto state:', draggedPhoto);
-    
-    if (!draggedPhoto) {
-      console.log('❌ [DnD] No draggedPhoto state found');
-      return;
-    }
-    
-    const { photoIndex: draggedPhotoIndex, slotIndex: sourceSlotIndex } = draggedPhoto;
-    
+  const performSlotSwap = async (sourceSlotIndex, targetSlotIndex) => {
     if (sourceSlotIndex === targetSlotIndex) {
-      console.log('❌ [DnD] Same slot, canceling');
-      setDraggedPhoto(null);
-      return;
+      console.log('⚠️ Swap ignored: identical source and target slot');
+      return false;
     }
 
-    console.log('🔄 [DnD] Swapping slot', sourceSlotIndex + 1, '→', targetSlotIndex + 1);
+    if (!frameConfig?.slots) {
+      console.warn('⚠️ Swap aborted: missing frame slot configuration');
+      return false;
+    }
 
-    // Special handling for frames with duplicate photos (like Testframe2)
-    if (frameConfig && frameConfig.duplicatePhotos) {
-      console.log('🎯 Processing', frameConfig.id, 'independent slot drag & drop...');
-
+    if (frameConfig.duplicatePhotos) {
       const newSlotPhotos = { ...slotPhotos };
       const newSlotVideos = { ...slotVideos };
 
       const srcSlot = frameConfig.slots[sourceSlotIndex];
       const dstSlot = frameConfig.slots[targetSlotIndex];
-      const srcPhotoIdx = srcSlot?.photoIndex ?? sourceSlotIndex;
-      const dstPhotoIdx = dstSlot?.photoIndex ?? targetSlotIndex;
-
-      const srcImage = draggedPhoto.photoData
-        ?? newSlotPhotos[sourceSlotIndex]
-        ?? photos[srcPhotoIdx]
-        ?? null;
-      const dstImage = newSlotPhotos[targetSlotIndex] ?? photos[dstPhotoIdx] ?? null;
-      const srcVideo = draggedPhoto.videoData
-        ?? newSlotVideos[sourceSlotIndex]
-        ?? videos[srcPhotoIdx]
-        ?? null;
-      const dstVideo = newSlotVideos[targetSlotIndex] ?? videos[dstPhotoIdx] ?? null;
-
-      if (!srcImage && !dstImage) {
-        console.warn('⚠️ [DnD] No media found to swap between duplicate slots');
-        setDraggedPhoto(null);
-        return;
+      if (!srcSlot || !dstSlot) {
+        console.warn('⚠️ Swap aborted: slot definition missing');
+        return false;
       }
 
-      newSlotPhotos[sourceSlotIndex] = dstImage;
-      newSlotPhotos[targetSlotIndex] = srcImage;
-      newSlotVideos[sourceSlotIndex] = dstVideo;
-      newSlotVideos[targetSlotIndex] = srcVideo;
+      const resolveBaseIndex = (slot, fallback) => (
+        slot?.photoIndex !== undefined ? slot.photoIndex : fallback
+      );
 
-  setSlotPhotos(newSlotPhotos);
-  setSlotVideos(newSlotVideos);
-  persistSlotPhotos(frameConfig?.id, newSlotPhotos);
-      setDraggedPhoto(null);
+      const srcBaseIndex = resolveBaseIndex(srcSlot, sourceSlotIndex);
+      const dstBaseIndex = resolveBaseIndex(dstSlot, targetSlotIndex);
 
-      // Recalculate smart scales for the two swapped slots only
-      console.log(`🔄 Recalculating smart scales for swapped slots: ${sourceSlotIndex + 1} ↔ ${targetSlotIndex + 1}`);
+      const srcImage = Object.prototype.hasOwnProperty.call(newSlotPhotos, sourceSlotIndex)
+        ? newSlotPhotos[sourceSlotIndex]
+        : photos[srcBaseIndex] ?? null;
+      const dstImage = Object.prototype.hasOwnProperty.call(newSlotPhotos, targetSlotIndex)
+        ? newSlotPhotos[targetSlotIndex]
+        : photos[dstBaseIndex] ?? null;
+
+      const srcVideo = Object.prototype.hasOwnProperty.call(newSlotVideos, sourceSlotIndex)
+        ? newSlotVideos[sourceSlotIndex]
+        : videos[srcBaseIndex] ?? null;
+      const dstVideo = Object.prototype.hasOwnProperty.call(newSlotVideos, targetSlotIndex)
+        ? newSlotVideos[targetSlotIndex]
+        : videos[dstBaseIndex] ?? null;
+
+      if (!srcImage && !dstImage) {
+        console.warn('⚠️ Swap aborted: both duplicate slots empty');
+        return false;
+      }
+
+      newSlotPhotos[sourceSlotIndex] = dstImage ?? null;
+      newSlotPhotos[targetSlotIndex] = srcImage ?? null;
+      newSlotVideos[sourceSlotIndex] = dstVideo ?? null;
+      newSlotVideos[targetSlotIndex] = srcVideo ?? null;
+
+      setSlotPhotos(newSlotPhotos);
+      setSlotVideos(newSlotVideos);
+      persistSlotPhotos(frameConfig?.id, newSlotPhotos);
+
       setTimeout(async () => {
         const affectedSlots = [sourceSlotIndex, targetSlotIndex];
-        for (const slotIndex of affectedSlots) {
-          const newPhotoForSlot = newSlotPhotos[slotIndex];
-          if (newPhotoForSlot) {
-            try {
-              const smartScale = await calculateSmartScaleAsync(newPhotoForSlot, slotIndex);
-              setPhotoTransforms(prev => ({
-                ...prev,
-                [slotIndex]: {
-                  scale: smartScale,
-                  translateX: 0,
-                  translateY: 0,
-                  autoFillScale: smartScale
-                }
-              }));
-              console.log(`✨ Updated smart scale for slot ${slotIndex + 1}: ${smartScale.toFixed(2)}x`);
-            } catch (error) {
-              console.error(`❌ Failed to update smart scale for slot ${slotIndex + 1}:`, error);
-            }
+        for (const slotIdx of affectedSlots) {
+          const newPhotoForSlot = newSlotPhotos[slotIdx];
+          if (!newPhotoForSlot) continue;
+
+          try {
+            const smartScale = await calculateSmartScaleAsync(newPhotoForSlot, slotIdx);
+            setPhotoTransforms((prev = {}) => ({
+              ...prev,
+              [slotIdx]: {
+                scale: smartScale,
+                translateX: 0,
+                translateY: 0,
+                autoFillScale: smartScale
+              }
+            }));
+            console.log(`✨ Updated smart scale for slot ${slotIdx + 1}: ${smartScale.toFixed(2)}x`);
+          } catch (error) {
+            console.error(`❌ Failed to update smart scale for slot ${slotIdx + 1}:`, error);
           }
         }
-        console.log(`✅ Smart scales updated for swapped slots`);
       }, 100);
 
-      console.log(`🔄 Swapped individual slots in ${frameConfig.id}: slot ${sourceSlotIndex + 1} ↔ slot ${targetSlotIndex + 1}`);
-      console.log(`📸 Only these 2 slots changed, other slots remain unchanged`);
-      return;
+      console.log(`🔄 Swapped duplicate slots ${sourceSlotIndex + 1} ↔ ${targetSlotIndex + 1}`);
+      return true;
     }
 
-    // Standard drag & drop logic for other frames
-  const newPhotos = [...photos];
-  const newVideos = [...videos];
-  const newSlotVideos = { ...slotVideos };
+    const newPhotos = [...photos];
+    const newVideos = [...videos];
+    const newSlotVideos = { ...slotVideos };
     const newPhotoPositions = { ...photoPositions };
     const newPhotoTransforms = { ...photoTransforms };
-    
-    // Swap photos
-    const temp = newPhotos[sourceSlotIndex];
-    newPhotos[sourceSlotIndex] = newPhotos[targetSlotIndex];
-    newPhotos[targetSlotIndex] = temp;
-    
-    // Swap photo positions
+
+    const swapArrayValue = (arr, a, b) => {
+      const temp = arr[a];
+      arr[a] = arr[b];
+      arr[b] = temp;
+    };
+
+    swapArrayValue(newPhotos, sourceSlotIndex, targetSlotIndex);
+    swapArrayValue(newVideos, sourceSlotIndex, targetSlotIndex);
+
+    const sourceSlotHasVideo = Object.prototype.hasOwnProperty.call(newSlotVideos, sourceSlotIndex);
+    const targetSlotHasVideo = Object.prototype.hasOwnProperty.call(newSlotVideos, targetSlotIndex);
+    if (sourceSlotHasVideo || targetSlotHasVideo) {
+      const tempSlotVideo = newSlotVideos[sourceSlotIndex];
+      newSlotVideos[sourceSlotIndex] = newSlotVideos[targetSlotIndex];
+      newSlotVideos[targetSlotIndex] = tempSlotVideo;
+    }
+
     const tempPos = newPhotoPositions[sourceSlotIndex];
     newPhotoPositions[sourceSlotIndex] = newPhotoPositions[targetSlotIndex];
     newPhotoPositions[targetSlotIndex] = tempPos;
-    
-    // Swap photo transforms - preserve existing transforms but recalculate later
+
     const tempTransform = newPhotoTransforms[sourceSlotIndex];
     newPhotoTransforms[sourceSlotIndex] = newPhotoTransforms[targetSlotIndex];
     newPhotoTransforms[targetSlotIndex] = tempTransform;
-    
-  const tempVideo = newVideos[sourceSlotIndex];
-  newVideos[sourceSlotIndex] = newVideos[targetSlotIndex];
-  newVideos[targetSlotIndex] = tempVideo;
 
-  const sourceSlotHasVideo = Object.prototype.hasOwnProperty.call(newSlotVideos, sourceSlotIndex);
-  const targetSlotHasVideo = Object.prototype.hasOwnProperty.call(newSlotVideos, targetSlotIndex);
-  if (sourceSlotHasVideo || targetSlotHasVideo) {
-    const tempSlotVideo = newSlotVideos[sourceSlotIndex];
-    newSlotVideos[sourceSlotIndex] = newSlotVideos[targetSlotIndex];
-    newSlotVideos[targetSlotIndex] = tempSlotVideo;
-  }
-
-  setPhotos(newPhotos);
-  setVideos(newVideos);
-  if (sourceSlotHasVideo || targetSlotHasVideo) {
-    setSlotVideos(newSlotVideos);
-  }
+    setPhotos(newPhotos);
+    setVideos(newVideos);
+    if (sourceSlotHasVideo || targetSlotHasVideo) {
+      setSlotVideos(newSlotVideos);
+      persistSlotVideos(frameConfig?.id, newSlotVideos);
+    }
     setPhotoPositions(newPhotoPositions);
     setPhotoTransforms(newPhotoTransforms);
     safeStorage.setItem('capturedPhotos', JSON.stringify(newPhotos));
-  safeStorage.setItem('capturedVideos', JSON.stringify(newVideos));
-    setDraggedPhoto(null);
-    
-    // Re-initialize smart scale for swapped photos
+    safeStorage.setItem('capturedVideos', JSON.stringify(newVideos));
+
     if (frameConfig) {
-      console.log(`🔄 Recalculating smart scales for swapped photos (slots ${sourceSlotIndex} ↔ ${targetSlotIndex})`);
       setTimeout(async () => {
         await initializePhotoScale(sourceSlotIndex);
         await initializePhotoScale(targetSlotIndex);
-        console.log(`✅ Smart scales updated for swapped photos`);
       }, 100);
     }
-    
-    console.log(`🔄 Swapped photo from slot ${sourceSlotIndex} to slot ${targetSlotIndex}`);
+
+    console.log(`🔄 Swapped slots ${sourceSlotIndex + 1} ↔ ${targetSlotIndex + 1}`);
+    return true;
+  };
+
+  const handleSlotClick = (slotIndex) => {
+    if (swapModeActive) {
+      if (swapSourceSlot === null) {
+        beginSwapFromSlot(slotIndex);
+        return;
+      }
+
+      if (swapSourceSlot === slotIndex) {
+        resetSwapMode();
+        return;
+      }
+
+      performSlotSwap(swapSourceSlot, slotIndex).then((success) => {
+        if (success) {
+          setSelectedPhotoForEdit(slotIndex);
+        }
+        resetSwapMode();
+      });
+      return;
+    }
+
+    setSelectedPhotoForEdit((prev) => (prev === slotIndex ? null : slotIndex));
   };
 
   // Calculate maximum zoom out scale (minimum scale before gaps appear)
@@ -2817,295 +2781,198 @@ export default function EditPhoto() {
       
       // Initialize rendered count
       let renderedCount = 0;
-      
-      // Render photos
-      console.log('🖼️ Starting photo rendering loop...');
-      console.log('🖼️ Canvas size:', canvasWidth, 'x', canvasHeight);
-      
-      // FOR DUPLICATE PHOTO FRAMES: iterate through slots instead of photos
-      if (frameConfig.duplicatePhotos) {
-        console.log('🎯 DUPLICATE PHOTOS MODE: Processing all', frameConfig.slots.length, 'slots for', frameConfig.id);
-        console.log('📋 Current slotPhotos state:', slotPhotos);
-        console.log('📋 Current photoTransforms state:', photoTransforms);
-        
-        for (let slotIndex = 0; slotIndex < frameConfig.slots.length; slotIndex++) {
-          const currentSlot = frameConfig.slots[slotIndex];
-          
-          // ✅ PERBAIKAN: Gunakan slotPhotos yang actual (setelah drag & drop) 
-          // bukan currentSlot.photoIndex yang statis dari config
-          let actualPhotoSrc;
-          let actualPhotoIndex;
-          
-          if (slotPhotos[slotIndex]) {
-            // Slot sudah di-assign foto specific (dari drag & drop atau manual assignment)
-            actualPhotoSrc = slotPhotos[slotIndex];
-            actualPhotoIndex = slotIndex; // Use slotIndex as identifier for transforms
-            console.log(`🎯 Slot ${slotIndex + 1}: Using slot-specific photo from slotPhotos`);
-          } else {
-            // Fallback ke config default photoIndex
-            actualPhotoIndex = currentSlot.photoIndex;
-            actualPhotoSrc = photos[actualPhotoIndex];
-            console.log(`🎯 Slot ${slotIndex + 1}: Using fallback photo index ${actualPhotoIndex}`);
+
+      if (frameConfig?.duplicatePhotos && selectedFrame === 'Testframe2') {
+        const frameSlots = frameConfig.slots || [];
+
+        for (let slotIndex = 0; slotIndex < frameSlots.length; slotIndex++) {
+          const currentSlot = frameSlots[slotIndex];
+          if (!currentSlot) {
+            console.warn(`⚠️ Skipping duplicate slot ${slotIndex + 1}: Slot definition missing`);
+            continue;
           }
-          
-          console.log(`🔄 Processing slot ${slotIndex + 1}:`);
+
+          const hasCustomPhoto = Object.prototype.hasOwnProperty.call(slotPhotos, slotIndex);
+          const fallbackIndex = currentSlot.photoIndex !== undefined ? currentSlot.photoIndex : slotIndex;
+          const actualPhotoSrc = hasCustomPhoto ? slotPhotos[slotIndex] : photos[fallbackIndex];
+
+          console.log(`🔄 Processing duplicate slot ${slotIndex + 1}:`);
           console.log(`  - Config photoIndex: ${currentSlot.photoIndex}`);
           console.log(`  - Actual photo source: ${actualPhotoSrc ? 'Available' : 'Not available'}`);
-          console.log(`  - SlotPhotos entry: ${slotPhotos[slotIndex] ? 'Yes' : 'No'}`);
-          
+          console.log(`  - slotPhotos override: ${hasCustomPhoto ? 'Yes' : 'No'}`);
+
           if (!actualPhotoSrc) {
             console.warn(`⚠️ Skipping slot ${slotIndex + 1}: No photo available`);
             continue;
           }
-          
-          // Load image from actual photo source
-          const img = new Image();
-          await new Promise((resolve) => {
-            img.onload = () => {
-              console.log(`✅ Slot ${slotIndex + 1}: Photo loaded (${img.width}x${img.height})`);
-              resolve();
+
+          const img = await new Promise((resolve) => {
+            const image = new Image();
+            image.onload = () => {
+              console.log(`✅ Slot ${slotIndex + 1}: Photo loaded (${image.width}x${image.height})`);
+              resolve(image);
             };
-            img.onerror = () => {
-              console.error(`❌ Slot ${slotIndex + 1}: Failed to load photo`);
-              resolve(); // Continue with next photo
+            image.onerror = (error) => {
+              console.error(`❌ Slot ${slotIndex + 1}: Failed to load photo`, error);
+              resolve(null);
             };
-            img.src = actualPhotoSrc;
+            image.src = actualPhotoSrc;
           });
-          
-          // Skip if image failed to load
-          if (!img.complete || img.naturalWidth === 0) {
+
+          if (!img || !img.complete || img.naturalWidth === 0) {
             console.warn(`⚠️ Skipping slot ${slotIndex + 1}: Image failed to load`);
             continue;
           }
-          
-          // Get default scale based on frame type
-          let defaultScale = 1.6; // Standard for other frames
+
+          let defaultScale = 1.6;
           if (frameConfig.id === 'Testframe4') {
-            defaultScale = 1.1; // Testframe4 specific default (max zoom out + 6 steps)
+            defaultScale = 1.1;
           }
-          
+
           const transform = photoTransforms[slotIndex] || { scale: defaultScale, translateX: 0, translateY: 0 };
-          
+
           console.log(`🔍 Slot ${slotIndex + 1} transform debug:`);
           console.log(`  - Slot config photoIndex:`, currentSlot.photoIndex);
-          console.log(`  - Using actual photo source:`, actualPhotoSrc ? 'Custom' : 'Default');
+          console.log(`  - Using actual photo source:`, hasCustomPhoto ? 'Custom slot photo' : `Fallback photo[${fallbackIndex}]`);
           console.log(`  - photoTransforms[${slotIndex}]:`, photoTransforms[slotIndex]);
           console.log(`  - Using transform:`, transform);
-          
-          // KOORDINAT MAPPING: Preview (350px) -> Canvas (800px)
+
           const PREVIEW_WIDTH = 350;
-          const PREVIEW_HEIGHT = 525; // aspect ratio 2:3
-          const SCALE_RATIO = canvasWidth / PREVIEW_WIDTH; // 800/350 = 2.286
-          
-          // Calculate slot position dalam preview coordinates
+          const PREVIEW_HEIGHT = 525;
+          const SCALE_RATIO = canvasWidth / PREVIEW_WIDTH;
+
           const previewSlotX = currentSlot.left * PREVIEW_WIDTH;
           const previewSlotY = currentSlot.top * PREVIEW_HEIGHT;
           const previewSlotWidth = currentSlot.width * PREVIEW_WIDTH;
           const previewSlotHeight = currentSlot.height * PREVIEW_HEIGHT;
-          
-          // Convert ke canvas coordinates 
+
           const slotX = previewSlotX * SCALE_RATIO;
           const slotY = previewSlotY * SCALE_RATIO;
           const slotWidth = previewSlotWidth * SCALE_RATIO;
           const slotHeight = previewSlotHeight * SCALE_RATIO;
-          
-          // MIMIC CSS objectFit: contain behavior
+
           const imgAspectRatio = img.width / img.height;
           const slotAspectRatio = slotWidth / slotHeight;
-          
-          let photoDisplayWidth, photoDisplayHeight;
-          
+
+          let photoDisplayWidth;
+          let photoDisplayHeight;
+
           if (imgAspectRatio > slotAspectRatio) {
-            // Photo lebih wide - fit by width
             photoDisplayWidth = slotWidth;
             photoDisplayHeight = slotWidth / imgAspectRatio;
           } else {
-            // Photo lebih tall - fit by height  
             photoDisplayWidth = slotHeight * imgAspectRatio;
             photoDisplayHeight = slotHeight;
           }
-          
-          // Center position dalam slot
-          const slotCenterX = slotX + (slotWidth / 2);
-          const slotCenterY = slotY + (slotHeight / 2);
-          
-          // Apply user transforms
+
+          const slotCenterX = slotX + slotWidth / 2;
+          const slotCenterY = slotY + slotHeight / 2;
+
           const scaledTranslateX = (transform.translateX || 0) * SCALE_RATIO;
           const scaledTranslateY = (transform.translateY || 0) * SCALE_RATIO;
-          
-          // Render photo dengan clipping untuk clean edges
+
           ctx.save();
-          
-          // Clip to slot area  
           ctx.beginPath();
           ctx.rect(slotX, slotY, slotWidth, slotHeight);
           ctx.clip();
-          
-          // Calculate final photo dimensions dengan scale applied
+
           const finalPhotoWidth = photoDisplayWidth * transform.scale;
           const finalPhotoHeight = photoDisplayHeight * transform.scale;
-          
-          // Calculate final position dengan scale dari center + translate
-          const finalPhotoX = slotCenterX - (finalPhotoWidth / 2) + scaledTranslateX;
-          const finalPhotoY = slotCenterY - (finalPhotoHeight / 2) + scaledTranslateY;
-          
+          const finalPhotoX = slotCenterX - finalPhotoWidth / 2 + scaledTranslateX;
+          const finalPhotoY = slotCenterY - finalPhotoHeight / 2 + scaledTranslateY;
+
           console.log(`📐 Slot ${slotIndex + 1}: Final photo ${finalPhotoWidth.toFixed(1)}x${finalPhotoHeight.toFixed(1)} at ${finalPhotoX.toFixed(1)},${finalPhotoY.toFixed(1)}`);
-          
+
           const slotFilterId = resolveSlotFilterId(slotIndex);
           drawImageWithFilter(ctx, img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight, {
             filterId: slotFilterId
           });
 
           ctx.restore();
-          
+
           renderedCount++;
           console.log(`✅ Slot ${slotIndex + 1}: Rendered successfully`);
         }
-        
       } else {
-        // Standard logic for non-duplicate frames  
+        // Standard logic for non-duplicate frames
         for (const { img, index } of loadedPhotos) {
-        console.log(`Processing standard photo...`);
-        console.log(`🔥 LOOP DEBUG: img exists:`, !!img);
-        console.log(`🔥 LOOP DEBUG: img details:`, img ? `${img.width}x${img.height}` : 'NULL');
-        
-        // FORCE DRAW: Draw something untuk setiap loop iteration
-        // ctx.fillStyle = 'purple';
-        // ctx.fillRect(400 + (index * 50), 100, 40, 40);
-        // Debug draw removed
-        
-        console.log(`�🔄 Processing photo ${index + 1}...`);
-        if (!img) {
-          console.warn(`⚠️ Skipping photo ${index + 1}: Failed to load`);
-          continue;
-        }
-        
-        if (!frameConfig.slots[index]) {
-          console.warn(`⚠️ Skipping photo ${index + 1}: No slot config`);
-          continue;
-        }
-        
-        console.log(`✅ Photo ${index + 1}: Ready to process (img: ${img.width}x${img.height})`);
-        
-        // Get default scale based on frame type
-        let defaultScale = 1.6; // Standard for other frames
-        if (frameConfig.id === 'Testframe4') {
-          defaultScale = 1.1; // Testframe4 specific default (max zoom out + 6 steps)
-        }
-        
-        const standardSlot = frameConfig.slots[index];
-        
-        // Handle duplicate photos: use slot.photoIndex if available
-        const standardPhotoIndex = standardSlot.photoIndex !== undefined ? standardSlot.photoIndex : index;
-        const transform = photoTransforms[index] || { scale: defaultScale, translateX: 0, translateY: 0 };
-        
-        console.log(`🔍 Slot ${index + 1} (Photo ${standardPhotoIndex + 1}) transform debug:`);
-        console.log(`  - Slot config photoIndex:`, standardSlot.photoIndex);
-        console.log(`  - Using photo index:`, standardPhotoIndex);
-        console.log(`  - photoTransforms[${index}]:`, photoTransforms[index]);
-        console.log(`  - Using transform:`, transform);
-        console.log(`  - Default scale would be:`, defaultScale);
-        console.log(`  - Is using default fallback?:`, !photoTransforms[index]);
-        
-        console.log(`🎯 Processing photo ${index + 1} for ${frameConfig.id}:`);
-        
-        // KOORDINAT MAPPING: Preview (350px) -> Canvas (800px)
-        const PREVIEW_WIDTH = 350;
-        const PREVIEW_HEIGHT = 525; // aspect ratio 2:3
-        const SCALE_RATIO = canvasWidth / PREVIEW_WIDTH; // 800/350 = 2.286
-        
-        console.log(`🔍 COORDINATE MAPPING:`)
-        console.log(`  - Preview size: ${PREVIEW_WIDTH}x${PREVIEW_HEIGHT}`)
-        console.log(`  - Canvas size: ${canvasWidth}x${canvasHeight}`)
-        console.log(`  - Scale ratio: ${SCALE_RATIO.toFixed(3)}`)
-        
-        // Calculate slot position dalam preview coordinates (seperti yang dilihat user)
-        const previewSlotX = standardSlot.left * PREVIEW_WIDTH;
-        const previewSlotY = standardSlot.top * PREVIEW_HEIGHT;
-        const previewSlotWidth = standardSlot.width * PREVIEW_WIDTH;
-        const previewSlotHeight = standardSlot.height * PREVIEW_HEIGHT;
-        
-        // Convert ke canvas coordinates 
-        const slotX = previewSlotX * SCALE_RATIO;
-        const slotY = previewSlotY * SCALE_RATIO;
-        const slotWidth = previewSlotWidth * SCALE_RATIO;
-        const slotHeight = previewSlotHeight * SCALE_RATIO;
-        
-        console.log(`🎯 Slot ${index + 1} coordinates mapping:`);
-        console.log(`  - Preview slot: ${previewSlotX.toFixed(1)}, ${previewSlotY.toFixed(1)} (${previewSlotWidth.toFixed(1)}x${previewSlotHeight.toFixed(1)})`);
-        console.log(`  - Canvas slot: ${slotX.toFixed(1)}, ${slotY.toFixed(1)} (${slotWidth.toFixed(1)}x${slotHeight.toFixed(1)})`);
-        
-        // MIMIC CSS objectFit: contain behavior
-        // Hitung bagaimana foto original (img.width x img.height) di-fit ke dalam slot
-        
-        const imgAspectRatio = img.width / img.height;
-        const slotAspectRatio = slotWidth / slotHeight;
-        
-        let photoDisplayWidth, photoDisplayHeight;
-        
-        if (imgAspectRatio > slotAspectRatio) {
-          // Photo lebih wide - fit by width
-          photoDisplayWidth = slotWidth;
-          photoDisplayHeight = slotWidth / imgAspectRatio;
-        } else {
-          // Photo lebih tall - fit by height  
-          photoDisplayWidth = slotHeight * imgAspectRatio;
-          photoDisplayHeight = slotHeight;
-        }
-        
-        console.log(`📐 ObjectFit contain calculation:`);
-        console.log(`  - Image: ${img.width}x${img.height} (ratio: ${imgAspectRatio.toFixed(3)})`);
-        console.log(`  - Slot: ${slotWidth.toFixed(1)}x${slotHeight.toFixed(1)} (ratio: ${slotAspectRatio.toFixed(3)})`);
-        console.log(`  - Photo display: ${photoDisplayWidth.toFixed(1)}x${photoDisplayHeight.toFixed(1)}`);
-        
-        // Center position dalam slot (sama seperti objectPosition: center)
-        const slotCenterX = slotX + (slotWidth / 2);
-        const slotCenterY = slotY + (slotHeight / 2);
-        
-        // Base photo position (centered in slot seperti objectPosition: center)
-        let basePhotoX = slotCenterX - (photoDisplayWidth / 2);
-        let basePhotoY = slotCenterY - (photoDisplayHeight / 2);
-        
-        // Apply user transforms dengan scaling yang tepat
-        // translateX/Y dalam preview coordinates, harus di-scale untuk canvas
-        const scaledTranslateX = (transform.translateX || 0) * SCALE_RATIO;
-        const scaledTranslateY = (transform.translateY || 0) * SCALE_RATIO;
-        
-        console.log(`🔧 User transforms:`);
-        console.log(`  - Scale: ${transform.scale}`);
-        console.log(`  - Translate preview: ${transform.translateX || 0}, ${transform.translateY || 0}`);
-        console.log(`  - Translate canvas: ${scaledTranslateX.toFixed(1)}, ${scaledTranslateY.toFixed(1)}`);
-        
-        console.log(`📸 Photo ${index + 1}: Base position ${basePhotoX.toFixed(1)},${basePhotoY.toFixed(1)} scale ${transform.scale}`);
-        
-        // Render photo dengan clipping untuk clean edges
-        ctx.save();
-        
-        // Clip to slot area  
-        ctx.beginPath();
-        ctx.rect(slotX, slotY, slotWidth, slotHeight);
-        ctx.clip();
-        
-        // Calculate final photo dimensions dengan scale applied (sama seperti CSS scale)
-        const finalPhotoWidth = photoDisplayWidth * transform.scale;
-        const finalPhotoHeight = photoDisplayHeight * transform.scale;
-        
-        // Calculate final position dengan scale dari center + translate
-        // CSS: transform-origin: center -> scaling terjadi dari center photo
-        const finalPhotoX = slotCenterX - (finalPhotoWidth / 2) + scaledTranslateX;
-        const finalPhotoY = slotCenterY - (finalPhotoHeight / 2) + scaledTranslateY;
-        
-        console.log(`Final photo dimensions: ${finalPhotoWidth.toFixed(1)}x${finalPhotoHeight.toFixed(1)} at ${finalPhotoX.toFixed(1)},${finalPhotoY.toFixed(1)}`);
-        
-        const slotFilterId = resolveSlotFilterId(index);
-        drawImageWithFilter(ctx, img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight, {
-          filterId: slotFilterId
-        });
+          if (!img) {
+            console.warn(`⚠️ Skipping photo ${index + 1}: Failed to load`);
+            continue;
+          }
 
-        ctx.restore();
-        
-        renderedCount++;
-        console.log(`Slot/Photo ${index + 1}: Rendered successfully`);
+          const targetSlot = frameConfig.slots[index];
+          if (!targetSlot) {
+            console.warn(`⚠️ Skipping photo ${index + 1}: No slot config`);
+            continue;
+          }
+
+          let defaultScale = 1.6;
+          if (frameConfig.id === 'Testframe4') {
+            defaultScale = 1.1;
+          }
+
+          const transform = photoTransforms[index] || { scale: defaultScale, translateX: 0, translateY: 0 };
+
+          console.log(`🔍 Slot ${index + 1} transform debug:`);
+          console.log(`  - photoTransforms[${index}]:`, photoTransforms[index]);
+          console.log(`  - Using transform:`, transform);
+
+          const PREVIEW_WIDTH = 350;
+          const PREVIEW_HEIGHT = 525;
+          const SCALE_RATIO = canvasWidth / PREVIEW_WIDTH;
+
+          const previewSlotX = targetSlot.left * PREVIEW_WIDTH;
+          const previewSlotY = targetSlot.top * PREVIEW_HEIGHT;
+          const previewSlotWidth = targetSlot.width * PREVIEW_WIDTH;
+          const previewSlotHeight = targetSlot.height * PREVIEW_HEIGHT;
+
+          const slotX = previewSlotX * SCALE_RATIO;
+          const slotY = previewSlotY * SCALE_RATIO;
+          const slotWidth = previewSlotWidth * SCALE_RATIO;
+          const slotHeight = previewSlotHeight * SCALE_RATIO;
+
+          const imgAspectRatio = img.width / img.height;
+          const slotAspectRatio = slotWidth / slotHeight;
+
+          let photoDisplayWidth;
+          let photoDisplayHeight;
+
+          if (imgAspectRatio > slotAspectRatio) {
+            photoDisplayWidth = slotWidth;
+            photoDisplayHeight = slotWidth / imgAspectRatio;
+          } else {
+            photoDisplayWidth = slotHeight * imgAspectRatio;
+            photoDisplayHeight = slotHeight;
+          }
+
+          const slotCenterX = slotX + slotWidth / 2;
+          const slotCenterY = slotY + slotHeight / 2;
+
+          const scaledTranslateX = (transform.translateX || 0) * SCALE_RATIO;
+          const scaledTranslateY = (transform.translateY || 0) * SCALE_RATIO;
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(slotX, slotY, slotWidth, slotHeight);
+          ctx.clip();
+
+          const finalPhotoWidth = photoDisplayWidth * transform.scale;
+          const finalPhotoHeight = photoDisplayHeight * transform.scale;
+          const finalPhotoX = slotCenterX - finalPhotoWidth / 2 + scaledTranslateX;
+          const finalPhotoY = slotCenterY - finalPhotoHeight / 2 + scaledTranslateY;
+
+          console.log(`📐 Slot ${index + 1}: Final photo ${finalPhotoWidth.toFixed(1)}x${finalPhotoHeight.toFixed(1)} at ${finalPhotoX.toFixed(1)},${finalPhotoY.toFixed(1)}`);
+
+          const slotFilterId = resolveSlotFilterId(index);
+          drawImageWithFilter(ctx, img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight, {
+            filterId: slotFilterId
+          });
+
+          ctx.restore();
+
+          renderedCount++;
+          console.log(`✅ Slot ${index + 1}: Rendered successfully`);
         }
       }
       
@@ -3696,6 +3563,44 @@ export default function EditPhoto() {
               position: 'relative'
             }}
           >
+            {swapModeActive && swapSourceSlot !== null && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: isMobile ? '12px' : '18px',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  background: 'rgba(232, 168, 137, 0.95)',
+                  color: '#fff',
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: '999px',
+                  fontSize: isMobile ? '0.75rem' : '0.85rem',
+                  fontWeight: 600,
+                  boxShadow: '0 6px 16px rgba(232, 168, 137, 0.35)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  zIndex: 20
+                }}
+              >
+                <span>Pilih slot lain untuk menukar dengan Slot {swapSourceSlot + 1}</span>
+                <button
+                  type="button"
+                  onClick={resetSwapMode}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.2)',
+                    border: 'none',
+                    color: '#fff',
+                    borderRadius: '999px',
+                    padding: '0.15rem 0.6rem',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Batal
+                </button>
+              </div>
+            )}
             {frameConfig && frameImage ? (
               <div
                 style={{
@@ -3726,284 +3631,280 @@ export default function EditPhoto() {
                 />
                 
                 {/* Photo Slots - menyesuaikan dengan frame rigid */}
-                {frameConfig.slots.map((slot, slotIndex) => (
-                  <div
-                    key={slot.id}
-                    style={{
-                      position: 'absolute',
-                      left: `${slot.left * 100}%`,
-                      top: `${slot.top * 100}%`,
-                      width: `${slot.width * 100}%`,
-                      height: `${slot.height * 100}%`,
-                      zIndex: 5,
-                      overflow: 'hidden',
-                      backgroundColor: dragOverSlot === slotIndex ? 'rgba(232, 168, 137, 0.2)' : '#f8f9fa',
-                      border: dragOverSlot === slotIndex ? '3px solid #E8A889' : 
-                             draggedPhoto ? '2px dashed #ccc' : 'none',
-                      transition: 'all 0.3s ease',
-                      boxSizing: 'border-box',
-                      // Pastikan aspect ratio 4:5 untuk slot
-                      aspectRatio: slot.aspectRatio ? slot.aspectRatio.replace(':', '/') : '4/5'
-                    }}
-                    // Drop zone events - attached to container, not image
-                    onDragOver={(e) => handleDragOver(e, slotIndex)}
-                    onDragLeave={handleDragLeave}
-                    onDrop={(e) => handleDrop(e, slotIndex)}
-                  >
-                    {/* Render photo dengan logic duplicate support */}
-                    {(() => {
-                      // For Testframe2 with independent slots, use slotPhotos
-                      let photoSrc;
-                      let photoIndex;
-                      
-                      if (frameConfig?.duplicatePhotos && slotPhotos[slotIndex]) {
-                        // Use independent slot photo for Testframe2
-                        photoSrc = slotPhotos[slotIndex];
-                        photoIndex = slotIndex; // Use slot index as photo index for display
-                      } else {
-                        // Standard behavior for other frames
-                        photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
-                        photoSrc = photos[photoIndex];
-                      }
+                {frameConfig.slots.map((slot, slotIndex) => {
+                  const isSwapSource = swapModeActive && swapSourceSlot === slotIndex;
+                  const isSwapCandidate = swapModeActive && swapSourceSlot !== null && swapSourceSlot !== slotIndex;
+                  const isSelectedForEdit = !swapModeActive && selectedPhotoForEdit === slotIndex;
+                  const borderStyle = isSwapSource
+                    ? '3px solid #E8A889'
+                    : isSwapCandidate
+                      ? '2px dashed rgba(232, 168, 137, 0.8)'
+                      : isSelectedForEdit
+                        ? '2px solid rgba(232, 168, 137, 0.6)'
+                        : 'none';
+                  const backgroundColor = isSwapSource
+                    ? 'rgba(232, 168, 137, 0.25)'
+                    : isSwapCandidate
+                      ? 'rgba(232, 168, 137, 0.12)'
+                      : isSelectedForEdit
+                        ? 'rgba(255, 255, 255, 0.95)'
+                        : '#f8f9fa';
 
-                      const baseCropStyle = calculatePhotoCropStyle(frameConfig, slotIndex);
-                      const slotFilterId = resolveSlotFilterId(slotIndex);
-                      const filterCssValue = getFilterCssValue(slotFilterId);
-                      const isDraggedSlot = draggedPhoto?.slotIndex === slotIndex;
-                      const filterParts = [];
-                      if (filterCssValue && filterCssValue !== 'none') {
-                        filterParts.push(filterCssValue);
-                      }
-                      if (isDraggedSlot) {
-                        filterParts.push('blur(1px) brightness(0.8)');
-                      }
-                      const computedFilter = filterParts.length > 0 ? filterParts.join(' ') : 'none';
-                      const computedTransform = isDraggedSlot
-                        ? `${baseCropStyle.transform || ''} scale(0.9)`.trim()
-                        : baseCropStyle.transform;
-                      const computedTransition = isDraggedSlot ? 'none' : (baseCropStyle.transition || 'transform 0.2s ease');
+                  const resolvedPhotoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+                  const slotHasCustomPhoto = frameConfig?.duplicatePhotos && slotPhotos[slotIndex];
+                  const photoSrc = slotHasCustomPhoto ? slotPhotos[slotIndex] : photos[resolvedPhotoIndex];
+                  const slotFilterId = resolveSlotFilterId(slotIndex);
+                  const filterCssValue = getFilterCssValue(slotFilterId);
+                  const photoStyle = calculatePhotoCropStyle(frameConfig, slotIndex);
 
-                      return photoSrc && (
-                        <div style={{ 
-                          position: 'relative', 
-                          width: '100%', 
-                          height: '100%',
-                          overflow: 'hidden'
-                        }}>
+                  return (
+                    <div
+                      key={slot.id}
+                      style={{
+                        position: 'absolute',
+                        left: `${slot.left * 100}%`,
+                        top: `${slot.top * 100}%`,
+                        width: `${slot.width * 100}%`,
+                        height: `${slot.height * 100}%`,
+                        zIndex: 5,
+                        overflow: 'hidden',
+                        backgroundColor,
+                        border: borderStyle,
+                        transition: 'all 0.25s ease',
+                        boxSizing: 'border-box',
+                        aspectRatio: slot.aspectRatio ? slot.aspectRatio.replace(':', '/') : '4/5',
+                        cursor: swapModeActive ? (isSwapSource ? 'not-allowed' : 'pointer') : 'pointer'
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={isSwapSource}
+                      onClick={() => handleSlotClick(slotIndex)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          handleSlotClick(slotIndex);
+                        }
+                      }}
+                    >
+                      {photoSrc ? (
+                        <div
+                          style={{
+                            position: 'relative',
+                            width: '100%',
+                            height: '100%',
+                            overflow: 'hidden'
+                          }}
+                        >
                           <img
                             src={photoSrc}
-                            alt={`Photo ${photoIndex + 1}${slot.photoIndex !== undefined ? ` (duplicate)` : ''}`}
+                            alt={`Photo ${resolvedPhotoIndex + 1}${slot.photoIndex !== undefined ? ' (duplicate)' : ''}`}
                             style={{
-                              ...baseCropStyle,
-                              opacity: isDraggedSlot ? 0.5 : 1,
-                              cursor: isDraggedSlot ? 'grabbing' : 
-                                     selectedPhotoForEdit === slotIndex ? 'grab' : 'pointer',
-                              filter: computedFilter,
-                              transform: computedTransform || baseCropStyle.transform,
-                              transition: computedTransition,
-                              pointerEvents: draggedPhoto && draggedPhoto.slotIndex !== slotIndex ? 'none' : 'auto'
+                              ...photoStyle,
+                              cursor: swapModeActive
+                                ? (isSwapSource ? 'not-allowed' : 'pointer')
+                                : selectedPhotoForEdit === slotIndex ? 'grab' : 'pointer',
+                              filter: filterCssValue && filterCssValue !== 'none' ? filterCssValue : 'none',
+                              pointerEvents: swapModeActive ? 'none' : 'auto'
                             }}
-                            draggable={true} // Enable drag for all frames including Testframe2
-                            onDragStart={(e) => {
-                              e.stopPropagation();
-                              handleDragStart(e, photoIndex, slotIndex);
-                            }}
-                            onClick={(e) => {
-                              // Only handle click if not dragging
-                              if (!draggedPhoto) {
-                                setSelectedPhotoForEdit(selectedPhotoForEdit === slotIndex ? null : slotIndex);
-                              }
-                            }}
+                            draggable={false}
                             onWheel={(e) => {
-                              if (selectedPhotoForEdit === slotIndex && !draggedPhoto) {
+                              if (swapModeActive) return;
+                              if (selectedPhotoForEdit === slotIndex) {
                                 e.preventDefault();
                                 const delta = e.deltaY > 0 ? -1 : 1;
                                 handlePhotoZoom(slotIndex, delta);
                               }
                             }}
                             onMouseDown={(e) => {
-                              // Only handle mouse down if not in drag mode
-                              if (!draggedPhoto) {
-                                handlePhotoMouseDown(e, slotIndex);
-                              }
+                              if (swapModeActive) return;
+                              handlePhotoMouseDown(e, slotIndex);
                             }}
                             onMouseMove={(e) => {
-                              if (!draggedPhoto) {
-                                handlePhotoMouseMove(e, slotIndex);
-                              }
+                              if (swapModeActive) return;
+                              handlePhotoMouseMove(e, slotIndex);
                             }}
                             onMouseUp={(e) => {
-                              if (!draggedPhoto) {
-                                handlePhotoMouseUp(e);
-                              }
+                              if (swapModeActive) return;
+                              handlePhotoMouseUp(e);
                             }}
                             onMouseLeave={(e) => {
-                              if (!draggedPhoto) {
-                                handlePhotoMouseUp(e);
-                              }
+                              if (swapModeActive) return;
+                              handlePhotoMouseUp(e);
                             }}
                           />
-                          
-                          {/* Modern Photo Edit Controls */}
-                          {selectedPhotoForEdit === slotIndex && (
-                          <div style={{
-                            position: 'absolute',
-                            bottom: '12px',
-                            left: '50%',
-                            transform: 'translateX(-50%)',
+
+                          {/* Editing controls rendered outside slot for layering */}
+                        </div>
+                      ) : (
+                        <div
+                          style={{
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '4px',
-                            background: 'rgba(0, 0, 0, 0.7)',
-                            backdropFilter: 'blur(20px)',
-                            borderRadius: '14px',
-                            padding: '4px 8px',
-                            border: '1px solid rgba(255, 255, 255, 0.1)',
-                            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-                            zIndex: 20,
-                            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-                          }}>
-                            {/* Zoom Out Button */}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handlePhotoZoom(slotIndex, -1);
-                              }}
-                              style={{
-                                background: 'rgba(255, 255, 255, 0.1)',
-                                border: 'none',
-                                color: 'white',
-                                width: '20px',
-                                height: '20px',
-                                borderRadius: '50%',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '12px',
-                                fontWeight: 'bold',
-                                transition: 'all 0.2s ease',
-                                backdropFilter: 'blur(10px)'
-                              }}
-                              onMouseEnter={(e) => {
-                                e.target.style.background = 'rgba(255, 255, 255, 0.2)';
-                                e.target.style.transform = 'scale(1.1)';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.target.style.background = 'rgba(255, 255, 255, 0.1)';
-                                e.target.style.transform = 'scale(1)';
-                              }}
-                            >
-                              −
-                            </button>
-                            
-                            {/* Zoom Level Display */}
-                            <div style={{
-                              color: 'white',
-                              fontSize: '11px',
-                              fontWeight: '600',
-                              minWidth: '28px',
-                              textAlign: 'center',
-                              background: 'rgba(255, 255, 255, 0.1)',
-                              padding: '3px 6px',
-                              borderRadius: '10px',
-                              backdropFilter: 'blur(10px)',
-                              border: '1px solid rgba(255, 255, 255, 0.1)'
-                            }}>
-                              {(photoTransforms[slotIndex]?.scale || 1).toFixed(1)}x
-                            </div>
-                            
-                            {/* Zoom In Button */}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handlePhotoZoom(slotIndex, 1);
-                              }}
-                              style={{
-                                background: 'rgba(255, 255, 255, 0.1)',
-                                border: 'none',
-                                color: 'white',
-                                width: '20px',
-                                height: '20px',
-                                borderRadius: '50%',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '12px',
-                                fontWeight: 'bold',
-                                transition: 'all 0.2s ease',
-                                backdropFilter: 'blur(10px)'
-                              }}
-                              onMouseEnter={(e) => {
-                                e.target.style.background = 'rgba(255, 255, 255, 0.2)';
-                                e.target.style.transform = 'scale(1.1)';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.target.style.background = 'rgba(255, 255, 255, 0.1)';
-                                e.target.style.transform = 'scale(1)';
-                              }}
-                            >
-                              +
-                            </button>
-                            
-                            {/* Reset Button */}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                resetPhotoTransform(slotIndex);
-                              }}
-                              style={{
-                                background: 'rgba(255, 255, 255, 0.1)',
-                                border: 'none',
-                                color: 'white',
-                                width: '20px',
-                                height: '20px',
-                                borderRadius: '50%',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '10px',
-                                transition: 'all 0.2s ease',
-                                backdropFilter: 'blur(10px)'
-                              }}
-                              onMouseEnter={(e) => {
-                                e.target.style.background = 'rgba(255, 255, 255, 0.2)';
-                                e.target.style.transform = 'scale(1.1)';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.target.style.background = 'rgba(255, 255, 255, 0.1)';
-                                e.target.style.transform = 'scale(1)';
-                              }}
-                            >
-                              ↺
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                      );
-                    })()}
-                    {(() => {
-                      const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
-                      const photoSrc = photos[photoIndex];
-                      return !photoSrc && (
-                      <div style={{
+                            justifyContent: 'center',
+                            height: '100%',
+                            color: '#9ca3af',
+                            fontSize: '0.7rem',
+                            textAlign: 'center',
+                            fontWeight: 500
+                          }}
+                        >
+                          Slot {slotIndex + 1}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {selectedPhotoForEdit !== null && !swapModeActive && frameConfig.slots[selectedPhotoForEdit] && (() => {
+                  const activeSlot = frameConfig.slots[selectedPhotoForEdit];
+                  const overlayPadding = isMobile ? (isCompact ? '8px' : '10px') : '12px';
+                  const transformValue = (photoTransforms[selectedPhotoForEdit]?.scale || 1).toFixed(1);
+
+                  return (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: `${activeSlot.left * 100}%`,
+                        top: `${activeSlot.top * 100}%`,
+                        width: `${activeSlot.width * 100}%`,
+                        height: `${activeSlot.height * 100}%`,
+                        pointerEvents: 'none',
+                        zIndex: 30,
                         display: 'flex',
-                        alignItems: 'center',
+                        alignItems: 'flex-end',
                         justifyContent: 'center',
-                        height: '100%',
-                        color: '#9ca3af',
-                        fontSize: '0.7rem',
-                        textAlign: 'center',
-                        fontWeight: '500'
-                      }}>
-                        Slot {slotIndex + 1}
+                        paddingBottom: overlayPadding,
+                        boxSizing: 'border-box'
+                      }}
+                    >
+                      <div
+                        style={{
+                          pointerEvents: 'auto',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: isMobile ? '6px' : '8px',
+                          background: 'rgba(0, 0, 0, 0.78)',
+                          backdropFilter: 'blur(20px)',
+                          borderRadius: '16px',
+                          padding: isMobile ? '6px 10px' : '6px 12px',
+                          border: '1px solid rgba(255, 255, 255, 0.12)',
+                          boxShadow: '0 10px 28px rgba(0, 0, 0, 0.28)'
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            beginSwapFromSlot(selectedPhotoForEdit);
+                          }}
+                          style={{
+                            background: 'rgba(232, 168, 137, 0.92)',
+                            border: 'none',
+                            width: isMobile ? '30px' : '32px',
+                            height: isMobile ? '30px' : '32px',
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            boxShadow: '0 6px 16px rgba(232, 168, 137, 0.45)'
+                          }}
+                        >
+                          <img
+                            src={swapIcon}
+                            alt="Tukar slot"
+                            style={{ width: isMobile ? '14px' : '15px', height: isMobile ? '14px' : '15px' }}
+                          />
+                        </button>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePhotoZoom(selectedPhotoForEdit, -1);
+                          }}
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.14)',
+                            border: 'none',
+                            color: 'white',
+                            width: isMobile ? '24px' : '26px',
+                            height: isMobile ? '24px' : '26px',
+                            borderRadius: '50%',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '12px',
+                            fontWeight: 'bold'
+                          }}
+                        >
+                          −
+                        </button>
+
+                        <div
+                          style={{
+                            color: 'white',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            minWidth: '36px',
+                            textAlign: 'center',
+                            background: 'rgba(255, 255, 255, 0.14)',
+                            padding: '3px 8px',
+                            borderRadius: '12px',
+                            border: '1px solid rgba(255, 255, 255, 0.15)'
+                          }}
+                        >
+                          {transformValue}x
+                        </div>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePhotoZoom(selectedPhotoForEdit, 1);
+                          }}
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.14)',
+                            border: 'none',
+                            color: 'white',
+                            width: isMobile ? '24px' : '26px',
+                            height: isMobile ? '24px' : '26px',
+                            borderRadius: '50%',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '12px',
+                            fontWeight: 'bold'
+                          }}
+                        >
+                          +
+                        </button>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            resetPhotoTransform(selectedPhotoForEdit);
+                          }}
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.14)',
+                            border: 'none',
+                            color: 'white',
+                            width: isMobile ? '26px' : '28px',
+                            height: isMobile ? '26px' : '28px',
+                            borderRadius: '50%',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '12px'
+                          }}
+                        >
+                          ↺
+                        </button>
                       </div>
-                      );
-                    })()}
-                  </div>
-                ))}
+                    </div>
+                  );
+                })()}
                 
                 {/* Frame Info */}
                 <div style={{

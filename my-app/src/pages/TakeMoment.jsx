@@ -360,6 +360,7 @@ export default function TakeMoment() {
   const cameraStreamRef = useRef(null);
   const activeRecordingRef = useRef(null);
   const captureSectionRef = useRef(null);
+  const previewSectionRef = useRef(null);
 
   const [cameraActive, setCameraActive] = useState(false);
   const [capturedPhotos, setCapturedPhotos] = useState([]);
@@ -372,6 +373,7 @@ export default function TakeMoment() {
 
   const capturedPhotosRef = useRef(capturedPhotos);
   const capturedVideosRef = useRef(capturedVideos);
+  const previousCaptureCountRef = useRef(0);
 
   const replaceCurrentPhoto = useCallback((updater) => {
     setCurrentPhoto((prev) => {
@@ -637,6 +639,44 @@ export default function TakeMoment() {
       projected: projectedSize,
     });
   }, [capturedPhotos, capturedVideos]);
+
+  useEffect(() => {
+    const previousCount = previousCaptureCountRef.current;
+    const currentCount = capturedPhotos.length;
+    previousCaptureCountRef.current = currentCount;
+
+    if (
+      maxCaptures > 0 &&
+      currentCount >= maxCaptures &&
+      previousCount < maxCaptures &&
+      currentCount > 0 &&
+      previewSectionRef.current
+    ) {
+      const targetNode = previewSectionRef.current;
+      const scrollOptions = {
+        behavior: "smooth",
+        block: isMobile ? "start" : "center",
+      };
+
+      const performScroll = () => {
+        try {
+          targetNode.scrollIntoView(scrollOptions);
+        } catch (error) {
+          try {
+            targetNode.scrollIntoView({ behavior: "smooth" });
+          } catch {
+            targetNode.scrollIntoView();
+          }
+        }
+      };
+
+      if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(performScroll);
+      } else {
+        performScroll();
+      }
+    }
+  }, [capturedPhotos.length, isMobile, maxCaptures]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1957,77 +1997,6 @@ export default function TakeMoment() {
     );
   };
 
-  const renderStorageDebugPanel = () => {
-    const storageSize = calculateStorageSize({ photos: capturedPhotos, videos: capturedVideos });
-    const projectedSize = calculateProjectedStorageSize({ photos: capturedPhotos, videos: capturedVideos });
-    const projectedMbNumber = Number.parseFloat(projectedSize.mb);
-
-    return (
-      <details
-        style={{
-          width: "100%",
-          maxWidth: "340px",
-          margin: "1rem auto 0",
-          background: "#fff",
-          borderRadius: "16px",
-          padding: "1rem 1.25rem",
-          boxShadow: "0 12px 24px rgba(0,0,0,0.08)",
-          color: "#475569",
-        }}
-      >
-        <summary
-          style={{
-            fontWeight: 600,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "0.75rem",
-          }}
-        >
-          <span>📦 Storage info</span>
-          <span
-            style={{
-              fontSize: "0.9rem",
-              color:
-                projectedMbNumber > 4.3 || parseFloat(storageSize.mb) > 4.3 ? "#dc2626" : "#38a169",
-            }}
-          >
-            {storageSize.mb} MB • projected {projectedSize.mb} MB
-          </span>
-        </summary>
-        <div
-          style={{
-            marginTop: "0.85rem",
-            fontSize: "0.85rem",
-            display: "grid",
-            gap: "0.45rem",
-          }}
-        >
-          <div>Photos: {capturedPhotos.length}</div>
-          <div>Videos: {capturedVideos.filter(Boolean).length}</div>
-          <div>Raw size: {storageSize.mb} MB</div>
-          <div>Projected storage: {projectedSize.mb} MB</div>
-          <button
-            onClick={clearCapturedMedia}
-            style={{
-              padding: "0.65rem 1rem",
-              border: "none",
-              borderRadius: "999px",
-              background: "#ef4444",
-              color: "white",
-              fontWeight: 600,
-              cursor: "pointer",
-              marginTop: "0.5rem",
-            }}
-          >
-            Reset captured data
-          </button>
-        </div>
-      </details>
-    );
-  };
-
   const renderCameraControls = (variant) => {
     const isMobileVariant = variant === "mobile";
     const showCameraButtonLabel = isMobileVariant ? "Pakai Kamera" : cameraActive ? "Stop Camera" : "Camera";
@@ -2500,6 +2469,7 @@ export default function TakeMoment() {
             <div style={{ width: "100%", maxWidth: "640px" }}>{captureControls}</div>
 
             <div
+              ref={previewSectionRef}
               style={{
                 width: "100%",
                 display: "flex",
@@ -2511,7 +2481,6 @@ export default function TakeMoment() {
           </div>
         </section>
 
-        {renderStorageDebugPanel()}
         {renderConfirmationModal()}
       </main>
     );
@@ -2595,7 +2564,9 @@ export default function TakeMoment() {
           {renderCaptureButton("mobile")}
         </div>
 
-        {renderPreviewPanel("mobile")}
+        <div ref={previewSectionRef} style={{ width: "100%" }}>
+          {renderPreviewPanel("mobile")}
+        </div>
       </section>
 
       {renderConfirmationModal()}

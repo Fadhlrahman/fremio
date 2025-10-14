@@ -5,7 +5,7 @@ export default function FrameDebugSimple() {
   const [selectedFrame, setSelectedFrame] = useState('Testframe1');
   const [frameConfig, setFrameConfig] = useState(null);
 
-  // Calculate slot dimensions in pixels .
+  // Calculate slot dimensions in pixels ..
   const calculateSlotPixels = (frameConfig, slotIndex) => {
     const FRAME_WIDTH = 350; // px
     const FRAME_HEIGHT = 525; // px

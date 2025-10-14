@@ -1651,30 +1651,7 @@ export default function TakeMoment() {
       return;
     }
 
-    const frameConfig = frameProvider.getCurrentConfig();
-    const shouldDuplicate = !!frameConfig?.duplicatePhotos;
-    const duplicateEntries = (items, cloneObjects = false) => {
-      const baseArray = cloneObjects
-        ? items.map((value) => {
-            if (!cloneObjects || value === null || typeof value !== "object") {
-              return value;
-            }
-            return { ...value };
-          })
-        : [...items];
-
-      if (!shouldDuplicate) {
-        return baseArray;
-      }
-
-      return baseArray.flatMap((value) => {
-        if (cloneObjects && value && typeof value === "object") {
-          return [{ ...value }, { ...value }];
-        }
-        return [value, value];
-      });
-    };
-
+  const frameConfig = frameProvider.getCurrentConfig();
     const sanitizeVideoForPayload = (video, index) => {
       if (!video || !video.dataUrl) return null;
       return {
@@ -1702,10 +1679,8 @@ export default function TakeMoment() {
     };
 
     const preparePayload = (photosSource, videosSource) => {
-      const photosPrepared = duplicateEntries(photosSource, false);
-      const videosNormalized = normalizeVideos(videosSource, photosSource.length);
-      const videosDuplicated = duplicateEntries(videosNormalized, true);
-      const videosPrepared = normalizeVideos(videosDuplicated, photosPrepared.length);
+      const photosPrepared = [...photosSource];
+      const videosPrepared = normalizeVideos(videosSource, photosPrepared.length);
       return {
         photos: photosPrepared,
         videos: videosPrepared,

@@ -370,7 +370,6 @@ export default function TakeMoment() {
   const [currentPhoto, setCurrentPhoto] = useState(null);
   const [currentVideo, setCurrentVideo] = useState(null);
 
-  const pendingVideoConversionsRef = useRef(new Map());
   const capturedPhotosRef = useRef(capturedPhotos);
   const capturedVideosRef = useRef(capturedVideos);
 
@@ -507,9 +506,17 @@ export default function TakeMoment() {
 
     const videosPayload = sanitizeVideosForStorage(Array.isArray(payload.videos) ? payload.videos : []);
 
+    const hasPersistablePhotos = photosPayload.some((item) => typeof item === "string" && item.startsWith("data:"));
+    const hasPersistableVideos = videosPayload.some((item) => typeof item?.dataUrl === "string" && item.dataUrl.startsWith("data:"));
+
     try {
-      safeStorage.setJSON("capturedPhotos", photosPayload);
-      safeStorage.setJSON("capturedVideos", videosPayload);
+      if (!hasPersistablePhotos && !hasPersistableVideos) {
+        safeStorage.removeItem("capturedPhotos");
+        safeStorage.removeItem("capturedVideos");
+      } else {
+        safeStorage.setJSON("capturedPhotos", photosPayload);
+        safeStorage.setJSON("capturedVideos", videosPayload);
+      }
     } catch (error) {
       console.error("❌ Failed to persist captured media", error);
       alert("Penyimpanan penuh atau tidak tersedia. Silakan kurangi foto yang disimpan.");
@@ -544,89 +551,6 @@ export default function TakeMoment() {
     [clearScheduledStorage, runStorageWrite]
   );
 
-  const queueVideoConversion = useCallback(
-    (videoEntry) => {
-      if (!videoEntry || videoEntry.dataUrl || !videoEntry.blob) {
-        return null;
-      }
-
-      const { id } = videoEntry;
-      if (!id) {
-        return null;
-      }
-
-      if (pendingVideoConversionsRef.current.has(id)) {
-        return pendingVideoConversionsRef.current.get(id);
-      }
-
-      const conversionPromise = (async () => {
-        try {
-          const dataUrl = await blobToDataURL(videoEntry.blob);
-          const computedSize = videoEntry.sizeBytes ?? videoEntry.blob.size ?? null;
-
-          setCapturedVideos((prev = []) => {
-            const index = prev.findIndex((item) => item?.id === id);
-            if (index === -1) {
-              return prev;
-            }
-
-            const next = [...prev];
-            const existing = next[index];
-            next[index] = {
-              ...existing,
-              dataUrl,
-              sizeBytes: computedSize,
-              blob: null,
-              isConverting: false,
-              conversionError: false,
-            };
-
-            Promise.resolve().then(() => {
-              scheduleStorageWrite(capturedPhotosRef.current, next);
-            });
-
-            return next;
-          });
-        } catch (error) {
-          console.error("⚠️ Failed to convert recorded video for storage", error);
-          setCapturedVideos((prev = []) => {
-            const index = prev.findIndex((item) => item?.id === id);
-            if (index === -1) {
-              return prev;
-            }
-
-            const next = [...prev];
-            next[index] = {
-              ...next[index],
-              blob: null,
-              isConverting: false,
-              conversionError: true,
-            };
-
-            Promise.resolve().then(() => {
-              scheduleStorageWrite(capturedPhotosRef.current, next);
-            });
-
-            return next;
-          });
-        } finally {
-          pendingVideoConversionsRef.current.delete(id);
-        }
-      })();
-
-      pendingVideoConversionsRef.current.set(id, conversionPromise);
-      conversionPromise.catch(() => {});
-      return conversionPromise;
-    },
-    [scheduleStorageWrite]
-  );
-
-  const waitForPendingVideoConversions = useCallback(async () => {
-    const pending = Array.from(pendingVideoConversionsRef.current.values());
-    if (!pending.length) return;
-    await Promise.allSettled(pending);
-  }, []);
-
   const flushStorageWrite = useCallback(() => {
     if (!latestStoragePayloadRef.current?.photos) return;
     clearScheduledStorage();
@@ -637,9 +561,8 @@ export default function TakeMoment() {
     const existingPhotos = Array.isArray(capturedPhotosRef.current) ? capturedPhotosRef.current : [];
     existingPhotos.forEach((entry) => cleanupCapturedPhotoPreview(entry));
 
-    setCapturedPhotos([]);
-    setCapturedVideos([]);
-    pendingVideoConversionsRef.current.clear();
+  setCapturedPhotos([]);
+  setCapturedVideos([]);
 
     if (!safeStorage.isAvailable()) return;
 
@@ -1465,10 +1388,6 @@ export default function TakeMoment() {
       setCapturedVideos(trimmedVideos);
       scheduleStorageWrite(trimmedPhotos, trimmedVideos);
 
-      if (preparedVideoEntry?.blob && !preparedVideoEntry.dataUrl) {
-        queueVideoConversion(preparedVideoEntry);
-      }
-
       willReachMax = trimmedPhotos.length >= maxCaptures;
     } catch (error) {
       console.error("❌ Error processing captured media", error);
@@ -1492,7 +1411,6 @@ export default function TakeMoment() {
     currentVideo,
     createCapturedVideoEntry,
     maxCaptures,
-    queueVideoConversion,
     replaceCurrentPhoto,
     replaceCurrentVideo,
     cleanupCapturedPhotoPreview,
@@ -1513,11 +1431,6 @@ export default function TakeMoment() {
       cleanupCapturedPhotoPreview(removedPhoto);
 
       const newPhotos = capturedPhotos.filter((_, index) => index !== indexToDelete);
-      const removedVideo = capturedVideos[indexToDelete];
-      if (removedVideo?.id) {
-        pendingVideoConversionsRef.current.delete(removedVideo.id);
-      }
-
       const trimmedVideos = capturedVideos.filter((_, index) => index !== indexToDelete);
       const reindexedVideos = trimmedVideos.map((entry, idx) => {
         if (!entry) return null;

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import JSZip from 'jszip';
 import { getFrameConfig, FRAME_CONFIGS } from '../config/frameConfigs.js';
 import { reloadFrameConfig as reloadFrameConfigFromManager } from '../config/frameConfigManager.js';
 import frameProvider from '../utils/frameProvider.js';
@@ -690,6 +691,89 @@ export default function EditPhoto() {
     } catch (error) {
       console.error('❌ Failed to convert data URL to blob:', error);
       return null;
+    }
+  };
+
+  const downloadMediaBundle = async ({
+    photoBlob,
+    photoFilename,
+    framedVideoResult,
+    bundleName,
+    extraMetadata = {}
+  }) => {
+    if (!photoBlob) {
+      console.error('❌ Cannot build media bundle without photo blob');
+      return { success: false, reason: 'missing-photo' };
+    }
+
+    try {
+      const frameIdentifier = selectedFrame || 'frame';
+      const timestampPart = bundleName || new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+      const rawBundleName = `fremio-${frameIdentifier}-${timestampPart}`;
+      const safeBundleName = rawBundleName.replace(/[^a-zA-Z0-9-_]/g, '_');
+
+      const zip = new JSZip();
+      const rootFolder = zip.folder(safeBundleName);
+      if (!rootFolder) {
+        throw new Error('Failed to initialize bundle folder inside zip');
+      }
+
+      const photosFolder = rootFolder.folder('photos');
+      if (!photosFolder) {
+        throw new Error('Failed to create photos folder in bundle');
+      }
+      photosFolder.file(photoFilename, photoBlob, { binary: true });
+
+      const videosFolder = rootFolder.folder('videos');
+      if (!videosFolder) {
+        throw new Error('Failed to create videos folder in bundle');
+      }
+
+      if (framedVideoResult?.blob) {
+        videosFolder.file(framedVideoResult.filename, framedVideoResult.blob, { binary: true });
+      } else {
+        videosFolder.file(
+          'README.txt',
+          `Tidak ada video yang tersedia untuk sesi ini.\nAlasan: ${framedVideoResult?.reason ?? 'video-belum-dibuat'}`
+        );
+      }
+
+      const metadata = {
+        frame: selectedFrame,
+        generatedAt: new Date().toISOString(),
+        hasVideo: Boolean(framedVideoResult?.blob),
+        videoConvertedToMp4: Boolean(framedVideoResult?.convertedToMp4),
+        slotsRendered: frameConfig?.slots?.length ?? 0,
+        ...extraMetadata
+      };
+      rootFolder.file('metadata.json', JSON.stringify(metadata, null, 2));
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const zipFilename = `${safeBundleName}.zip`;
+      triggerBlobDownload(zipBlob, zipFilename);
+      console.log(`📦 Media bundle downloaded: ${zipFilename}`);
+
+      return {
+        success: true,
+        filename: zipFilename,
+        hasVideo: metadata.hasVideo
+      };
+    } catch (bundleError) {
+      console.error('❌ Failed to create media bundle, falling back to individual downloads:', bundleError);
+
+      // Fallback: download individual assets so user still receives files
+      if (photoBlob && photoFilename) {
+        triggerBlobDownload(photoBlob, photoFilename);
+      }
+      if (framedVideoResult?.blob && framedVideoResult?.filename) {
+        triggerBlobDownload(framedVideoResult.blob, framedVideoResult.filename);
+      }
+
+      return {
+        success: false,
+        reason: 'bundle-failed',
+        error: bundleError
+      };
     }
   };
 
@@ -1426,7 +1510,7 @@ export default function EditPhoto() {
     return 1.6; // Conservative default
   };
 
-  const generateFramedVideo = async ({ loadedPhotos, canvasWidth, canvasHeight, timestamp }) => {
+  const generateFramedVideo = async ({ loadedPhotos, canvasWidth, canvasHeight, timestamp, skipDownload = false }) => {
     if (!isBrowser) {
       console.log('🎬 Skipping framed video generation outside browser environment');
       return { success: false, reason: 'no-browser' };
@@ -1937,8 +2021,12 @@ export default function EditPhoto() {
       }
     }
 
-    triggerBlobDownload(finalVideoBlob, videoFilename);
-    console.log('🎬 Framed video saved successfully!');
+    if (!skipDownload) {
+      triggerBlobDownload(finalVideoBlob, videoFilename);
+      console.log('🎬 Framed video saved successfully!');
+    } else {
+      console.log('🎬 Framed video ready for bundling (download skipped).');
+    }
     return {
       success: true,
       blob: finalVideoBlob,
@@ -2841,9 +2929,9 @@ export default function EditPhoto() {
         return;
       }
 
+      const photoFilename = `photobooth-${selectedFrame}-${timestamp}.png`;
       console.log('✅ Blob created:', photoBlob.size, 'bytes');
-      triggerBlobDownload(photoBlob, `photobooth-${selectedFrame}-${timestamp}.png`);
-      console.log('💾 Photo saved successfully!');
+      console.log('🗃️ Preparing bundled download for photo and video...');
 
       let framedVideoResult = null;
       try {
@@ -2851,17 +2939,36 @@ export default function EditPhoto() {
           loadedPhotos,
           canvasWidth,
           canvasHeight,
-          timestamp
+          timestamp,
+          skipDownload: true
         });
       } catch (videoError) {
         console.error('⚠️ Failed to generate framed video:', videoError);
       }
 
-      const confirmationMessageParts = ['Photo saved successfully!'];
-      if (framedVideoResult?.success) {
-        confirmationMessageParts.push('Framed video downloaded with animated slots.');
-      } else if (framedVideoResult && !framedVideoResult.success) {
-        confirmationMessageParts.push('Framed video unavailable.');
+      const bundleResult = await downloadMediaBundle({
+        photoBlob,
+        photoFilename,
+        framedVideoResult,
+        bundleName: timestamp,
+        extraMetadata: {
+          videoSuccess: Boolean(framedVideoResult?.success),
+          videoReason: framedVideoResult?.reason ?? null
+        }
+      });
+
+      const confirmationMessageParts = ['Media berhasil disiapkan!'];
+      if (bundleResult.success) {
+        confirmationMessageParts.push('Folder ZIP berisi foto dan video telah diunduh.');
+        if (!bundleResult.hasVideo) {
+          confirmationMessageParts.push('Video tidak tersedia di dalam bundle.');
+        }
+      } else {
+        confirmationMessageParts.push('Gagal membuat ZIP, file diunduh secara terpisah.');
+      }
+
+      if (framedVideoResult && !framedVideoResult.success) {
+        confirmationMessageParts.push('Framed video tidak dapat dibuat untuk sesi ini.');
       }
 
       alert(confirmationMessageParts.join(' '));
@@ -3120,15 +3227,72 @@ export default function EditPhoto() {
     }
   };
 
+  const renderSavingOverlay = () => {
+    if (!isSaving) return null;
+
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15,23,42,0.82)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '2rem'
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '1rem',
+            padding: '2.25rem 2.75rem',
+            borderRadius: '28px',
+            background: 'rgba(255,255,255,0.12)',
+            boxShadow: '0 24px 80px rgba(15,23,42,0.45)',
+            color: 'white',
+            textAlign: 'center',
+            maxWidth: 'min(460px, 90vw)'
+          }}
+        >
+          <div style={{ fontSize: '2.25rem' }}>💾</div>
+          <div
+            style={{
+              fontSize: '1.25rem',
+              fontWeight: 700,
+              letterSpacing: '0.015em'
+            }}
+          >
+            Menyimpan hasilmu…
+          </div>
+          <div
+            style={{
+              fontSize: '1rem',
+              lineHeight: 1.5,
+              opacity: 0.85
+            }}
+          >
+            Foto dan video sedang dikemas ke dalam satu folder. Mohon tunggu sampai unduhan dimulai.
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg, #f5f1eb 0%, #e8ddd4 100%)',
-        padding: pagePadding
-      }}
-    >
-      {/* Main Editor Layout */}
+    <>
+      <div
+        style={{
+          minHeight: '100vh',
+          background: 'linear-gradient(135deg, #f5f1eb 0%, #e8ddd4 100%)',
+          padding: pagePadding
+        }}
+      >
+        {/* Main Editor Layout */}
       <div
         style={isMobile ? {
           display: 'flex',
@@ -4397,5 +4561,8 @@ export default function EditPhoto() {
         </div>
       )}
     </div>
+
+      {renderSavingOverlay()}
+    </>
   );
 }

@@ -408,6 +408,7 @@ export default function TakeMoment() {
   const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
   const [isUsingBackCamera, setIsUsingBackCamera] = useState(false);
   const [isVideoProcessing, setIsVideoProcessing] = useState(false);
+  const [isEditorTransitioning, setIsEditorTransitioning] = useState(false);
   const [cameraError, setCameraError] = useState(null);
 
   const pendingStorageIdleRef = useRef(null);
@@ -1495,6 +1496,8 @@ export default function TakeMoment() {
       return;
     }
 
+    setIsEditorTransitioning(true);
+
     const photosSnapshot = Array.isArray(capturedPhotosRef.current)
       ? [...capturedPhotosRef.current]
       : [];
@@ -1509,10 +1512,13 @@ export default function TakeMoment() {
         setIsVideoProcessing(true);
       }
     };
-    const clearProcessingIndicator = () => {
+    const clearProcessingIndicator = (options = {}) => {
       if (processingShown) {
         processingShown = false;
         setIsVideoProcessing(false);
+      }
+      if (!options.keepTransitionOverlay) {
+        setIsEditorTransitioning(false);
       }
     };
 
@@ -1769,7 +1775,7 @@ export default function TakeMoment() {
       return;
     }
 
-    clearProcessingIndicator();
+    clearProcessingIndicator({ keepTransitionOverlay: true });
     stopCamera();
     navigate("/edit-photo");
   }, [
@@ -1784,6 +1790,62 @@ export default function TakeMoment() {
     scheduleStorageWrite,
     stopCamera,
   ]);
+
+  const renderEditorTransitionOverlay = () => {
+    if (!isEditorTransitioning) return null;
+
+    return (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(15,23,42,0.82)",
+          backdropFilter: "blur(6px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 9999,
+          padding: "2rem",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "1rem",
+            padding: "2.25rem 2.75rem",
+            borderRadius: "28px",
+            background: "rgba(255,255,255,0.12)",
+            boxShadow: "0 24px 80px rgba(15,23,42,0.45)",
+            color: "white",
+            textAlign: "center",
+            maxWidth: "min(460px, 90vw)",
+          }}
+        >
+          <div style={{ fontSize: "2.25rem" }}>🎞️</div>
+          <div
+            style={{
+              fontSize: "1.25rem",
+              fontWeight: 700,
+              letterSpacing: "0.015em",
+            }}
+          >
+            Menyiapkan editor…
+          </div>
+          <div
+            style={{
+              fontSize: "1rem",
+              lineHeight: 1.5,
+              opacity: 0.85,
+            }}
+          >
+            Foto dan video kamu sedang diproses. Mohon tunggu sebentar sampai halaman editor siap.
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderPreviewPanel = (variant) => {
     const isMobileVariant = variant === "mobile";
@@ -2573,5 +2635,10 @@ export default function TakeMoment() {
     </main>
   );
 
-  return isMobile ? renderMobileLayout() : renderDesktopLayout();
+  return (
+    <>
+      {isMobile ? renderMobileLayout() : renderDesktopLayout()}
+      {renderEditorTransitionOverlay()}
+    </>
+  );
 }

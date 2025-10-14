@@ -6,7 +6,7 @@ export default function FrameBuilder() {
   const [dragSlot, setDragSlot] = useState(null);
   const canvasRef = useRef();
 
-  // Handle frame image upload.
+  // Handle frame image upload..
   const handleFrameUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;

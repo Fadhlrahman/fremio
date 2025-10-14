@@ -78,6 +78,8 @@ const revokeObjectURL = (url) => {
   }
 };
 
+const isBlobUrl = (value) => typeof value === "string" && value.startsWith("blob:");
+
 const measureBlobDuration = (blob) =>
   new Promise((resolve) => {
     if (!blob) {
@@ -349,15 +351,6 @@ const generatePhotoEntryId = () => {
   return `photo-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
-const isBlobUrl = (value) => typeof value === "string" && value.startsWith("blob:");
-
-const cleanupCapturedPhotoPreview = (photoEntry) => {
-  if (!photoEntry || typeof photoEntry === "string") return;
-  if (photoEntry.previewUrl && isBlobUrl(photoEntry.previewUrl)) {
-    revokeObjectURL(photoEntry.previewUrl);
-  }
-};
-
 export default function TakeMoment() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -399,6 +392,14 @@ export default function TakeMoment() {
       }
       return nextValue ?? null;
     });
+  }, []);
+
+  const cleanupCapturedPhotoPreview = useCallback((entry) => {
+    if (!entry || typeof entry === "string") return;
+    const previewUrl = entry.previewUrl;
+    if (previewUrl && isBlobUrl(previewUrl)) {
+      revokeObjectURL(previewUrl);
+    }
   }, []);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [videoAspectRatio, setVideoAspectRatio] = useState(4 / 3);
@@ -449,29 +450,6 @@ export default function TakeMoment() {
     });
   }, []);
 
-  const sanitizePhotosForStorage = useCallback((photos) => {
-    if (!Array.isArray(photos)) return [];
-    return photos.map((entry, index) => {
-      if (!entry) return null;
-      if (typeof entry === "string") {
-        return entry;
-      }
-
-      const dataUrl = entry.dataUrl ?? null;
-      const previewUrl = entry.previewUrl && !isBlobUrl(entry.previewUrl) ? entry.previewUrl : null;
-
-      return {
-        id: entry.id || `photo-${index}`,
-        dataUrl,
-        previewUrl,
-        capturedAt: entry.capturedAt ?? null,
-        sizeBytes: typeof entry.sizeBytes === "number" ? entry.sizeBytes : null,
-        width: entry.width ?? null,
-        height: entry.height ?? null,
-      };
-    });
-  }, []);
-
   const getFrameCompressionProfile = useCallback((frameName) => {
     switch (frameName) {
       case "Testframe4":
@@ -511,7 +489,22 @@ export default function TakeMoment() {
     const payload = latestStoragePayloadRef.current;
     if (!payload?.photos) return;
 
-    const photosPayload = sanitizePhotosForStorage(payload.photos);
+    const photosPayload = Array.isArray(payload.photos)
+      ? payload.photos.map((entry) => {
+          if (!entry) return null;
+          if (typeof entry === "string") return entry;
+
+          const { dataUrl, previewUrl } = entry;
+          if (typeof dataUrl === "string" && dataUrl.startsWith("data:")) {
+            return dataUrl;
+          }
+          if (typeof previewUrl === "string" && previewUrl.startsWith("data:")) {
+            return previewUrl;
+          }
+          return null;
+        })
+      : [];
+
     const videosPayload = sanitizeVideosForStorage(Array.isArray(payload.videos) ? payload.videos : []);
 
     try {
@@ -523,14 +516,12 @@ export default function TakeMoment() {
     } finally {
       latestStoragePayloadRef.current = { photos: null, videos: null };
     }
-  }, [sanitizePhotosForStorage, sanitizeVideosForStorage]);
+  }, [sanitizeVideosForStorage]);
 
   const scheduleStorageWrite = useCallback(
     (photos, videos, { immediate = false } = {}) => {
       if (!safeStorage.isAvailable()) return;
-      const sanitizedPhotos = sanitizePhotosForStorage(photos);
-      const sanitizedVideos = sanitizeVideosForStorage(videos);
-      latestStoragePayloadRef.current = { photos: sanitizedPhotos, videos: sanitizedVideos };
+      latestStoragePayloadRef.current = { photos, videos };
 
       const execute = () => {
         clearScheduledStorage();
@@ -550,7 +541,7 @@ export default function TakeMoment() {
         pendingStorageTimeoutRef.current = window.setTimeout(execute, 0);
       }
     },
-    [clearScheduledStorage, runStorageWrite, sanitizePhotosForStorage, sanitizeVideosForStorage]
+    [clearScheduledStorage, runStorageWrite]
   );
 
   const queueVideoConversion = useCallback(
@@ -656,7 +647,7 @@ export default function TakeMoment() {
     latestStoragePayloadRef.current = { photos: null, videos: null };
     safeStorage.removeItem("capturedPhotos");
     safeStorage.removeItem("capturedVideos");
-  }, [clearScheduledStorage]);
+  }, [cleanupCapturedPhotoPreview, clearScheduledStorage]);
 
   const cleanUpStorage = useCallback(() => {
     try {
@@ -1064,7 +1055,7 @@ export default function TakeMoment() {
         event.target.value = "";
       }
     },
-    [capturedPhotos, capturedVideos, maxCaptures, scheduleStorageWrite]
+    [capturedPhotos, capturedVideos, cleanupCapturedPhotoPreview, maxCaptures, scheduleStorageWrite]
   );
 
   const renderCountdownOverlay = () => {
@@ -1427,6 +1418,7 @@ export default function TakeMoment() {
       if (!currentPhoto.blob) {
         throw new Error("Current photo blob is missing");
       }
+
       const previewUrl = URL.createObjectURL(currentPhoto.blob);
       const photoEntry = {
         id: generatePhotoEntryId(),
@@ -1440,7 +1432,10 @@ export default function TakeMoment() {
         source: "camera",
       };
 
-      const appendedPhotos = [...capturedPhotos, photoEntry];
+      const basePhotos = Array.isArray(capturedPhotosRef.current) ? [...capturedPhotosRef.current] : [];
+      const baseVideos = Array.isArray(capturedVideosRef.current) ? [...capturedVideosRef.current] : [];
+
+      const appendedPhotos = [...basePhotos, photoEntry];
       const trimmedPhotos = appendedPhotos.slice(0, maxCaptures);
       const overflowPhotos = appendedPhotos.slice(maxCaptures);
       overflowPhotos.forEach((entry) => cleanupCapturedPhotoPreview(entry));
@@ -1448,22 +1443,32 @@ export default function TakeMoment() {
       const insertedIndex = trimmedPhotos.findIndex((entry) => entry?.id === photoEntry.id);
 
       let preparedVideoEntry = null;
-      if (insertedIndex !== -1 && (currentVideo?.blob || currentVideo?.dataUrl)) {
-        preparedVideoEntry = createCapturedVideoEntry(currentVideo, insertedIndex);
+      if (currentVideo?.blob || currentVideo?.dataUrl) {
+        const targetIndex = insertedIndex === -1 ? trimmedPhotos.length - 1 : insertedIndex;
+        preparedVideoEntry = createCapturedVideoEntry(currentVideo, Math.max(0, targetIndex));
       }
 
-      const appendedVideos = [...capturedVideos];
+      const videosWorking = [...baseVideos];
       if (insertedIndex !== -1) {
-        appendedVideos.splice(insertedIndex, 0, preparedVideoEntry ?? null);
+        videosWorking.splice(insertedIndex, 0, preparedVideoEntry ?? null);
+      } else {
+        videosWorking.push(preparedVideoEntry ?? null);
       }
-      while (appendedVideos.length < trimmedPhotos.length) {
-        appendedVideos.push(null);
+      while (videosWorking.length < trimmedPhotos.length) {
+        videosWorking.push(null);
       }
-      const trimmedVideos = appendedVideos.slice(0, trimmedPhotos.length);
+      const trimmedVideos = videosWorking.slice(0, trimmedPhotos.length);
 
+      capturedPhotosRef.current = trimmedPhotos;
+      capturedVideosRef.current = trimmedVideos;
       setCapturedPhotos(trimmedPhotos);
       setCapturedVideos(trimmedVideos);
       scheduleStorageWrite(trimmedPhotos, trimmedVideos);
+
+      if (preparedVideoEntry?.blob && !preparedVideoEntry.dataUrl) {
+        queueVideoConversion(preparedVideoEntry);
+      }
+
       willReachMax = trimmedPhotos.length >= maxCaptures;
     } catch (error) {
       console.error("❌ Error processing captured media", error);
@@ -1481,14 +1486,16 @@ export default function TakeMoment() {
     }
   }, [
     cameraActive,
-    capturedPhotos,
-    capturedVideos,
+    capturedPhotosRef,
+    capturedVideosRef,
     currentPhoto,
     currentVideo,
     createCapturedVideoEntry,
     maxCaptures,
+    queueVideoConversion,
     replaceCurrentPhoto,
     replaceCurrentVideo,
+    cleanupCapturedPhotoPreview,
     scheduleStorageWrite,
     stopCamera,
   ]);
@@ -1524,7 +1531,7 @@ export default function TakeMoment() {
       setCapturedVideos(reindexedVideos);
       scheduleStorageWrite(newPhotos, reindexedVideos);
     },
-    [capturedPhotos, capturedVideos, scheduleStorageWrite]
+    [capturedPhotos, capturedVideos, cleanupCapturedPhotoPreview, scheduleStorageWrite]
   );
 
   const handleEdit = useCallback(async () => {

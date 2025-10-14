@@ -217,6 +217,12 @@ const calculateStorageSize = ({ photos = [], videos = [] }) => {
       if (item?.dataUrl) {
         return sum + item.dataUrl.length * 2;
       }
+      if (typeof item?.sizeBytes === "number" && Number.isFinite(item.sizeBytes)) {
+        return sum + item.sizeBytes;
+      }
+      if (item?.blob && typeof item.blob.size === "number") {
+        return sum + item.blob.size;
+      }
       return sum;
     }, 0);
 
@@ -232,8 +238,25 @@ const calculateStorageSize = ({ photos = [], videos = [] }) => {
 const STORAGE_SAFETY_LIMIT_BYTES = 4.8 * 1024 * 1024; // ~4.8 MB guard below browser quota
 
 const calculateProjectedStorageSize = ({ photos = [], videos = [] }) => {
-  const photosBytes = safeStorage.estimateJSONBytes(photos);
-  const videosBytes = safeStorage.estimateJSONBytes(videos);
+  const sanitizeForEstimate = (items) =>
+    items.map((item) => {
+      if (!item) return null;
+      if (typeof item === "string") {
+        return item;
+      }
+      if (item?.dataUrl) {
+        return item.dataUrl;
+      }
+      const sizeBytes = typeof item?.sizeBytes === "number" ? item.sizeBytes : item?.blob?.size ?? null;
+      return {
+        id: item.id ?? null,
+        sizeBytes,
+        mimeType: item.mimeType ?? null,
+      };
+    });
+
+  const photosBytes = safeStorage.estimateJSONBytes(sanitizeForEstimate(photos));
+  const videosBytes = safeStorage.estimateJSONBytes(sanitizeForEstimate(videos));
   const totalBytes = photosBytes + videosBytes;
   const kb = totalBytes / 1024;
   const mb = kb / 1024;
@@ -312,6 +335,29 @@ const compressPhotosArray = async (photos, options) => {
   return results;
 };
 
+const generateVideoEntryId = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `video-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const generatePhotoEntryId = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `photo-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const isBlobUrl = (value) => typeof value === "string" && value.startsWith("blob:");
+
+const cleanupCapturedPhotoPreview = (photoEntry) => {
+  if (!photoEntry || typeof photoEntry === "string") return;
+  if (photoEntry.previewUrl && isBlobUrl(photoEntry.previewUrl)) {
+    revokeObjectURL(photoEntry.previewUrl);
+  }
+};
+
 export default function TakeMoment() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -330,6 +376,10 @@ export default function TakeMoment() {
   const [timer, setTimer] = useState(TIMER_OPTIONS[0]);
   const [currentPhoto, setCurrentPhoto] = useState(null);
   const [currentVideo, setCurrentVideo] = useState(null);
+
+  const pendingVideoConversionsRef = useRef(new Map());
+  const capturedPhotosRef = useRef(capturedPhotos);
+  const capturedVideosRef = useRef(capturedVideos);
 
   const replaceCurrentPhoto = useCallback((updater) => {
     setCurrentPhoto((prev) => {
@@ -361,6 +411,66 @@ export default function TakeMoment() {
   const pendingStorageIdleRef = useRef(null);
   const pendingStorageTimeoutRef = useRef(null);
   const latestStoragePayloadRef = useRef({ photos: null, videos: null });
+
+  const sanitizeVideosForStorage = useCallback((videos) => {
+    if (!Array.isArray(videos)) return [];
+    return videos.map((entry, index) => {
+      if (!entry || !entry.dataUrl) {
+        return null;
+      }
+
+      const {
+        id,
+        dataUrl,
+        mimeType,
+        duration,
+        timer,
+        mirrored,
+        requiresPreviewMirror,
+        facingMode,
+        sizeBytes,
+        baseVideoIndex,
+        recordedAt,
+      } = entry;
+
+      return {
+        id: id || `video-${index}`,
+        dataUrl,
+        mimeType: mimeType || "video/webm",
+        duration: duration ?? null,
+        timer: timer ?? null,
+        mirrored: Boolean(mirrored),
+        requiresPreviewMirror: Boolean(requiresPreviewMirror),
+        facingMode: facingMode ?? null,
+        sizeBytes: sizeBytes ?? null,
+        baseVideoIndex: baseVideoIndex ?? index,
+        recordedAt: recordedAt ?? null,
+      };
+    });
+  }, []);
+
+  const sanitizePhotosForStorage = useCallback((photos) => {
+    if (!Array.isArray(photos)) return [];
+    return photos.map((entry, index) => {
+      if (!entry) return null;
+      if (typeof entry === "string") {
+        return entry;
+      }
+
+      const dataUrl = entry.dataUrl ?? null;
+      const previewUrl = entry.previewUrl && !isBlobUrl(entry.previewUrl) ? entry.previewUrl : null;
+
+      return {
+        id: entry.id || `photo-${index}`,
+        dataUrl,
+        previewUrl,
+        capturedAt: entry.capturedAt ?? null,
+        sizeBytes: typeof entry.sizeBytes === "number" ? entry.sizeBytes : null,
+        width: entry.width ?? null,
+        height: entry.height ?? null,
+      };
+    });
+  }, []);
 
   const getFrameCompressionProfile = useCallback((frameName) => {
     switch (frameName) {
@@ -399,23 +509,28 @@ export default function TakeMoment() {
   const runStorageWrite = useCallback(() => {
     if (!safeStorage.isAvailable()) return;
     const payload = latestStoragePayloadRef.current;
-    if (!payload?.photos || !payload?.videos) return;
+    if (!payload?.photos) return;
+
+    const photosPayload = sanitizePhotosForStorage(payload.photos);
+    const videosPayload = sanitizeVideosForStorage(Array.isArray(payload.videos) ? payload.videos : []);
 
     try {
-      safeStorage.setJSON("capturedPhotos", payload.photos);
-      safeStorage.setJSON("capturedVideos", payload.videos);
+      safeStorage.setJSON("capturedPhotos", photosPayload);
+      safeStorage.setJSON("capturedVideos", videosPayload);
     } catch (error) {
       console.error("❌ Failed to persist captured media", error);
       alert("Penyimpanan penuh atau tidak tersedia. Silakan kurangi foto yang disimpan.");
     } finally {
       latestStoragePayloadRef.current = { photos: null, videos: null };
     }
-  }, []);
+  }, [sanitizePhotosForStorage, sanitizeVideosForStorage]);
 
   const scheduleStorageWrite = useCallback(
     (photos, videos, { immediate = false } = {}) => {
       if (!safeStorage.isAvailable()) return;
-      latestStoragePayloadRef.current = { photos, videos };
+      const sanitizedPhotos = sanitizePhotosForStorage(photos);
+      const sanitizedVideos = sanitizeVideosForStorage(videos);
+      latestStoragePayloadRef.current = { photos: sanitizedPhotos, videos: sanitizedVideos };
 
       const execute = () => {
         clearScheduledStorage();
@@ -435,8 +550,91 @@ export default function TakeMoment() {
         pendingStorageTimeoutRef.current = window.setTimeout(execute, 0);
       }
     },
-    [clearScheduledStorage, runStorageWrite]
+    [clearScheduledStorage, runStorageWrite, sanitizePhotosForStorage, sanitizeVideosForStorage]
   );
+
+  const queueVideoConversion = useCallback(
+    (videoEntry) => {
+      if (!videoEntry || videoEntry.dataUrl || !videoEntry.blob) {
+        return null;
+      }
+
+      const { id } = videoEntry;
+      if (!id) {
+        return null;
+      }
+
+      if (pendingVideoConversionsRef.current.has(id)) {
+        return pendingVideoConversionsRef.current.get(id);
+      }
+
+      const conversionPromise = (async () => {
+        try {
+          const dataUrl = await blobToDataURL(videoEntry.blob);
+          const computedSize = videoEntry.sizeBytes ?? videoEntry.blob.size ?? null;
+
+          setCapturedVideos((prev = []) => {
+            const index = prev.findIndex((item) => item?.id === id);
+            if (index === -1) {
+              return prev;
+            }
+
+            const next = [...prev];
+            const existing = next[index];
+            next[index] = {
+              ...existing,
+              dataUrl,
+              sizeBytes: computedSize,
+              blob: null,
+              isConverting: false,
+              conversionError: false,
+            };
+
+            Promise.resolve().then(() => {
+              scheduleStorageWrite(capturedPhotosRef.current, next);
+            });
+
+            return next;
+          });
+        } catch (error) {
+          console.error("⚠️ Failed to convert recorded video for storage", error);
+          setCapturedVideos((prev = []) => {
+            const index = prev.findIndex((item) => item?.id === id);
+            if (index === -1) {
+              return prev;
+            }
+
+            const next = [...prev];
+            next[index] = {
+              ...next[index],
+              blob: null,
+              isConverting: false,
+              conversionError: true,
+            };
+
+            Promise.resolve().then(() => {
+              scheduleStorageWrite(capturedPhotosRef.current, next);
+            });
+
+            return next;
+          });
+        } finally {
+          pendingVideoConversionsRef.current.delete(id);
+        }
+      })();
+
+      pendingVideoConversionsRef.current.set(id, conversionPromise);
+      conversionPromise.catch(() => {});
+      return conversionPromise;
+    },
+    [scheduleStorageWrite]
+  );
+
+  const waitForPendingVideoConversions = useCallback(async () => {
+    const pending = Array.from(pendingVideoConversionsRef.current.values());
+    if (!pending.length) return;
+    await Promise.allSettled(pending);
+  }, []);
 
   const flushStorageWrite = useCallback(() => {
     if (!latestStoragePayloadRef.current?.photos) return;
@@ -445,8 +643,12 @@ export default function TakeMoment() {
   }, [clearScheduledStorage, runStorageWrite]);
 
   const clearCapturedMedia = useCallback(() => {
+    const existingPhotos = Array.isArray(capturedPhotosRef.current) ? capturedPhotosRef.current : [];
+    existingPhotos.forEach((entry) => cleanupCapturedPhotoPreview(entry));
+
     setCapturedPhotos([]);
     setCapturedVideos([]);
+    pendingVideoConversionsRef.current.clear();
 
     if (!safeStorage.isAvailable()) return;
 
@@ -560,6 +762,14 @@ export default function TakeMoment() {
     };
   }, [replaceCurrentPhoto, replaceCurrentVideo]);
 
+  useEffect(() => {
+    capturedPhotosRef.current = capturedPhotos;
+  }, [capturedPhotos]);
+
+  useEffect(() => {
+    capturedVideosRef.current = capturedVideos;
+  }, [capturedVideos]);
+
   const shouldMirrorVideo = useMemo(() => !isUsingBackCamera, [isUsingBackCamera]);
   const hasReachedMaxPhotos = capturedPhotos.length >= maxCaptures;
   const isCaptureDisabled = capturing || isVideoProcessing || hasReachedMaxPhotos;
@@ -569,6 +779,31 @@ export default function TakeMoment() {
     if (recordSeconds <= 6) return 2_000_000;
     if (recordSeconds <= 8) return 1_500_000;
     return 1_200_000;
+  };
+
+  const createCapturedVideoEntry = (videoSource, videoIndex) => {
+    if (!videoSource) return null;
+
+    const id = videoSource.id || generateVideoEntryId();
+    const blob = videoSource.blob instanceof Blob ? videoSource.blob : null;
+    const mimeType = videoSource.mimeType || blob?.type || "video/webm";
+
+    return {
+      id,
+      blob,
+      dataUrl: videoSource.dataUrl ?? null,
+      mimeType,
+      duration: Number.isFinite(videoSource.duration) ? videoSource.duration : null,
+      timer: Number.isFinite(videoSource.timer) ? videoSource.timer : null,
+      mirrored: Boolean(videoSource.mirrored ?? videoSource.requiresPreviewMirror),
+      requiresPreviewMirror: Boolean(videoSource.requiresPreviewMirror),
+      facingMode: videoSource.facingMode || null,
+      sizeBytes: videoSource.sizeBytes ?? (blob ? blob.size : null),
+      baseVideoIndex: videoSource.baseVideoIndex ?? videoIndex,
+      recordedAt: videoSource.recordedAt ?? videoSource.capturedAt ?? Date.now(),
+      isConverting: Boolean(blob && !(videoSource.dataUrl && videoSource.dataUrl.length > 0)),
+      conversionError: false,
+    };
   };
 
   const renderConfirmationModal = () => {
@@ -771,34 +1006,52 @@ export default function TakeMoment() {
         return;
       }
 
-      const fileToDataUrl = (file) =>
-        new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
-          reader.readAsDataURL(file);
-        });
-
       try {
-        const rawPhotos = await Promise.all(files.map(fileToDataUrl));
-        const normalizedPhotos = await Promise.all(
-          rawPhotos.map(async (dataUrl) => {
+        const preparedEntries = await Promise.all(
+          files.map(async (file) => {
             try {
-              return await compressImage(dataUrl, { quality: 0.8, maxWidth: 850, maxHeight: 850 });
-            } catch (compressionError) {
-              console.warn("⚠️ Failed to compress uploaded photo, using original", compressionError);
-              return dataUrl;
+              const previewUrl = URL.createObjectURL(file);
+              return {
+                id: generatePhotoEntryId(),
+                blob: file,
+                dataUrl: null,
+                previewUrl,
+                width: null,
+                height: null,
+                capturedAt: Date.now(),
+                sizeBytes: typeof file.size === "number" ? file.size : null,
+                source: "upload",
+              };
+            } catch (previewError) {
+              console.warn("⚠️ Failed to prepare uploaded photo preview", previewError);
+              return null;
             }
           })
         );
 
-        const mergedPhotos = [...capturedPhotos, ...normalizedPhotos].slice(0, maxCaptures);
+        const validEntries = preparedEntries.filter(Boolean);
+        if (!validEntries.length) {
+          alert("Tidak ada foto yang bisa diproses dari galeri.");
+          return;
+        }
+
+        const availableSlots = Math.max(0, maxCaptures - capturedPhotos.length);
+        const acceptedEntries = availableSlots ? validEntries.slice(0, availableSlots) : [];
+        const discardedEntries = availableSlots ? validEntries.slice(availableSlots) : validEntries;
+        discardedEntries.forEach((entry) => cleanupCapturedPhotoPreview(entry));
+
+        if (!acceptedEntries.length) {
+          alert("Jumlah foto sudah mencapai batas maksimum untuk frame ini.");
+          return;
+        }
+
+        const mergedPhotos = [...capturedPhotos, ...acceptedEntries];
         const mergedVideos = (() => {
-          const base = [...capturedVideos].slice(0, mergedPhotos.length);
+          const base = [...capturedVideos];
           while (base.length < mergedPhotos.length) {
             base.push(null);
           }
-          return base;
+          return base.slice(0, mergedPhotos.length);
         })();
 
         setCapturedPhotos(mergedPhotos);
@@ -1174,18 +1427,44 @@ export default function TakeMoment() {
       if (!currentPhoto.blob) {
         throw new Error("Current photo blob is missing");
       }
+      const previewUrl = URL.createObjectURL(currentPhoto.blob);
+      const photoEntry = {
+        id: generatePhotoEntryId(),
+        blob: currentPhoto.blob,
+        dataUrl: null,
+        previewUrl,
+        width: currentPhoto.width ?? null,
+        height: currentPhoto.height ?? null,
+        capturedAt: currentPhoto.capturedAt ?? Date.now(),
+        sizeBytes: typeof currentPhoto.blob.size === "number" ? currentPhoto.blob.size : null,
+        source: "camera",
+      };
 
-      const compressionProfile = getFrameCompressionProfile(frameProvider.getCurrentFrameName());
-      const { blob: scaledBlob } = await generateScaledPhotoVariant(currentPhoto.blob, compressionProfile.primary);
-      const photoDataUrl = await blobToDataURL(scaledBlob);
+      const appendedPhotos = [...capturedPhotos, photoEntry];
+      const trimmedPhotos = appendedPhotos.slice(0, maxCaptures);
+      const overflowPhotos = appendedPhotos.slice(maxCaptures);
+      overflowPhotos.forEach((entry) => cleanupCapturedPhotoPreview(entry));
 
-      const newPhotos = [...capturedPhotos, photoDataUrl];
-      const newVideos = [...capturedVideos, null];
+      const insertedIndex = trimmedPhotos.findIndex((entry) => entry?.id === photoEntry.id);
 
-      setCapturedPhotos(newPhotos);
-      setCapturedVideos(newVideos);
-      scheduleStorageWrite(newPhotos, newVideos);
-      willReachMax = newPhotos.length >= maxCaptures;
+      let preparedVideoEntry = null;
+      if (insertedIndex !== -1 && (currentVideo?.blob || currentVideo?.dataUrl)) {
+        preparedVideoEntry = createCapturedVideoEntry(currentVideo, insertedIndex);
+      }
+
+      const appendedVideos = [...capturedVideos];
+      if (insertedIndex !== -1) {
+        appendedVideos.splice(insertedIndex, 0, preparedVideoEntry ?? null);
+      }
+      while (appendedVideos.length < trimmedPhotos.length) {
+        appendedVideos.push(null);
+      }
+      const trimmedVideos = appendedVideos.slice(0, trimmedPhotos.length);
+
+      setCapturedPhotos(trimmedPhotos);
+      setCapturedVideos(trimmedVideos);
+      scheduleStorageWrite(trimmedPhotos, trimmedVideos);
+      willReachMax = trimmedPhotos.length >= maxCaptures;
     } catch (error) {
       console.error("❌ Error processing captured media", error);
       alert("Gagal memproses foto. Silakan coba lagi.");
@@ -1205,7 +1484,8 @@ export default function TakeMoment() {
     capturedPhotos,
     capturedVideos,
     currentPhoto,
-    getFrameCompressionProfile,
+    currentVideo,
+    createCapturedVideoEntry,
     maxCaptures,
     replaceCurrentPhoto,
     replaceCurrentVideo,
@@ -1222,11 +1502,27 @@ export default function TakeMoment() {
 
   const handleDeletePhoto = useCallback(
     (indexToDelete) => {
+      const removedPhoto = capturedPhotos[indexToDelete];
+      cleanupCapturedPhotoPreview(removedPhoto);
+
       const newPhotos = capturedPhotos.filter((_, index) => index !== indexToDelete);
-      const newVideos = capturedVideos.filter((_, index) => index !== indexToDelete);
+      const removedVideo = capturedVideos[indexToDelete];
+      if (removedVideo?.id) {
+        pendingVideoConversionsRef.current.delete(removedVideo.id);
+      }
+
+      const trimmedVideos = capturedVideos.filter((_, index) => index !== indexToDelete);
+      const reindexedVideos = trimmedVideos.map((entry, idx) => {
+        if (!entry) return null;
+        return {
+          ...entry,
+          baseVideoIndex: entry.baseVideoIndex ?? idx,
+        };
+      });
+
       setCapturedPhotos(newPhotos);
-      setCapturedVideos(newVideos);
-      scheduleStorageWrite(newPhotos, newVideos);
+      setCapturedVideos(reindexedVideos);
+      scheduleStorageWrite(newPhotos, reindexedVideos);
     },
     [capturedPhotos, capturedVideos, scheduleStorageWrite]
   );
@@ -1239,21 +1535,257 @@ export default function TakeMoment() {
       return;
     }
 
+    const photosSnapshot = Array.isArray(capturedPhotosRef.current)
+      ? [...capturedPhotosRef.current]
+      : [];
+    const videosSnapshot = Array.isArray(capturedVideosRef.current)
+      ? [...capturedVideosRef.current]
+      : [];
+
+    let processingShown = false;
+    const ensureProcessingIndicator = () => {
+      if (!processingShown) {
+        processingShown = true;
+        setIsVideoProcessing(true);
+      }
+    };
+    const clearProcessingIndicator = () => {
+      if (processingShown) {
+        processingShown = false;
+        setIsVideoProcessing(false);
+      }
+    };
+
+    const frameName = frameProvider.getCurrentFrameName();
+    const compressionProfile = getFrameCompressionProfile(frameName);
+    const primaryPhotoProfile = compressionProfile?.primary ?? {
+      quality: 0.8,
+      maxWidth: 600,
+      maxHeight: 600,
+    };
+    const fallbackPhotoProfile = compressionProfile?.moderate ?? primaryPhotoProfile;
+
+    const convertPhotosForEditing = async (entries) => {
+      const results = [];
+      for (let index = 0; index < entries.length; index += 1) {
+        const entry = entries[index];
+        if (!entry) {
+          results.push(null);
+          continue;
+        }
+
+        if (typeof entry === "string") {
+          results.push({
+            id: `photo-${index}`,
+            dataUrl: entry,
+            previewUrl: entry,
+            blob: null,
+            capturedAt: Date.now(),
+            width: null,
+            height: null,
+            sizeBytes: entry.length * 2,
+          });
+          continue;
+        }
+
+        if (entry.dataUrl) {
+          const shouldReplacePreview =
+            entry.previewUrl && isBlobUrl(entry.previewUrl) && entry.previewUrl !== entry.dataUrl;
+          if (shouldReplacePreview) {
+            revokeObjectURL(entry.previewUrl);
+          }
+          results.push({
+            ...entry,
+            blob: null,
+            previewUrl: shouldReplacePreview ? entry.dataUrl : entry.previewUrl || entry.dataUrl,
+            sizeBytes:
+              typeof entry.sizeBytes === "number" && Number.isFinite(entry.sizeBytes)
+                ? entry.sizeBytes
+                : entry.dataUrl.length * 2,
+          });
+          continue;
+        }
+
+        if (!entry.blob) {
+          throw new Error(`Photo ${index + 1} tidak memiliki data untuk diproses.`);
+        }
+
+        let scaledResult;
+        try {
+          scaledResult = await generateScaledPhotoVariant(entry.blob, primaryPhotoProfile);
+        } catch (primaryError) {
+          console.warn("⚠️ Gagal kompresi foto dengan profil utama, mencoba fallback", primaryError);
+          try {
+            scaledResult = await generateScaledPhotoVariant(entry.blob, fallbackPhotoProfile);
+          } catch (fallbackError) {
+            console.warn("⚠️ Fallback kompresi foto gagal, memakai blob asli", fallbackError);
+            scaledResult = {
+              blob: entry.blob,
+              width: entry.width ?? null,
+              height: entry.height ?? null,
+            };
+          }
+        }
+
+        const targetBlob = scaledResult?.blob ?? entry.blob;
+        const dataUrl = await blobToDataURL(targetBlob);
+        if (entry.previewUrl && isBlobUrl(entry.previewUrl)) {
+          revokeObjectURL(entry.previewUrl);
+        }
+
+        results.push({
+          ...entry,
+          dataUrl,
+          previewUrl: dataUrl,
+          blob: null,
+          width: scaledResult?.width ?? entry.width ?? null,
+          height: scaledResult?.height ?? entry.height ?? null,
+          sizeBytes: typeof targetBlob.size === "number" ? targetBlob.size : entry.sizeBytes ?? null,
+        });
+      }
+      return results;
+    };
+
+    const convertVideosForEditing = async (entries) => {
+      const results = [];
+      for (let index = 0; index < entries.length; index += 1) {
+        const entry = entries[index];
+        if (!entry) {
+          results.push(null);
+          continue;
+        }
+
+        if (entry.dataUrl) {
+          results.push({
+            ...entry,
+            blob: null,
+            isConverting: false,
+            conversionError: false,
+            sizeBytes:
+              typeof entry.sizeBytes === "number" && Number.isFinite(entry.sizeBytes)
+                ? entry.sizeBytes
+                : entry.dataUrl.length * 2,
+          });
+          continue;
+        }
+
+        if (!entry.blob) {
+          throw new Error(`Video ${index + 1} tidak memiliki data untuk diproses.`);
+        }
+
+        try {
+          const dataUrl = await blobToDataURL(entry.blob);
+          results.push({
+            ...entry,
+            dataUrl,
+            blob: null,
+            isConverting: false,
+            conversionError: false,
+            sizeBytes: typeof entry.sizeBytes === "number" ? entry.sizeBytes : entry.blob.size ?? null,
+          });
+        } catch (error) {
+          console.error("❌ Gagal mengonversi video untuk editor", error);
+          throw new Error(`Video ${index + 1} gagal diproses.`);
+        }
+      }
+      return results;
+    };
+
+    ensureProcessingIndicator();
+
+    let convertedPhotos;
+    try {
+      convertedPhotos = await convertPhotosForEditing(photosSnapshot);
+      setCapturedPhotos(convertedPhotos);
+      capturedPhotosRef.current = convertedPhotos;
+      scheduleStorageWrite(convertedPhotos, videosSnapshot);
+    } catch (error) {
+      console.error("❌ Gagal memproses foto sebelum masuk editor", error);
+      alert("Foto gagal diproses. Mohon ulangi pengambilan atau coba lagi.");
+      clearProcessingIndicator();
+      return;
+    }
+
+    if (convertedPhotos.some((entry) => !entry || !entry.dataUrl)) {
+      alert("Foto masih diproses. Mohon tunggu sebentar dan coba lagi.");
+      clearProcessingIndicator();
+      return;
+    }
+
+    let convertedVideos;
+    try {
+      convertedVideos = await convertVideosForEditing(videosSnapshot);
+      setCapturedVideos(convertedVideos);
+      capturedVideosRef.current = convertedVideos;
+      scheduleStorageWrite(convertedPhotos, convertedVideos);
+    } catch (error) {
+      console.error("❌ Gagal memproses video sebelum masuk editor", error);
+      alert(error?.message || "Video gagal diproses. Silakan coba lagi.");
+      clearProcessingIndicator();
+      return;
+    }
+
+    if (convertedVideos.some((entry) => entry && !entry.dataUrl)) {
+      alert("Video masih diproses atau gagal tersimpan. Mohon tunggu sebentar dan coba lagi.");
+      clearProcessingIndicator();
+      return;
+    }
+
     const frameConfig = frameProvider.getCurrentConfig();
     const shouldDuplicate = !!frameConfig?.duplicatePhotos;
-    const duplicateEntries = (items) =>
-      shouldDuplicate ? items.flatMap((value) => [value, value]) : [...items];
+    const duplicateEntries = (items, cloneObjects = false) => {
+      const baseArray = cloneObjects
+        ? items.map((value) => {
+            if (!cloneObjects || value === null || typeof value !== "object") {
+              return value;
+            }
+            return { ...value };
+          })
+        : [...items];
+
+      if (!shouldDuplicate) {
+        return baseArray;
+      }
+
+      return baseArray.flatMap((value) => {
+        if (cloneObjects && value && typeof value === "object") {
+          return [{ ...value }, { ...value }];
+        }
+        return [value, value];
+      });
+    };
+
+    const sanitizeVideoForPayload = (video, index) => {
+      if (!video || !video.dataUrl) return null;
+      return {
+        id: video.id || `video-${index}`,
+        dataUrl: video.dataUrl,
+        mimeType: video.mimeType || "video/webm",
+        duration: video.duration ?? null,
+        timer: video.timer ?? null,
+        mirrored: Boolean(video.mirrored),
+        requiresPreviewMirror: Boolean(video.requiresPreviewMirror),
+        facingMode: video.facingMode ?? null,
+        sizeBytes: video.sizeBytes ?? null,
+        baseVideoIndex: video.baseVideoIndex ?? index,
+        recordedAt: video.recordedAt ?? null,
+      };
+    };
+
     const normalizeVideos = (videos, targetLength) => {
       const normalized = [...videos];
       while (normalized.length < targetLength) {
         normalized.push(null);
       }
-      return normalized.slice(0, targetLength);
+      const sliced = normalized.slice(0, targetLength);
+      return sliced.map((entry, idx) => sanitizeVideoForPayload(entry, idx));
     };
+
     const preparePayload = (photosSource, videosSource) => {
-      const photosPrepared = duplicateEntries(photosSource);
+      const photosPrepared = duplicateEntries(photosSource, false);
       const videosNormalized = normalizeVideos(videosSource, photosSource.length);
-      const videosPrepared = normalizeVideos(duplicateEntries(videosNormalized), photosPrepared.length);
+      const videosDuplicated = duplicateEntries(videosNormalized, true);
+      const videosPrepared = normalizeVideos(videosDuplicated, photosPrepared.length);
       return {
         photos: photosPrepared,
         videos: videosPrepared,
@@ -1261,69 +1793,81 @@ export default function TakeMoment() {
     };
 
     try {
+      const photoPayloadSource = convertedPhotos.map((entry) => entry?.dataUrl ?? null);
+      if (photoPayloadSource.some((value) => !value)) {
+        throw new Error("Foto tidak lengkap untuk disimpan.");
+      }
+
       flushStorageWrite();
       cleanUpStorage();
 
-      const basePayload = preparePayload(capturedPhotos, capturedVideos);
+      const basePayload = preparePayload(photoPayloadSource, convertedVideos);
       const storageSize = calculateStorageSize(basePayload);
 
       if (parseFloat(storageSize.mb) > 4) {
-        const currentFrameName = frameProvider.getCurrentFrameName();
-        const emergencyCompressedBase = await compressPhotosArray(capturedPhotos, {
-          quality: currentFrameName === "Testframe4" ? 0.7 : 0.6,
-          maxWidth: currentFrameName === "Testframe4" ? 500 : 400,
-          maxHeight: currentFrameName === "Testframe4" ? 400 : 400,
+        const emergencyCompressedBase = await compressPhotosArray(photoPayloadSource, {
+          quality: frameName === "Testframe4" ? 0.7 : 0.6,
+          maxWidth: frameName === "Testframe4" ? 500 : 400,
+          maxHeight: frameName === "Testframe4" ? 400 : 400,
         });
-        const emergencyPayload = preparePayload(emergencyCompressedBase, capturedVideos);
+        const emergencyPayload = preparePayload(emergencyCompressedBase, convertedVideos);
         safeStorage.setJSON("capturedPhotos", emergencyPayload.photos);
         safeStorage.setJSON("capturedVideos", emergencyPayload.videos);
       } else {
         safeStorage.setJSON("capturedPhotos", basePayload.photos);
         safeStorage.setJSON("capturedVideos", basePayload.videos);
       }
-    } catch (quotaError) {
-      console.error("❌ QuotaExceededError when saving photos", quotaError);
-      try {
-        const currentFrameName = frameProvider.getCurrentFrameName();
-        const strongCompressedBase = await compressPhotosArray(capturedPhotos, {
-          quality: currentFrameName === "Testframe4" ? 0.5 : 0.4,
-          maxWidth: currentFrameName === "Testframe4" ? 400 : 300,
-          maxHeight: currentFrameName === "Testframe4" ? 350 : 300,
-        });
-        const strongPayload = preparePayload(strongCompressedBase, capturedVideos);
-        safeStorage.setJSON("capturedPhotos", strongPayload.photos);
-        safeStorage.setJSON("capturedVideos", strongPayload.videos);
-      } catch (finalError) {
-        console.error("❌ Emergency compression failed", finalError);
-        alert("Storage limit exceeded! Please refresh the page and try again.");
-        return;
+
+      if (frameConfig) {
+        try {
+          safeStorage.setItem("selectedFrame", frameConfig.id);
+          safeStorage.setJSON("frameConfig", frameConfig);
+        } catch (error) {
+          console.error("❌ QuotaExceededError when saving frame config", error);
+          alert("Warning: Could not save frame configuration due to storage limits.");
+        }
       }
+    } catch (error) {
+      console.error("❌ Gagal menyimpan data sebelum masuk editor", error);
+      alert(error?.message || "Terjadi kesalahan saat menyiapkan data untuk editor.");
+      clearProcessingIndicator();
+      return;
     }
 
-    if (frameConfig) {
-      try {
-        safeStorage.setItem("selectedFrame", frameConfig.id);
-        safeStorage.setJSON("frameConfig", frameConfig);
-      } catch (error) {
-        console.error("❌ QuotaExceededError when saving frame config", error);
-        alert("Warning: Could not save frame configuration due to storage limits.");
-      }
-    }
-
+    clearProcessingIndicator();
     stopCamera();
     navigate("/edit-photo");
   }, [
     capturedPhotos,
-    capturedVideos,
+    capturedPhotosRef,
+    capturedVideosRef,
     cleanUpStorage,
     flushStorageWrite,
+    getFrameCompressionProfile,
     maxCaptures,
     navigate,
+    scheduleStorageWrite,
     stopCamera,
   ]);
 
   const renderPreviewPanel = (variant) => {
     const isMobileVariant = variant === "mobile";
+    const displayablePhotos = capturedPhotos
+      .map((photo, idx) => ({ photo, idx }))
+      .filter(({ photo }) => Boolean(photo))
+      .map(({ photo, idx }) => {
+        const previewSource =
+          typeof photo === "string" ? photo : photo.previewUrl || photo.dataUrl || null;
+        if (!previewSource) {
+          return null;
+        }
+        return {
+          id: typeof photo === "string" ? `photo-${idx}` : photo.id || `photo-${idx}`,
+          src: previewSource,
+          index: idx,
+        };
+      })
+      .filter(Boolean);
     const containerStyle = isMobileVariant
       ? {
           background: "#fff",
@@ -1404,9 +1948,9 @@ export default function TakeMoment() {
                 maxWidth: isMobileVariant ? "240px" : "100%",
               }}
             >
-              {capturedPhotos.map((photo, idx) => (
+              {displayablePhotos.map(({ id, src, index }) => (
                 <div
-                  key={photo + idx}
+                  key={id}
                   style={{
                     position: "relative",
                     aspectRatio: videoAspectRatio.toString(),
@@ -1417,8 +1961,8 @@ export default function TakeMoment() {
                   }}
                 >
                   <img
-                    src={photo}
-                    alt={`Photo ${idx + 1}`}
+                    src={src}
+                    alt={`Photo ${index + 1}`}
                     style={{
                       width: "100%",
                       height: "100%",
@@ -1427,7 +1971,7 @@ export default function TakeMoment() {
                   />
 
                   <button
-                    onClick={() => handleDeletePhoto(idx)}
+                    onClick={() => handleDeletePhoto(index)}
                     style={{
                       position: "absolute",
                       top: "6px",
@@ -1446,7 +1990,7 @@ export default function TakeMoment() {
                       justifyContent: "center",
                       boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
                     }}
-                    title={`Hapus foto ${idx + 1}`}
+                    title={`Hapus foto ${index + 1}`}
                   >
                     ×
                   </button>

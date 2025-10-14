@@ -74,264 +74,337 @@ const FILTER_PIPELINES = {
   ]
 };
 
-const clampChannel = (value) => Math.min(255, Math.max(0, value));
-
-const applyBrightness = (data, amount) => {
-  for (let i = 0; i < data.length; i += 4) {
-    data[i] = clampChannel(data[i] * amount);
-    data[i + 1] = clampChannel(data[i + 1] * amount);
-    data[i + 2] = clampChannel(data[i + 2] * amount);
+const detectCanvasFilterSupport = () => {
+  if (typeof document === 'undefined') return false;
+  try {
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    return Boolean(context && typeof context.filter === 'string');
+  } catch (error) {
+    console.warn('⚠️ Canvas filter detection failed:', error);
+    return false;
   }
 };
 
-const applyContrast = (data, amount) => {
-  const factor = amount;
-  for (let i = 0; i < data.length; i += 4) {
-    data[i] = clampChannel((data[i] - 128) * factor + 128);
-    data[i + 1] = clampChannel((data[i + 1] - 128) * factor + 128);
-    data[i + 2] = clampChannel((data[i + 2] - 128) * factor + 128);
-  }
-};
-
-const applySaturate = (data, amount) => {
-  const rw = 0.299;
-  const gw = 0.587;
-  const bw = 0.114;
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
-    const gray = rw * r + gw * g + bw * b;
-    data[i] = clampChannel(gray + (r - gray) * amount);
-    data[i + 1] = clampChannel(gray + (g - gray) * amount);
-    data[i + 2] = clampChannel(gray + (b - gray) * amount);
-  }
-};
-
-const applySepia = (data, amount) => {
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
-
-    const sr = clampChannel(0.393 * r + 0.769 * g + 0.189 * b);
-    const sg = clampChannel(0.349 * r + 0.686 * g + 0.168 * b);
-    const sb = clampChannel(0.272 * r + 0.534 * g + 0.131 * b);
-
-    data[i] = clampChannel(r * (1 - amount) + sr * amount);
-    data[i + 1] = clampChannel(g * (1 - amount) + sg * amount);
-    data[i + 2] = clampChannel(b * (1 - amount) + sb * amount);
-  }
-};
-
-const applyGrayscale = (data, amount) => {
-  const rw = 0.2126;
-  const gw = 0.7152;
-  const bw = 0.0722;
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
-    const gray = rw * r + gw * g + bw * b;
-    data[i] = clampChannel(r * (1 - amount) + gray * amount);
-    data[i + 1] = clampChannel(g * (1 - amount) + gray * amount);
-    data[i + 2] = clampChannel(b * (1 - amount) + gray * amount);
-  }
-};
-
-const rgbToHsl = (r, g, b) => {
-  const nr = r / 255;
-  const ng = g / 255;
-  const nb = b / 255;
-  const max = Math.max(nr, ng, nb);
-  const min = Math.min(nr, ng, nb);
-  let h = 0;
-  let s = 0;
-  const l = (max + min) / 2;
-
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case nr:
-        h = ((ng - nb) / d + (ng < nb ? 6 : 0)) / 6;
-        break;
-      case ng:
-        h = ((nb - nr) / d + 2) / 6;
-        break;
-      default:
-        h = ((nr - ng) / d + 4) / 6;
-        break;
-    }
-  }
-
-  return { h, s, l };
-};
-
-const hueToRgb = (p, q, t) => {
-  let tempT = t;
-  if (tempT < 0) tempT += 1;
-  if (tempT > 1) tempT -= 1;
-  if (tempT < 1 / 6) return p + (q - p) * 6 * tempT;
-  if (tempT < 1 / 2) return q;
-  if (tempT < 2 / 3) return p + (q - p) * (2 / 3 - tempT) * 6;
-  return p;
-};
-
-const hslToRgb = (h, s, l) => {
-  if (s === 0) {
-    const val = clampChannel(l * 255);
-    return { r: val, g: val, b: val };
-  }
-
-  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-  const p = 2 * l - q;
-
-  const r = hueToRgb(p, q, h + 1 / 3);
-  const g = hueToRgb(p, q, h);
-  const b = hueToRgb(p, q, h - 1 / 3);
-
-  return {
-    r: clampChannel(r * 255),
-    g: clampChannel(g * 255),
-    b: clampChannel(b * 255)
-  };
-};
-
-const applyHueRotate = (data, degrees) => {
-  if (!degrees) return;
-  const shift = degrees / 360;
-  for (let i = 0; i < data.length; i += 4) {
-    const { h, s, l } = rgbToHsl(data[i], data[i + 1], data[i + 2]);
-    let rotatedHue = h + shift;
-    rotatedHue = rotatedHue - Math.floor(rotatedHue);
-    if (rotatedHue < 0) {
-      rotatedHue += 1;
-    }
-    const { r, g, b } = hslToRgb(rotatedHue, s, l);
-    data[i] = r;
-    data[i + 1] = g;
-    data[i + 2] = b;
-  }
-};
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
 const applyPipelineToImageData = (imageData, pipeline) => {
-  if (!pipeline || pipeline.length === 0) {
-    return imageData;
-  }
+  if (!imageData || !pipeline?.length) return;
+  const data = imageData.data;
+  const length = data.length;
 
-  const { data } = imageData;
-  pipeline.forEach(({ type, amount }) => {
+  const applyBrightness = (amount) => {
+    for (let i = 0; i < length; i += 4) {
+      data[i] = clamp(data[i] * amount, 0, 255);
+      data[i + 1] = clamp(data[i + 1] * amount, 0, 255);
+      data[i + 2] = clamp(data[i + 2] * amount, 0, 255);
+    }
+  };
+
+  const applyContrast = (amount) => {
+    const factor = amount;
+    const intercept = 128 * (1 - factor);
+    for (let i = 0; i < length; i += 4) {
+      data[i] = clamp(data[i] * factor + intercept, 0, 255);
+      data[i + 1] = clamp(data[i + 1] * factor + intercept, 0, 255);
+      data[i + 2] = clamp(data[i + 2] * factor + intercept, 0, 255);
+    }
+  };
+
+  const applyGrayscale = (amount) => {
+    const mix = clamp(amount, 0, 1);
+    for (let i = 0; i < length; i += 4) {
+      const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+      data[i] = clamp(gray * mix + data[i] * (1 - mix), 0, 255);
+      data[i + 1] = clamp(gray * mix + data[i + 1] * (1 - mix), 0, 255);
+      data[i + 2] = clamp(gray * mix + data[i + 2] * (1 - mix), 0, 255);
+    }
+  };
+
+  const applySepia = (amount) => {
+    const mix = clamp(amount, 0, 1);
+    for (let i = 0; i < length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const sr = clamp(r * 0.393 + g * 0.769 + b * 0.189, 0, 255);
+      const sg = clamp(r * 0.349 + g * 0.686 + b * 0.168, 0, 255);
+      const sb = clamp(r * 0.272 + g * 0.534 + b * 0.131, 0, 255);
+      data[i] = clamp(sr * mix + r * (1 - mix), 0, 255);
+      data[i + 1] = clamp(sg * mix + g * (1 - mix), 0, 255);
+      data[i + 2] = clamp(sb * mix + b * (1 - mix), 0, 255);
+    }
+  };
+
+  const applySaturate = (amount) => {
+    const scale = clamp(amount, 0, 4);
+    for (let i = 0; i < length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const gray = r * 0.299 + g * 0.587 + b * 0.114;
+      data[i] = clamp(gray + (r - gray) * scale, 0, 255);
+      data[i + 1] = clamp(gray + (g - gray) * scale, 0, 255);
+      data[i + 2] = clamp(gray + (b - gray) * scale, 0, 255);
+    }
+  };
+
+  const applyHueRotate = (degrees) => {
+    const angle = (degrees * Math.PI) / 180;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    for (let i = 0; i < length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      data[i] = clamp(
+        r * (0.213 + cos * 0.787 - sin * 0.213) +
+          g * (0.715 - cos * 0.715 - sin * 0.715) +
+          b * (0.072 - cos * 0.072 + sin * 0.928),
+        0,
+        255
+      );
+      data[i + 1] = clamp(
+        r * (0.213 - cos * 0.213 + sin * 0.143) +
+          g * (0.715 + cos * 0.285 + sin * 0.140) +
+          b * (0.072 - cos * 0.072 - sin * 0.283),
+        0,
+        255
+      );
+      data[i + 2] = clamp(
+        r * (0.213 - cos * 0.213 - sin * 0.787) +
+          g * (0.715 - cos * 0.715 + sin * 0.715) +
+          b * (0.072 + cos * 0.928 + sin * 0.072),
+        0,
+        255
+      );
+    }
+  };
+
+  pipeline.forEach((step) => {
+    if (!step) return;
+    const { type, amount } = step;
     switch (type) {
       case 'brightness':
-        applyBrightness(data, amount);
+        applyBrightness(typeof amount === 'number' ? amount : 1);
         break;
       case 'contrast':
-        applyContrast(data, amount);
-        break;
-      case 'saturate':
-        applySaturate(data, amount);
-        break;
-      case 'sepia':
-        applySepia(data, amount);
+        applyContrast(typeof amount === 'number' ? amount : 1);
         break;
       case 'grayscale':
-        applyGrayscale(data, amount);
+        applyGrayscale(typeof amount === 'number' ? amount : 1);
+        break;
+      case 'sepia':
+        applySepia(typeof amount === 'number' ? amount : 1);
+        break;
+      case 'saturate':
+        applySaturate(typeof amount === 'number' ? amount : 1);
         break;
       case 'hueRotate':
-        applyHueRotate(data, amount);
+        applyHueRotate(typeof amount === 'number' ? amount : 0);
         break;
       default:
         break;
     }
   });
-  return imageData;
 };
 
-const detectCanvasFilterSupport = () => {
-  if (typeof document === 'undefined') {
-    return false;
-  }
-
-  try {
-    const testCanvas = document.createElement('canvas');
-    const testContext = testCanvas.getContext('2d');
-    if (!testContext || typeof testContext.filter === 'undefined') {
-      return false;
-    }
-    const originalFilter = testContext.filter;
-    testContext.filter = 'brightness(1.1)';
-    const supported = testContext.filter === 'brightness(1.1)';
-    testContext.filter = originalFilter || 'none';
-    return supported;
-  } catch (error) {
-    console.warn('⚠️ Canvas filter support detection failed:', error);
-    return false;
-  }
-};
 export default function EditPhoto() {
+  const isBrowser = typeof window !== 'undefined';
+
   const [photos, setPhotos] = useState([]);
   const [videos, setVideos] = useState([]);
+  const [slotPhotos, setSlotPhotos] = useState({});
+  const [slotVideos, setSlotVideos] = useState({});
+  const [photoPositions, setPhotoPositions] = useState({});
+  const [photoTransforms, setPhotoTransforms] = useState({});
+  const [photoFilters, setPhotoFilters] = useState({});
   const [frameConfig, setFrameConfig] = useState(null);
   const [frameImage, setFrameImage] = useState(null);
-  const [selectedFrame, setSelectedFrame] = useState('FremioSeries-blue-2');
+  const [selectedFrame, setSelectedFrame] = useState('');
   const [swapModeActive, setSwapModeActive] = useState(false);
   const [swapSourceSlot, setSwapSourceSlot] = useState(null);
-  const [photoPositions, setPhotoPositions] = useState({});
+  const [selectedPhotoForEdit, setSelectedPhotoForEdit] = useState(null);
+  const [draggedPhoto, setDraggedPhoto] = useState(null);
+  const [dragOverSlot, setDragOverSlot] = useState(null);
+  const [isDraggingPhoto, setIsDraggingPhoto] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [debugMode, setDebugMode] = useState(false);
   const [configReloadKey, setConfigReloadKey] = useState(0);
   const [isReloading, setIsReloading] = useState(false);
-  const [photoTransforms, setPhotoTransforms] = useState({});
-  const [selectedPhotoForEdit, setSelectedPhotoForEdit] = useState(null);
-  const [isDraggingPhoto, setIsDraggingPhoto] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [isSaving, setIsSaving] = useState(false);
-  const [slotPhotos, setSlotPhotos] = useState({});
-  const [slotVideos, setSlotVideos] = useState({});
-  const [photoFilters, setPhotoFilters] = useState({});
-  const [isMobile, setIsMobile] = useState(false);
-  const [isCompact, setIsCompact] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [printCode, setPrintCode] = useState(null);
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [hasDevAccess, setHasDevAccess] = useState(false);
+  const [devAccessInitialized, setDevAccessInitialized] = useState(!isBrowser);
+  const [devTokenInput, setDevTokenInput] = useState('');
+  const [devAuthStatus, setDevAuthStatus] = useState({ loading: false, error: null, success: false });
+  const [showDevUnlockPanel, setShowDevUnlockPanel] = useState(false);
+
+  const [viewport, setViewport] = useState(() => ({
+    width: isBrowser ? window.innerWidth : 1280,
+    height: isBrowser ? window.innerHeight : 800
+  }));
+
+  useEffect(() => {
+    if (!isBrowser) return;
+    const handleResize = () => {
+      setViewport({ width: window.innerWidth, height: window.innerHeight });
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
+  }, [isBrowser]);
+
+  const isMobile = viewport.width <= 768;
+  const isCompact = viewport.height <= 720;
+
+  const canvasFilterSupported = useMemo(() => (isBrowser ? detectCanvasFilterSupport() : false), [isBrowser]);
+  const isDevEnv = import.meta.env.DEV;
+  const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+
+  const getDevApiBaseUrl = () => {
+    if (!isBrowser) {
+      return 'http://localhost:3001';
+    }
+
+    const { protocol, hostname } = window.location;
+    const safeHostname = (() => {
+      if (!hostname || hostname === '0.0.0.0') {
+        return 'localhost';
+      }
+      return hostname;
+    })();
+
+    const formattedHost = safeHostname.includes(':') && !safeHostname.startsWith('[')
+      ? `[${safeHostname}]`
+      : safeHostname;
+
+    const preferredProtocol = protocol === 'https:' ? 'https:' : 'http:';
+
+    return `${preferredProtocol}//${formattedHost}:3001`;
+  };
+
+  const inferredBaseUrl = useMemo(() => {
+    if (rawApiBaseUrl && rawApiBaseUrl.trim().length > 0) {
+      return rawApiBaseUrl.trim();
+    }
+
+    if (isDevEnv) {
+      return getDevApiBaseUrl();
+    }
+
+    if (isBrowser) {
+      return window.location.origin;
+    }
+
+    return '';
+  }, [isBrowser, isDevEnv, rawApiBaseUrl]);
+
+  const apiBaseUrl = useMemo(() => inferredBaseUrl.replace(/\/$/, ''), [inferredBaseUrl]);
+
+  useEffect(() => {
+    if (devAccessInitialized) return;
+
+    if (!isBrowser) {
+      setDevAccessInitialized(true);
+      return;
+    }
+
+    try {
+      sessionStorage.removeItem('fremioDevAccess');
+    } catch (error) {
+      console.warn('⚠️ Failed to reset developer access flag from sessionStorage.', error);
+    } finally {
+      setHasDevAccess(false);
+      setDevAccessInitialized(true);
+    }
+  }, [devAccessInitialized, isBrowser]);
 
   const resetSwapMode = useCallback(() => {
     setSwapModeActive(false);
     setSwapSourceSlot(null);
+    setDraggedPhoto(null);
+    setDragOverSlot(null);
   }, []);
 
   const beginSwapFromSlot = useCallback((slotIndex) => {
-    setSwapModeActive(true);
     setSwapSourceSlot(slotIndex);
+    setSwapModeActive(true);
   }, []);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
+  const getSlotPhotosStorageKey = (id) => (id ? `slotPhotos:${id}` : null);
+  const persistSlotPhotos = (id, data) => {
+    const storageKey = getSlotPhotosStorageKey(id);
+    if (!storageKey) return;
+    try {
+      safeStorage.setItem(storageKey, JSON.stringify(data));
+    } catch (err) {
+      console.warn('⚠️ Failed to persist slotPhotos for', id, err);
+    }
+  };
 
-    const updateBreakpoint = () => {
-      setIsMobile(window.innerWidth <= 768);
-      setIsCompact(window.innerWidth <= 480);
-    };
+  const getSlotVideosStorageKey = (id) => (id ? `slotVideos:${id}` : null);
+  const persistSlotVideos = (id, data) => {
+    const storageKey = getSlotVideosStorageKey(id);
+    if (!storageKey) return;
+    try {
+      safeStorage.setItem(storageKey, JSON.stringify(data));
+    } catch (err) {
+      console.warn('⚠️ Failed to persist slotVideos for', id, err);
+    }
+  };
 
-    updateBreakpoint();
-    window.addEventListener('resize', updateBreakpoint);
-    return () => window.removeEventListener('resize', updateBreakpoint);
-  }, []);
-
-  useEffect(() => {
-    if (!swapModeActive) return;
-
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        resetSwapMode();
+  const clearCapturedMediaStorage = (frameId) => {
+    if (!isBrowser) return;
+    try {
+      safeStorage.removeItem('capturedPhotos');
+      safeStorage.removeItem('capturedVideos');
+      const slotPhotosKey = getSlotPhotosStorageKey(frameId);
+      const slotVideosKey = getSlotVideosStorageKey(frameId);
+      if (slotPhotosKey) {
+        safeStorage.removeItem(slotPhotosKey);
       }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [resetSwapMode, swapModeActive]);
+      if (slotVideosKey) {
+        safeStorage.removeItem(slotVideosKey);
+      }
+    } catch (err) {
+      console.warn('⚠️ Failed to clear captured media storage:', err);
+    }
+  };
 
   useEffect(() => {
     resetSwapMode();
   }, [frameConfig?.id, resetSwapMode]);
+
+  useEffect(() => {
+    return () => {
+      try {
+        safeStorage.removeItem('capturedPhotos');
+        safeStorage.removeItem('capturedVideos');
+
+        const frameId = frameConfig?.id || frameProvider.getCurrentFrameName();
+        const slotPhotosKey = getSlotPhotosStorageKey(frameId);
+        const slotVideosKey = getSlotVideosStorageKey(frameId);
+
+        if (slotPhotosKey) {
+          safeStorage.removeItem(slotPhotosKey);
+        }
+        if (slotVideosKey) {
+          safeStorage.removeItem(slotVideosKey);
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to clear captured media on editor exit', error);
+      }
+    };
+  }, [frameConfig?.id]);
 
   const recordedClips = useMemo(() => (
     videos
@@ -373,116 +446,6 @@ export default function EditPhoto() {
     return Number.isInteger(value) ? `${value}` : value.toFixed(1);
   };
 
-  const [printCode, setPrintCode] = useState(null);
-  const [showPrintModal, setShowPrintModal] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-
-  const isBrowser = typeof window !== 'undefined';
-  const canvasFilterSupported = useMemo(() => (isBrowser ? detectCanvasFilterSupport() : false), [isBrowser]);
-  const isDevEnv = import.meta.env.DEV;
-  const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL;
-  const getDevApiBaseUrl = () => {
-    if (!isBrowser) {
-      return 'http://localhost:3001';
-    }
-
-    const { protocol, hostname } = window.location;
-    const safeHostname = (() => {
-      if (!hostname || hostname === '0.0.0.0') {
-        return 'localhost';
-      }
-      return hostname;
-    })();
-
-    const formattedHost = safeHostname.includes(':') && !safeHostname.startsWith('[')
-      ? `[${safeHostname}]`
-      : safeHostname;
-
-    const preferredProtocol = protocol === 'https:' ? 'https:' : 'http:';
-
-    return `${preferredProtocol}//${formattedHost}:3001`;
-  };
-
-  const inferredBaseUrl = (() => {
-    if (rawApiBaseUrl && rawApiBaseUrl.trim().length > 0) {
-      return rawApiBaseUrl.trim();
-    }
-
-    if (isDevEnv) {
-      return getDevApiBaseUrl();
-    }
-
-    if (isBrowser) {
-      return window.location.origin;
-    }
-
-    return '';
-  })();
-  const apiBaseUrl = inferredBaseUrl.replace(/\/$/, '');
-
-  const [hasDevAccess, setHasDevAccess] = useState(false);
-  const [devAccessInitialized, setDevAccessInitialized] = useState(!isBrowser);
-  const [devTokenInput, setDevTokenInput] = useState('');
-  const [devAuthStatus, setDevAuthStatus] = useState({ loading: false, error: null, success: false });
-  const [showDevUnlockPanel, setShowDevUnlockPanel] = useState(false);
-
-  useEffect(() => {
-    if (devAccessInitialized) return;
-
-    if (!isBrowser) {
-      setDevAccessInitialized(true);
-      return;
-    }
-
-    try {
-      sessionStorage.removeItem('fremioDevAccess');
-    } catch (error) {
-      console.warn('⚠️ Failed to reset developer access flag from sessionStorage.', error);
-    } finally {
-      setHasDevAccess(false);
-      setDevAccessInitialized(true);
-    }
-  }, [devAccessInitialized, isBrowser]);
-
-  const getSlotPhotosStorageKey = (id) => (id ? `slotPhotos:${id}` : null);
-  const persistSlotPhotos = (id, data) => {
-    const storageKey = getSlotPhotosStorageKey(id);
-    if (!storageKey) return;
-    try {
-  safeStorage.setItem(storageKey, JSON.stringify(data));
-    } catch (err) {
-      console.warn('⚠️ Failed to persist slotPhotos for', id, err);
-    }
-  };
-
-  const getSlotVideosStorageKey = (id) => (id ? `slotVideos:${id}` : null);
-  const persistSlotVideos = (id, data) => {
-    const storageKey = getSlotVideosStorageKey(id);
-    if (!storageKey) return;
-    try {
-  safeStorage.setItem(storageKey, JSON.stringify(data));
-    } catch (err) {
-      console.warn('⚠️ Failed to persist slotVideos for', id, err);
-    }
-  };
-
-  const clearCapturedMediaStorage = (frameId) => {
-    if (!isBrowser) return;
-    try {
-  safeStorage.removeItem('capturedPhotos');
-  safeStorage.removeItem('capturedVideos');
-      const slotPhotosKey = getSlotPhotosStorageKey(frameId);
-      const slotVideosKey = getSlotVideosStorageKey(frameId);
-      if (slotPhotosKey) {
-  safeStorage.removeItem(slotPhotosKey);
-      }
-      if (slotVideosKey) {
-  safeStorage.removeItem(slotVideosKey);
-      }
-    } catch (err) {
-      console.warn('⚠️ Failed to clear captured media storage:', err);
-    }
-  };
 
   const getFilterCssValue = (filterId) => {
     const preset = FILTER_PRESET_MAP[filterId];
@@ -1056,55 +1019,22 @@ export default function EditPhoto() {
             };
           });
           
-          const storageKey = getSlotPhotosStorageKey(frameFromStorage);
-          let normalizedSlotPhotos = initialSlotPhotos;
-          let normalizedSlotVideos = initialSlotVideos;
-          if (storageKey) {
-            const stored = safeStorage.getItem(storageKey);
-            if (stored) {
-              try {
-                const parsed = JSON.parse(stored);
-                const merged = {};
-                frameConfigForDefaults.slots.forEach((_, slotIndex) => {
-                  if (parsed && Object.prototype.hasOwnProperty.call(parsed, slotIndex)) {
-                    merged[slotIndex] = parsed[slotIndex];
-                  } else {
-                    merged[slotIndex] = initialSlotPhotos[slotIndex] || null;
-                  }
-                });
-                normalizedSlotPhotos = merged;
-              } catch (err) {
-                console.warn('⚠️ Failed to parse stored slotPhotos for edit page, using defaults', err);
-              }
-            }
-          }
+          const slotPhotosKey = getSlotPhotosStorageKey(frameFromStorage);
+          const slotVideosKey = getSlotVideosStorageKey(frameFromStorage);
 
-          const videoStorageKey = getSlotVideosStorageKey(frameFromStorage);
-          if (videoStorageKey) {
-            const storedVideos = safeStorage.getItem(videoStorageKey);
-            if (storedVideos) {
-              try {
-                const parsed = JSON.parse(storedVideos);
-                const merged = {};
-                frameConfigForDefaults.slots.forEach((_, slotIndex) => {
-                  if (parsed && Object.prototype.hasOwnProperty.call(parsed, slotIndex)) {
-                    merged[slotIndex] = parsed[slotIndex];
-                  } else {
-                    merged[slotIndex] = initialSlotVideos[slotIndex] || null;
-                  }
-                });
-                normalizedSlotVideos = merged;
-              } catch (err) {
-                console.warn('⚠️ Failed to parse stored slotVideos for edit page, using defaults', err);
-              }
-            }
+          if (slotPhotosKey) {
+            safeStorage.removeItem(slotPhotosKey);
+          }
+          if (slotVideosKey) {
+            safeStorage.removeItem(slotVideosKey);
           }
 
           // Set slot photos for duplicate-photo frames
-          setSlotPhotos(normalizedSlotPhotos);
-          setSlotVideos(normalizedSlotVideos);
-          persistSlotPhotos(frameFromStorage, normalizedSlotPhotos);
-          console.log('🎯 Initialized slot photos for duplicate frame:', Object.keys(normalizedSlotPhotos).length, 'slots');
+          setSlotPhotos(initialSlotPhotos);
+          setSlotVideos(initialSlotVideos);
+          persistSlotPhotos(frameFromStorage, initialSlotPhotos);
+          persistSlotVideos(frameFromStorage, initialSlotVideos);
+          console.log('🎯 Initialized slot photos for duplicate frame:', Object.keys(initialSlotPhotos).length, 'slots');
         } else {
           // Standard initialization for non-duplicate frames (one transform per photo)
           parsedPhotos.forEach((_, index) => {
@@ -2731,23 +2661,17 @@ export default function EditPhoto() {
           dataType: typeof photo,
           dataLength: photo ? photo.length : 0,
           startsWithData: photo ? photo.startsWith('data:') : false,
-          preview: photo ? photo.substring(0, 50) + '...' : 'NO DATA'
+          preview: photo ? `${photo.substring(0, 50)}...` : 'NO DATA'
         });
       });
-      
-      if (photos.length === 0) {
-        console.error('❌ NO PHOTOS FOUND! Check photos array');
-        alert('No photos found to save!');
-        return;
-      }
-      const photoPromises = photos.map((photoDataUrl, index) => {
-        return new Promise((resolve) => {
+
+      const loadBasePhoto = (photoDataUrl, index) =>
+        new Promise((resolve) => {
           if (!photoDataUrl) {
             console.warn(`⚠️ Photo ${index + 1}: No data URL`);
             resolve({ img: null, index });
             return;
           }
-          
           const img = new Image();
           img.onload = () => {
             console.log(`✅ Photo ${index + 1}: Loaded (${img.width}x${img.height})`);
@@ -2759,223 +2683,109 @@ export default function EditPhoto() {
           };
           img.src = photoDataUrl;
         });
-      });
-      
-      const loadedPhotos = await Promise.all(photoPromises);
-      console.log('📸 Photos loaded result:', loadedPhotos.filter(p => p.img).length, 'of', loadedPhotos.length);
-      console.log('📸 Loaded photos details:', loadedPhotos.map(p => ({ 
-        index: p.index, 
-        hasImg: !!p.img, 
-        imgSize: p.img ? `${p.img.width}x${p.img.height}` : 'N/A' 
-      })));
-      
-      // Check photoTransforms
-      console.log('🔧 Photo transforms:', photoTransforms);
-      console.log('🔧 Transform keys:', Object.keys(photoTransforms));
-      
-      if (loadedPhotos.filter(p => p.img).length === 0) {
-        console.error('❌ NO PHOTOS LOADED SUCCESSFULLY!');
-        alert('Failed to load any photos!');
+
+      const loadedPhotos = await Promise.all(photos.map(loadBasePhoto));
+      console.log('📸 Base photos loaded:', loadedPhotos.filter((p) => p.img).length, 'of', loadedPhotos.length);
+
+      const getSlotSourcePhoto = (slotIndex) => {
+        if (Object.prototype.hasOwnProperty.call(slotPhotos || {}, slotIndex)) {
+          return slotPhotos[slotIndex];
+        }
+        const slot = frameConfig?.slots?.[slotIndex];
+        if (!slot) return null;
+        const fallbackIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+        return photos[fallbackIndex] ?? null;
+      };
+
+      const slotEntries = (frameConfig?.slots || [])
+        .map((slot, slotIndex) => ({
+          slot,
+          slotIndex,
+          photoSource: getSlotSourcePhoto(slotIndex),
+        }))
+        .filter((entry) => entry.slot && entry.photoSource);
+
+      if (!slotEntries.length) {
+        console.error('❌ No slot/photo pairs available for rendering');
+        alert('Tidak ada foto yang dapat dirender. Pastikan minimal satu foto dipilih.');
         return;
       }
-      
-      // Initialize rendered count
+
+      const loadSlotImage = (dataUrl, slotIndex) =>
+        new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = (error) => {
+            console.error(`❌ Slot ${slotIndex + 1}: Failed to load photo`, error);
+            resolve(null);
+          };
+          img.src = dataUrl;
+        });
+
+      const slotImages = await Promise.all(
+        slotEntries.map(async (entry) => ({
+          ...entry,
+          img: await loadSlotImage(entry.photoSource, entry.slotIndex),
+        }))
+      );
+
       let renderedCount = 0;
+      const PREVIEW_WIDTH = 350;
+      const PREVIEW_HEIGHT = 525;
+      const SCALE_RATIO = canvasWidth / PREVIEW_WIDTH;
 
-      if (frameConfig?.duplicatePhotos && selectedFrame === 'Testframe2') {
-        const frameSlots = frameConfig.slots || [];
-
-        for (let slotIndex = 0; slotIndex < frameSlots.length; slotIndex++) {
-          const currentSlot = frameSlots[slotIndex];
-          if (!currentSlot) {
-            console.warn(`⚠️ Skipping duplicate slot ${slotIndex + 1}: Slot definition missing`);
-            continue;
-          }
-
-          const hasCustomPhoto = Object.prototype.hasOwnProperty.call(slotPhotos, slotIndex);
-          const fallbackIndex = currentSlot.photoIndex !== undefined ? currentSlot.photoIndex : slotIndex;
-          const actualPhotoSrc = hasCustomPhoto ? slotPhotos[slotIndex] : photos[fallbackIndex];
-
-          console.log(`🔄 Processing duplicate slot ${slotIndex + 1}:`);
-          console.log(`  - Config photoIndex: ${currentSlot.photoIndex}`);
-          console.log(`  - Actual photo source: ${actualPhotoSrc ? 'Available' : 'Not available'}`);
-          console.log(`  - slotPhotos override: ${hasCustomPhoto ? 'Yes' : 'No'}`);
-
-          if (!actualPhotoSrc) {
-            console.warn(`⚠️ Skipping slot ${slotIndex + 1}: No photo available`);
-            continue;
-          }
-
-          const img = await new Promise((resolve) => {
-            const image = new Image();
-            image.onload = () => {
-              console.log(`✅ Slot ${slotIndex + 1}: Photo loaded (${image.width}x${image.height})`);
-              resolve(image);
-            };
-            image.onerror = (error) => {
-              console.error(`❌ Slot ${slotIndex + 1}: Failed to load photo`, error);
-              resolve(null);
-            };
-            image.src = actualPhotoSrc;
-          });
-
-          if (!img || !img.complete || img.naturalWidth === 0) {
-            console.warn(`⚠️ Skipping slot ${slotIndex + 1}: Image failed to load`);
-            continue;
-          }
-
-          let defaultScale = 1.6;
-          if (frameConfig.id === 'Testframe4') {
-            defaultScale = 1.1;
-          }
-
-          const transform = photoTransforms[slotIndex] || { scale: defaultScale, translateX: 0, translateY: 0 };
-
-          console.log(`🔍 Slot ${slotIndex + 1} transform debug:`);
-          console.log(`  - Slot config photoIndex:`, currentSlot.photoIndex);
-          console.log(`  - Using actual photo source:`, hasCustomPhoto ? 'Custom slot photo' : `Fallback photo[${fallbackIndex}]`);
-          console.log(`  - photoTransforms[${slotIndex}]:`, photoTransforms[slotIndex]);
-          console.log(`  - Using transform:`, transform);
-
-          const PREVIEW_WIDTH = 350;
-          const PREVIEW_HEIGHT = 525;
-          const SCALE_RATIO = canvasWidth / PREVIEW_WIDTH;
-
-          const previewSlotX = currentSlot.left * PREVIEW_WIDTH;
-          const previewSlotY = currentSlot.top * PREVIEW_HEIGHT;
-          const previewSlotWidth = currentSlot.width * PREVIEW_WIDTH;
-          const previewSlotHeight = currentSlot.height * PREVIEW_HEIGHT;
-
-          const slotX = previewSlotX * SCALE_RATIO;
-          const slotY = previewSlotY * SCALE_RATIO;
-          const slotWidth = previewSlotWidth * SCALE_RATIO;
-          const slotHeight = previewSlotHeight * SCALE_RATIO;
-
-          const imgAspectRatio = img.width / img.height;
-          const slotAspectRatio = slotWidth / slotHeight;
-
-          let photoDisplayWidth;
-          let photoDisplayHeight;
-
-          if (imgAspectRatio > slotAspectRatio) {
-            photoDisplayWidth = slotWidth;
-            photoDisplayHeight = slotWidth / imgAspectRatio;
-          } else {
-            photoDisplayWidth = slotHeight * imgAspectRatio;
-            photoDisplayHeight = slotHeight;
-          }
-
-          const slotCenterX = slotX + slotWidth / 2;
-          const slotCenterY = slotY + slotHeight / 2;
-
-          const scaledTranslateX = (transform.translateX || 0) * SCALE_RATIO;
-          const scaledTranslateY = (transform.translateY || 0) * SCALE_RATIO;
-
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(slotX, slotY, slotWidth, slotHeight);
-          ctx.clip();
-
-          const finalPhotoWidth = photoDisplayWidth * transform.scale;
-          const finalPhotoHeight = photoDisplayHeight * transform.scale;
-          const finalPhotoX = slotCenterX - finalPhotoWidth / 2 + scaledTranslateX;
-          const finalPhotoY = slotCenterY - finalPhotoHeight / 2 + scaledTranslateY;
-
-          console.log(`📐 Slot ${slotIndex + 1}: Final photo ${finalPhotoWidth.toFixed(1)}x${finalPhotoHeight.toFixed(1)} at ${finalPhotoX.toFixed(1)},${finalPhotoY.toFixed(1)}`);
-
-          const slotFilterId = resolveSlotFilterId(slotIndex);
-          drawImageWithFilter(ctx, img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight, {
-            filterId: slotFilterId
-          });
-
-          ctx.restore();
-
-          renderedCount++;
-          console.log(`✅ Slot ${slotIndex + 1}: Rendered successfully`);
+      slotImages.forEach(({ slot, slotIndex, img }) => {
+        if (!img) {
+          console.warn(`⚠️ Slot ${slotIndex + 1}: Image missing after load, skipping`);
+          return;
         }
-      } else {
-        // Standard logic for non-duplicate frames
-        for (const { img, index } of loadedPhotos) {
-          if (!img) {
-            console.warn(`⚠️ Skipping photo ${index + 1}: Failed to load`);
-            continue;
-          }
 
-          const targetSlot = frameConfig.slots[index];
-          if (!targetSlot) {
-            console.warn(`⚠️ Skipping photo ${index + 1}: No slot config`);
-            continue;
-          }
+        const defaultScale = frameConfig.id === 'Testframe4' ? 1.1 : 1.6;
+        const transform = photoTransforms[slotIndex] || { scale: defaultScale, translateX: 0, translateY: 0 };
 
-          let defaultScale = 1.6;
-          if (frameConfig.id === 'Testframe4') {
-            defaultScale = 1.1;
-          }
+        const previewSlotX = slot.left * PREVIEW_WIDTH;
+        const previewSlotY = slot.top * PREVIEW_HEIGHT;
+        const previewSlotWidth = slot.width * PREVIEW_WIDTH;
+        const previewSlotHeight = slot.height * PREVIEW_HEIGHT;
 
-          const transform = photoTransforms[index] || { scale: defaultScale, translateX: 0, translateY: 0 };
+        const slotX = previewSlotX * SCALE_RATIO;
+        const slotY = previewSlotY * SCALE_RATIO;
+        const slotWidth = previewSlotWidth * SCALE_RATIO;
+        const slotHeight = previewSlotHeight * SCALE_RATIO;
 
-          console.log(`🔍 Slot ${index + 1} transform debug:`);
-          console.log(`  - photoTransforms[${index}]:`, photoTransforms[index]);
-          console.log(`  - Using transform:`, transform);
+        const imgAspectRatio = img.width / img.height;
+        const slotAspectRatio = slotWidth / slotHeight;
 
-          const PREVIEW_WIDTH = 350;
-          const PREVIEW_HEIGHT = 525;
-          const SCALE_RATIO = canvasWidth / PREVIEW_WIDTH;
+        const photoDisplayWidth = imgAspectRatio > slotAspectRatio ? slotWidth : slotHeight * imgAspectRatio;
+        const photoDisplayHeight = imgAspectRatio > slotAspectRatio ? slotWidth / imgAspectRatio : slotHeight;
 
-          const previewSlotX = targetSlot.left * PREVIEW_WIDTH;
-          const previewSlotY = targetSlot.top * PREVIEW_HEIGHT;
-          const previewSlotWidth = targetSlot.width * PREVIEW_WIDTH;
-          const previewSlotHeight = targetSlot.height * PREVIEW_HEIGHT;
+        const slotCenterX = slotX + slotWidth / 2;
+        const slotCenterY = slotY + slotHeight / 2;
 
-          const slotX = previewSlotX * SCALE_RATIO;
-          const slotY = previewSlotY * SCALE_RATIO;
-          const slotWidth = previewSlotWidth * SCALE_RATIO;
-          const slotHeight = previewSlotHeight * SCALE_RATIO;
+        const translateX = (transform.translateX ?? transform.x ?? 0) * SCALE_RATIO;
+        const translateY = (transform.translateY ?? transform.y ?? 0) * SCALE_RATIO;
+        const scale = transform.scale ?? 1;
 
-          const imgAspectRatio = img.width / img.height;
-          const slotAspectRatio = slotWidth / slotHeight;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(slotX, slotY, slotWidth, slotHeight);
+        ctx.clip();
 
-          let photoDisplayWidth;
-          let photoDisplayHeight;
+        const finalPhotoWidth = photoDisplayWidth * scale;
+        const finalPhotoHeight = photoDisplayHeight * scale;
+        const finalPhotoX = slotCenterX - finalPhotoWidth / 2 + translateX;
+        const finalPhotoY = slotCenterY - finalPhotoHeight / 2 + translateY;
 
-          if (imgAspectRatio > slotAspectRatio) {
-            photoDisplayWidth = slotWidth;
-            photoDisplayHeight = slotWidth / imgAspectRatio;
-          } else {
-            photoDisplayWidth = slotHeight * imgAspectRatio;
-            photoDisplayHeight = slotHeight;
-          }
+        const slotFilterId = resolveSlotFilterId(slotIndex);
+        drawImageWithFilter(ctx, img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight, {
+          filterId: slotFilterId,
+        });
 
-          const slotCenterX = slotX + slotWidth / 2;
-          const slotCenterY = slotY + slotHeight / 2;
+        ctx.restore();
+        renderedCount += 1;
+        console.log(`✅ Slot ${slotIndex + 1}: Rendered with transform`, transform);
+      });
 
-          const scaledTranslateX = (transform.translateX || 0) * SCALE_RATIO;
-          const scaledTranslateY = (transform.translateY || 0) * SCALE_RATIO;
-
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(slotX, slotY, slotWidth, slotHeight);
-          ctx.clip();
-
-          const finalPhotoWidth = photoDisplayWidth * transform.scale;
-          const finalPhotoHeight = photoDisplayHeight * transform.scale;
-          const finalPhotoX = slotCenterX - finalPhotoWidth / 2 + scaledTranslateX;
-          const finalPhotoY = slotCenterY - finalPhotoHeight / 2 + scaledTranslateY;
-
-          console.log(`📐 Slot ${index + 1}: Final photo ${finalPhotoWidth.toFixed(1)}x${finalPhotoHeight.toFixed(1)} at ${finalPhotoX.toFixed(1)},${finalPhotoY.toFixed(1)}`);
-
-          const slotFilterId = resolveSlotFilterId(index);
-          drawImageWithFilter(ctx, img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight, {
-            filterId: slotFilterId
-          });
-
-          ctx.restore();
-
-          renderedCount++;
-          console.log(`✅ Slot ${index + 1}: Rendered successfully`);
-        }
-      }
-      
       console.log(`Photos rendering complete: ${renderedCount} photos rendered`);
       
       // Render frame overlay on top of photos

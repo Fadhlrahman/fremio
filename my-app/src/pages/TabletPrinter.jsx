@@ -14,7 +14,7 @@ export default function TabletPrinter() {
   const [printerConnected, setPrinterConnected] = useState(false);
   const [stream, setStream] = useState(null);
 
-  // Initialize camera
+  // Initialize camera.
   useEffect(() => {
     initializeCamera();
     fetchStats();

@@ -4042,6 +4042,8 @@ export default function EditPhoto() {
                 {selectedPhotoForEdit !== null && !swapModeActive && frameConfig.slots[selectedPhotoForEdit] && (() => {
                   const activeSlot = frameConfig.slots[selectedPhotoForEdit];
                   const overlayPadding = isMobile ? (isCompact ? '8px' : '10px') : '12px';
+                  const overlayTopPercent = (activeSlot.top + activeSlot.height) * 100;
+                  const overlayGap = isMobile ? '0.45rem' : '0.65rem';
                   const transformValue = (photoTransforms[selectedPhotoForEdit]?.scale || 1).toFixed(1);
 
                   return (
@@ -4049,16 +4051,15 @@ export default function EditPhoto() {
                       style={{
                         position: 'absolute',
                         left: `${activeSlot.left * 100}%`,
-                        top: `${activeSlot.top * 100}%`,
+                        top: `${overlayTopPercent}%`,
                         width: `${activeSlot.width * 100}%`,
-                        height: `${activeSlot.height * 100}%`,
                         pointerEvents: 'none',
                         zIndex: 30,
                         display: 'flex',
-                        alignItems: 'flex-end',
                         justifyContent: 'center',
-                        paddingBottom: overlayPadding,
-                        boxSizing: 'border-box'
+                        paddingTop: overlayPadding,
+                        boxSizing: 'border-box',
+                        transform: `translateY(${overlayGap})`
                       }}
                     >
                       <div

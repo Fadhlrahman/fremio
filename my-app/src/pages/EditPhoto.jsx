@@ -224,6 +224,7 @@ export default function EditPhoto() {
   const [slotVideos, setSlotVideos] = useState({});
   const [photoPositions, setPhotoPositions] = useState({});
   const [photoTransforms, setPhotoTransforms] = useState({});
+  const [photoDimensions, setPhotoDimensions] = useState({});
   const [photoFilters, setPhotoFilters] = useState({});
   const [frameConfig, setFrameConfig] = useState(null);
   const [frameImage, setFrameImage] = useState(null);
@@ -1658,34 +1659,64 @@ export default function EditPhoto() {
     setSelectedPhotoForEdit((prev) => (prev === slotIndex ? null : slotIndex));
   };
 
-  // Calculate maximum zoom out scale (minimum scale before gaps appear)
-  const calculateMaxZoomOutScale = (slotIndex) => {
-    if (!frameConfig || !frameConfig.slots[slotIndex]) return 1;
-    
-    const slot = frameConfig.slots[slotIndex];
-    
-    // Use same logic as handlePhotoZoom for minimum ..scale calculation
-    let photoAspectRatio = 4 / 3; // Default camera landscape
-    let slotAspectRatio = slot.width / slot.height;
-    
-    // Calculate minimum scale for edge-to-edge coverage
-    let minScaleForCoverage;
-    
-    // Calculate scale for full coverage
-    if (photoAspectRatio > slotAspectRatio) {
-      // Photo landscape, slot portrait → fit by height for full coverage
-      minScaleForCoverage = 1 / (photoAspectRatio / slotAspectRatio);
-    } else {
-      // Photo portrait, slot landscape → fit by width for full coverage  
-      minScaleForCoverage = slotAspectRatio / photoAspectRatio;
+  const resolveSlotPhotoDimensions = (slotIndex) => {
+    if (photoDimensions?.[slotIndex]?.width && photoDimensions?.[slotIndex]?.height) {
+      return photoDimensions[slotIndex];
     }
-    
-    // Apply same bounds as handlePhotoZoom
-    let absoluteMinScale = Math.max(0.8, minScaleForCoverage);
-    
-    console.log(`🔍 Max zoom out for slot ${slotIndex + 1}: ${absoluteMinScale.toFixed(2)}x (minCoverage: ${minScaleForCoverage.toFixed(2)}x)`);
-    return absoluteMinScale;
+
+    const slotMeta = frameConfig?.slots?.[slotIndex];
+    if (slotMeta?.photoIndex !== undefined) {
+      const shared = photoDimensions?.[slotMeta.photoIndex];
+      if (shared?.width && shared?.height) {
+        return shared;
+      }
+    }
+
+    return null;
   };
+
+  const calculateCoverageScaleForSlot = (slotIndex) => {
+    const slot = frameConfig?.slots?.[slotIndex];
+    if (!slot) return 1;
+
+    const dimensions = resolveSlotPhotoDimensions(slotIndex);
+    if (!dimensions || !dimensions.width || !dimensions.height) {
+      const fallbackTransform = photoTransforms?.[slotIndex];
+      const fallbackScale = fallbackTransform?.autoFillScale || 1;
+      return Math.max(1, fallbackScale);
+    }
+
+    const PREVIEW_WIDTH = 350;
+    const PREVIEW_HEIGHT = 525;
+    const slotWidthPx = slot.width * PREVIEW_WIDTH;
+    const slotHeightPx = slot.height * PREVIEW_HEIGHT;
+
+    const photoAspectRatio = dimensions.width / dimensions.height;
+    const slotAspectRatio = slotWidthPx / slotHeightPx;
+
+    let containedWidth;
+    let containedHeight;
+
+    if (photoAspectRatio > slotAspectRatio) {
+      containedWidth = slotWidthPx;
+      containedHeight = slotWidthPx / photoAspectRatio;
+    } else {
+      containedHeight = slotHeightPx;
+      containedWidth = slotHeightPx * photoAspectRatio;
+    }
+
+    const heightScale = containedHeight ? slotHeightPx / containedHeight : 1;
+    const widthScale = containedWidth ? slotWidthPx / containedWidth : 1;
+
+    const fillScale = Math.max(heightScale, widthScale, 1);
+    const clamped = Math.max(1, Math.min(fillScale, 6));
+
+    console.log(`🔍 Coverage scale for slot ${slotIndex + 1}: ${clamped.toFixed(2)}x (height: ${heightScale.toFixed(2)}x, width: ${widthScale.toFixed(2)}x)`);
+    return clamped;
+  };
+
+  // Calculate maximum zoom out scale (minimum scale before gaps appear)
+  const calculateMaxZoomOutScale = (slotIndex) => calculateCoverageScaleForSlot(slotIndex);
 
   // Calculate auto-fit scale untuk fit vertical height (ujung atas-bawah foto terlihat)
   const calculateAutoFillScale = (slotIndex) => {
@@ -1696,7 +1727,9 @@ export default function EditPhoto() {
     
     if (photoImg) {
       // Use smart calculation with actual photo dimensions
-      return calculateSmartDefaultScale(photoImg, slotIndex, frameConfig);
+      const smartScale = calculateSmartDefaultScale(photoImg, slotIndex, frameConfig);
+      const coverageScale = calculateCoverageScaleForSlot(slotIndex);
+      return Math.max(coverageScale, smartScale);
     }
     
     // Fallback to original logic if photo not available
@@ -1714,13 +1747,17 @@ export default function EditPhoto() {
       const zoomIncrement = 0.1;
       const defaultScale = maxZoomOutScale + (zoomInSteps * zoomIncrement);
       
-      console.log(`📏 Testframe4 Slot ${slotIndex + 1}: Default scale = ${defaultScale.toFixed(2)}x (max zoom out: ${maxZoomOutScale.toFixed(2)}x + ${zoomInSteps} steps)`);
-      return defaultScale;
+  const coverageScale = calculateCoverageScaleForSlot(slotIndex);
+  const adjustedScale = Math.max(defaultScale, coverageScale);
+  console.log(`📏 Testframe4 Slot ${slotIndex + 1}: Default scale = ${adjustedScale.toFixed(2)}x (min coverage: ${coverageScale.toFixed(2)}x)`);
+  return adjustedScale;
     }
     
     // Original logic for portrait frames (Testframe1, 2, 3)
     // Default scale for when photo image not available
-    return 1.6; // Conservative default
+  const coverageScale = calculateCoverageScaleForSlot(slotIndex);
+  const fallbackScale = 1.6; // Conservative default
+  return Math.max(coverageScale, fallbackScale);
   };
 
   const generateFramedVideo = async ({ loadedPhotos, canvasWidth, canvasHeight, timestamp, skipDownload = false }) => {
@@ -2252,22 +2289,35 @@ export default function EditPhoto() {
   // Helper function to get photo image for a slot - ASYNC VERSION
   const getPhotoImageForSlot = (slotIndex) => {
     try {
-      if (!photos || !photos[slotIndex]) return null;
-      
-      // Check if we have duplicate photos (like Testframe2)
-      let photoIndex = slotIndex;
-      if (frameConfig?.duplicatePhotos && frameConfig.slots[slotIndex]?.photoIndex !== undefined) {
-        photoIndex = frameConfig.slots[slotIndex].photoIndex;
+      const recordedDimensions = photoDimensions?.[slotIndex];
+      if (recordedDimensions?.width && recordedDimensions?.height) {
+        return recordedDimensions;
       }
-      
-      if (!photos[photoIndex]) return null;
-      
-      // For now, return fallback dimensions (will be improved with async loading)
-      // Most camera photos are around 4:3 or 16:9 aspect ratio
-      // Using representative dimensions for calculation
+
+      const slotMeta = frameConfig?.slots?.[slotIndex];
+      if (slotMeta?.photoIndex !== undefined) {
+        const sharedDimensions = photoDimensions?.[slotMeta.photoIndex];
+        if (sharedDimensions?.width && sharedDimensions?.height) {
+          return sharedDimensions;
+        }
+      }
+
+      if (!photos || photos.length === 0) return null;
+
+      let photoIndex = slotIndex;
+      if (frameConfig?.duplicatePhotos && slotMeta?.photoIndex !== undefined) {
+        photoIndex = slotMeta.photoIndex;
+      }
+
+      const hasPhotoInSlot = frameConfig?.duplicatePhotos
+        ? Boolean(slotPhotos?.[slotIndex] || photos?.[photoIndex])
+        : Boolean(photos?.[photoIndex]);
+
+      if (!hasPhotoInSlot) return null;
+
       return {
-        width: 1600, // Representative camera width
-        height: 1200 // Representative camera height (4:3 aspect)
+        width: 1600,
+        height: 1200
       };
     } catch (error) {
       console.log('⚠️ Could not get photo image for smart scale calculation:', error);
@@ -2285,6 +2335,28 @@ export default function EditPhoto() {
       
       const img = new Image();
       img.onload = () => {
+        const slotMeta = frameConfig?.slots?.[slotIndex];
+        setPhotoDimensions((prev = {}) => {
+          let changed = false;
+          const next = { ...prev };
+
+          const assignDimensions = (key) => {
+            if (key === undefined || key === null) return;
+            const existing = prev[key];
+            if (!existing || existing.width !== img.width || existing.height !== img.height) {
+              next[key] = { width: img.width, height: img.height };
+              changed = true;
+            }
+          };
+
+          assignDimensions(slotIndex);
+          if (slotMeta?.photoIndex !== undefined) {
+            assignDimensions(slotMeta.photoIndex);
+          }
+
+          return changed ? next : prev;
+        });
+        
         const smartScale = calculateSmartDefaultScale(img, slotIndex, frameConfig);
         console.log(`✨ Async smart scale for slot ${slotIndex + 1}: ${smartScale.toFixed(2)}x`);
         resolve(smartScale);
@@ -2431,7 +2503,12 @@ export default function EditPhoto() {
     
     // Dynamic calculation based on frame type
     const slotAspectRatio = slot.width / slot.height;
-    const photoAspectRatio = 4 / 3; // 1.33 (landscape camera)
+    let photoAspectRatio = 4 / 3; // Default camera landscape ratio
+
+    const dimensions = resolveSlotPhotoDimensions(slotIndex);
+    if (dimensions?.width && dimensions?.height) {
+      photoAspectRatio = dimensions.width / dimensions.height;
+    }
     
     // Special handling for Testframe4 landscape slots
     if (frameConfig?.id === 'Testframe4') {
@@ -2632,50 +2709,23 @@ export default function EditPhoto() {
   const handlePhotoZoom = (photoIndex, delta) => {
     setPhotoTransforms(prev => {
       const current = prev[photoIndex] || { scale: 1, translateX: 0, translateY: 0, autoFillScale: 1 };
-      const autoFillScale = current.autoFillScale || calculateAutoFillScale(photoIndex);
+      const autoFillScale = Math.max(
+        calculateCoverageScaleForSlot(photoIndex),
+        current.autoFillScale || calculateAutoFillScale(photoIndex)
+      );
       
-      // Calculate minimum scale untuk edge-to-edge coverage
       const slot = frameConfig?.slots[photoIndex];
       if (!slot) return prev;
-      
-      // Get aspect ratios dynamically based on frame configuration
-      let photoAspectRatio = 4 / 3; // Default camera landscape
-      let slotAspectRatio = slot.width / slot.height;
-      
-      // Minimum scale agar foto edge bertemu slot edge (no gaps)
-      let minScaleForCoverage;
-      let absoluteMinScale;
-      
-      // Special handling for Testframe4 - use left/right boundary
-      if (frameConfig?.id === 'Testframe4') {
-        console.log(`🎯 Testframe4 slot ${photoIndex + 1}: Using LEFT/RIGHT boundary for zoom out`);
-        
-        // For Testframe4, minimum zoom out is when photo width fits slot width exactly
-        // This means left and right edges of photo touch slot boundaries
-        absoluteMinScale = 1.0; // Width-fit scale
-        
-        console.log(`📐 Testframe4 zoom boundary: ${absoluteMinScale.toFixed(2)}x (width-fit)`);
-      } else {
-        // Original logic for other frames (Testframe1, 2, 3)
-        if (photoAspectRatio > slotAspectRatio) {
-          // Foto landscape, slot portrait → fit by height untuk full coverage
-          minScaleForCoverage = 1 / (photoAspectRatio / slotAspectRatio);
-        } else {
-          // Foto portrait, slot landscape → fit by width untuk full coverage  
-          minScaleForCoverage = slotAspectRatio / photoAspectRatio;
-        }
-        
-        absoluteMinScale = Math.max(0.8, minScaleForCoverage);
-      }
-      
-      const maxScale = 4;
-      
-      const newScale = Math.max(absoluteMinScale, Math.min(maxScale, current.scale + delta * 0.1));
+
+      const minimumScale = calculateCoverageScaleForSlot(photoIndex);
+      const maxScale = Math.max(4, minimumScale + 3);
+      const proposedScale = current.scale + delta * 0.1;
+      const newScale = Math.max(minimumScale, Math.min(maxScale, proposedScale));
       
       // Auto-adjust pan untuk maintain edge-to-edge setelah zoom
-      const adjustedTransform = adjustPanForEdgeBoundaries(current, newScale, photoIndex);
+  const adjustedTransform = adjustPanForEdgeBoundaries({ ...current, scale: newScale }, newScale, photoIndex);
       
-      console.log(`🔍 Photo ${photoIndex + 1}: Zoom ${delta > 0 ? 'IN' : 'OUT'} to ${newScale.toFixed(2)}x (min: ${absoluteMinScale.toFixed(2)}x for ${frameConfig?.id || 'unknown'} coverage)`);
+      console.log(`🔍 Photo ${photoIndex + 1}: Zoom ${delta > 0 ? 'IN' : 'OUT'} to ${newScale.toFixed(2)}x (min allowed: ${minimumScale.toFixed(2)}x)`);
       
       return {
         ...prev,
@@ -2693,9 +2743,15 @@ export default function EditPhoto() {
     const slot = frameConfig?.slots[photoIndex];
     if (!slot) return current;
     
-    // Dynamic aspect ratio based on frame type
-    let photoAspectRatio = 4 / 3; // Default camera landscape
-    let slotAspectRatio = slot.width / slot.height;
+    const dimensions = resolveSlotPhotoDimensions(photoIndex);
+
+    // Dynamic aspect ratio based on actual photo when available
+    let photoAspectRatio = 4 / 3;
+    if (dimensions?.width && dimensions?.height) {
+      photoAspectRatio = dimensions.width / dimensions.height;
+    }
+
+    const slotAspectRatio = slot.width / slot.height;
     
     // Calculate foto dimensions setelah scale
     let photoWidthInSlot, photoHeightInSlot;
@@ -2755,52 +2811,20 @@ export default function EditPhoto() {
       const current = prev[photoIndex] || { scale: 1, translateX: 0, translateY: 0, autoFillScale: 1 };
       const autoFillScale = current.autoFillScale || 1;
       const scale = current.scale;
-      
-      // Calculate exact boundaries berdasarkan foto dan slot dimensions
-      const slot = frameConfig?.slots[photoIndex];
-      if (!slot) return prev;
-      
-      // Foto dimensions setelah scale (assuming objectFit contain)
-      const photoAspectRatio = 4 / 3; // Camera landscape
-      const slotAspectRatio = slot.width / slot.height;
-      
-      // Calculate actual foto size dalam slot setelah objectFit contain + scale
-      let photoWidthInSlot, photoHeightInSlot;
-      
-      if (photoAspectRatio > slotAspectRatio) {
-        // Foto lebih landscape dari slot → foto fit by width
-        photoWidthInSlot = 100; // 100% slot width
-        photoHeightInSlot = (100 / photoAspectRatio) * slotAspectRatio; // Proportional height
-      } else {
-        // Foto lebih portrait dari slot → foto fit by height  
-        photoHeightInSlot = 100; // 100% slot height
-        photoWidthInSlot = (100 * photoAspectRatio) / slotAspectRatio; // Proportional width
-      }
-      
-      // Apply scale to foto dimensions
-      const scaledPhotoWidth = photoWidthInSlot * scale;
-      const scaledPhotoHeight = photoHeightInSlot * scale;
-      
-      // Calculate maximum translate untuk edge-to-edge boundaries
-      // Foto tidak boleh geser sampai ada gap antara foto edge dan slot edge
-      const maxTranslateX = Math.max(0, (scaledPhotoWidth - 100) / 2); // Half of overflow
-      const maxTranslateY = Math.max(0, (scaledPhotoHeight - 100) / 2); // Half of overflow
-      
-      // Convert percentage to pixels (approximate, untuk visual feedback)
-      const maxTranslateXPx = maxTranslateX * 3.5; // Slot width ≈ 350px * slot.width
-      const maxTranslateYPx = maxTranslateY * 5.25; // Slot height ≈ 525px * slot.height
-      
-      const newTranslateX = Math.max(-maxTranslateXPx, Math.min(maxTranslateXPx, current.translateX + deltaX));
-      const newTranslateY = Math.max(-maxTranslateYPx, Math.min(maxTranslateYPx, current.translateY + deltaY));
-      
-      console.log(`📍 Photo ${photoIndex + 1}: Pan range ±${maxTranslateXPx.toFixed(0)}px×${maxTranslateYPx.toFixed(0)}px (scaled foto: ${scaledPhotoWidth.toFixed(0)}%×${scaledPhotoHeight.toFixed(0)}%)`);
-      
+
+      const candidateTransform = {
+        ...current,
+        translateX: current.translateX + deltaX,
+        translateY: current.translateY + deltaY,
+        scale
+      };
+
+      const boundedTransform = adjustPanForEdgeBoundaries(candidateTransform, scale, photoIndex);
+
       return {
         ...prev,
         [photoIndex]: {
-          ...current,
-          translateX: newTranslateX,
-          translateY: newTranslateY
+          ...boundedTransform
         }
       };
     });

@@ -19,6 +19,8 @@ const MIRRORED_VIDEO_STYLES = `
   .mirrored-video-controls::-webkit-media-controls-time-remaining-display,
   .mirrored-video-controls::-webkit-media-controls-mute-button,
   .mirrored-video-controls::-webkit-media-controls-fullscreen-button,
+  .mirrored-video-controls::-webkit-media-controls-overlay-play-button,
+  .mirrored-video-controls::-webkit-media-controls-start-playback-button,
   .mirrored-video-controls::-webkit-media-controls-seek-back-button,
   .mirrored-video-controls::-webkit-media-controls-seek-forward-button,
   .mirrored-video-controls::-webkit-media-controls-return-to-realtime-button,
@@ -857,22 +859,6 @@ export default function TakeMoment() {
                 boxShadow: "0 12px 24px rgba(0,0,0,0.2)",
               }}
             />
-            {currentVideo && (
-              <video
-                src={currentVideo.previewUrl || currentVideo.dataUrl || ""}
-                controls
-                playsInline
-                muted
-                className={currentVideo.requiresPreviewMirror ? "mirrored-video-controls" : undefined}
-                style={{
-                  width: "100%",
-                  maxHeight: "240px",
-                  borderRadius: "12px",
-                  objectFit: "contain",
-                  boxShadow: "0 12px 24px rgba(0,0,0,0.2)",
-                }}
-              />
-            )}
             {isVideoProcessing && (
               <div
                 style={{
@@ -1815,6 +1801,11 @@ export default function TakeMoment() {
 
     clearProcessingIndicator({ keepTransitionOverlay: true });
     stopCamera();
+    try {
+      safeStorage.setItem("editorAutoSelectFirstSlot", "true");
+    } catch (error) {
+      console.warn("⚠️ Failed to set editor auto-select flag", error);
+    }
     navigate("/edit-photo");
   }, [
     capturedPhotos,

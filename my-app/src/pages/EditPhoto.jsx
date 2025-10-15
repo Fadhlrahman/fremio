@@ -80,6 +80,7 @@ const FILTER_PIPELINES = {
 const ZIP_GENERATION_TIMEOUT_MS = 35000;
 const DEFAULT_PREVIEW_WIDTH = 280;
 const DEFAULT_PREVIEW_HEIGHT = DEFAULT_PREVIEW_WIDTH / (2 / 3);
+const AUTO_SELECT_INITIAL_SLOT_KEY = 'editorAutoSelectFirstSlot';
 
 const detectCanvasFilterSupport = () => {
   if (typeof document === 'undefined') return false;
@@ -261,6 +262,19 @@ export default function EditPhoto() {
   const slotObserverRef = useRef(null);
   const slotRefCallbacksRef = useRef({});
   const autoSelectedSlotRef = useRef(false);
+  const [shouldAutoSelectInitialSlot, setShouldAutoSelectInitialSlot] = useState(() => {
+    if (!isBrowser) return false;
+    try {
+      const flag = safeStorage.getItem(AUTO_SELECT_INITIAL_SLOT_KEY);
+      if (flag === 'true') {
+        safeStorage.removeItem(AUTO_SELECT_INITIAL_SLOT_KEY);
+        return true;
+      }
+    } catch (error) {
+      console.warn('⚠️ Failed to read editor auto-select flag', error);
+    }
+    return false;
+  });
   const [slotMeasurements, setSlotMeasurements] = useState({});
 
   const [viewport, setViewport] = useState(() => ({
@@ -1649,6 +1663,11 @@ export default function EditPhoto() {
       return;
     }
 
+    if (!shouldAutoSelectInitialSlot) {
+      autoSelectedSlotRef.current = false;
+      return;
+    }
+
     let firstEditableSlot = -1;
     for (let index = 0; index < frameConfig.slots.length; index += 1) {
       if (slotHasPhoto(frameConfig.slots[index], index)) {
@@ -1664,9 +1683,10 @@ export default function EditPhoto() {
 
     if (!autoSelectedSlotRef.current) {
       autoSelectedSlotRef.current = true;
+      setShouldAutoSelectInitialSlot(false);
       setSelectedPhotoForEdit(firstEditableSlot);
     }
-  }, [frameConfig?.id, frameConfig?.slots?.length, frameConfig?.duplicatePhotos, photos, slotPhotos, swapModeActive, selectedPhotoForEdit]);
+  }, [frameConfig?.id, frameConfig?.slots?.length, frameConfig?.duplicatePhotos, photos, slotPhotos, swapModeActive, selectedPhotoForEdit, shouldAutoSelectInitialSlot]);
 
   // Initialize auto-fill scale when frameConfig is loaded
   useEffect(() => {

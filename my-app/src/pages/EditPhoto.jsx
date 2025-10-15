@@ -9,7 +9,7 @@ import QRCode from 'qrcode';
 import { convertBlobToMp4 } from '../utils/videoTranscoder.js';
 import swapIcon from '../assets/swap.png';
 import shiftIcon from '../assets/Shift.png';
-// FremioSeries Imports..
+// FremioSeries Imports.
 import FremioSeriesBlue2 from '../assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png';
 import FremioSeriesBabyblue3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-babyblue-3.png';
 import FremioSeriesBlack3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-black-3.png';
@@ -257,6 +257,10 @@ export default function EditPhoto() {
     width: DEFAULT_PREVIEW_WIDTH,
     height: DEFAULT_PREVIEW_HEIGHT
   }));
+  const slotElementsRef = useRef(new Map());
+  const slotObserverRef = useRef(null);
+  const slotRefCallbacksRef = useRef({});
+  const [slotMeasurements, setSlotMeasurements] = useState({});
 
   const [viewport, setViewport] = useState(() => ({
     width: isBrowser ? window.innerWidth : 1280,
@@ -314,6 +318,107 @@ export default function EditPhoto() {
       }
     };
   }, [isBrowser, viewport.width, viewport.height, frameConfig?.id]);
+
+  const applySlotMeasurement = useCallback((slotIndex, width, height) => {
+    if (!Number.isInteger(slotIndex)) return;
+    if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) return;
+
+    setSlotMeasurements((prev = {}) => {
+      const existing = prev[slotIndex];
+      if (existing && Math.abs(existing.width - width) < 0.5 && Math.abs(existing.height - height) < 0.5) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [slotIndex]: { width, height }
+      };
+    });
+  }, []);
+
+  const removeSlotMeasurement = useCallback((slotIndex) => {
+    setSlotMeasurements((prev = {}) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, slotIndex)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[slotIndex];
+      return next;
+    });
+  }, []);
+
+  const assignSlotElement = useCallback((slotIndex, element) => {
+    const map = slotElementsRef.current;
+    const previousElement = map.get(slotIndex);
+    if (previousElement === element) return;
+
+    if (previousElement && slotObserverRef.current) {
+      slotObserverRef.current.unobserve(previousElement);
+    }
+
+    if (element) {
+      map.set(slotIndex, element);
+      element.setAttribute('data-slot-index', String(slotIndex));
+      if (slotObserverRef.current) {
+        slotObserverRef.current.observe(element);
+      }
+      const rect = element.getBoundingClientRect();
+      applySlotMeasurement(slotIndex, rect.width, rect.height);
+    } else {
+      map.delete(slotIndex);
+      removeSlotMeasurement(slotIndex);
+    }
+  }, [applySlotMeasurement, removeSlotMeasurement]);
+
+  const getSlotRef = useCallback((slotIndex) => {
+    const cache = slotRefCallbacksRef.current;
+    if (!cache[slotIndex]) {
+      cache[slotIndex] = (element) => assignSlotElement(slotIndex, element);
+    }
+    return cache[slotIndex];
+  }, [assignSlotElement]);
+
+  useEffect(() => {
+    if (!isBrowser) return;
+    if (typeof ResizeObserver !== 'function') return;
+
+    const observer = new ResizeObserver((entries) => {
+      entries.forEach((entry) => {
+        const target = entry.target;
+        const slotAttr = target.getAttribute('data-slot-index');
+        if (slotAttr === null || slotAttr === undefined) return;
+        const slotIndex = Number(slotAttr);
+        if (Number.isNaN(slotIndex)) return;
+        const { width, height } = entry.contentRect;
+        applySlotMeasurement(slotIndex, width, height);
+      });
+    });
+
+    slotObserverRef.current = observer;
+    slotElementsRef.current.forEach((element) => {
+      if (element) {
+        observer.observe(element);
+      }
+    });
+
+    return () => {
+      observer.disconnect();
+      slotObserverRef.current = null;
+    };
+  }, [isBrowser, applySlotMeasurement]);
+
+  useEffect(() => {
+    slotRefCallbacksRef.current = {};
+    setSlotMeasurements({});
+    const map = slotElementsRef.current;
+    if (slotObserverRef.current) {
+      map.forEach((element) => {
+        if (element) {
+          slotObserverRef.current.unobserve(element);
+        }
+      });
+    }
+    slotElementsRef.current = new Map();
+  }, [frameConfig?.id]);
 
   const isMobile = viewport.width <= 768;
   const isCompact = viewport.height <= 720;
@@ -1245,9 +1350,9 @@ export default function EditPhoto() {
     console.log(`  - Photo: ${photoImg.width}x${photoImg.height} (ratio: ${photoAspectRatio.toFixed(2)})`);
     console.log(`  - Slot: ${slot.width}x${slot.height} (ratio: ${(slot.width/slot.height).toFixed(2)})`);
     
-  // Convert slot dimensions to pixels (using preview dimensions as base)
-  const slotWidthPx = slot.width * previewWidth;
-  const slotHeightPx = slot.height * previewHeight;
+  const slotPixels = getSlotPixelDimensions(slotIndex);
+  const slotWidthPx = slotPixels?.width ?? slot.width * previewWidth;
+  const slotHeightPx = slotPixels?.height ?? slot.height * previewHeight;
     
     console.log(`  - Slot in pixels: ${slotWidthPx.toFixed(1)}x${slotHeightPx.toFixed(1)}px`);
     
@@ -1722,7 +1827,7 @@ export default function EditPhoto() {
     setSelectedPhotoForEdit((prev) => (prev === slotIndex ? null : slotIndex));
   };
 
-  const resolveSlotPhotoDimensions = (slotIndex) => {
+  const resolveSlotPhotoDimensions = useCallback((slotIndex) => {
     if (photoDimensions?.[slotIndex]?.width && photoDimensions?.[slotIndex]?.height) {
       return photoDimensions[slotIndex];
     }
@@ -1736,45 +1841,145 @@ export default function EditPhoto() {
     }
 
     return null;
-  };
+  }, [photoDimensions, frameConfig]);
 
-  const calculateCoverageScaleForSlot = (slotIndex) => {
+  // Fungsi untuk menghitung ukuran slot dalam pixel.
+  const getSlotPixelDimensions = useCallback((slotIndex) => {
     const slot = frameConfig?.slots?.[slotIndex];
-    if (!slot) return 1;
+    if (!slot) return null;
+    const measurement = slotMeasurements?.[slotIndex] || null;
+    const width = measurement?.width ?? slot.width * Math.max(previewWidth, 1);
+    const height = measurement?.height ?? slot.height * Math.max(previewHeight, 1);
+    return { width, height };
+  }, [frameConfig?.slots, slotMeasurements, previewWidth, previewHeight]);
 
+  const getSlotPanMetrics = useCallback((slotIndex) => {
+    const slot = frameConfig?.slots?.[slotIndex];
+    if (!slot) return null;
+
+    const slotPixels = getSlotPixelDimensions(slotIndex);
+    const slotWidthPx = slotPixels?.width ?? slot.width * Math.max(previewWidth, 1);
+    const slotHeightPx = slotPixels?.height ?? slot.height * Math.max(previewHeight, 1);
+
+    if (!Number.isFinite(slotWidthPx) || slotWidthPx <= 0 || !Number.isFinite(slotHeightPx) || slotHeightPx <= 0) {
+      return null;
+    }
+
+    const slotAspectRatio = slotWidthPx / slotHeightPx;
+    let photoAspectRatio = 4 / 3;
     const dimensions = resolveSlotPhotoDimensions(slotIndex);
-    if (!dimensions || !dimensions.width || !dimensions.height) {
+    if (dimensions?.width && dimensions?.height) {
+      photoAspectRatio = dimensions.width / dimensions.height;
+    }
+
+    let containedWidthPx;
+    let containedHeightPx;
+
+    if (frameConfig?.id === 'Testframe4') {
+      containedWidthPx = slotWidthPx;
+      containedHeightPx = slotWidthPx / photoAspectRatio;
+    } else if (photoAspectRatio > slotAspectRatio) {
+      containedWidthPx = slotWidthPx;
+      containedHeightPx = slotWidthPx / photoAspectRatio;
+    } else {
+      containedHeightPx = slotHeightPx;
+      containedWidthPx = slotHeightPx * photoAspectRatio;
+    }
+
+    return {
+      slotWidthPx,
+      slotHeightPx,
+      slotAspectRatio,
+      photoAspectRatio,
+      containedWidthPx,
+      containedHeightPx
+    };
+  }, [frameConfig?.id, frameConfig?.slots, getSlotPixelDimensions, previewHeight, previewWidth, resolveSlotPhotoDimensions]);
+
+  const calculateCoverageScaleForSlot = useCallback((slotIndex) => {
+    const metrics = getSlotPanMetrics(slotIndex);
+    if (!metrics) {
       const fallbackTransform = photoTransforms?.[slotIndex];
       const fallbackScale = fallbackTransform?.autoFillScale || 1;
       return Math.max(1, fallbackScale);
     }
 
-  const slotWidthPx = slot.width * previewWidth;
-  const slotHeightPx = slot.height * previewHeight;
+    const { slotWidthPx, slotHeightPx, containedWidthPx, containedHeightPx } = metrics;
 
-    const photoAspectRatio = dimensions.width / dimensions.height;
-    const slotAspectRatio = slotWidthPx / slotHeightPx;
-
-    let containedWidth;
-    let containedHeight;
-
-    if (photoAspectRatio > slotAspectRatio) {
-      containedWidth = slotWidthPx;
-      containedHeight = slotWidthPx / photoAspectRatio;
-    } else {
-      containedHeight = slotHeightPx;
-      containedWidth = slotHeightPx * photoAspectRatio;
+    if (!containedWidthPx || !containedHeightPx) {
+      const fallbackTransform = photoTransforms?.[slotIndex];
+      const fallbackScale = fallbackTransform?.autoFillScale || 1;
+      return Math.max(1, fallbackScale);
     }
 
-    const heightScale = containedHeight ? slotHeightPx / containedHeight : 1;
-    const widthScale = containedWidth ? slotWidthPx / containedWidth : 1;
+    const heightScale = containedHeightPx ? slotHeightPx / containedHeightPx : 1;
+    const widthScale = containedWidthPx ? slotWidthPx / containedWidthPx : 1;
 
     const fillScale = Math.max(heightScale, widthScale, 1);
     const clamped = Math.max(1, Math.min(fillScale, 6));
 
     console.log(`🔍 Coverage scale for slot ${slotIndex + 1}: ${clamped.toFixed(2)}x (height: ${heightScale.toFixed(2)}x, width: ${widthScale.toFixed(2)}x)`);
     return clamped;
-  };
+  }, [getSlotPanMetrics, photoTransforms]);
+
+  const adjustPanForEdgeBoundaries = useCallback((current, proposedScale, slotIndex) => {
+    const baseTransform = (current && typeof current === 'object') ? current : {};
+    const metrics = getSlotPanMetrics(slotIndex);
+    if (!metrics) {
+      return {
+        ...baseTransform,
+        translateX: 0,
+        translateY: 0
+      };
+    }
+
+    const { slotWidthPx, slotHeightPx, containedWidthPx, containedHeightPx } = metrics;
+
+    const scale = (typeof proposedScale === 'number' && Number.isFinite(proposedScale) && proposedScale > 0)
+      ? proposedScale
+      : (typeof baseTransform?.scale === 'number' && Number.isFinite(baseTransform.scale) && baseTransform.scale > 0
+        ? baseTransform.scale
+        : 1);
+
+    const halfSlotWidth = slotWidthPx / 2;
+    const halfSlotHeight = slotHeightPx / 2;
+    const halfImageWidth = (containedWidthPx * scale) / 2;
+    const halfImageHeight = (containedHeightPx * scale) / 2;
+
+    let maxActualTranslateX = Math.max(0, halfImageWidth - halfSlotWidth);
+    let maxActualTranslateY = Math.max(0, halfImageHeight - halfSlotHeight);
+
+    const epsilon = 0.25;
+    maxActualTranslateX = Math.max(0, maxActualTranslateX - epsilon);
+    maxActualTranslateY = Math.max(0, maxActualTranslateY - epsilon);
+
+    if (frameConfig?.id === 'Testframe4') {
+      maxActualTranslateX *= 0.85;
+      maxActualTranslateY *= 1.35;
+    }
+
+    const safeScale = scale > 0 ? scale : 1;
+    const maxTranslateX = maxActualTranslateX > 0 ? maxActualTranslateX / safeScale : 0;
+    const maxTranslateY = maxActualTranslateY > 0 ? maxActualTranslateY / safeScale : 0;
+
+    const clampTranslate = (value, max) => {
+      if (!Number.isFinite(max) || max <= 0) {
+        return 0;
+      }
+      const numericValue = Number.isFinite(value) ? value : 0;
+      const bounded = clamp(numericValue, -max, max);
+      if (Math.abs(bounded) < 0.0001) {
+        return 0;
+      }
+      return Number(bounded.toFixed(4));
+    };
+
+    return {
+      ...baseTransform,
+      translateX: clampTranslate(baseTransform?.translateX, maxTranslateX),
+      translateY: clampTranslate(baseTransform?.translateY, maxTranslateY)
+    };
+  }, [frameConfig?.id, getSlotPanMetrics]);
 
   // Calculate maximum zoom out scale (minimum scale before gaps appear)
   const calculateMaxZoomOutScale = (slotIndex) => calculateCoverageScaleForSlot(slotIndex);
@@ -2503,7 +2708,69 @@ export default function EditPhoto() {
       
       return () => clearTimeout(timer);
     }
-  }, [photos.length, frameConfig?.id]);
+  }, [photos, frameConfig?.id]);
+
+  useEffect(() => {
+    if (!frameConfig?.duplicatePhotos) return;
+    if (!slotPhotos || Object.keys(slotPhotos).length === 0) return;
+
+    const entries = Object.entries(slotPhotos).filter(([, value]) => Boolean(value));
+    if (entries.length === 0) return;
+
+    let cancelled = false;
+
+    const syncSlotTransforms = async () => {
+      for (const [slotKey, photoDataUrl] of entries) {
+        const slotIndex = Number(slotKey);
+        if (!Number.isInteger(slotIndex) || !photoDataUrl) continue;
+
+        try {
+          const smartScale = await calculateSmartScaleAsync(photoDataUrl, slotIndex);
+          if (cancelled) return;
+
+          setPhotoTransforms((prev = {}) => {
+            const previous = prev[slotIndex] || { translateX: 0, translateY: 0, scale: smartScale, autoFillScale: smartScale };
+            const nextScale = Math.max(smartScale, calculateCoverageScaleForSlot(slotIndex));
+
+            const bounded = adjustPanForEdgeBoundaries(
+              { ...previous, scale: nextScale },
+              nextScale,
+              slotIndex
+            );
+
+            const merged = {
+              ...previous,
+              ...bounded,
+              scale: nextScale,
+              autoFillScale: nextScale
+            };
+
+            if (
+              previous.scale === merged.scale &&
+              previous.translateX === merged.translateX &&
+              previous.translateY === merged.translateY &&
+              previous.autoFillScale === merged.autoFillScale
+            ) {
+              return prev;
+            }
+
+            return {
+              ...prev,
+              [slotIndex]: merged
+            };
+          });
+        } catch (error) {
+          console.warn(`⚠️ Failed to update transforms for slot ${slotIndex + 1}:`, error);
+        }
+      }
+    };
+
+    syncSlotTransforms();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [frameConfig?.duplicatePhotos, frameConfig?.id, slotPhotos, calculateCoverageScaleForSlot, adjustPanForEdgeBoundaries]);
 
   useEffect(() => {
     if (!hasDevAccess && debugMode) {
@@ -2690,20 +2957,21 @@ export default function EditPhoto() {
       }
     }
   };
-
-  // Fungsi untuk menghitung ukuran slot dalam pixel.
   const calculateSlotDimensions = (frameConfig, slotIndex) => {
-  const FRAME_WIDTH = Math.max(previewWidth, 1); // px - ukuran frame di preview
-  const FRAME_HEIGHT = Math.max(previewHeight, 1); // px - aspect ratio 2:3
-    
     const slot = frameConfig.slots[slotIndex];
     if (!slot) return null;
+
+    const slotPixels = getSlotPixelDimensions(slotIndex);
+    const FRAME_WIDTH = Math.max(previewWidth, 1); // px - ukuran frame di preview
+    const FRAME_HEIGHT = Math.max(previewHeight, 1); // px - aspect ratio 2:3
+    const slotWidthPx = slotPixels?.width ?? slot.width * FRAME_WIDTH;
+    const slotHeightPx = slotPixels?.height ?? slot.height * FRAME_HEIGHT;
     
     return {
       left: slot.left * FRAME_WIDTH,      // px dari kiri
       top: slot.top * FRAME_HEIGHT,       // px dari atas  
-      width: slot.width * FRAME_WIDTH,    // lebar slot dalam px
-      height: slot.height * FRAME_HEIGHT, // tinggi slot dalam px
+      width: slotWidthPx,                 // lebar slot dalam px
+      height: slotHeightPx,               // tinggi slot dalam px
       aspectRatio: slot.width / slot.height // rasio slot
     };
   };
@@ -2712,20 +2980,34 @@ export default function EditPhoto() {
   const calculatePhotoCropStyle = (frameConfig, slotIndex) => {
     const slotDimensions = calculateSlotDimensions(frameConfig, slotIndex);
     if (!slotDimensions) return {};
-    
+
     const transform = photoTransforms[slotIndex] || { scale: 1, translateX: 0, translateY: 0 };
-    
+    const metrics = getSlotPanMetrics(slotIndex);
+
+    const baseWidthPx = Number.isFinite(metrics?.containedWidthPx)
+      ? metrics.containedWidthPx
+      : slotDimensions.width;
+    const baseHeightPx = Number.isFinite(metrics?.containedHeightPx)
+      ? metrics.containedHeightPx
+      : slotDimensions.height;
+
+    const scale = Number.isFinite(transform?.scale) && transform.scale > 0 ? transform.scale : 1;
+    const translateX = Number.isFinite(transform?.translateX) ? transform.translateX : 0;
+    const translateY = Number.isFinite(transform?.translateY) ? transform.translateY : 0;
+
     return {
       position: 'absolute',
-      top: 0,
-      left: 0,
-      width: '100%',
-      height: '100%',
-      objectFit: 'contain', // Preserve entire image, no permanent cropping
-      objectPosition: 'center center',
-      transform: `scale(${transform.scale}) translate(${transform.translateX}px, ${transform.translateY}px)`,
+      top: '50%',
+      left: '50%',
+      width: `${baseWidthPx}px`,
+      height: `${baseHeightPx}px`,
       transformOrigin: 'center center',
-      transition: 'transform 0.2s ease'
+      transform: `translate(-50%, -50%) translate(${translateX}px, ${translateY}px) scale(${scale})`,
+      objectFit: 'cover',
+      objectPosition: 'center',
+      userSelect: 'none',
+      transition: isDraggingPhoto ? 'none' : 'transform 0.18s ease-out',
+      willChange: 'transform'
     };
   };
 
@@ -2799,75 +3081,34 @@ export default function EditPhoto() {
     });
   };
 
-  // Helper function untuk adjust pan berdasarkan edge boundaries
-  const adjustPanForEdgeBoundaries = (current, newScale, photoIndex) => {
-    const slot = frameConfig?.slots[photoIndex];
-    if (!slot) return current;
-    
-    const dimensions = resolveSlotPhotoDimensions(photoIndex);
+  useEffect(() => {
+    setPhotoTransforms((prev = {}) => {
+      let changed = false;
+      const next = { ...prev };
 
-    // Dynamic aspect ratio based on actual photo when available
-    let photoAspectRatio = 4 / 3;
-    if (dimensions?.width && dimensions?.height) {
-      photoAspectRatio = dimensions.width / dimensions.height;
-    }
+      Object.entries(prev).forEach(([key, transform]) => {
+        const slotIndex = Number(key);
+        if (!Number.isInteger(slotIndex)) return;
+        const scale = (transform && typeof transform.scale === 'number' && Number.isFinite(transform.scale))
+          ? transform.scale
+          : 1;
+        const bounded = adjustPanForEdgeBoundaries(transform, scale, slotIndex);
+        if (!bounded) return;
+        const prevX = transform?.translateX ?? 0;
+        const prevY = transform?.translateY ?? 0;
+        if (bounded.translateX !== prevX || bounded.translateY !== prevY) {
+          next[slotIndex] = {
+            ...transform,
+            translateX: bounded.translateX,
+            translateY: bounded.translateY
+          };
+          changed = true;
+        }
+      });
 
-    const slotAspectRatio = slot.width / slot.height;
-  const PREVIEW_WIDTH = Math.max(previewWidth, 1);
-  const PREVIEW_HEIGHT = Math.max(previewHeight, 1);
-  const slotWidthPx = slot.width * PREVIEW_WIDTH;
-  const slotHeightPx = slot.height * PREVIEW_HEIGHT;
-    const scale = (typeof newScale === 'number' && Number.isFinite(newScale))
-      ? newScale
-      : (typeof current?.scale === 'number' && Number.isFinite(current.scale) ? current.scale : 1);
-
-    let containedWidthPx;
-    let containedHeightPx;
-
-    if (frameConfig?.id === 'Testframe4') {
-      containedWidthPx = slotWidthPx;
-      containedHeightPx = slotWidthPx / photoAspectRatio;
-    } else if (photoAspectRatio > slotAspectRatio) {
-      containedWidthPx = slotWidthPx;
-      containedHeightPx = slotWidthPx / photoAspectRatio;
-    } else {
-      containedHeightPx = slotHeightPx;
-      containedWidthPx = slotHeightPx * photoAspectRatio;
-    }
-
-    const scaledWidthPx = containedWidthPx * scale;
-    const scaledHeightPx = containedHeightPx * scale;
-
-    const rawOverflowX = Math.max(0, (scaledWidthPx - slotWidthPx) / 2);
-    const rawOverflowY = Math.max(0, (scaledHeightPx - slotHeightPx) / 2);
-
-    const effectiveScale = scale > 0 ? scale : 1;
-    const epsilon = 0.45;
-
-    const horizontalAllowance = rawOverflowX > 0
-      ? Math.max(0, rawOverflowX / effectiveScale - epsilon)
-      : 0;
-    const verticalAllowance = rawOverflowY > 0
-      ? Math.max(0, rawOverflowY / effectiveScale - epsilon)
-      : 0;
-
-    let maxTranslateXPx = horizontalAllowance;
-    let maxTranslateYPx = verticalAllowance;
-
-    if (frameConfig?.id === 'Testframe4') {
-      maxTranslateXPx *= 0.85;
-      maxTranslateYPx *= 1.35;
-    }
-
-    const clampedTranslateX = Math.max(-maxTranslateXPx, Math.min(maxTranslateXPx, current.translateX));
-    const clampedTranslateY = Math.max(-maxTranslateYPx, Math.min(maxTranslateYPx, current.translateY));
-
-    return {
-      ...current,
-      translateX: Number.isFinite(clampedTranslateX) ? clampedTranslateX : 0,
-      translateY: Number.isFinite(clampedTranslateY) ? clampedTranslateY : 0
-    };
-  };
+      return changed ? next : prev;
+    });
+  }, [adjustPanForEdgeBoundaries, slotMeasurements, frameConfig?.id]);
 
     // Handle photo pan (dengan edge-to-edge boundaries)
   const handlePhotoPan = (photoIndex, deltaX, deltaY) => {
@@ -2944,17 +3185,19 @@ export default function EditPhoto() {
 
   // Debug: Calculate slot dimensions in pixels
   const calculateSlotPixels = (frameConfig, slotIndex) => {
-  const FRAME_WIDTH = Math.max(previewWidth, 1); // px
-  const FRAME_HEIGHT = Math.max(previewHeight, 1); // px
-    
     const slot = frameConfig.slots[slotIndex];
     if (!slot) return null;
+    const FRAME_WIDTH = Math.max(previewWidth, 1); // px
+    const FRAME_HEIGHT = Math.max(previewHeight, 1); // px
+    const slotPixels = getSlotPixelDimensions(slotIndex);
+    const slotWidthPx = slotPixels?.width ?? slot.width * FRAME_WIDTH;
+    const slotHeightPx = slotPixels?.height ?? slot.height * FRAME_HEIGHT;
     
     return {
       left: Math.round(slot.left * FRAME_WIDTH),
       top: Math.round(slot.top * FRAME_HEIGHT),
-      width: Math.round(slot.width * FRAME_WIDTH),
-      height: Math.round(slot.height * FRAME_HEIGHT),
+      width: Math.round(slotWidthPx),
+      height: Math.round(slotHeightPx),
       aspectRatio: slot.aspectRatio,
       calculatedRatio: (slot.width * FRAME_WIDTH) / (slot.height * FRAME_HEIGHT)
     };
@@ -4024,6 +4267,8 @@ export default function EditPhoto() {
 
                   return (
                     <div
+                      ref={getSlotRef(slotIndex)}
+                      data-slot-index={slotIndex}
                       key={slot.id}
                       style={{
                         position: 'absolute',

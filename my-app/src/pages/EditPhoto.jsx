@@ -260,6 +260,7 @@ export default function EditPhoto() {
   const slotElementsRef = useRef(new Map());
   const slotObserverRef = useRef(null);
   const slotRefCallbacksRef = useRef({});
+  const autoSelectedSlotRef = useRef(false);
   const [slotMeasurements, setSlotMeasurements] = useState({});
 
   const [viewport, setViewport] = useState(() => ({
@@ -1479,7 +1480,8 @@ export default function EditPhoto() {
               scale: defaultScale,
               translateX: 0,
               translateY: 0,
-              autoFillScale: defaultScale
+              autoFillScale: defaultScale,
+              userAdjusted: false
             };
           });
           
@@ -1512,7 +1514,8 @@ export default function EditPhoto() {
               scale: defaultScale,
               translateX: 0,
               translateY: 0,
-              autoFillScale: defaultScale
+              autoFillScale: defaultScale,
+              userAdjusted: false
             };
           });
         }
@@ -1614,6 +1617,56 @@ export default function EditPhoto() {
       return changed ? next : prev;
     });
   }, [frameConfig?.id, frameConfig?.slots?.length]);
+
+  useEffect(() => {
+    if (!frameConfig?.slots?.length) {
+      autoSelectedSlotRef.current = false;
+      return;
+    }
+    if (swapModeActive) return;
+
+    const slotHasPhoto = (slot, index) => {
+      if (!slot) return false;
+
+      if (frameConfig.duplicatePhotos) {
+        const slotPhoto = slotPhotos?.[index];
+        return typeof slotPhoto === 'string' && slotPhoto.length > 0;
+      }
+
+      const resolvedPhotoIndex = slot.photoIndex !== undefined ? slot.photoIndex : index;
+      const photoValue = photos?.[resolvedPhotoIndex];
+      return typeof photoValue === 'string' && photoValue.length > 0;
+    };
+
+    if (selectedPhotoForEdit !== null) {
+      const activeSlot = frameConfig.slots[selectedPhotoForEdit];
+      if (!slotHasPhoto(activeSlot, selectedPhotoForEdit)) {
+        autoSelectedSlotRef.current = false;
+        setSelectedPhotoForEdit(null);
+      } else {
+        autoSelectedSlotRef.current = true;
+      }
+      return;
+    }
+
+    let firstEditableSlot = -1;
+    for (let index = 0; index < frameConfig.slots.length; index += 1) {
+      if (slotHasPhoto(frameConfig.slots[index], index)) {
+        firstEditableSlot = index;
+        break;
+      }
+    }
+
+    if (firstEditableSlot === -1) {
+      autoSelectedSlotRef.current = false;
+      return;
+    }
+
+    if (!autoSelectedSlotRef.current) {
+      autoSelectedSlotRef.current = true;
+      setSelectedPhotoForEdit(firstEditableSlot);
+    }
+  }, [frameConfig?.id, frameConfig?.slots?.length, frameConfig?.duplicatePhotos, photos, slotPhotos, swapModeActive, selectedPhotoForEdit]);
 
   // Initialize auto-fill scale when frameConfig is loaded
   useEffect(() => {
@@ -1734,7 +1787,8 @@ export default function EditPhoto() {
                 scale: smartScale,
                 translateX: 0,
                 translateY: 0,
-                autoFillScale: smartScale
+                autoFillScale: smartScale,
+                userAdjusted: false
               }
             }));
             console.log(`✨ Updated smart scale for slot ${slotIdx + 1}: ${smartScale.toFixed(2)}x`);
@@ -2654,15 +2708,28 @@ export default function EditPhoto() {
         if (photoForSlot) {
           try {
             const smartScale = await calculateSmartScaleAsync(photoForSlot, slotIndex);
-            
-            // Keep existing transforms if they exist, only update scale
+
+            // Keep existing transforms if they exist, only update scale when user hasn't adjusted manually
             const existingTransform = photoTransforms[slotIndex] || { translateX: 0, translateY: 0 };
-            
-            updates[slotIndex] = {
-              ...existingTransform,
-              scale: smartScale,
-              autoFillScale: smartScale
-            };
+            const wasUserAdjusted = Boolean(existingTransform.userAdjusted);
+
+            if (wasUserAdjusted && typeof existingTransform.scale === 'number') {
+              const merged = {
+                ...existingTransform,
+                autoFillScale: smartScale
+              };
+
+              if (merged.autoFillScale !== existingTransform.autoFillScale) {
+                updates[slotIndex] = merged;
+              }
+            } else {
+              updates[slotIndex] = {
+                ...existingTransform,
+                scale: smartScale,
+                autoFillScale: smartScale,
+                userAdjusted: false
+              };
+            }
             console.log(`✨ Smart scale for slot ${slotIndex + 1}: ${smartScale.toFixed(2)}x`);
           } catch (error) {
             console.warn(`⚠️ Failed to calculate smart scale for slot ${slotIndex + 1}:`, error);
@@ -2674,15 +2741,28 @@ export default function EditPhoto() {
       for (let i = 0; i < photos.length; i++) {
         try {
           const smartScale = await calculateSmartScaleAsync(photos[i], i);
-          
-          // Keep existing transforms if they exist, only update scale
+
+          // Keep existing transforms if they exist, only update scale when user hasn't adjusted manually
           const existingTransform = photoTransforms[i] || { translateX: 0, translateY: 0 };
-          
-          updates[i] = {
-            ...existingTransform,
-            scale: smartScale,
-            autoFillScale: smartScale
-          };
+          const wasUserAdjusted = Boolean(existingTransform.userAdjusted);
+
+          if (wasUserAdjusted && typeof existingTransform.scale === 'number') {
+            const merged = {
+              ...existingTransform,
+              autoFillScale: smartScale
+            };
+
+            if (merged.autoFillScale !== existingTransform.autoFillScale) {
+              updates[i] = merged;
+            }
+          } else {
+            updates[i] = {
+              ...existingTransform,
+              scale: smartScale,
+              autoFillScale: smartScale,
+              userAdjusted: false
+            };
+          }
         } catch (error) {
           console.error(`❌ Error calculating smart scale for photo ${i + 1}:`, error);
         }
@@ -2729,27 +2809,41 @@ export default function EditPhoto() {
           if (cancelled) return;
 
           setPhotoTransforms((prev = {}) => {
-            const previous = prev[slotIndex] || { translateX: 0, translateY: 0, scale: smartScale, autoFillScale: smartScale };
-            const nextScale = Math.max(smartScale, calculateCoverageScaleForSlot(slotIndex));
+            const previous = prev[slotIndex] || {
+              translateX: 0,
+              translateY: 0,
+              scale: smartScale,
+              autoFillScale: smartScale,
+              userAdjusted: false
+            };
+
+            const requiredScale = Math.max(smartScale, calculateCoverageScaleForSlot(slotIndex));
+            const wasUserAdjusted = Boolean(previous.userAdjusted);
+            const targetScale = wasUserAdjusted && typeof previous.scale === 'number'
+              ? previous.scale
+              : requiredScale;
 
             const bounded = adjustPanForEdgeBoundaries(
-              { ...previous, scale: nextScale },
-              nextScale,
+              { ...previous, scale: targetScale },
+              targetScale,
               slotIndex
             );
 
             const merged = {
               ...previous,
               ...bounded,
-              scale: nextScale,
-              autoFillScale: nextScale
+              autoFillScale: requiredScale,
+              ...(wasUserAdjusted
+                ? { userAdjusted: true }
+                : { scale: requiredScale, userAdjusted: false })
             };
 
             if (
               previous.scale === merged.scale &&
               previous.translateX === merged.translateX &&
               previous.translateY === merged.translateY &&
-              previous.autoFillScale === merged.autoFillScale
+              previous.autoFillScale === merged.autoFillScale &&
+              previous.userAdjusted === merged.userAdjusted
             ) {
               return prev;
             }
@@ -2902,7 +2996,8 @@ export default function EditPhoto() {
                 scale: smartScale,
                 translateX: 0,
                 translateY: 0,
-                autoFillScale: smartScale
+                autoFillScale: smartScale,
+                userAdjusted: false
               };
             }
           });
@@ -2916,7 +3011,8 @@ export default function EditPhoto() {
             scale: smartScale,
             translateX: 0,
             translateY: 0,
-            autoFillScale: smartScale
+            autoFillScale: smartScale,
+            userAdjusted: false
           }
         }));
       }
@@ -2938,7 +3034,8 @@ export default function EditPhoto() {
                 scale: autoFitScale,
                 translateX: 0,
                 translateY: 0,
-                autoFillScale: autoFitScale
+                autoFillScale: autoFitScale,
+                userAdjusted: false
               };
             }
           });
@@ -2951,7 +3048,8 @@ export default function EditPhoto() {
             scale: autoFitScale,
             translateX: 0,
             translateY: 0,
-            autoFillScale: autoFitScale
+            autoFillScale: autoFitScale,
+            userAdjusted: false
           }
         }));
       }
@@ -3051,7 +3149,7 @@ export default function EditPhoto() {
   // Handle photo zoom (dengan edge-to-edge boundaries)
   const handlePhotoZoom = (photoIndex, delta) => {
     setPhotoTransforms(prev => {
-      const current = prev[photoIndex] || { scale: 1, translateX: 0, translateY: 0, autoFillScale: 1 };
+      const current = prev[photoIndex] || { scale: 1, translateX: 0, translateY: 0, autoFillScale: 1, userAdjusted: false };
       const autoFillScale = Math.max(
         calculateCoverageScaleForSlot(photoIndex),
         current.autoFillScale || calculateAutoFillScale(photoIndex)
@@ -3075,7 +3173,8 @@ export default function EditPhoto() {
         [photoIndex]: {
           ...adjustedTransform,
           scale: newScale,
-          autoFillScale: autoFillScale
+          autoFillScale: autoFillScale,
+          userAdjusted: true
         }
       };
     });
@@ -3115,7 +3214,7 @@ export default function EditPhoto() {
     if (!panModeEnabled) return;
 
     setPhotoTransforms(prev => {
-      const current = prev[photoIndex] || { scale: 1, translateX: 0, translateY: 0, autoFillScale: 1 };
+  const current = prev[photoIndex] || { scale: 1, translateX: 0, translateY: 0, autoFillScale: 1, userAdjusted: false };
       const autoFillScale = current.autoFillScale || 1;
       const scale = current.scale;
 
@@ -3131,7 +3230,9 @@ export default function EditPhoto() {
       return {
         ...prev,
         [photoIndex]: {
-          ...boundedTransform
+          ...boundedTransform,
+          autoFillScale,
+          userAdjusted: true
         }
       };
     });
@@ -3148,7 +3249,8 @@ export default function EditPhoto() {
         scale: autoFillScale, 
         translateX: 0, // Reset ke center
         translateY: 0, // Reset ke center
-        autoFillScale: autoFillScale
+        autoFillScale: autoFillScale,
+        userAdjusted: false
       }
     }));
   };

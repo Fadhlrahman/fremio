@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import JSZip from 'jszip';
 import { getFrameConfig, FRAME_CONFIGS } from '../config/frameConfigs.js';
@@ -8,6 +8,7 @@ import safeStorage from '../utils/safeStorage.js';
 import QRCode from 'qrcode';
 import { convertBlobToMp4 } from '../utils/videoTranscoder.js';
 import swapIcon from '../assets/swap.png';
+import shiftIcon from '../assets/Shift.png';
 // FremioSeries Imports.
 import FremioSeriesBlue2 from '../assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png';
 import FremioSeriesBabyblue3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-babyblue-3.png';
@@ -77,6 +78,8 @@ const FILTER_PIPELINES = {
 };
 
 const ZIP_GENERATION_TIMEOUT_MS = 35000;
+const DEFAULT_PREVIEW_WIDTH = 280;
+const DEFAULT_PREVIEW_HEIGHT = DEFAULT_PREVIEW_WIDTH / (2 / 3);
 
 const detectCanvasFilterSupport = () => {
   if (typeof document === 'undefined') return false;
@@ -235,6 +238,7 @@ export default function EditPhoto() {
   const [draggedPhoto, setDraggedPhoto] = useState(null);
   const [dragOverSlot, setDragOverSlot] = useState(null);
   const [isDraggingPhoto, setIsDraggingPhoto] = useState(false);
+  const [panModeEnabled, setPanModeEnabled] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [debugMode, setDebugMode] = useState(false);
   const [configReloadKey, setConfigReloadKey] = useState(0);
@@ -248,6 +252,11 @@ export default function EditPhoto() {
   const [devTokenInput, setDevTokenInput] = useState('');
   const [devAuthStatus, setDevAuthStatus] = useState({ loading: false, error: null, success: false });
   const [showDevUnlockPanel, setShowDevUnlockPanel] = useState(false);
+  const framePreviewRef = useRef(null);
+  const [framePreviewSize, setFramePreviewSize] = useState(() => ({
+    width: DEFAULT_PREVIEW_WIDTH,
+    height: DEFAULT_PREVIEW_HEIGHT
+  }));
 
   const [viewport, setViewport] = useState(() => ({
     width: isBrowser ? window.innerWidth : 1280,
@@ -270,8 +279,47 @@ export default function EditPhoto() {
     };
   }, [isBrowser]);
 
+  useEffect(() => {
+    if (!isBrowser) return;
+    const node = framePreviewRef.current;
+    if (!node) return;
+
+    const updateSize = () => {
+      const rect = node.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      setFramePreviewSize((prev) => {
+        const next = { width: rect.width, height: rect.height };
+        if (Math.abs(prev.width - next.width) < 0.5 && Math.abs(prev.height - next.height) < 0.5) {
+          return prev;
+        }
+        return next;
+      });
+    };
+
+    updateSize();
+
+    let observer;
+    if (typeof ResizeObserver === 'function') {
+      observer = new ResizeObserver(() => updateSize());
+      observer.observe(node);
+    } else {
+      window.addEventListener('resize', updateSize);
+    }
+
+    return () => {
+      if (observer) {
+        observer.disconnect();
+      } else {
+        window.removeEventListener('resize', updateSize);
+      }
+    };
+  }, [isBrowser, viewport.width, viewport.height, frameConfig?.id]);
+
   const isMobile = viewport.width <= 768;
   const isCompact = viewport.height <= 720;
+
+  const previewWidth = framePreviewSize.width || DEFAULT_PREVIEW_WIDTH;
+  const previewHeight = framePreviewSize.height || DEFAULT_PREVIEW_HEIGHT;
 
   const canvasFilterSupported = useMemo(() => (isBrowser ? detectCanvasFilterSupport() : false), [isBrowser]);
   const isDevEnv = import.meta.env.DEV;
@@ -390,6 +438,24 @@ export default function EditPhoto() {
   useEffect(() => {
     resetSwapMode();
   }, [frameConfig?.id, resetSwapMode]);
+
+  useEffect(() => {
+    if (swapModeActive) {
+      setPanModeEnabled(false);
+    }
+  }, [swapModeActive]);
+
+  useEffect(() => {
+    if (selectedPhotoForEdit === null) {
+      setPanModeEnabled(false);
+    }
+  }, [selectedPhotoForEdit]);
+
+  useEffect(() => {
+    if (!panModeEnabled && isDraggingPhoto) {
+      setIsDraggingPhoto(false);
+    }
+  }, [panModeEnabled, isDraggingPhoto]);
 
   useEffect(() => {
     return () => {
@@ -1179,12 +1245,9 @@ export default function EditPhoto() {
     console.log(`  - Photo: ${photoImg.width}x${photoImg.height} (ratio: ${photoAspectRatio.toFixed(2)})`);
     console.log(`  - Slot: ${slot.width}x${slot.height} (ratio: ${(slot.width/slot.height).toFixed(2)})`);
     
-    // Convert slot dimensions to pixels (using preview dimensions as base)
-    const PREVIEW_WIDTH = 350;
-    const PREVIEW_HEIGHT = 525; // 2:3 aspect ratio
-    
-    const slotWidthPx = slot.width * PREVIEW_WIDTH;
-    const slotHeightPx = slot.height * PREVIEW_HEIGHT;
+  // Convert slot dimensions to pixels (using preview dimensions as base)
+  const slotWidthPx = slot.width * previewWidth;
+  const slotHeightPx = slot.height * previewHeight;
     
     console.log(`  - Slot in pixels: ${slotWidthPx.toFixed(1)}x${slotHeightPx.toFixed(1)}px`);
     
@@ -1686,10 +1749,8 @@ export default function EditPhoto() {
       return Math.max(1, fallbackScale);
     }
 
-    const PREVIEW_WIDTH = 350;
-    const PREVIEW_HEIGHT = 525;
-    const slotWidthPx = slot.width * PREVIEW_WIDTH;
-    const slotHeightPx = slot.height * PREVIEW_HEIGHT;
+  const slotWidthPx = slot.width * previewWidth;
+  const slotHeightPx = slot.height * previewHeight;
 
     const photoAspectRatio = dimensions.width / dimensions.height;
     const slotAspectRatio = slotWidthPx / slotHeightPx;
@@ -2000,8 +2061,8 @@ export default function EditPhoto() {
       }
     }));
 
-    const PREVIEW_WIDTH = 350;
-    const PREVIEW_HEIGHT = 525;
+  const PREVIEW_WIDTH = Math.max(previewWidth, 1);
+  const PREVIEW_HEIGHT = Math.max(previewHeight, 1);
     const SCALE_RATIO = canvasWidth / PREVIEW_WIDTH;
 
     const getMediaDimensions = (media) => {
@@ -2632,8 +2693,8 @@ export default function EditPhoto() {
 
   // Fungsi untuk menghitung ukuran slot dalam pixel.
   const calculateSlotDimensions = (frameConfig, slotIndex) => {
-    const FRAME_WIDTH = 350; // px - ukuran frame di preview
-    const FRAME_HEIGHT = 525; // px - aspect ratio 2:3
+  const FRAME_WIDTH = Math.max(previewWidth, 1); // px - ukuran frame di preview
+  const FRAME_HEIGHT = Math.max(previewHeight, 1); // px - aspect ratio 2:3
     
     const slot = frameConfig.slots[slotIndex];
     if (!slot) return null;
@@ -2752,61 +2813,66 @@ export default function EditPhoto() {
     }
 
     const slotAspectRatio = slot.width / slot.height;
-    
-    // Calculate foto dimensions setelah scale
-    let photoWidthInSlot, photoHeightInSlot;
-    
-    // Special handling for Testframe4 - width-fit approach
+  const PREVIEW_WIDTH = Math.max(previewWidth, 1);
+  const PREVIEW_HEIGHT = Math.max(previewHeight, 1);
+  const slotWidthPx = slot.width * PREVIEW_WIDTH;
+  const slotHeightPx = slot.height * PREVIEW_HEIGHT;
+    const scale = (typeof newScale === 'number' && Number.isFinite(newScale))
+      ? newScale
+      : (typeof current?.scale === 'number' && Number.isFinite(current.scale) ? current.scale : 1);
+
+    let containedWidthPx;
+    let containedHeightPx;
+
     if (frameConfig?.id === 'Testframe4') {
-      console.log(`🎯 Testframe4 boundary adjustment for slot ${photoIndex + 1}: WIDTH-FIT approach`);
-      
-      // For width-fit: photo width always fits slot width (100%)
-      photoWidthInSlot = 100; // Photo width = slot width
-      photoHeightInSlot = (100 / photoAspectRatio) * slotAspectRatio; // Proportional height
-      
-      // At minimum zoom out (1.0x), there should be no horizontal translate allowed
-      // Only vertical translate is allowed when photo height > slot height
-      const scaledPhotoWidth = photoWidthInSlot * newScale;
-      const scaledPhotoHeight = photoHeightInSlot * newScale;
-      
-      // For width-fit, horizontal translate should be very limited
-      const maxTranslateXPx = Math.max(0, (scaledPhotoWidth - 100) / 2) * 2.0; // Limited horizontal movement
-      const maxTranslateYPx = Math.max(0, (scaledPhotoHeight - 100) / 2) * 4.0; // More vertical freedom
-      
-      console.log(`📐 Testframe4 bounds: X±${maxTranslateXPx.toFixed(1)}px, Y±${maxTranslateYPx.toFixed(1)}px (scale: ${newScale.toFixed(2)}x)`);
-      
-      return {
-        ...current,
-        translateX: Math.max(-maxTranslateXPx, Math.min(maxTranslateXPx, current.translateX)),
-        translateY: Math.max(-maxTranslateYPx, Math.min(maxTranslateYPx, current.translateY))
-      };
-    }
-    
-    // Original logic for other frames (Testframe1, 2, 3)
-    if (photoAspectRatio > slotAspectRatio) {
-      photoWidthInSlot = 100;
-      photoHeightInSlot = (100 / photoAspectRatio) * slotAspectRatio;
+      containedWidthPx = slotWidthPx;
+      containedHeightPx = slotWidthPx / photoAspectRatio;
+    } else if (photoAspectRatio > slotAspectRatio) {
+      containedWidthPx = slotWidthPx;
+      containedHeightPx = slotWidthPx / photoAspectRatio;
     } else {
-      photoHeightInSlot = 100;
-      photoWidthInSlot = (100 * photoAspectRatio) / slotAspectRatio;
+      containedHeightPx = slotHeightPx;
+      containedWidthPx = slotHeightPx * photoAspectRatio;
     }
-    
-    const scaledPhotoWidth = photoWidthInSlot * newScale;
-    const scaledPhotoHeight = photoHeightInSlot * newScale;
-    
-    // Standard boundaries for portrait frames
-    const maxTranslateXPx = Math.max(0, (scaledPhotoWidth - 100) / 2) * 3.5;
-    const maxTranslateYPx = Math.max(0, (scaledPhotoHeight - 100) / 2) * 5.25;
-    
+
+    const scaledWidthPx = containedWidthPx * scale;
+    const scaledHeightPx = containedHeightPx * scale;
+
+    const rawOverflowX = Math.max(0, (scaledWidthPx - slotWidthPx) / 2);
+    const rawOverflowY = Math.max(0, (scaledHeightPx - slotHeightPx) / 2);
+
+    const effectiveScale = scale > 0 ? scale : 1;
+    const epsilon = 0.45;
+
+    const horizontalAllowance = rawOverflowX > 0
+      ? Math.max(0, rawOverflowX / effectiveScale - epsilon)
+      : 0;
+    const verticalAllowance = rawOverflowY > 0
+      ? Math.max(0, rawOverflowY / effectiveScale - epsilon)
+      : 0;
+
+    let maxTranslateXPx = horizontalAllowance;
+    let maxTranslateYPx = verticalAllowance;
+
+    if (frameConfig?.id === 'Testframe4') {
+      maxTranslateXPx *= 0.85;
+      maxTranslateYPx *= 1.35;
+    }
+
+    const clampedTranslateX = Math.max(-maxTranslateXPx, Math.min(maxTranslateXPx, current.translateX));
+    const clampedTranslateY = Math.max(-maxTranslateYPx, Math.min(maxTranslateYPx, current.translateY));
+
     return {
       ...current,
-      translateX: Math.max(-maxTranslateXPx, Math.min(maxTranslateXPx, current.translateX)),
-      translateY: Math.max(-maxTranslateYPx, Math.min(maxTranslateYPx, current.translateY))
+      translateX: Number.isFinite(clampedTranslateX) ? clampedTranslateX : 0,
+      translateY: Number.isFinite(clampedTranslateY) ? clampedTranslateY : 0
     };
   };
 
     // Handle photo pan (dengan edge-to-edge boundaries)
   const handlePhotoPan = (photoIndex, deltaX, deltaY) => {
+    if (!panModeEnabled) return;
+
     setPhotoTransforms(prev => {
       const current = prev[photoIndex] || { scale: 1, translateX: 0, translateY: 0, autoFillScale: 1 };
       const autoFillScale = current.autoFillScale || 1;
@@ -2848,7 +2914,9 @@ export default function EditPhoto() {
 
   // Handle mouse down for pan
   const handlePhotoMouseDown = (e, photoIndex) => {
-    if (selectedPhotoForEdit === photoIndex && e.button === 0) { // Left click only
+    if (!panModeEnabled) return;
+
+    if (selectedPhotoForEdit === photoIndex && (e.button === 0 || e.button === undefined)) {
       setIsDraggingPhoto(true);
       setDragStart({ x: e.clientX, y: e.clientY });
       e.preventDefault();
@@ -2857,6 +2925,8 @@ export default function EditPhoto() {
 
   // Handle mouse move for pan
   const handlePhotoMouseMove = (e, photoIndex) => {
+    if (!panModeEnabled) return;
+
     if (isDraggingPhoto && selectedPhotoForEdit === photoIndex) {
       const deltaX = e.clientX - dragStart.x;
       const deltaY = e.clientY - dragStart.y;
@@ -2874,8 +2944,8 @@ export default function EditPhoto() {
 
   // Debug: Calculate slot dimensions in pixels
   const calculateSlotPixels = (frameConfig, slotIndex) => {
-    const FRAME_WIDTH = 350; // px
-    const FRAME_HEIGHT = 525; // px
+  const FRAME_WIDTH = Math.max(previewWidth, 1); // px
+  const FRAME_HEIGHT = Math.max(previewHeight, 1); // px
     
     const slot = frameConfig.slots[slotIndex];
     if (!slot) return null;
@@ -3055,8 +3125,8 @@ export default function EditPhoto() {
       );
 
       let renderedCount = 0;
-      const PREVIEW_WIDTH = 350;
-      const PREVIEW_HEIGHT = 525;
+  const PREVIEW_WIDTH = Math.max(previewWidth, 1);
+  const PREVIEW_HEIGHT = Math.max(previewHeight, 1);
       const SCALE_RATIO = canvasWidth / PREVIEW_WIDTH;
 
       slotImages.forEach(({ slot, slotIndex, img }) => {
@@ -3887,6 +3957,7 @@ export default function EditPhoto() {
             )}
             {frameConfig && frameImage ? (
               <div
+                ref={framePreviewRef}
                 style={{
                   position: 'relative',
                   width: isMobile
@@ -3919,6 +3990,16 @@ export default function EditPhoto() {
                   const isSwapSource = swapModeActive && swapSourceSlot === slotIndex;
                   const isSwapCandidate = swapModeActive && swapSourceSlot !== null && swapSourceSlot !== slotIndex;
                   const isSelectedForEdit = !swapModeActive && selectedPhotoForEdit === slotIndex;
+                  const isActiveSlot = selectedPhotoForEdit === slotIndex;
+                  const canPanThisSlot = !swapModeActive && panModeEnabled && isActiveSlot;
+                  const isDraggingThisPhoto = canPanThisSlot && isDraggingPhoto;
+                  const imageCursor = swapModeActive
+                    ? (isSwapSource ? 'not-allowed' : 'pointer')
+                    : canPanThisSlot
+                      ? (isDraggingThisPhoto ? 'grabbing' : 'grab')
+                      : isSelectedForEdit
+                        ? 'pointer'
+                        : 'pointer';
                   const borderStyle = isSwapSource
                     ? '3px solid #E8A889'
                     : isSwapCandidate
@@ -3984,9 +4065,7 @@ export default function EditPhoto() {
                             alt={`Photo ${resolvedPhotoIndex + 1}${slot.photoIndex !== undefined ? ' (duplicate)' : ''}`}
                             style={{
                               ...photoStyle,
-                              cursor: swapModeActive
-                                ? (isSwapSource ? 'not-allowed' : 'pointer')
-                                : selectedPhotoForEdit === slotIndex ? 'grab' : 'pointer',
+                              cursor: imageCursor,
                               filter: filterCssValue && filterCssValue !== 'none' ? filterCssValue : 'none',
                               pointerEvents: swapModeActive ? 'none' : 'auto'
                             }}
@@ -4077,6 +4156,38 @@ export default function EditPhoto() {
                         }}
                         onClick={(e) => e.stopPropagation()}
                       >
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPanModeEnabled((prev) => !prev);
+                          }}
+                          aria-pressed={panModeEnabled}
+                          title={panModeEnabled ? 'Mode geser aktif' : 'Aktifkan mode geser'}
+                          style={{
+                            background: panModeEnabled ? 'rgba(148, 233, 209, 0.35)' : 'rgba(255, 255, 255, 0.14)',
+                            border: panModeEnabled ? '1px solid rgba(148, 233, 209, 0.65)' : '1px solid rgba(255, 255, 255, 0.18)',
+                            width: isMobile ? '30px' : '32px',
+                            height: isMobile ? '30px' : '32px',
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            boxShadow: panModeEnabled ? '0 8px 18px rgba(56, 189, 248, 0.35)' : '0 4px 12px rgba(0, 0, 0, 0.15)'
+                          }}
+                        >
+                          <img
+                            src={shiftIcon}
+                            alt="Mode geser"
+                            style={{
+                              width: isMobile ? '15px' : '16px',
+                              height: isMobile ? '15px' : '16px',
+                              opacity: panModeEnabled ? 1 : 0.85
+                            }}
+                          />
+                        </button>
+
                         <button
                           type="button"
                           onClick={(e) => {

@@ -1356,7 +1356,7 @@ export default function EditPhoto() {
     
     console.log(`  - Slot in pixels: ${slotWidthPx.toFixed(1)}x${slotHeightPx.toFixed(1)}px`);
     
-    // Calculate objectFit: contain behavior - how photo naturally fits in slot
+    // Calculate objectFit: contain behavior - how photo naturally fits in slot.
     const slotAspectRatio = slotWidthPx / slotHeightPx;
     
     let containedPhotoWidth, containedPhotoHeight;

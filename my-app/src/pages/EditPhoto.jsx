@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import JSZip from 'jszip';
 import { getFrameConfig, FRAME_CONFIGS } from '../config/frameConfigs.js';
 import { reloadFrameConfig as reloadFrameConfigFromManager } from '../config/frameConfigManager.js';
@@ -74,6 +75,8 @@ const FILTER_PIPELINES = {
     { type: 'saturate', amount: 1.05 }
   ]
 };
+
+const ZIP_GENERATION_TIMEOUT_MS = 35000;
 
 const detectCanvasFilterSupport = () => {
   if (typeof document === 'undefined') return false;
@@ -212,6 +215,8 @@ const applyPipelineToImageData = (imageData, pipeline) => {
 
 export default function EditPhoto() {
   const isBrowser = typeof window !== 'undefined';
+
+  const navigate = useNavigate();
 
   const [photos, setPhotos] = useState([]);
   const [videos, setVideos] = useState([]);
@@ -410,7 +415,8 @@ export default function EditPhoto() {
   const recordedClips = useMemo(() => (
     videos
       .map((clip, index) => {
-        if (!clip || !clip.dataUrl) return null;
+        if (!clip) return null;
+        if (!clip.dataUrl && !clip.blob) return null;
         return { index, clip };
       })
       .filter(Boolean)
@@ -613,7 +619,10 @@ export default function EditPhoto() {
 
     const resolvedByPhoto = resolveVideoForPhoto(targetPhoto);
     if (resolvedByPhoto) {
-      return resolvedByPhoto;
+      return {
+        ...resolvedByPhoto,
+        baseVideoIndex: resolvedByPhoto.baseVideoIndex ?? (slot.photoIndex !== undefined ? slot.photoIndex : slotIndex)
+      };
     }
 
     const slotOverride = slotVideos[slotIndex];
@@ -669,18 +678,121 @@ export default function EditPhoto() {
       console.warn('⚠️ No blob provided for download');
       return;
     }
+
+    const isIOSDevice = (() => {
+      if (typeof navigator === 'undefined') return false;
+      const ua = navigator.userAgent || navigator.platform || '';
+      const iOSPlatforms = /iPad|iPhone|iPod|iPadOS/i;
+      const isTouchMac = /Macintosh/i.test(ua) && typeof navigator.maxTouchPoints === 'number' && navigator.maxTouchPoints > 1;
+      return iOSPlatforms.test(ua) || isTouchMac;
+    })();
+
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+
+    const triggerAnchorClick = (href, options = {}) => {
+      const link = document.createElement('a');
+      link.href = href;
+      link.download = filename;
+      if (options.target) link.target = options.target;
+      if (options.rel) link.rel = options.rel;
+
+      document.body.appendChild(link);
+
+      const clickEvent = new MouseEvent('click', {
+        view: window,
+        bubbles: true,
+        cancelable: true
+      });
+
+      const clickSucceeded = link.dispatchEvent(clickEvent);
+      document.body.removeChild(link);
+      return clickSucceeded;
+    };
+
+    if (isIOSDevice) {
+      // Attempt direct anchor click. iOS often requires _blank target.
+      const clicked = triggerAnchorClick(url, { target: '_blank', rel: 'noopener' });
+      if (!clicked) {
+        // Fallback: convert to data URL and assign window.location
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const dataUrl = reader.result;
+          if (typeof dataUrl === 'string') {
+            const opened = triggerAnchorClick(dataUrl, { target: '_blank', rel: 'noopener' });
+            if (!opened) {
+              window.location.href = dataUrl;
+            }
+          } else {
+            window.location.href = url;
+          }
+        };
+        reader.onerror = () => {
+          console.warn('⚠️ Failed to convert blob to data URL for iOS download fallback');
+          window.location.href = url;
+        };
+        reader.readAsDataURL(blob);
+      }
+
+      // Delay revocation to allow browser to finish download/open.
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      return;
+    }
+
+    const clicked = triggerAnchorClick(url);
+    if (!clicked) {
+      window.location.href = url;
+    }
+
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const dataUrlToBlob = async (dataUrl) => {
     if (!dataUrl) return null;
+
+    if (typeof dataUrl === 'string' && dataUrl.startsWith('data:')) {
+      try {
+        const commaIndex = dataUrl.indexOf(',');
+        if (commaIndex === -1) {
+          console.warn('⚠️ Invalid data URL: missing comma separator');
+          return null;
+        }
+
+        const header = dataUrl.slice(0, commaIndex);
+        const dataPortion = dataUrl.slice(commaIndex + 1);
+        const isBase64 = /;base64/i.test(header);
+        const mimeMatch = header.match(/^data:([^;]+)/i);
+        const mimeType = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+
+        const decodeBase64 = (input) => {
+          if (typeof atob === 'function') {
+            return atob(input);
+          }
+          if (typeof Buffer !== 'undefined') {
+            return Buffer.from(input, 'base64').toString('binary');
+          }
+          throw new Error('Base64 decoding is not supported in this environment');
+        };
+
+        let binaryString;
+        if (isBase64) {
+          binaryString = decodeBase64(dataPortion);
+        } else {
+          binaryString = decodeURIComponent(dataPortion);
+        }
+
+        const length = binaryString.length;
+        const arrayBuffer = new Uint8Array(length);
+        for (let i = 0; i < length; i += 1) {
+          arrayBuffer[i] = binaryString.charCodeAt(i);
+        }
+
+        return new Blob([arrayBuffer], { type: mimeType });
+      } catch (inlineError) {
+        console.error('❌ Failed to parse inline data URL:', inlineError);
+        return null;
+      }
+    }
+
     try {
       const response = await fetch(dataUrl);
       if (!response.ok) {
@@ -729,26 +841,122 @@ export default function EditPhoto() {
         throw new Error('Failed to create videos folder in bundle');
       }
 
+      let videosAdded = 0;
+      let framedVideoIncluded = false;
+      const fallbackVideoDetails = [];
+
       if (framedVideoResult?.blob) {
         videosFolder.file(framedVideoResult.filename, framedVideoResult.blob, { binary: true });
-      } else {
+        videosAdded += 1;
+        framedVideoIncluded = true;
+      }
+
+      if (!framedVideoResult?.blob) {
+        const rawClips = [];
+        for (const { index, clip } of recordedClips) {
+          if (!clip) continue;
+
+          let sourceBlob = null;
+          if (clip.blob instanceof Blob) {
+            sourceBlob = clip.blob;
+          } else if (clip.dataUrl) {
+            sourceBlob = await dataUrlToBlob(clip.dataUrl);
+          }
+
+          if (!sourceBlob) {
+            console.warn(`⚠️ Gagal menyiapkan blob video dari slot ${index + 1}, melewati fallback.`);
+            continue;
+          }
+
+          const clipMime = (() => {
+            if (typeof clip?.mimeType === 'string' && clip.mimeType.includes('/')) {
+              return clip.mimeType;
+            }
+            if (typeof sourceBlob.type === 'string' && sourceBlob.type.includes('/')) {
+              return sourceBlob.type;
+            }
+            return 'video/webm';
+          })();
+
+          const extension = (() => {
+            if (!clipMime) return 'webm';
+            const mimeExt = clipMime.split('/')[1] || 'webm';
+            return mimeExt.split(';')[0] || 'webm';
+          })();
+
+          const rawFilename = `raw-slot-${index + 1}-${timestampPart}.${extension}`;
+          rawClips.push({
+            filename: rawFilename,
+            blob: sourceBlob,
+            mimeType: clipMime,
+            slotIndex: index + 1,
+            duration: clip?.duration ?? null
+          });
+        }
+
+        if (rawClips.length) {
+          const rawVideosFolder = videosFolder.folder('raw') || videosFolder;
+          rawClips.forEach(({ filename, blob, slotIndex, mimeType, duration }) => {
+            rawVideosFolder.file(filename, blob, { binary: true });
+            fallbackVideoDetails.push({
+              slotIndex,
+              filename,
+              mimeType,
+              duration: typeof duration === 'number' && !Number.isNaN(duration) ? duration : null
+            });
+            videosAdded += 1;
+          });
+        }
+      }
+
+      if (!videosAdded) {
         videosFolder.file(
           'README.txt',
-          `Tidak ada video yang tersedia untuk sesi ini.\nAlasan: ${framedVideoResult?.reason ?? 'video-belum-dibuat'}`
+          `Tidak ada video yang tersedia untuk sesi ini.\nAlasan: ${framedVideoResult?.reason ?? 'video-belum-dibuat'}\n` +
+          'Tidak ditemukan video rekaman mentah sebagai cadangan.'
         );
       }
 
       const metadata = {
         frame: selectedFrame,
         generatedAt: new Date().toISOString(),
-        hasVideo: Boolean(framedVideoResult?.blob),
+        hasVideo: videosAdded > 0,
+        videoFilesCount: videosAdded,
+        framedVideoIncluded,
+        fallbackRawVideos: fallbackVideoDetails,
         videoConvertedToMp4: Boolean(framedVideoResult?.convertedToMp4),
         slotsRendered: frameConfig?.slots?.length ?? 0,
         ...extraMetadata
       };
       rootFolder.file('metadata.json', JSON.stringify(metadata, null, 2));
 
-      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const generationController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const zipPromise = zip.generateAsync({ type: 'blob', signal: generationController?.signal });
+
+      const timeoutPromise = new Promise((_, reject) => {
+        const timer = setTimeout(() => {
+          if (generationController) {
+            try {
+              generationController.abort();
+            } catch (abortError) {
+              console.warn('⚠️ Failed to abort ZIP generation after timeout:', abortError);
+            }
+          }
+          reject(new Error('zip-generation-timeout'));
+        }, ZIP_GENERATION_TIMEOUT_MS);
+        zipPromise.finally(() => clearTimeout(timer));
+      });
+
+      let zipBlob;
+      try {
+        zipBlob = await Promise.race([zipPromise, timeoutPromise]);
+      } catch (zipError) {
+        if (zipError?.message === 'zip-generation-timeout') {
+          throw new Error('zip-generation-timeout');
+        }
+        throw zipError;
+      }
+
       const zipFilename = `${safeBundleName}.zip`;
       triggerBlobDownload(zipBlob, zipFilename);
       console.log(`📦 Media bundle downloaded: ${zipFilename}`);
@@ -756,9 +964,12 @@ export default function EditPhoto() {
       return {
         success: true,
         filename: zipFilename,
-        hasVideo: metadata.hasVideo
+        hasVideo: metadata.hasVideo,
+        framedVideoIncluded,
+        rawVideoCount: fallbackVideoDetails.length
       };
     } catch (bundleError) {
+      const timeoutHit = bundleError?.message === 'zip-generation-timeout';
       console.error('❌ Failed to create media bundle, falling back to individual downloads:', bundleError);
 
       // Fallback: download individual assets so user still receives files
@@ -771,7 +982,7 @@ export default function EditPhoto() {
 
       return {
         success: false,
-        reason: 'bundle-failed',
+        reason: timeoutHit ? 'zip-generation-timeout' : 'bundle-failed',
         error: bundleError
       };
     }
@@ -1416,6 +1627,8 @@ export default function EditPhoto() {
         await initializePhotoScale(targetSlotIndex);
       }, 100);
     }
+
+    persistSlotVideos(frameConfig?.id, newSlotVideos);
 
     console.log(`🔄 Swapped slots ${sourceSlotIndex + 1} ↔ ${targetSlotIndex + 1}`);
     return true;
@@ -2962,9 +3175,17 @@ export default function EditPhoto() {
         confirmationMessageParts.push('Folder ZIP berisi foto dan video telah diunduh.');
         if (!bundleResult.hasVideo) {
           confirmationMessageParts.push('Video tidak tersedia di dalam bundle.');
+        } else if (!bundleResult.framedVideoIncluded && bundleResult.rawVideoCount > 0) {
+          confirmationMessageParts.push('Video asli dari setiap slot ikut dimasukkan sebagai cadangan.');
+        } else if (bundleResult.framedVideoIncluded && bundleResult.rawVideoCount > 0) {
+          confirmationMessageParts.push('Selain video utama, rekaman mentah tiap slot juga disertakan.');
         }
       } else {
-        confirmationMessageParts.push('Gagal membuat ZIP, file diunduh secara terpisah.');
+        if (bundleResult.reason === 'zip-generation-timeout') {
+          confirmationMessageParts.push('Pembuatan ZIP memakan waktu terlalu lama sehingga dibatalkan, foto dan video diunduh terpisah.');
+        } else {
+          confirmationMessageParts.push('Gagal membuat ZIP, file diunduh secara terpisah.');
+        }
       }
 
       if (framedVideoResult && !framedVideoResult.success) {
@@ -3227,6 +3448,174 @@ export default function EditPhoto() {
     }
   };
 
+  const renderSavePrintControls = ({ forceMobileLayout = false, marginTopOverride } = {}) => {
+    const useMobileLayout = forceMobileLayout || isMobile;
+    const containerMarginTop = marginTopOverride !== undefined
+      ? marginTopOverride
+      : useMobileLayout
+        ? '1rem'
+        : '0.5rem';
+
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: useMobileLayout ? '0.75rem' : '0.85rem',
+          width: '100%',
+          marginTop: containerMarginTop
+        }}
+      >
+        {hasDevAccess && !useMobileLayout && (
+        <button
+          onClick={debugSaveState}
+          style={{
+            background: '#f0f0f0',
+            border: '1px solid #ccc',
+            color: '#666',
+            borderRadius: '15px',
+            padding: '0.5rem 1rem',
+            fontSize: '0.8rem',
+            cursor: 'pointer'
+          }}
+        >
+          🔍 Debug Save Data
+        </button>
+      )}
+
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            width: '100%'
+          }}
+        >
+          {useMobileLayout ? (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'stretch',
+                background: '#fff',
+                borderRadius: '999px',
+                border: '1px solid rgba(148,163,184,0.35)',
+                boxShadow: '0 18px 30px rgba(15,23,42,0.18)',
+                overflow: 'hidden',
+                width: '100%',
+                maxWidth: isCompact ? '280px' : '320px'
+              }}
+            >
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                style={{
+                  flex: 1,
+                  border: 'none',
+                  background: 'transparent',
+                  padding: isCompact ? '0.82rem 0' : '0.9rem 0',
+                  fontSize: isCompact ? '1rem' : '1.05rem',
+                  fontWeight: 700,
+                  color: isSaving ? '#94a3b8' : '#111827',
+                  cursor: isSaving ? 'not-allowed' : 'pointer',
+                  transition: 'color 0.2s ease',
+                  letterSpacing: '-0.01em'
+                }}
+              >
+                {isSaving ? 'Saving…' : 'Save'}
+              </button>
+              <div
+                style={{
+                  width: '1px',
+                  background: 'rgba(148,163,184,0.5)'
+                }}
+              />
+              <button
+                onClick={handlePrint}
+                disabled={isUploading}
+                style={{
+                  flex: 1,
+                  border: 'none',
+                  background: 'transparent',
+                  padding: isCompact ? '0.82rem 0' : '0.9rem 0',
+                  fontSize: isCompact ? '1rem' : '1.05rem',
+                  fontWeight: 700,
+                  color: isUploading ? '#94a3b8' : '#111827',
+                  cursor: isUploading ? 'not-allowed' : 'pointer',
+                  transition: 'color 0.2s ease',
+                  letterSpacing: '-0.01em'
+                }}
+              >
+                {isUploading ? 'Preparing…' : 'Print'}
+              </button>
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                style={{
+                  background: isSaving ? '#f5f5f5' : '#fff',
+                  border: '2px solid #E8A889',
+                  color: isSaving ? '#999' : '#E8A889',
+                  borderRadius: '25px',
+                  padding: '0.8rem 2rem',
+                  fontSize: '1rem',
+                  fontWeight: '600',
+                  cursor: isSaving ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.3s ease',
+                  opacity: isSaving ? 0.7 : 1
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSaving) {
+                    e.target.style.background = '#E8A889';
+                    e.target.style.color = 'white';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSaving) {
+                    e.target.style.background = '#fff';
+                    e.target.style.color = '#E8A889';
+                  }
+                }}
+              >
+                {isSaving ? '💾 Saving...' : 'Save'}
+              </button>
+              <button
+                onClick={handlePrint}
+                disabled={isUploading}
+                style={{
+                  background: isUploading ? '#f5f5f5' : '#E8A889',
+                  border: 'none',
+                  color: isUploading ? '#999' : 'white',
+                  borderRadius: '25px',
+                  padding: '0.8rem 2rem',
+                  fontSize: '1rem',
+                  fontWeight: '600',
+                  cursor: isUploading ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.3s ease',
+                  opacity: isUploading ? 0.7 : 1,
+                  marginLeft: '1rem'
+                }}
+                onMouseEnter={(e) => {
+                  if (!isUploading) {
+                    e.target.style.background = '#d49673';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isUploading) {
+                    e.target.style.background = '#E8A889';
+                  }
+                }}
+              >
+                {isUploading ? '⏳ Preparing...' : '🖨️ Print'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderSavingOverlay = () => {
     if (!isSaving) return null;
 
@@ -3292,230 +3681,126 @@ export default function EditPhoto() {
           padding: pagePadding
         }}
       >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: isMobile ? 'center' : 'flex-start',
+                marginBottom: isMobile ? '1.1rem' : '1.25rem'
+              }}
+            >
+              <div
+                style={isMobile ? {
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.65rem',
+                  padding: '0.35rem 0.45rem',
+                  borderRadius: '999px',
+                  background: 'linear-gradient(135deg, rgba(250,242,235,0.92) 0%, rgba(242,225,210,0.92) 100%)',
+                  boxShadow: '0 14px 32px rgba(15,23,42,0.12)',
+                  backdropFilter: 'blur(6px)'
+                } : {
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.9rem'
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => navigate('/take-moment')}
+                  aria-label="Kembali ke halaman pengambilan foto"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: isMobile ? '0.55rem 1.05rem' : '0.55rem 1.1rem',
+                    borderRadius: '999px',
+                    border: 'none',
+                    background: '#fff',
+                    color: '#1E293B',
+                    fontWeight: 600,
+                    fontSize: isMobile ? '0.9rem' : '0.95rem',
+                    cursor: 'pointer',
+                    boxShadow: '0 14px 28px rgba(15,23,42,0.12)',
+                    transition: 'transform 0.15s ease, box-shadow 0.15s ease'
+                  }}
+                  onMouseEnter={(event) => {
+                    event.currentTarget.style.transform = 'translateY(-1px)';
+                    event.currentTarget.style.boxShadow = '0 18px 32px rgba(15,23,42,0.18)';
+                  }}
+                  onMouseLeave={(event) => {
+                    event.currentTarget.style.transform = 'none';
+                    event.currentTarget.style.boxShadow = '0 14px 28px rgba(15,23,42,0.12)';
+                  }}
+                >
+                  <span style={{ fontSize: isMobile ? '0.95rem' : '1rem' }}>←</span>
+                  <span>Kembali</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/frames')}
+                  aria-label="Pilih frame yang berbeda"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    padding: isMobile ? '0.55rem 1.1rem' : '0.6rem 1.2rem',
+                    borderRadius: '999px',
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #1E293B 0%, #0F172A 100%)',
+                    color: '#fff',
+                    fontWeight: 600,
+                    fontSize: isMobile ? '0.9rem' : '0.95rem',
+                    cursor: 'pointer',
+                    boxShadow: '0 18px 34px rgba(15,23,42,0.24)',
+                    transition: 'transform 0.15s ease, box-shadow 0.15s ease'
+                  }}
+                  onMouseEnter={(event) => {
+                    event.currentTarget.style.transform = 'translateY(-1px)';
+                    event.currentTarget.style.boxShadow = '0 22px 40px rgba(15,23,42,0.3)';
+                  }}
+                  onMouseLeave={(event) => {
+                    event.currentTarget.style.transform = 'none';
+                    event.currentTarget.style.boxShadow = '0 18px 34px rgba(15,23,42,0.24)';
+                  }}
+                >
+                  <span style={{ fontSize: isMobile ? '0.95rem' : '1rem' }}>🎨</span>
+                  <span>Pilih frame lain</span>
+                </button>
+              </div>
+            </div>
         {/* Main Editor Layout */}
       <div
-        style={isMobile ? {
+        style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: isCompact ? '1.25rem' : '1.5rem',
-          maxWidth: '100%',
-          margin: '0 auto'
-        } : {
-          display: 'grid',
-          gridTemplateColumns: '210px minmax(0, 1fr) 210px',
-          gap: '1.5rem',
-          maxWidth: '1100px',
+          gap: isMobile ? '1.4rem' : '2rem',
+          maxWidth: isMobile ? '100%' : '890px',
           margin: '0 auto'
         }}
       >
         
-        {/* Left Panel - Edit Controls */}
-        <div
-          style={{
-            background: '#fff',
-            borderRadius: '16px',
-            padding: isMobile ? (isCompact ? '0.9rem' : '1.1rem') : '1.25rem',
-            height: 'fit-content',
-            boxShadow: isMobile ? '0 6px 16px rgba(0,0,0,0.08)' : 'none'
-          }}
-        >
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '1rem'
-          }}>
-            <div
-              style={{
-                background: '#fef6f0',
-                color: '#5a4637',
-                borderRadius: '12px',
-                padding: '0.9rem',
-                fontSize: '0.9rem',
-                fontWeight: '500',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.5rem',
-                textAlign: 'center',
-                border: '1px solid rgba(232, 168, 137, 0.3)'
-              }}
-            >
-              <span style={{ fontSize: '1.6rem' }}>🎨</span>
-              <div>Filter aktif selalu terlihat di panel kanan.</div>
-              <div style={{ fontSize: '0.75rem', color: '#8a715f', fontWeight: '400' }}>
-                Klik slot foto pada preview untuk mengatur filter khusus.
-              </div>
-            </div>
-            
-            {/* Frame Info */}
-            {frameConfig && (
-              <div style={{
-                marginTop: '0.75rem',
-                padding: '0.85rem',
-                background: '#f8f9fa',
-                borderRadius: '10px',
-                fontSize: '0.8rem',
-                color: '#666'
-              }}>
-                <div style={{ fontWeight: '600', marginBottom: '0.5rem' }}>
-                  Current Frame:
-                </div>
-                <div>{frameConfig.name}</div>
-                <div>{frameConfig.description}</div>
-                <div style={{ marginTop: '0.5rem' }}>
-                  Slots: {frameConfig.maxCaptures}
-                </div>
-              </div>
-            )}
-            {devAccessInitialized && hasDevAccess ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <button
-                  onClick={() => setDebugMode(!debugMode)}
-                  style={{
-                      background: debugMode ? '#ff6b6b' : '#f4f5f7',
-                      color: debugMode ? '#fff' : '#555',
-                    border: 'none',
-                      borderRadius: '13px',
-                      padding: '0.85rem',
-                      fontSize: '0.95rem',
-                    fontWeight: '500',
-                    cursor: 'pointer',
-                    transition: 'all 0.3s ease',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem'
-                  }}
-                >
-                  <span style={{ fontSize: '1.5rem' }}>🔧</span>
-                  {debugMode ? 'Hide Debug' : 'Show Debug'}
-                </button>
-                <div style={{
-                  fontSize: '0.75rem',
-                  color: '#2e7d32',
-                  textAlign: 'center',
-                  fontWeight: '600'
-                }}>
-                  Developer tools unlocked
-                </div>
-                {!isDevEnv && (
-                  <button
-                    type="button"
-                    onClick={handleDeveloperLock}
-                    style={{
-                      background: '#f4f5f7',
-                      color: '#555',
-                      border: '1px solid #e0e0e0',
-                      borderRadius: '10px',
-                      padding: '0.55rem 0.75rem',
-                      fontSize: '0.78rem',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Lock Developer Tools
-                  </button>
-                )}
-              </div>
-            ) : (
-              showDevUnlockPanel && devAccessInitialized && (
-                <div style={{
-                  marginTop: '0.85rem',
-                  padding: '0.9rem',
-                  background: '#fff7e6',
-                  borderRadius: '12px',
-                  border: '1px dashed #f0c36d',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.7rem'
-                }}>
-                  <div style={{
-                    fontSize: '0.9rem',
-                    fontWeight: '600',
-                    color: '#8c6d1f',
-                    textAlign: 'center'
-                  }}>
-                    Developer Access Required
-                  </div>
-                  <p style={{
-                    fontSize: '0.75rem',
-                    color: '#9a7b00',
-                    margin: 0,
-                    textAlign: 'center'
-                  }}>
-                    Masukkan token developer untuk membuka tools debug.
-                  </p>
-                  <form onSubmit={handleDeveloperUnlock} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    <input
-                      type="password"
-                      value={devTokenInput}
-                      onChange={(e) => setDevTokenInput(e.target.value)}
-                      placeholder="Developer token"
-                      style={{
-                        borderRadius: '10px',
-                        border: '1px solid #e0c48a',
-                        padding: '0.6rem 0.8rem',
-                        fontSize: '0.85rem'
-                      }}
-                    />
-                    <button
-                      type="submit"
-                      disabled={devAuthStatus.loading}
-                      style={{
-                        background: '#E8A889',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '10px',
-                        padding: '0.6rem 0.8rem',
-                        fontSize: '0.85rem',
-                        fontWeight: '600',
-                        cursor: devAuthStatus.loading ? 'wait' : 'pointer',
-                        opacity: devAuthStatus.loading ? 0.7 : 1
-                      }}
-                    >
-                      {devAuthStatus.loading ? 'Checking...' : 'Unlock Tools'}
-                    </button>
-                  </form>
-                  {devAuthStatus.error && (
-                    <div style={{
-                      fontSize: '0.75rem',
-                      color: '#b00020',
-                      textAlign: 'center'
-                    }}>
-                      {devAuthStatus.error}
-                    </div>
-                  )}
-                  {devAuthStatus.success && (
-                    <div style={{
-                      fontSize: '0.75rem',
-                      color: '#2e7d32',
-                      textAlign: 'center'
-                    }}>
-                      Developer tools unlocked for this session.
-                    </div>
-                  )}
-                </div>
-              )
-            )}
-          </div>
-        </div>
-
         {/* Center Panel - Preview */}
-        <div
-          style={{
-            background: '#fff',
-            borderRadius: '16px',
-            padding: isMobile ? (isCompact ? 'clamp(1rem, 5vw, 1.5rem)' : 'clamp(1.25rem, 5vw, 1.75rem)') : '1.5rem',
-            textAlign: 'center',
-            boxShadow: isMobile ? '0 6px 16px rgba(0,0,0,0.08)' : 'none'
-          }}
+          <div
+            style={{
+              background: isMobile
+                ? 'linear-gradient(145deg, rgba(255,255,255,0.94) 0%, rgba(250,239,230,0.94) 100%)'
+                : '#fff',
+              borderRadius: '20px',
+              padding: isMobile
+                ? 'clamp(1.1rem, 4.5vw, 1.5rem)'
+                : '1.35rem',
+              textAlign: 'center',
+              boxShadow: isMobile ? '0 18px 34px rgba(15,23,42,0.08)' : 'none',
+              border: isMobile ? '1px solid rgba(255,255,255,0.45)' : 'none'
+            }}
         >
           <h3
             style={{
-              marginBottom: isMobile ? (isCompact ? '0.9rem' : '1.15rem') : '1.6rem',
-              fontSize: isMobile ? (isCompact ? '1.1rem' : '1.2rem') : '1.3rem',
-              fontWeight: '600',
-              color: '#333'
+              marginBottom: isMobile ? '1.15rem' : '1.6rem',
+              fontSize: isMobile ? '1.3rem' : '1.3rem',
+              fontWeight: '700',
+              color: '#1E293B',
+              letterSpacing: '-0.01em'
             }}
           >
             Preview
@@ -3524,17 +3809,18 @@ export default function EditPhoto() {
           {/* Frame Preview Area */}
           <div
             style={{
-              background: '#f8f9fa',
-              borderRadius: '12px',
+              background: isMobile ? '#f2dcd3' : '#f8f9fa',
+              borderRadius: '22px',
               padding: isMobile
-                ? (isCompact ? '1.4rem 1rem' : '1.75rem 1.25rem')
+                ? '1.75rem 1.3rem'
                 : '2.25rem 1.5rem',
-              marginBottom: isMobile ? (isCompact ? '1.25rem' : '1.5rem') : '1.6rem',
-              minHeight: isMobile ? (isCompact ? '320px' : '350px') : '420px',
+              marginBottom: isMobile ? '1rem' : '1.1rem',
+              minHeight: isMobile ? '360px' : '420px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              position: 'relative'
+              position: 'relative',
+              boxShadow: isMobile ? 'inset 0 2px 8px rgba(255,255,255,0.45)' : 'none'
             }}
           >
             {swapModeActive && swapSourceSlot !== null && (
@@ -3580,7 +3866,7 @@ export default function EditPhoto() {
                 style={{
                   position: 'relative',
                   width: isMobile
-                    ? (isCompact ? 'min(260px, 88vw)' : 'min(280px, 85vw)')
+                    ? 'min(280px, 82vw)'
                     : '280px',
                   aspectRatio: '2/3',
                   maxWidth: '100%',
@@ -3880,24 +4166,6 @@ export default function EditPhoto() {
                   );
                 })()}
                 
-                {/* Frame Info */}
-                <div style={{
-                  position: 'absolute',
-                  bottom: '-32px',
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  fontSize: '0.7rem',
-                  color: '#666',
-                  textAlign: 'center',
-                  whiteSpace: 'nowrap',
-                  background: 'rgba(255,255,255,0.9)',
-                  padding: '3px 7px',
-                  borderRadius: '5px',
-                  boxShadow: '0 2px 4px rgba(0,0,0,0.08)'
-                }}>
-                  {frameConfig.name} | {photos.filter(p => p).length}/{frameConfig.maxCaptures} photos
-                </div>
-
                 {/* Debug Overlay */}
                 {hasDevAccess && debugMode && frameConfig.slots.map((slot, slotIndex) => {
                   const pixels = calculateSlotPixels(frameConfig, slotIndex);
@@ -3942,436 +4210,396 @@ export default function EditPhoto() {
             )}
           </div>
 
-          {/* Save and Print Buttons */}
-          <div style={{
-            display: 'flex',
-            gap: '1rem',
-            justifyContent: 'center',
-            flexDirection: 'column',
-            alignItems: 'center'
-          }}>
-            {hasDevAccess && (
-              <button
-                onClick={debugSaveState}
-                style={{
-                  background: '#f0f0f0',
-                  border: '1px solid #ccc',
-                  color: '#666',
-                  borderRadius: '15px',
-                  padding: '0.5rem 1rem',
-                  fontSize: '0.8rem',
-                  cursor: 'pointer'
-                }}
-              >
-                🔍 Debug Save Data
-              </button>
-            )}
-            
-            <div
-              style={{
-                display: 'flex',
-                gap: isMobile ? (isCompact ? '0.5rem' : '0.75rem') : '1rem',
-                justifyContent: 'center',
-                flexWrap: isMobile ? 'wrap' : 'nowrap',
-                width: '100%'
-              }}
-            >
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              style={{
-                background: isSaving ? '#f5f5f5' : '#fff',
-                border: '2px solid #E8A889',
-                color: isSaving ? '#999' : '#E8A889',
-                borderRadius: '25px',
-                padding: isMobile ? (isCompact ? '0.7rem 1.5rem' : '0.75rem 1.8rem') : '0.8rem 2rem',
-                fontSize: isMobile ? (isCompact ? '0.95rem' : '1rem') : '1rem',
-                fontWeight: '600',
-                cursor: isSaving ? 'not-allowed' : 'pointer',
-                transition: 'all 0.3s ease',
-                opacity: isSaving ? 0.7 : 1,
-                width: isMobile ? '100%' : 'auto'
-              }}
-              onMouseEnter={(e) => {
-                if (!isSaving) {
-                  e.target.style.background = '#E8A889';
-                  e.target.style.color = 'white';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isSaving) {
-                  e.target.style.background = '#fff';
-                  e.target.style.color = '#E8A889';
-                }
-              }}
-            >
-              {isSaving ? '💾 Saving...' : 'Save'}
-            </button>
-            <button
-              onClick={handlePrint}
-              disabled={isUploading}
-              style={{
-                background: isUploading ? '#f5f5f5' : '#E8A889',
-                border: 'none',
-                color: isUploading ? '#999' : 'white',
-                borderRadius: '25px',
-                padding: isMobile ? (isCompact ? '0.7rem 1.5rem' : '0.75rem 1.8rem') : '0.8rem 2rem',
-                fontSize: isMobile ? (isCompact ? '0.95rem' : '1rem') : '1rem',
-                fontWeight: '600',
-                cursor: isUploading ? 'not-allowed' : 'pointer',
-                transition: 'all 0.3s ease',
-                opacity: isUploading ? 0.7 : 1,
-                width: isMobile ? '100%' : 'auto'
-              }}
-              onMouseEnter={(e) => {
-                if (!isUploading) {
-                  e.target.style.background = '#d49673';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isUploading) {
-                  e.target.style.background = '#E8A889';
-                }
-              }}
-            >
-              {isUploading ? '⏳ Preparing...' : '🖨️ Print'}
-            </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Panel - Filter or Adjust */}
-        <div
-          style={{
-            background: '#fff',
-            borderRadius: '16px',
-            padding: isMobile ? (isCompact ? '0.95rem' : '1.15rem') : '1.25rem',
-            height: 'fit-content',
-            display: 'flex',
-            flexDirection: 'column',
-            maxHeight: isMobile ? 'none' : '72vh',
-            overflow: isMobile ? 'visible' : 'hidden',
-            boxShadow: isMobile ? '0 6px 16px rgba(0,0,0,0.08)' : 'none'
-          }}
-        >
-          <h3
-            style={{
-              textAlign: 'center',
-              marginBottom: isMobile ? (isCompact ? '0.9rem' : '1.1rem') : '1.5rem',
-              fontSize: isMobile ? (isCompact ? '1.05rem' : '1.1rem') : '1.15rem',
-              fontWeight: '600',
-              color: '#333'
-            }}
-          >
-            {hasDevAccess && debugMode ? 'Debug Info' : 'Filter Presets'}
-          </h3>
           <div
             style={{
-              flex: 1,
-              overflowY: 'auto',
-              paddingRight: isMobile ? 0 : '0.5rem',
-              minHeight: 0
-            }}
-          >
-          {hasDevAccess && debugMode ? (
-            /* Debug Panel */
-            frameConfig && (
-              <div>
-                <div style={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'center',
-                  marginBottom: '1rem', 
-                  fontSize: '0.9rem' 
-                }}>
-                  <div>
-                    <strong>Frame:</strong> {frameConfig.name}<br/>
-                    <strong>Max Captures:</strong> {frameConfig.maxCaptures}<br/>
-                    <strong>Layout Ratio:</strong> {frameConfig.layout.aspectRatio}
-                  </div>
-                  <button
-                    onClick={reloadFrameConfig}
-                    disabled={isReloading}
-                    style={{
-                      padding: '6px 12px',
-                      fontSize: '11px',
-                      backgroundColor: isReloading ? '#6c757d' : '#28a745',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: isReloading ? 'not-allowed' : 'pointer',
-                      fontWeight: 'bold',
-                      opacity: isReloading ? 0.7 : 1
-                    }}
-                  >
-                    {isReloading ? '⏳ Loading...' : '🔄 Reload Config'}
-                  </button>
-                  
-                  <button
-                    onClick={() => {
-                      console.log('=== DRAG & DROP DEBUG ===');
-                      console.log('draggedPhoto:', draggedPhoto);
-                      console.log('dragOverSlot:', dragOverSlot);
-                      console.log('slotPhotos:', slotPhotos);
-                      console.log('photoTransforms:', photoTransforms);
-                      console.log('frameConfig.duplicatePhotos:', frameConfig?.duplicatePhotos);
-                      console.log('photos.length:', photos?.length);
-                      console.log('frameConfig.slots.length:', frameConfig?.slots?.length);
-                    }}
-                    style={{
-                      padding: '6px 12px',
-                      fontSize: '11px',
-                      backgroundColor: '#17a2b8',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontWeight: 'bold',
-                      marginLeft: '5px'
-                    }}
-                  >
-                    🔍 Debug D&D
-                  </button>
-                </div>
-                
-                <table 
-                  key={`debug-table-${configReloadKey}`}
-                  style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}
-                >
-                  <thead>
-                    <tr style={{ background: '#f0f0f0' }}>
-                      <th style={{ border: '1px solid #ddd', padding: '6px' }}>Slot</th>
-                      <th style={{ border: '1px solid #ddd', padding: '6px' }}>Position (%)</th>
-                      <th style={{ border: '1px solid #ddd', padding: '6px' }}>Size (px)</th>
-                      <th style={{ border: '1px solid #ddd', padding: '6px' }}>Ratio</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {frameConfig.slots.map((slot, index) => {
-                      const pixels = calculateSlotPixels(frameConfig, index);
-                      const isRatioCorrect = Math.abs(pixels.calculatedRatio - 0.8) < 0.01;
-                      return (
-                        <tr key={slot.id}>
-                          <td style={{ border: '1px solid #ddd', padding: '6px' }}>{slot.id}</td>
-                          <td style={{ border: '1px solid #ddd', padding: '6px' }}>
-                            L:{(slot.left * 100).toFixed(0)}% T:{(slot.top * 100).toFixed(0)}%<br/>
-                            W:{(slot.width * 100).toFixed(0)}% H:{(slot.height * 100).toFixed(0)}%
-                          </td>
-                          <td style={{ border: '1px solid #ddd', padding: '6px' }}>
-                            {pixels.width}×{pixels.height}px
-                          </td>
-                          <td style={{ border: '1px solid #ddd', padding: '6px' }}>
-                            {pixels.calculatedRatio.toFixed(2)}<br/>
-                            {!isRatioCorrect && <span style={{ color: 'red' }}>⚠️</span>}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-
-                <div style={{ 
-                  marginTop: '1rem', 
-                  padding: '0.8rem', 
-                  background: '#f8f9fa', 
-                  borderRadius: '8px', 
-                  fontSize: '0.8rem' 
-                }}>
-                  <strong>Instructions:</strong><br/>
-                  • Red boxes show slot positions<br/>
-                  • Aspect ratio should be 0.80 for 4:5<br/>
-                  • Adjust coordinates in frameConfigs.js
-                </div>
-              </div>
-            )
-          ) : (
-            <div style={{
+              marginTop: isMobile ? (isCompact ? '0.5rem' : '0.75rem') : '1.1rem',
+              background: isMobile
+                ? 'linear-gradient(145deg, rgba(255,255,255,0.96) 0%, rgba(248,240,232,0.96) 100%)'
+                : 'rgba(255, 255, 255, 0.92)',
+              borderRadius: '18px',
+              padding: isMobile ? (isCompact ? '1rem' : '1.25rem') : '1.5rem',
+              border: '1px solid rgba(148,163,184,0.25)',
+              boxShadow: '0 18px 34px rgba(15,23,42,0.08)',
               display: 'flex',
               flexDirection: 'column',
-              gap: '1.25rem'
-            }}>
-              <div style={{
-                fontSize: '0.85rem',
-                color: '#666',
-                textAlign: 'center'
-              }}>
-                {selectedPhotoForEdit !== null
-                  ? `Pilih filter untuk slot ${selectedPhotoForEdit + 1}. Gunakan tombol preset untuk menerapkan ke slot ini saja.`
-                  : 'Tidak memilih slot? Filter akan diterapkan ke semua foto pada preview secara instan.'}
+              gap: hasDevAccess && debugMode ? '1.25rem' : '1rem'
+            }}
+          >
+            {hasDevAccess && debugMode && (
+              <div style={{ textAlign: 'center' }}>
+                <h3
+                  style={{
+                    fontSize: isMobile ? (isCompact ? '1.15rem' : '1.22rem') : '1.18rem',
+                    fontWeight: 700,
+                    color: '#1E293B'
+                  }}
+                >
+                  Debug Info
+                </h3>
               </div>
+            )}
 
-              {selectedPhotoForEdit !== null && (
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.85rem'
-                }}>
-                  <div style={{
-                    textAlign: 'center',
-                    fontWeight: '600',
-                    color: '#333'
-                  }}>
-                    Preview Filter
-                  </div>
-                  <div style={{
-                    borderRadius: '12px',
-                    overflow: 'hidden',
-                    border: '1px solid #e5e7eb',
+            {hasDevAccess && debugMode ? (
+              frameConfig && (
+                <div
+                  style={{
                     display: 'flex',
-                    justifyContent: 'center',
-                    background: '#f8f9fa',
-                    padding: '0.75rem'
+                    flexDirection: 'column',
+                    gap: '1rem'
+                  }}
+                >
+                  <div style={{ 
+                    display: 'flex', 
+                    flexDirection: isMobile ? 'column' : 'row',
+                    gap: isMobile ? '0.75rem' : '0.5rem',
+                    justifyContent: isMobile ? 'center' : 'space-between', 
+                    alignItems: isMobile ? 'stretch' : 'center',
+                    fontSize: '0.9rem'
                   }}>
-                    {(() => {
-                      const previewSrc = getPhotoSourceForSlot(selectedPhotoForEdit);
-                      if (!previewSrc) {
-                        return (
-                          <div style={{
-                            color: '#999',
-                            fontSize: '0.85rem'
-                          }}>
-                            Slot ini belum memiliki foto.
-                          </div>
-                        );
-                      }
+                    <div style={{ textAlign: isMobile ? 'center' : 'left' }}>
+                      <strong>Frame:</strong> {frameConfig.name}<br/>
+                      <strong>Max Captures:</strong> {frameConfig.maxCaptures}<br/>
+                      <strong>Layout Ratio:</strong> {frameConfig.layout.aspectRatio}
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.45rem', justifyContent: 'center' }}>
+                      <button
+                        onClick={reloadFrameConfig}
+                        disabled={isReloading}
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '11px',
+                          backgroundColor: isReloading ? '#6c757d' : '#28a745',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '6px',
+                          cursor: isReloading ? 'not-allowed' : 'pointer',
+                          fontWeight: 'bold',
+                          opacity: isReloading ? 0.7 : 1
+                        }}
+                      >
+                        {isReloading ? '⏳ Loading...' : '🔄 Reload Config'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          console.log('=== DRAG & DROP DEBUG ===');
+                          console.log('draggedPhoto:', draggedPhoto);
+                          console.log('dragOverSlot:', dragOverSlot);
+                          console.log('slotPhotos:', slotPhotos);
+                          console.log('photoTransforms:', photoTransforms);
+                          console.log('frameConfig.duplicatePhotos:', frameConfig?.duplicatePhotos);
+                          console.log('photos.length:', photos?.length);
+                          console.log('frameConfig.slots.length:', frameConfig?.slots?.length);
+                        }}
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '11px',
+                          backgroundColor: '#17a2b8',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          fontWeight: 'bold'
+                        }}
+                      >
+                        🔍 Debug D&D
+                      </button>
+                    </div>
+                  </div>
 
-                      const activeFilterId = resolveSlotFilterId(selectedPhotoForEdit);
-                      const previewFilter = getFilterCssValue(activeFilterId);
+                  <div style={{ overflowX: 'auto' }}>
+                    <table 
+                      key={`debug-table-${configReloadKey}`}
+                      style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', minWidth: '480px' }}
+                    >
+                      <thead>
+                        <tr style={{ background: '#f0f0f0' }}>
+                          <th style={{ border: '1px solid #ddd', padding: '6px' }}>Slot</th>
+                          <th style={{ border: '1px solid #ddd', padding: '6px' }}>Position (%)</th>
+                          <th style={{ border: '1px solid #ddd', padding: '6px' }}>Size (px)</th>
+                          <th style={{ border: '1px solid #ddd', padding: '6px' }}>Ratio</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {frameConfig.slots.map((slot, index) => {
+                          const pixels = calculateSlotPixels(frameConfig, index);
+                          const isRatioCorrect = Math.abs(pixels.calculatedRatio - 0.8) < 0.01;
+                          return (
+                            <tr key={slot.id}>
+                              <td style={{ border: '1px solid #ddd', padding: '6px' }}>{slot.id}</td>
+                              <td style={{ border: '1px solid #ddd', padding: '6px' }}>
+                                L:{(slot.left * 100).toFixed(0)}% T:{(slot.top * 100).toFixed(0)}%<br/>
+                                W:{(slot.width * 100).toFixed(0)}% H:{(slot.height * 100).toFixed(0)}%
+                              </td>
+                              <td style={{ border: '1px solid #ddd', padding: '6px' }}>
+                                {pixels.width}×{pixels.height}px
+                              </td>
+                              <td style={{ border: '1px solid #ddd', padding: '6px' }}>
+                                {pixels.calculatedRatio.toFixed(2)}<br/>
+                                {!isRatioCorrect && <span style={{ color: 'red' }}>⚠️</span>}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
 
-                      return (
-                        <img
-                          src={previewSrc}
-                          alt={`Preview filter slot ${selectedPhotoForEdit + 1}`}
-                          style={{
-                            maxWidth: '160px',
-                            width: '100%',
-                            aspectRatio: '4/5',
-                            objectFit: 'cover',
-                            borderRadius: '10px',
-                            filter: previewFilter && previewFilter !== 'none' ? previewFilter : 'none'
-                          }}
-                        />
-                      );
-                    })()}
+                  <div style={{ 
+                    marginTop: '0.5rem', 
+                    padding: '0.85rem', 
+                    background: '#f8f9fa', 
+                    borderRadius: '10px', 
+                    fontSize: '0.8rem' 
+                  }}>
+                    <strong>Instructions:</strong><br/>
+                    • Red boxes show slot positions<br/>
+                    • Aspect ratio should be 0.80 for 4:5<br/>
+                    • Adjust coordinates in frameConfigs.js
                   </div>
                 </div>
-              )}
-
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))',
-                gap: '0.75rem'
-              }}>
-                {FILTER_PRESETS.map((preset) => {
-                  let isSelected = false;
-                  if (selectedPhotoForEdit !== null) {
-                    isSelected = resolveSlotFilterId(selectedPhotoForEdit) === preset.id;
-                  } else if (frameConfig?.slots?.length) {
-                    isSelected = allSlotsShareFilter(preset.id);
-                  }
-                  return (
-                    <button
-                      key={preset.id}
-                      onClick={() => {
-                        if (selectedPhotoForEdit !== null) {
-                          applyFilterToSlot(selectedPhotoForEdit, preset.id);
-                        } else {
-                          applyFilterToAllSlots(preset.id);
-                        }
-                      }}
-                      style={{
-                        border: isSelected ? '2px solid #E8A889' : '1px solid #e5e7eb',
+              )
+            ) : (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '1.1rem'
+                }}
+              >
+                {devAccessInitialized && (
+                  hasDevAccess ? (
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.75rem',
+                      padding: '0.9rem',
+                      background: '#f8f9fa',
+                      borderRadius: '12px',
+                      border: '1px solid #e0e0e0'
+                    }}>
+                      <button
+                        type="button"
+                        onClick={() => setDebugMode(!debugMode)}
+                        style={{
+                          background: debugMode ? '#ff6b6b' : '#ffffff',
+                          color: debugMode ? '#fff' : '#555',
+                          border: '1px solid rgba(0,0,0,0.1)',
+                          borderRadius: '12px',
+                          padding: '0.75rem',
+                          fontSize: '0.9rem',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                          transition: 'all 0.3s ease'
+                        }}
+                      >
+                        {debugMode ? 'Sembunyikan Debug' : 'Tampilkan Debug'}
+                      </button>
+                      <div style={{
+                        fontSize: '0.75rem',
+                        color: '#2e7d32',
+                        textAlign: 'center',
+                        fontWeight: 600
+                      }}>
+                        Developer tools unlocked
+                      </div>
+                      {!isDevEnv && (
+                        <button
+                          type="button"
+                          onClick={handleDeveloperLock}
+                          style={{
+                            background: '#ffffff',
+                            color: '#555',
+                            border: '1px solid #e0e0e0',
+                            borderRadius: '10px',
+                            padding: '0.55rem 0.75rem',
+                            fontSize: '0.78rem',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Lock Developer Tools
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    showDevUnlockPanel && (
+                      <div style={{
+                        padding: '0.9rem',
+                        background: '#fff7e6',
                         borderRadius: '12px',
-                        padding: '0.75rem 0.5rem',
-                        background: '#fff',
-                        cursor: 'pointer',
-                        boxShadow: isSelected ? '0 6px 16px rgba(232, 168, 137, 0.25)' : 'none',
-                        transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                        border: '1px dashed #f0c36d',
                         display: 'flex',
                         flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: '0.5rem',
-                        opacity: 1
-                      }}
-                    >
-                      <div style={{
-                        width: '60px',
-                        height: '60px',
-                        borderRadius: '10px',
-                        backgroundColor: '#f0f0f0',
-                        overflow: 'hidden',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
+                        gap: '0.7rem'
                       }}>
                         <div style={{
-                          width: '100%',
-                          height: '100%',
-                          backgroundImage: 'linear-gradient(135deg, #d7d7d7, #ffffff)',
-                          filter: preset.css && preset.css !== 'none' ? preset.css : 'none'
-                        }} />
+                          fontSize: '0.9rem',
+                          fontWeight: '600',
+                          color: '#8c6d1f',
+                          textAlign: 'center'
+                        }}>
+                          Developer Access Required
+                        </div>
+                        <p style={{
+                          fontSize: '0.75rem',
+                          color: '#9a7b00',
+                          margin: 0,
+                          textAlign: 'center'
+                        }}>
+                          Masukkan token developer untuk membuka tools debug.
+                        </p>
+                        <form onSubmit={handleDeveloperUnlock} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <input
+                            type="password"
+                            value={devTokenInput}
+                            onChange={(e) => setDevTokenInput(e.target.value)}
+                            placeholder="Developer token"
+                            style={{
+                              borderRadius: '10px',
+                              border: '1px solid #e0c48a',
+                              padding: '0.6rem 0.8rem',
+                              fontSize: '0.85rem'
+                            }}
+                          />
+                          <button
+                            type="submit"
+                            disabled={devAuthStatus.loading}
+                            style={{
+                              background: '#E8A889',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '10px',
+                              padding: '0.6rem 0.8rem',
+                              fontSize: '0.85rem',
+                              fontWeight: '600',
+                              cursor: devAuthStatus.loading ? 'wait' : 'pointer',
+                              opacity: devAuthStatus.loading ? 0.7 : 1
+                            }}
+                          >
+                            {devAuthStatus.loading ? 'Checking...' : 'Unlock Tools'}
+                          </button>
+                        </form>
+                        {devAuthStatus.error && (
+                          <div style={{
+                            fontSize: '0.75rem',
+                            color: '#b00020',
+                            textAlign: 'center'
+                          }}>
+                            {devAuthStatus.error}
+                          </div>
+                        )}
+                        {devAuthStatus.success && (
+                          <div style={{
+                            fontSize: '0.75rem',
+                            color: '#2e7d32',
+                            textAlign: 'center'
+                          }}>
+                            Developer tools unlocked for this session.
+                          </div>
+                        )}
                       </div>
-                      <div style={{
-                        fontSize: '0.85rem',
-                        fontWeight: '600',
-                        color: '#333',
-                        textAlign: 'center'
-                      }}>
-                        {preset.label}
-                      </div>
-                      <div style={{
-                        fontSize: '0.7rem',
-                        color: '#777',
-                        textAlign: 'center',
-                        lineHeight: '1.2'
-                      }}>
-                        {preset.description}
-                      </div>
-                    </button>
-                  );
-                })}
+                    )
+                  )
+                )}
+
+                <div style={isMobile ? {
+                  display: 'flex',
+                  gap: '0.65rem',
+                  overflowX: 'auto',
+                  paddingBottom: '0.3rem',
+                  scrollSnapType: 'x mandatory',
+                  WebkitOverflowScrolling: 'touch'
+                } : {
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))',
+                  gap: '0.5rem'
+                }}>
+                  {FILTER_PRESETS.map((preset) => {
+                    let isSelected = false;
+                    if (selectedPhotoForEdit !== null) {
+                      isSelected = resolveSlotFilterId(selectedPhotoForEdit) === preset.id;
+                    } else if (frameConfig?.slots?.length) {
+                      isSelected = allSlotsShareFilter(preset.id);
+                    }
+                    return (
+                      <button
+                        key={preset.id}
+                        onClick={() => {
+                          if (selectedPhotoForEdit !== null) {
+                            applyFilterToSlot(selectedPhotoForEdit, preset.id);
+                          } else {
+                            applyFilterToAllSlots(preset.id);
+                          }
+                        }}
+                        style={{
+                          border: isSelected ? '2px solid #E8A889' : '1px solid #e5e7eb',
+                          borderRadius: '10px',
+                          padding: '0.55rem 0.45rem',
+                          background: '#fff',
+                          cursor: 'pointer',
+                          boxShadow: isSelected ? '0 5px 14px rgba(232, 168, 137, 0.25)' : 'none',
+                          transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '0.4rem',
+                          opacity: 1,
+                          minWidth: isMobile ? '120px' : 'auto',
+                          scrollSnapAlign: isMobile ? 'start' : 'unset'
+                        }}
+                      >
+                        <div style={{
+                          width: '48px',
+                          height: '48px',
+                          borderRadius: '8px',
+                          backgroundColor: '#f0f0f0',
+                          overflow: 'hidden',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}>
+                          <div style={{
+                            width: '100%',
+                            height: '100%',
+                            backgroundImage: 'linear-gradient(135deg, #d7d7d7, #ffffff)',
+                            filter: preset.css && preset.css !== 'none' ? preset.css : 'none'
+                          }} />
+                        </div>
+                        <div style={{
+                          fontSize: '0.8rem',
+                          fontWeight: '600',
+                          color: '#333',
+                          textAlign: 'center'
+                        }}>
+                          {preset.label}
+                        </div>
+                        <div style={{
+                          fontSize: '0.65rem',
+                          color: '#777',
+                          textAlign: 'center',
+                          lineHeight: '1.15'
+                        }}>
+                          {preset.description}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
               </div>
+            )}
 
-              {(selectedPhotoForEdit !== null && resolveSlotFilterId(selectedPhotoForEdit) !== 'none') && (
-                <button
-                  onClick={() => applyFilterToSlot(selectedPhotoForEdit, 'none')}
-                  style={{
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '12px',
-                    padding: '0.75rem',
-                    background: '#fff',
-                    cursor: 'pointer',
-                    color: '#b00020',
-                    fontWeight: '600',
-                    transition: 'background 0.2s ease'
-                  }}
-                >
-                  Reset ke Original
-                </button>
-              )}
-
-              {(selectedPhotoForEdit === null && anySlotHasFilter()) && (
-                <button
-                  onClick={() => applyFilterToAllSlots('none')}
-                  style={{
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '12px',
-                    padding: '0.75rem',
-                    background: '#fff',
-                    cursor: 'pointer',
-                    color: '#b00020',
-                    fontWeight: '600',
-                    transition: 'background 0.2s ease'
-                  }}
-                >
-                  Reset semua ke Original
-                </button>
-              )}
+            <div
+              style={{
+                marginTop: isMobile ? '0.75rem' : '1rem'
+              }}
+            >
+              {renderSavePrintControls({
+                forceMobileLayout: isMobile,
+                marginTopOverride: 0
+              })}
             </div>
-          )}
           </div>
         </div>
-      </div>
       
       {/* Debug Panel - only show if Testframe3 is selected */}
       {selectedFrame === 'Testframe3' && (
@@ -4561,6 +4789,8 @@ export default function EditPhoto() {
         </div>
       )}
     </div>
+
+      </div>
 
       {renderSavingOverlay()}
     </>

@@ -10,8 +10,10 @@ export default function RootLayout() {
     return path.endsWith("/") && path !== "/" ? path.replace(/\/+$/, "") : path;
   };
   const currentPath = normalizePath(location.pathname || "/");
-  const hideHeader = currentPath === "/take-moment";
-  const hideFooter = currentPath === "/take-moment";
+  const headerlessPaths = new Set(["/take-moment", "/edit-photo", "/editor"]);
+  const hideHeader = headerlessPaths.has(currentPath);
+  const footerlessPaths = new Set(["/take-moment", "/edit-photo", "/editor"]);
+  const hideFooter = footerlessPaths.has(currentPath);
 
   return (
     <div className="app-shell">

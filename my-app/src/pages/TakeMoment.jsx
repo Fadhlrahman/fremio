@@ -4,6 +4,34 @@ import frameProvider from "../utils/frameProvider.js";
 import safeStorage from "../utils/safeStorage.js";
 import flipIcon from "../assets/flip.png";
 
+const MIRRORED_VIDEO_STYLE_ID = "take-moment-mirrored-video-controls";
+const MIRRORED_VIDEO_STYLES = `
+  .mirrored-video-controls {
+    transform: scaleX(-1);
+    transform-origin: center;
+  }
+
+  .mirrored-video-controls::-webkit-media-controls-panel,
+  .mirrored-video-controls::-webkit-media-controls-play-button,
+  .mirrored-video-controls::-webkit-media-controls-volume-slider,
+  .mirrored-video-controls::-webkit-media-controls-timeline,
+  .mirrored-video-controls::-webkit-media-controls-current-time-display,
+  .mirrored-video-controls::-webkit-media-controls-time-remaining-display,
+  .mirrored-video-controls::-webkit-media-controls-mute-button,
+  .mirrored-video-controls::-webkit-media-controls-fullscreen-button,
+  .mirrored-video-controls::-webkit-media-controls-seek-back-button,
+  .mirrored-video-controls::-webkit-media-controls-seek-forward-button,
+  .mirrored-video-controls::-webkit-media-controls-return-to-realtime-button,
+  .mirrored-video-controls::-webkit-media-controls-toggle-closed-captions-button,
+  .mirrored-video-controls::-webkit-media-controls-playback-rate-button {
+    transform: scaleX(-1);
+  }
+
+  .mirrored-video-controls::-webkit-media-controls-panel {
+    direction: ltr;
+  }
+`;
+
 const TIMER_OPTIONS = [3, 5, 10];
 const PHONE_MAX_WIDTH = 480;
 const POST_CAPTURE_BUFFER_SECONDS = 1;
@@ -374,6 +402,16 @@ export default function TakeMoment() {
   const capturedPhotosRef = useRef(capturedPhotos);
   const capturedVideosRef = useRef(capturedVideos);
   const previousCaptureCountRef = useRef(0);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (document.getElementById(MIRRORED_VIDEO_STYLE_ID)) return;
+
+    const styleEl = document.createElement("style");
+    styleEl.id = MIRRORED_VIDEO_STYLE_ID;
+    styleEl.textContent = MIRRORED_VIDEO_STYLES;
+    document.head.appendChild(styleEl);
+  }, []);
 
   const replaceCurrentPhoto = useCallback((updater) => {
     setCurrentPhoto((prev) => {
@@ -825,13 +863,13 @@ export default function TakeMoment() {
                 controls
                 playsInline
                 muted
+                className={currentVideo.requiresPreviewMirror ? "mirrored-video-controls" : undefined}
                 style={{
                   width: "100%",
                   maxHeight: "240px",
                   borderRadius: "12px",
                   objectFit: "contain",
                   boxShadow: "0 12px 24px rgba(0,0,0,0.2)",
-                  transform: currentVideo.requiresPreviewMirror ? "scaleX(-1)" : "none",
                 }}
               />
             )}

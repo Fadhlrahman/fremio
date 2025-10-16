@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import frameProvider from "../utils/frameProvider.js";
 import safeStorage from "../utils/safeStorage.js";
 import flipIcon from "../assets/flip.png";
+import fremioLogo from "../assets/logo.svg";
 
 const MIRRORED_VIDEO_STYLE_ID = "take-moment-mirrored-video-controls";
 const MIRRORED_VIDEO_STYLES = `
@@ -19,6 +20,8 @@ const MIRRORED_VIDEO_STYLES = `
   .mirrored-video-controls::-webkit-media-controls-time-remaining-display,
   .mirrored-video-controls::-webkit-media-controls-mute-button,
   .mirrored-video-controls::-webkit-media-controls-fullscreen-button,
+  .mirrored-video-controls::-webkit-media-controls-overlay-play-button,
+  .mirrored-video-controls::-webkit-media-controls-start-playback-button,
   .mirrored-video-controls::-webkit-media-controls-seek-back-button,
   .mirrored-video-controls::-webkit-media-controls-seek-forward-button,
   .mirrored-video-controls::-webkit-media-controls-return-to-realtime-button,
@@ -402,6 +405,7 @@ export default function TakeMoment() {
   const capturedPhotosRef = useRef(capturedPhotos);
   const capturedVideosRef = useRef(capturedVideos);
   const previousCaptureCountRef = useRef(0);
+  const previousCameraActiveRef = useRef(null);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -452,6 +456,32 @@ export default function TakeMoment() {
   const pendingStorageIdleRef = useRef(null);
   const pendingStorageTimeoutRef = useRef(null);
   const latestStoragePayloadRef = useRef({ photos: null, videos: null });
+
+  const headingStyles = {
+    fontFamily: "'Poppins', 'Inter', 'Helvetica Neue', sans-serif",
+    fontSize: "22px",
+    fontWeight: 700,
+    color: "#1E293B",
+    margin: 0,
+    lineHeight: 1.4,
+    letterSpacing: "-0.01em",
+  };
+
+  const headingLineOneStyle = {
+    display: "block",
+  };
+
+  const headingLineTwoStyle = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "0.4rem",
+  };
+
+  const headingLogoStyle = {
+    height: "30px",
+    width: "auto",
+  };
 
   const sanitizeVideosForStorage = useCallback((videos) => {
     if (!Array.isArray(videos)) return [];
@@ -718,28 +748,33 @@ export default function TakeMoment() {
   }, [capturedPhotos.length, isMobile, maxCaptures]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const scrollToCapture = () => {
+    if (typeof window === "undefined" || !isMobile) return;
+
+    const previous = previousCameraActiveRef.current;
+    previousCameraActiveRef.current = cameraActive;
+
+    if (!cameraActive || previous === true) return;
+
+    const scrollToCapture = (behavior = "smooth") => {
       if (!captureSectionRef.current) return;
       const rect = captureSectionRef.current.getBoundingClientRect();
       const absoluteTop = window.scrollY + rect.top;
       const targetTop = absoluteTop - window.innerHeight / 2 + rect.height / 2;
-      window.scrollTo({ top: Math.max(targetTop, 0), behavior: "auto" });
+      window.scrollTo({ top: Math.max(targetTop, 0), behavior });
     };
 
     let timeoutId = null;
-    const frame = requestAnimationFrame(() => {
-      // Delay slightly to ensure layout/content are measured accurately.
-      timeoutId = window.setTimeout(scrollToCapture, 40);
+    const frame = window.requestAnimationFrame(() => {
+      timeoutId = window.setTimeout(() => scrollToCapture("smooth"), 60);
     });
 
     return () => {
-      cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(frame);
       if (timeoutId) {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [isMobile]);
+  }, [cameraActive, isMobile]);
 
   useEffect(() => {
     return () => {
@@ -857,22 +892,6 @@ export default function TakeMoment() {
                 boxShadow: "0 12px 24px rgba(0,0,0,0.2)",
               }}
             />
-            {currentVideo && (
-              <video
-                src={currentVideo.previewUrl || currentVideo.dataUrl || ""}
-                controls
-                playsInline
-                muted
-                className={currentVideo.requiresPreviewMirror ? "mirrored-video-controls" : undefined}
-                style={{
-                  width: "100%",
-                  maxHeight: "240px",
-                  borderRadius: "12px",
-                  objectFit: "contain",
-                  boxShadow: "0 12px 24px rgba(0,0,0,0.2)",
-                }}
-              />
-            )}
             {isVideoProcessing && (
               <div
                 style={{
@@ -1815,6 +1834,11 @@ export default function TakeMoment() {
 
     clearProcessingIndicator({ keepTransitionOverlay: true });
     stopCamera();
+    try {
+      safeStorage.setItem("editorAutoSelectFirstSlot", "true");
+    } catch (error) {
+      console.warn("⚠️ Failed to set editor auto-select flag", error);
+    }
     navigate("/edit-photo");
   }, [
     capturedPhotos,
@@ -2105,10 +2129,12 @@ export default function TakeMoment() {
     const containerStyle = isMobileVariant
       ? {
           display: "grid",
-          gridTemplateColumns: "1fr auto 1fr",
+          gridTemplateColumns: "auto auto auto",
+          justifyContent: "center",
+          justifyItems: "center",
           alignItems: "center",
-          columnGap: "0.5rem",
-          rowGap: "0.5rem",
+          columnGap: "1.05rem",
+          rowGap: "0.3rem",
           marginBottom: "0.85rem",
           width: "100%",
         }
@@ -2139,19 +2165,19 @@ export default function TakeMoment() {
           disabled={capturedPhotos.length >= maxCaptures}
           title={capturedPhotos.length >= maxCaptures ? "Maksimal foto sudah tercapai" : "Pilih file dari galeri"}
           style={{
-            padding: isMobileVariant ? "0.75rem 0.95rem" : "0.7rem 1.35rem",
+            padding: isMobileVariant ? "0.65rem 0.85rem" : "0.7rem 1.35rem",
             background: capturedPhotos.length >= maxCaptures ? "#f1f5f9" : "#fff",
             color: capturedPhotos.length >= maxCaptures ? "#94a3b8" : "#333",
             border: "1px solid #e2e8f0",
             borderRadius: "999px",
-            fontSize: "1rem",
+            fontSize: isMobileVariant ? "0.92rem" : "1rem",
             fontWeight: 500,
             cursor: capturedPhotos.length >= maxCaptures ? "not-allowed" : "pointer",
             boxShadow: "0 12px 24px rgba(15,23,42,0.08)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            justifySelf: "start",
+            justifySelf: isMobileVariant ? "center" : "start",
             gridColumn: "1",
           }}
         >
@@ -2166,26 +2192,37 @@ export default function TakeMoment() {
           <div
             style={{
               display: "flex",
+              flexDirection: isMobileVariant ? "column" : "row",
               alignItems: "center",
-              gap: "0.5rem",
+              gap: isMobileVariant ? "0.3rem" : "0.5rem",
               justifySelf: "center",
               gridColumn: "2",
+              textAlign: isMobileVariant ? "center" : "left",
             }}
           >
-            <label style={{ fontSize: "0.95rem", fontWeight: 500, color: "#475569" }}>Timer:</label>
+            <span
+              style={{
+                fontSize: isMobileVariant ? "0.88rem" : "0.95rem",
+                fontWeight: isMobileVariant ? 600 : 500,
+                color: isMobileVariant ? "#1E293B" : "#475569",
+              }}
+            >
+              Timer:
+            </span>
             <select
               value={timer}
               onChange={(e) => setTimer(Number(e.target.value))}
               disabled={capturing}
               style={{
-                padding: "0.6rem 1rem",
+                padding: isMobileVariant ? "0.5rem 0.85rem" : "0.6rem 1rem",
                 borderRadius: "999px",
                 border: "1px solid #e2e8f0",
                 background: "#fff",
                 color: "#333",
-                fontSize: "1rem",
+                fontSize: isMobileVariant ? "0.95rem" : "1rem",
                 cursor: capturing ? "not-allowed" : "pointer",
                 boxShadow: "0 12px 24px rgba(15,23,42,0.08)",
+                minWidth: isMobileVariant ? "132px" : undefined,
               }}
             >
               {TIMER_OPTIONS.map((option) => (
@@ -2196,18 +2233,24 @@ export default function TakeMoment() {
             </select>
           </div>
         ) : (
-          <div style={{ gridColumn: "2", justifySelf: "center" }} />
+          <div
+            style={{
+              gridColumn: "2",
+              justifySelf: "center",
+              minHeight: isMobileVariant ? "48px" : 0,
+            }}
+          />
         )}
 
         <button
           onClick={handleCameraToggle}
           style={{
-            padding: isMobileVariant ? "0.75rem 0.95rem" : "0.7rem 1.35rem",
+            padding: isMobileVariant ? "0.65rem 0.9rem" : "0.7rem 1.35rem",
             background: cameraActive ? "#E8A889" : "#fff",
             color: cameraActive ? "#fff" : "#333",
             border: cameraActive ? "1px solid #E8A889" : "1px solid #e2e8f0",
             borderRadius: "999px",
-            fontSize: "1rem",
+            fontSize: isMobileVariant ? "0.92rem" : "1rem",
             fontWeight: 500,
             cursor: "pointer",
             boxShadow: cameraActive ? "0 16px 32px rgba(232,168,137,0.35)" : "0 12px 24px rgba(15,23,42,0.08)",
@@ -2215,7 +2258,7 @@ export default function TakeMoment() {
             alignItems: "center",
             justifyContent: "center",
             gap: "0.5rem",
-            justifySelf: "end",
+            justifySelf: isMobileVariant ? "center" : "end",
             gridColumn: "3",
           }}
         >
@@ -2237,7 +2280,8 @@ export default function TakeMoment() {
           borderRadius: isMobileVariant ? "18px" : "20px",
           overflow: "hidden",
           position: "relative",
-          minHeight: isMobileVariant ? "360px" : "320px",
+          minHeight: isMobileVariant ? "min(320px, 56vh)" : "320px",
+          height: isMobileVariant ? "min(320px, 56vh)" : undefined,
           maxWidth: isMobileVariant ? "100%" : "640px",
           width: "100%",
           margin: "0 auto",
@@ -2369,13 +2413,13 @@ export default function TakeMoment() {
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            gap: "0.75rem",
-            padding: "1.1rem 0",
+            gap: "0.65rem",
+            padding: "0.95rem 0",
           }}
         >
           <div
             style={{
-              fontSize: "0.95rem",
+              fontSize: "0.9rem",
               fontWeight: 600,
               color: hasReachedMaxPhotos ? "#ef4444" : "#475569",
               textAlign: "center",
@@ -2389,13 +2433,13 @@ export default function TakeMoment() {
             onClick={handleCapture}
             disabled={disableCapture}
             style={{
-              width: "88px",
-              height: "88px",
+              width: "80px",
+              height: "80px",
               borderRadius: "50%",
               border: "none",
               background: disableCapture ? "#e2e8f0" : "#E8A889",
               color: "white",
-              fontSize: "1.5rem",
+              fontSize: "1.4rem",
               fontWeight: 700,
               boxShadow: disableCapture ? "none" : "0 20px 40px rgba(232,168,137,0.4)",
               cursor: disableCapture ? "not-allowed" : "pointer",
@@ -2550,15 +2594,12 @@ export default function TakeMoment() {
                   <span style={{ fontSize: "1rem" }}>←</span>
                   <span>Kembali</span>
                 </button>
-              <h1
-                style={{
-                  fontSize: "2.6rem",
-                  fontWeight: 700,
-                  color: "#1E293B",
-                  margin: 0,
-                }}
-              >
-                Take your <span style={{ color: "#E8A889" }}>moment</span>
+              <h1 style={headingStyles}>
+                <span style={headingLineOneStyle}>Pilih momen berhargamu</span>
+                <span style={headingLineTwoStyle}>
+                  bersama
+                  <img src={fremioLogo} alt="Fremio" style={headingLogoStyle} />
+                </span>
               </h1>
             </div>
 
@@ -2600,15 +2641,15 @@ export default function TakeMoment() {
           flex: "1 1 auto",
           display: "flex",
           flexDirection: "column",
-          padding: "1rem",
-          gap: "1.1rem",
+          padding: "0.7rem 0.75rem 0.85rem",
+          gap: "0.85rem",
         }}
       >
         <div
           style={{
             display: "flex",
             flexDirection: "column",
-            gap: "0.45rem",
+            gap: "0.4rem",
             alignItems: "center",
             textAlign: "center",
           }}
@@ -2630,21 +2671,23 @@ export default function TakeMoment() {
                 fontSize: "0.9rem",
                 boxShadow: "0 12px 24px rgba(15,23,42,0.12)",
                 cursor: "pointer",
+                marginBottom: "1.35rem",
               }}
             >
               <span style={{ fontSize: "0.95rem" }}>←</span>
               <span>Kembali</span>
             </button>
-          <span style={{ fontSize: "0.95rem", fontWeight: 600, color: "#94a3b8" }}>take your</span>
           <h1
             style={{
-              fontSize: "2.25rem",
-              fontWeight: 700,
-              color: "#1E293B",
-              margin: 0,
+              ...headingStyles,
+              marginTop: "0.1rem",
             }}
           >
-            moment
+            <span style={headingLineOneStyle}>Pilih momen berhargamu</span>
+            <span style={headingLineTwoStyle}>
+              bersama
+              <img src={fremioLogo} alt="Fremio" style={headingLogoStyle} />
+            </span>
           </h1>
         </div>
 
@@ -2652,10 +2695,10 @@ export default function TakeMoment() {
           style={{
             background: "rgba(255,255,255,0.6)",
             borderRadius: "22px",
-            padding: "1.2rem",
+            padding: "0.95rem",
             display: "flex",
             flexDirection: "column",
-            gap: "1.1rem",
+            gap: "0.9rem",
             boxShadow: "0 30px 60px rgba(148,163,184,0.25)",
           }}
         >

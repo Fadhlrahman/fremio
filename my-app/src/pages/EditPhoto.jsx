@@ -3638,6 +3638,18 @@ export default function EditPhoto() {
 
   const savePhotoOnly = async () => {
     console.log('📸 Saving photo only...');
+    console.log('📊 State check:', {
+      photosCount: photos.length,
+      photosPreview: photos.map((p, i) => ({ index: i, hasData: !!p, length: p?.length, prefix: p?.substring(0, 30) })),
+      slotPhotosKeys: Object.keys(slotPhotos),
+      slotPhotosPreview: Object.entries(slotPhotos).map(([k, v]) => ({ slot: k, hasData: !!v, length: v?.length, prefix: v?.substring(0, 30) })),
+      frameConfigSlots: frameConfig?.slots?.length,
+      frameConfigSlotsDetail: frameConfig?.slots?.map((s, i) => ({ index: i, photoIndex: s.photoIndex })),
+      isDuplicateFrame: frameConfig?.duplicatePhotos,
+      frameConfigId: frameConfig?.id,
+      selectedFrame: selectedFrame,
+      frameImage: frameImage?.substring(0, 50)
+    });
     setSaveStatusMessage('📸 Menyiapkan foto dengan frame...');
     
     // Create canvas
@@ -3659,16 +3671,25 @@ export default function EditPhoto() {
     canvas.width = canvasWidth;
     canvas.height = canvasHeight;
     
-    ctx.fillStyle = '#2563eb';
+    // Use white background instead of blue
+    ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     
-    if (!frameConfig || !frameConfig.slots || photos.length === 0) {
+    if (!frameConfig || !frameConfig.slots) {
       setSaveStatusMessage('⚠️ Tidak ada foto untuk disimpan.');
       alert('No photos to save');
       return;
     }
     
-    // Load and render photos (same logic as handleSave)
+    // Check if we have photos - either in photos array or slotPhotos object
+    const hasPhotos = photos.length > 0 || Object.keys(slotPhotos).length > 0;
+    if (!hasPhotos) {
+      setSaveStatusMessage('⚠️ Tidak ada foto untuk disimpan.');
+      alert('No photos to save');
+      return;
+    }
+    
+    // Load and render photos - support both photos array and slotPhotos object
     const loadBasePhoto = (photoDataUrl, index) =>
       new Promise((resolve) => {
         if (!photoDataUrl) {
@@ -3681,83 +3702,246 @@ export default function EditPhoto() {
         img.src = photoDataUrl;
       });
     
-    const loadedPhotos = await Promise.all(photos.map(loadBasePhoto));
-    
-    // Render photos to canvas
+    // Render photos to canvas - iterate through slots instead of photos
+    const normalizeSlotValue = (value) => {
+      if (typeof value !== 'number' || Number.isNaN(value)) return 0;
+      if (value > 1) return value / 100;
+      if (value < 0) return 0;
+      return value;
+    };
+
+    const resolveTransformForSlot = (slotIndex, slot) => {
+      if (photoTransforms?.[slotIndex]) {
+        return photoTransforms[slotIndex];
+      }
+      const photoIndex = Number.isInteger(slot?.photoIndex) ? slot.photoIndex : slotIndex;
+      if (photoTransforms?.[photoIndex]) {
+        return photoTransforms[photoIndex];
+      }
+      return null;
+    };
+
     let renderedCount = 0;
-    loadedPhotos.forEach(({ img, index: photoIndex }) => {
-      if (!img) return;
+    
+    for (let slotIndex = 0; slotIndex < frameConfig.slots.length; slotIndex++) {
+      const slot = frameConfig.slots[slotIndex];
       
-      const matchingSlots = frameConfig.slots
-        .map((slot, slotIndex) => ({ slot, slotIndex }))
-        .filter(({ slot }) => slot.photoIndex === photoIndex);
+      // For duplicate-photo frames, use slotPhotos; otherwise use photos array
+      const photoForSlot = slotPhotos[slotIndex] || photos[slot.photoIndex];
       
-      matchingSlots.forEach(({ slot, slotIndex }) => {
-        const slotX = (slot.left / 100) * canvasWidth;
-        const slotY = (slot.top / 100) * canvasHeight;
-        const slotWidth = (slot.width / 100) * canvasWidth;
-        const slotHeight = (slot.height / 100) * canvasHeight;
-        
+      console.log(`🎯 Slot ${slotIndex}: photoForSlot=${!!photoForSlot}, slotPhotos=${!!slotPhotos[slotIndex]}, photos[${slot.photoIndex}]=${!!photos[slot.photoIndex]}`);
+      
+      if (!photoForSlot) {
+        console.warn(`⚠️ No photo for slot ${slotIndex}`);
+        continue;
+      }
+      
+      // Validate photo data
+      if (typeof photoForSlot !== 'string' || !photoForSlot.startsWith('data:image/')) {
+        console.error(`❌ Invalid photo data for slot ${slotIndex}:`, photoForSlot?.substring(0, 50));
+        continue;
+      }
+      
+      console.log(`📦 Photo data for slot ${slotIndex}:`, {
+        type: typeof photoForSlot,
+        length: photoForSlot.length,
+        prefix: photoForSlot.substring(0, 30)
+      });
+      
+      // Load the photo
+      const { img } = await loadBasePhoto(photoForSlot, slotIndex);
+      if (!img) {
+        console.warn(`⚠️ Failed to load image for slot ${slotIndex}`);
+        continue;
+      }
+      
+      // Verify image loaded successfully
+      if (!img.complete || img.naturalWidth === 0 || img.naturalHeight === 0) {
+        console.error(`❌ Image loaded but invalid for slot ${slotIndex}:`, {
+          complete: img.complete,
+          naturalWidth: img.naturalWidth,
+          naturalHeight: img.naturalHeight
+        });
+        continue;
+      }
+      
+      console.log(`✅ Successfully loaded photo for slot ${slotIndex}`, {
+        imgWidth: img.width,
+        imgHeight: img.height,
+        naturalWidth: img.naturalWidth,
+        naturalHeight: img.naturalHeight
+      });
+      
+      {
+        const normalizedLeft = normalizeSlotValue(slot.left);
+        const normalizedTop = normalizeSlotValue(slot.top);
+        const normalizedWidth = normalizeSlotValue(slot.width);
+        const normalizedHeight = normalizeSlotValue(slot.height);
+
+        const slotX = normalizedLeft * canvasWidth;
+        const slotY = normalizedTop * canvasHeight;
+        const slotWidth = normalizedWidth * canvasWidth;
+        const slotHeight = normalizedHeight * canvasHeight;
+
         const slotCenterX = slotX + slotWidth / 2;
         const slotCenterY = slotY + slotHeight / 2;
-        
-        const photoDisplayWidth = slotWidth;
-        const photoDisplayHeight = slotHeight;
-        
-        const transform = photoTransforms[slotIndex] || { scale: 1.0, translateX: 0, translateY: 0 };
-        const { scale, translateX, translateY } = transform;
-        
+
+        const slotAspectRatio = slotWidth / Math.max(slotHeight, 1);
+        const photoAspectRatio = img.naturalWidth / Math.max(img.naturalHeight, 1);
+
+        let basePhotoWidth = slotWidth;
+        let basePhotoHeight = slotHeight;
+
+        if (frameConfig?.id === 'Testframe4') {
+          basePhotoWidth = slotWidth;
+          basePhotoHeight = slotWidth / Math.max(photoAspectRatio, 0.0001);
+        } else if (photoAspectRatio > slotAspectRatio) {
+          basePhotoWidth = slotWidth;
+          basePhotoHeight = slotWidth / Math.max(photoAspectRatio, 0.0001);
+        } else {
+          basePhotoHeight = slotHeight;
+          basePhotoWidth = slotHeight * photoAspectRatio;
+        }
+
+        const metrics = typeof getSlotPanMetrics === 'function' ? getSlotPanMetrics(slotIndex) : null;
+        const previewBaseWidth = metrics?.containedWidthPx ?? metrics?.slotWidthPx ?? basePhotoWidth;
+        const previewBaseHeight = metrics?.containedHeightPx ?? metrics?.slotHeightPx ?? basePhotoHeight;
+
+        const transform = resolveTransformForSlot(slotIndex, slot) || { scale: 1.0, translateX: 0, translateY: 0 };
+        const scale = Number.isFinite(transform?.scale) && transform.scale > 0 ? transform.scale : 1;
+        const translateX = Number.isFinite(transform?.translateX) ? transform.translateX : 0;
+        const translateY = Number.isFinite(transform?.translateY) ? transform.translateY : 0;
+
+        const translateRatioX = previewBaseWidth ? translateX / previewBaseWidth : 0;
+        const translateRatioY = previewBaseHeight ? translateY / previewBaseHeight : 0;
+
+        const baseTranslateX = translateRatioX * basePhotoWidth;
+        const baseTranslateY = translateRatioY * basePhotoHeight;
+
+        const finalPhotoWidth = basePhotoWidth * scale;
+        const finalPhotoHeight = basePhotoHeight * scale;
+        const finalPhotoX = slotCenterX - finalPhotoWidth / 2 + baseTranslateX * scale;
+        const finalPhotoY = slotCenterY - finalPhotoHeight / 2 + baseTranslateY * scale;
+
+        console.log(`📐 Slot ${slotIndex} dimensions:`, {
+          slotX: Math.round(slotX),
+          slotY: Math.round(slotY),
+          slotWidth: Math.round(slotWidth),
+          slotHeight: Math.round(slotHeight),
+          basePhotoWidth: Math.round(basePhotoWidth),
+          basePhotoHeight: Math.round(basePhotoHeight),
+          finalPhotoWidth: Math.round(finalPhotoWidth),
+          finalPhotoHeight: Math.round(finalPhotoHeight)
+        });
+
+        console.log(`🔧 Transform for slot ${slotIndex}:`, {
+          scale,
+          translateX,
+          translateY,
+          translateRatioX,
+          translateRatioY,
+          appliedTranslateX: baseTranslateX * scale,
+          appliedTranslateY: baseTranslateY * scale
+        });
+
+        const slotFilterId = resolveSlotFilterId(slotIndex);
+        console.log(`🎨 Drawing photo for slot ${slotIndex} at (${Math.round(finalPhotoX)}, ${Math.round(finalPhotoY)}) with size ${Math.round(finalPhotoWidth)}x${Math.round(finalPhotoHeight)}, scale=${scale.toFixed(2)}, filter=${slotFilterId}`);
+
+        // Draw photo with clipping
         ctx.save();
+
+        if (debugMode) {
+          ctx.fillStyle = `hsl(${slotIndex * 60}, 70%, 50%)`;
+          ctx.fillRect(slotX, slotY, slotWidth, slotHeight);
+          console.log(`🎨 Test color drawn for slot ${slotIndex}`);
+        }
+
         ctx.beginPath();
         ctx.rect(slotX, slotY, slotWidth, slotHeight);
         ctx.clip();
-        
-        const finalPhotoWidth = photoDisplayWidth * scale;
-        const finalPhotoHeight = photoDisplayHeight * scale;
-        const finalPhotoX = slotCenterX - finalPhotoWidth / 2 + translateX;
-        const finalPhotoY = slotCenterY - finalPhotoHeight / 2 + translateY;
-        
-        const slotFilterId = resolveSlotFilterId(slotIndex);
-        drawImageWithFilter(ctx, img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight, {
-          filterId: slotFilterId,
-        });
-        
+
+        try {
+          console.log(`🖼️ Attempting direct drawImage for slot ${slotIndex}...`);
+          ctx.drawImage(img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight);
+          console.log(`✅ Direct drawImage succeeded for slot ${slotIndex}`);
+
+          if (slotFilterId && slotFilterId !== 'none') {
+            console.log(`🎨 Applying filter ${slotFilterId} for slot ${slotIndex}...`);
+            ctx.globalCompositeOperation = 'source-over';
+            drawImageWithFilter(ctx, img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight, {
+              filterId: slotFilterId
+            });
+            console.log(`✅ Filter applied for slot ${slotIndex}`);
+          }
+        } catch (err) {
+          console.error(`❌ Error drawing image for slot ${slotIndex}:`, err, err.stack);
+        }
+
         ctx.restore();
         renderedCount += 1;
+        console.log(`✅ Rendered photo ${renderedCount} for slot ${slotIndex}`);
+      }
+    }
+    
+    console.log(`✅ Rendered ${renderedCount} photos to canvas`);
+    
+    // Optional: Draw debug rectangles to verify photo positions (comment out for production)
+    if (debugMode) {
+      ctx.strokeStyle = 'red';
+      ctx.lineWidth = 3;
+      frameConfig.slots.forEach((slot, index) => {
+        const x = (slot.left / 100) * canvasWidth;
+        const y = (slot.top / 100) * canvasHeight;
+        const w = (slot.width / 100) * canvasWidth;
+        const h = (slot.height / 100) * canvasHeight;
+        ctx.strokeRect(x, y, w, h);
       });
-    });
+      console.log('🔴 Debug rectangles drawn');
+    }
     
     // Render frame overlay
     if (frameImage) {
+      console.log('🖼️ Loading frame overlay:', frameImage);
       const frameImgElement = new Image();
       await new Promise((resolve) => {
         frameImgElement.onload = () => {
+          console.log('✅ Frame overlay loaded, drawing...');
           ctx.drawImage(frameImgElement, 0, 0, canvasWidth, canvasHeight);
+          console.log('✅ Frame overlay drawn');
           resolve();
         };
-        frameImgElement.onerror = () => resolve();
+        frameImgElement.onerror = (err) => {
+          console.error('❌ Failed to load frame overlay:', err);
+          resolve();
+        };
         frameImgElement.src = frameImage;
       });
+    } else {
+      console.warn('⚠️ No frameImage available');
     }
     
     // Save photo
     const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+    console.log('💾 Creating blob from canvas...');
     const photoBlob = await new Promise((resolve, reject) => {
       canvas.toBlob((blob) => {
         if (!blob) {
+          console.error('❌ Failed to create blob');
           reject(new Error('Failed to generate image blob'));
           return;
         }
+        console.log('✅ Blob created:', blob.size, 'bytes');
         resolve(blob);
       }, 'image/png', 0.95);
     });
     
     const photoFilename = `photobooth-${selectedFrame}-${timestamp}.png`;
-  triggerBlobDownload(photoBlob, photoFilename);
+    console.log('📥 Triggering download:', photoFilename);
+    triggerBlobDownload(photoBlob, photoFilename);
     
-  setSaveStatusMessage('✅ Foto berhasil disimpan!');
-  alert('Photo saved successfully!');
-  clearCapturedMediaStorage(selectedFrame);
+    setSaveStatusMessage('✅ Foto berhasil disimpan!');
+    alert('Photo saved successfully!');
+    clearCapturedMediaStorage(selectedFrame);
   setTimeout(() => setSaveStatusMessage(''), 3000);
   };
 

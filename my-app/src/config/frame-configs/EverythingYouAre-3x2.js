@@ -1,4 +1,4 @@
-// Frame configuration for EverythingYouAre-3x2
+// Frame configuration for EverythingYouAre-3x2.
 export const frameConfig = {
   id: 'EverythingYouAre-3x2',
   name: 'Everything You Are 6 Foto',

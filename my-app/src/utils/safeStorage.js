@@ -1,143 +1,117 @@
 import { compressToUTF16, decompressFromUTF16 } from "lz-string";
 
+// Minimal, robust safeStorage wrapper around localStorage with optional compression
 const COMPRESSION_PREFIX = "__cmp__:";
-const COMPRESSION_THRESHOLD = 30_000; // characters
+const COMPRESSION_THRESHOLD = 30000; // characters
 
 const isStorageAvailable = () => {
   if (typeof window === "undefined") return false;
   try {
-    const testKey = "__storage_test__";
-    window.localStorage.setItem(testKey, "test");
-    window.localStorage.removeItem(testKey);
+    const k = "__storage_test__";
+    window.localStorage.setItem(k, "1");
+    window.localStorage.removeItem(k);
     return true;
-  } catch (error) {
-    console.warn("⚠️ LocalStorage unavailable:", error);
+  } catch (e) {
     return false;
   }
 };
 
 const storageAvailable = isStorageAvailable();
 
-const getStorageByteSize = (value) => {
-  if (typeof value !== "string") return 0;
-  return value.length * 2; // UTF-16 approximation
-};
+const getStorageByteSize = (s) => (typeof s === "string" ? s.length * 2 : 0);
 
 const decompressValueIfNeeded = (value) => {
-  if (typeof value !== "string" || !value.startsWith(COMPRESSION_PREFIX)) {
-    return value;
-  }
-
-  const compressedPayload = value.slice(COMPRESSION_PREFIX.length);
+  if (typeof value !== "string") return value;
+  if (!value.startsWith(COMPRESSION_PREFIX)) return value;
   try {
-    const decompressed = decompressFromUTF16(compressedPayload);
-    if (typeof decompressed === "string") {
-      return decompressed;
-    }
-    console.warn("⚠️ Failed to decompress storage value (null result)");
-    return value;
-  } catch (error) {
-    console.warn("⚠️ Failed to decompress storage value:", error);
+    const payload = value.slice(COMPRESSION_PREFIX.length);
+    const dec = decompressFromUTF16(payload);
+    return typeof dec === "string" ? dec : value;
+  } catch (e) {
+    console.warn("⚠️ Failed to decompress storage value:", e);
     return value;
   }
 };
 
-const prepareJsonForStorage = (value) => {
-  const result = {
-    storageString: "",
-    bytes: 0,
-    compressed: false,
-  };
-
-  let serialized;
+const prepareJsonForStorage = (val) => {
+  const out = { storageString: "", bytes: 0, compressed: false };
+  let s;
   try {
-    serialized = JSON.stringify(value ?? null);
-  } catch (error) {
-    console.warn("⚠️ Failed to serialize JSON to storage:", error);
-    return result;
+    s = JSON.stringify(val ?? null);
+  } catch (e) {
+    return out;
   }
-
-  if (typeof serialized !== "string") {
-    return result;
-  }
-
-  let storageString = serialized;
+  if (typeof s !== "string") return out;
+  let storageString = s;
   let compressed = false;
-
-  if (serialized.length >= COMPRESSION_THRESHOLD) {
+  if (s.length >= COMPRESSION_THRESHOLD) {
     try {
-      const compressedPayload = compressToUTF16(serialized);
-      if (compressedPayload && compressedPayload.length > 0) {
-        const prefixed = `${COMPRESSION_PREFIX}${compressedPayload}`;
-        if (prefixed.length < serialized.length) {
+      const payload = compressToUTF16(s);
+      if (payload && payload.length > 0) {
+        const prefixed = `${COMPRESSION_PREFIX}${payload}`;
+        if (prefixed.length < s.length) {
           storageString = prefixed;
           compressed = true;
         }
       }
-    } catch (error) {
-      console.warn("⚠️ Failed to compress JSON for storage:", error);
+    } catch (e) {
+      // ignore compression errors
     }
   }
-
-  result.storageString = storageString;
-  result.bytes = getStorageByteSize(storageString);
-  result.compressed = compressed;
-  return result;
+  out.storageString = storageString;
+  out.bytes = getStorageByteSize(storageString);
+  out.compressed = compressed;
+  return out;
 };
 
-const withStorage = (operation) => {
+const withStorage = (op) => {
   if (!storageAvailable) return null;
   try {
-    return operation(window.localStorage);
-  } catch (error) {
-    console.warn("⚠️ LocalStorage operation failed:", error);
+    return op(window.localStorage);
+  } catch (e) {
+    console.warn("⚠️ LocalStorage op failed", e);
     return null;
   }
 };
 
 const safeStorage = {
   getItem(key, defaultValue = null) {
-    const value = withStorage((storage) => storage.getItem(key));
-    if (value === null || value === undefined) {
-      return defaultValue;
-    }
-    const decompressed = decompressValueIfNeeded(value);
-    return decompressed !== undefined && decompressed !== null ? decompressed : defaultValue;
+    const raw = withStorage((s) => s.getItem(key));
+    if (raw === null || raw === undefined) return defaultValue;
+    const dec = decompressValueIfNeeded(raw);
+    return dec !== undefined && dec !== null ? dec : defaultValue;
   },
+
   setItem(key, value) {
-    withStorage((storage) => storage.setItem(key, value));
+    return withStorage((s) => s.setItem(key, value));
   },
+
   removeItem(key) {
-    withStorage((storage) => storage.removeItem(key));
+    return withStorage((s) => s.removeItem(key));
   },
+
   getJSON(key, defaultValue = null) {
-    const storedValue = withStorage((storage) => storage.getItem(key));
-    if (storedValue === null || storedValue === undefined) {
-      return defaultValue;
-    }
-
-    const decoded = decompressValueIfNeeded(storedValue);
-    if (typeof decoded !== "string") {
-      return defaultValue;
-    }
-
+    const raw = withStorage((s) => s.getItem(key));
+    if (raw === null || raw === undefined) return defaultValue;
+    const dec = decompressValueIfNeeded(raw);
+    if (typeof dec !== "string") return defaultValue;
     try {
-      return JSON.parse(decoded);
-    } catch (error) {
-      console.warn("⚠️ Failed to parse JSON from storage:", error);
+      return JSON.parse(dec);
+    } catch (e) {
       return defaultValue;
     }
   },
+
   setJSON(key, value) {
     const prepared = prepareJsonForStorage(value);
-    if (!prepared.storageString) {
-      return;
-    }
-    this.setItem(key, prepared.storageString);
+    if (!prepared.storageString) return null;
+    return this.setItem(key, prepared.storageString);
   },
+
   isAvailable() {
     return storageAvailable;
   },
+
   estimateJSONBytes(value) {
     const prepared = prepareJsonForStorage(value);
     return prepared.bytes;

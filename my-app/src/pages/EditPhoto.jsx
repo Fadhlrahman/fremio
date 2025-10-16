@@ -22,6 +22,7 @@ import FremioSeriesPink3 from '../assets/frames/FremioSeries/FremioSeries-3/Frem
 import FremioSeriesPurple3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-purple-3.png';
 import FremioSeriesWhite3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-white-3.png';
 import FremioSeriesBlue4 from '../assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png';
+import EverythingYouAre3x2 from '../assets/frames/Everything You Are.png';
 
 const FILTER_PRESETS = [
   { id: 'none', label: 'Original', description: 'Tanpa filter, warna asli foto', css: '' },
@@ -81,6 +82,12 @@ const ZIP_GENERATION_TIMEOUT_MS = 35000;
 const DEFAULT_PREVIEW_WIDTH = 280;
 const DEFAULT_PREVIEW_HEIGHT = DEFAULT_PREVIEW_WIDTH / (2 / 3);
 const AUTO_SELECT_INITIAL_SLOT_KEY = 'editorAutoSelectFirstSlot';
+
+// Helper function to detect mobile devices
+const isMobileDevice = () => {
+  if (typeof navigator === 'undefined') return false;
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+};
 
 const detectCanvasFilterSupport = () => {
   if (typeof document === 'undefined') return false;
@@ -446,25 +453,8 @@ export default function EditPhoto() {
   const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL;
 
   const getDevApiBaseUrl = () => {
-    if (!isBrowser) {
-      return 'http://localhost:3001';
-    }
-
-    const { protocol, hostname } = window.location;
-    const safeHostname = (() => {
-      if (!hostname || hostname === '0.0.0.0') {
-        return 'localhost';
-      }
-      return hostname;
-    })();
-
-    const formattedHost = safeHostname.includes(':') && !safeHostname.startsWith('[')
-      ? `[${safeHostname}]`
-      : safeHostname;
-
-    const preferredProtocol = protocol === 'https:' ? 'https:' : 'http:';
-
-    return `${preferredProtocol}//${formattedHost}:3001`;
+    // Use HTTPS for backend in development (matches frontend)
+    return 'https://localhost:3001';
   };
 
   const inferredBaseUrl = useMemo(() => {
@@ -861,6 +851,13 @@ export default function EditPhoto() {
   });
 
   const triggerBlobDownload = (blob, filename) => {
+    console.log('📥 triggerBlobDownload called:', {
+      hasBlob: !!blob,
+      blobSize: blob?.size,
+      blobType: blob?.type,
+      filename
+    });
+    
     if (!blob) {
       console.warn('⚠️ No blob provided for download');
       return;
@@ -873,8 +870,14 @@ export default function EditPhoto() {
       const isTouchMac = /Macintosh/i.test(ua) && typeof navigator.maxTouchPoints === 'number' && navigator.maxTouchPoints > 1;
       return iOSPlatforms.test(ua) || isTouchMac;
     })();
+    
+    console.log('📱 Device detection:', {
+      isIOSDevice,
+      userAgent: navigator.userAgent
+    });
 
     const url = URL.createObjectURL(blob);
+    console.log('📥 Blob URL created:', url);
 
     const triggerAnchorClick = (href, options = {}) => {
       const link = document.createElement('a');
@@ -897,40 +900,58 @@ export default function EditPhoto() {
     };
 
     if (isIOSDevice) {
+      console.log('📱 iOS device - using iOS download flow');
       // Attempt direct anchor click. iOS often requires _blank target.
       const clicked = triggerAnchorClick(url, { target: '_blank', rel: 'noopener' });
+      console.log('📥 Anchor click result:', clicked);
+      
       if (!clicked) {
+        console.log('📥 Anchor click failed, trying data URL fallback...');
         // Fallback: convert to data URL and assign window.location
         const reader = new FileReader();
         reader.onloadend = () => {
+          console.log('📥 FileReader loaded, converting to data URL...');
           const dataUrl = reader.result;
           if (typeof dataUrl === 'string') {
             const opened = triggerAnchorClick(dataUrl, { target: '_blank', rel: 'noopener' });
+            console.log('📥 Data URL anchor click result:', opened);
             if (!opened) {
+              console.log('📥 Fallback to window.location.href with data URL');
               window.location.href = dataUrl;
             }
           } else {
+            console.log('📥 Fallback to window.location.href with blob URL');
             window.location.href = url;
           }
         };
-        reader.onerror = () => {
-          console.warn('⚠️ Failed to convert blob to data URL for iOS download fallback');
+        reader.onerror = (error) => {
+          console.warn('⚠️ Failed to convert blob to data URL for iOS download fallback:', error);
           window.location.href = url;
         };
         reader.readAsDataURL(blob);
       }
 
       // Delay revocation to allow browser to finish download/open.
-      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      setTimeout(() => {
+        console.log('📥 Revoking blob URL (iOS)');
+        URL.revokeObjectURL(url);
+      }, 4000);
       return;
     }
 
+    console.log('💻 Non-iOS device - using standard download flow');
     const clicked = triggerAnchorClick(url);
+    console.log('📥 Anchor click result:', clicked);
+    
     if (!clicked) {
+      console.log('📥 Fallback to window.location.href');
       window.location.href = url;
     }
 
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setTimeout(() => {
+      console.log('📥 Revoking blob URL');
+      URL.revokeObjectURL(url);
+    }, 1000);
   };
 
   const dataUrlToBlob = async (dataUrl) => {
@@ -1299,13 +1320,26 @@ export default function EditPhoto() {
     setDevAuthStatus({ loading: true, error: null, success: false });
 
     try {
-      const response = await fetch(`${apiBaseUrl}/api/dev/debug-auth`, {
+      const authUrl = `${apiBaseUrl}/api/dev/debug-auth`;
+      console.log('🔐 Debug Auth URL:', authUrl);
+      console.log('🔐 Debug Auth Token:', trimmedToken);
+      console.log('🔐 API Base URL:', apiBaseUrl);
+
+      const response = await fetch(authUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: trimmedToken })
       });
 
-      const data = await response.json().catch(() => ({}));
+      console.log('🔐 Debug Auth Response Status:', response.status);
+      console.log('🔐 Debug Auth Response OK:', response.ok);
+
+      const data = await response.json().catch((parseError) => {
+        console.error('🔐 Failed to parse JSON response:', parseError);
+        return {};
+      });
+
+      console.log('🔐 Debug Auth Response Data:', data);
 
       if (!response.ok || !data?.success) {
         const errorMessage = data?.error || 'Token developer tidak valid.';
@@ -1317,9 +1351,25 @@ export default function EditPhoto() {
       setDevAuthStatus({ loading: false, error: null, success: true });
       setShowDevUnlockPanel(false);
     } catch (error) {
+      console.error('🔐 Debug Auth Error Details:', {
+        message: error?.message,
+        name: error?.name,
+        stack: error?.stack
+      });
+      
+      let userMessage = 'Gagal memverifikasi token developer.';
+      
+      if (error?.message?.includes('Failed to fetch')) {
+        userMessage = 'Tidak dapat terhubung ke server. Pastikan backend berjalan di port 3001.';
+      } else if (error?.name === 'TypeError') {
+        userMessage = 'Network error: Tidak dapat menghubungi server backend.';
+      } else if (error?.message) {
+        userMessage = error.message;
+      }
+      
       setDevAuthStatus({
         loading: false,
-        error: error?.message || 'Gagal memverifikasi token developer.',
+        error: userMessage,
         success: false
       });
     }
@@ -1346,7 +1396,8 @@ export default function EditPhoto() {
       'FremioSeries-pink-3': FremioSeriesPink3,
       'FremioSeries-purple-3': FremioSeriesPurple3,
       'FremioSeries-white-3': FremioSeriesWhite3,
-      'FremioSeries-blue-4': FremioSeriesBlue4
+      'FremioSeries-blue-4': FremioSeriesBlue4,
+      'EverythingYouAre-3x2': EverythingYouAre3x2
     };
     return frameMap[frameId] || FremioSeriesBlue2;
   };
@@ -2101,6 +2152,18 @@ export default function EditPhoto() {
   };
 
   const generateFramedVideo = async ({ loadedPhotos, canvasWidth, canvasHeight, timestamp, skipDownload = false }) => {
+    const mobileDevice = isMobileDevice(); // Detect mobile once at the start
+    
+    console.log('🎬 === GENERATE FRAMED VIDEO START ===');
+    console.log('🎬 Input params:', {
+      loadedPhotosCount: loadedPhotos.length,
+      canvasWidth,
+      canvasHeight,
+      timestamp,
+      skipDownload,
+      isMobile: mobileDevice
+    });
+    
     if (!isBrowser) {
       console.log('🎬 Skipping framed video generation outside browser environment');
       return { success: false, reason: 'no-browser' };
@@ -2110,13 +2173,21 @@ export default function EditPhoto() {
       console.warn('🎬 Frame configuration missing slots; skipping framed video generation');
       return { success: false, reason: 'no-frame-slots' };
     }
+    console.log('🎬 Frame config has', frameConfig.slots.length, 'slots');
 
     const slotVideoInfos = frameConfig.slots.map((_, index) => getVideoSourceForSlot(index));
+    console.log('🎬 Slot video infos:', slotVideoInfos.map((info, i) => ({
+      slot: i,
+      hasVideo: !!info?.dataUrl,
+      mirrored: info?.mirrored
+    })));
+    
     const hasVideo = slotVideoInfos.some((info) => info && info.dataUrl);
     if (!hasVideo) {
       console.log('🎬 No recorded videos available for framing. Skipping video export.');
       return { success: false, reason: 'no-source-video' };
     }
+    console.log('✅ Has video sources, proceeding...');
 
     const imageCache = new Map();
     loadedPhotos.forEach(({ img, index }) => {
@@ -2247,7 +2318,9 @@ export default function EditPhoto() {
       5: 6,
       10: 6
     };
-    const DEFAULT_TARGET_DURATION = 6;
+    // Shorter duration for mobile to speed up processing
+    const DEFAULT_TARGET_DURATION = mobileDevice ? 4 : 6; // 4s mobile, 6s desktop
+    console.log(`🎬 Max video duration: ${DEFAULT_TARGET_DURATION}s (${mobileDevice ? 'mobile' : 'desktop'})`);
 
     const clampDuration = (value, hardCap = DEFAULT_TARGET_DURATION) => {
       if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) {
@@ -2299,8 +2372,13 @@ export default function EditPhoto() {
     videoCanvas.height = canvasHeight;
     const videoCtx = videoCanvas.getContext('2d');
 
-    const stream = videoCanvas.captureStream(30);
-    const recorder = createRecorderFromStream(stream, { videoBitsPerSecond: 5_000_000 });
+    // Lower bitrate and frame rate for mobile to speed up processing
+    const videoBitrate = mobileDevice ? 2_000_000 : 5_000_000; // 2Mbps mobile, 5Mbps desktop
+    const frameRate = mobileDevice ? 24 : 30; // 24fps mobile, 30fps desktop
+    console.log(`🎬 Video settings: ${videoBitrate/1_000_000}Mbps @ ${frameRate}fps (${mobileDevice ? 'mobile' : 'desktop'})`);
+    
+    const stream = videoCanvas.captureStream(frameRate);
+    const recorder = createRecorderFromStream(stream, { videoBitsPerSecond: videoBitrate });
     if (!recorder) {
       console.warn('🎬 Unable to initialize MediaRecorder; framed video export skipped');
       return { success: false, reason: 'recorder-init-failed' };
@@ -2592,8 +2670,10 @@ export default function EditPhoto() {
     let videoFilename = `photobooth-${selectedFrame}-${timestamp}.webm`;
     let convertedToMp4 = false;
 
-    if (!videoBlob.type.includes('mp4')) {
+    // Skip MP4 conversion on mobile devices to avoid stuck/timeout issues
+    if (!videoBlob.type.includes('mp4') && !mobileDevice) {
       try {
+        console.log('🔄 Converting video to MP4 (desktop only)...');
         const mp4Blob = await convertBlobToMp4(videoBlob, {
           outputPrefix: `photobooth-${selectedFrame}`,
           frameRate: 30,
@@ -2603,20 +2683,38 @@ export default function EditPhoto() {
           finalVideoBlob = mp4Blob;
           videoFilename = `photobooth-${selectedFrame}-${timestamp}.mp4`;
           convertedToMp4 = true;
+          console.log('✅ MP4 conversion successful');
         } else {
           console.warn('⚠️ MP4 conversion failed; falling back to original WebM download.');
         }
       } catch (conversionError) {
         console.error('❌ MP4 conversion threw an error; falling back to WebM download.', conversionError);
       }
+    } else if (mobileDevice) {
+      console.log('📱 Mobile device detected - skipping MP4 conversion, using WebM directly');
     }
 
+    console.log('🎬 Final video blob:', {
+      size: finalVideoBlob.size,
+      type: finalVideoBlob.type,
+      filename: videoFilename
+    });
+    
     if (!skipDownload) {
-      triggerBlobDownload(finalVideoBlob, videoFilename);
+      console.log('📥 Triggering download for:', videoFilename);
+      try {
+        triggerBlobDownload(finalVideoBlob, videoFilename);
+        console.log('✅ Download triggered successfully!');
+      } catch (downloadError) {
+        console.error('❌ Download failed:', downloadError);
+        throw downloadError;
+      }
       console.log('🎬 Framed video saved successfully!');
     } else {
       console.log('🎬 Framed video ready for bundling (download skipped).');
     }
+    
+    console.log('🎬 === GENERATE FRAMED VIDEO END ===');
     return {
       success: true,
       blob: finalVideoBlob,
@@ -3336,6 +3434,338 @@ export default function EditPhoto() {
     console.log('🖼️ Frame Image:', frameImage);
   };
 
+  // Check if user has videos from camera (not from file upload)
+  const hasVideosFromCamera = useMemo(() => {
+    return recordedClips.length > 0;
+  }, [recordedClips]);
+
+  const savePhotoOnly = async () => {
+    console.log('📸 Saving photo only...');
+    
+    // Create canvas
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    let frameAspectRatio, canvasWidth, canvasHeight;
+    
+    if (frameConfig.id === 'Testframe4') {
+      frameAspectRatio = 2 / 3;
+      canvasWidth = 800;
+      canvasHeight = canvasWidth / frameAspectRatio;
+    } else {
+      frameAspectRatio = 2 / 3;
+      canvasWidth = 800;
+      canvasHeight = canvasWidth / frameAspectRatio;
+    }
+    
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    
+    ctx.fillStyle = '#2563eb';
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    
+    if (!frameConfig || !frameConfig.slots || photos.length === 0) {
+      alert('No photos to save');
+      return;
+    }
+    
+    // Load and render photos (same logic as handleSave)
+    const loadBasePhoto = (photoDataUrl, index) =>
+      new Promise((resolve) => {
+        if (!photoDataUrl) {
+          resolve({ img: null, index });
+          return;
+        }
+        const img = new Image();
+        img.onload = () => resolve({ img, index });
+        img.onerror = () => resolve({ img: null, index });
+        img.src = photoDataUrl;
+      });
+    
+    const loadedPhotos = await Promise.all(photos.map(loadBasePhoto));
+    
+    // Render photos to canvas
+    let renderedCount = 0;
+    loadedPhotos.forEach(({ img, index: photoIndex }) => {
+      if (!img) return;
+      
+      const matchingSlots = frameConfig.slots
+        .map((slot, slotIndex) => ({ slot, slotIndex }))
+        .filter(({ slot }) => slot.photoIndex === photoIndex);
+      
+      matchingSlots.forEach(({ slot, slotIndex }) => {
+        const slotX = (slot.left / 100) * canvasWidth;
+        const slotY = (slot.top / 100) * canvasHeight;
+        const slotWidth = (slot.width / 100) * canvasWidth;
+        const slotHeight = (slot.height / 100) * canvasHeight;
+        
+        const slotCenterX = slotX + slotWidth / 2;
+        const slotCenterY = slotY + slotHeight / 2;
+        
+        const photoDisplayWidth = slotWidth;
+        const photoDisplayHeight = slotHeight;
+        
+        const transform = photoTransforms[slotIndex] || { scale: 1.0, translateX: 0, translateY: 0 };
+        const { scale, translateX, translateY } = transform;
+        
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(slotX, slotY, slotWidth, slotHeight);
+        ctx.clip();
+        
+        const finalPhotoWidth = photoDisplayWidth * scale;
+        const finalPhotoHeight = photoDisplayHeight * scale;
+        const finalPhotoX = slotCenterX - finalPhotoWidth / 2 + translateX;
+        const finalPhotoY = slotCenterY - finalPhotoHeight / 2 + translateY;
+        
+        const slotFilterId = resolveSlotFilterId(slotIndex);
+        drawImageWithFilter(ctx, img, finalPhotoX, finalPhotoY, finalPhotoWidth, finalPhotoHeight, {
+          filterId: slotFilterId,
+        });
+        
+        ctx.restore();
+        renderedCount += 1;
+      });
+    });
+    
+    // Render frame overlay
+    if (frameImage) {
+      const frameImgElement = new Image();
+      await new Promise((resolve) => {
+        frameImgElement.onload = () => {
+          ctx.drawImage(frameImgElement, 0, 0, canvasWidth, canvasHeight);
+          resolve();
+        };
+        frameImgElement.onerror = () => resolve();
+        frameImgElement.src = frameImage;
+      });
+    }
+    
+    // Save photo
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+    const photoBlob = await new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error('Failed to generate image blob'));
+          return;
+        }
+        resolve(blob);
+      }, 'image/png', 0.95);
+    });
+    
+    const photoFilename = `photobooth-${selectedFrame}-${timestamp}.png`;
+    triggerBlobDownload(photoBlob, photoFilename);
+    
+    alert('Photo saved successfully!');
+    clearCapturedMediaStorage(selectedFrame);
+  };
+
+  const saveVideoOnly = async () => {
+    const mobileDevice = isMobileDevice();
+    console.log('🎥 [1/6] Starting saveVideoOnly...');
+    console.log('📱 Device info:', {
+      userAgent: navigator.userAgent,
+      isMobile: mobileDevice
+    });
+    
+    if (!hasVideosFromCamera) {
+      console.error('❌ No videos from camera available');
+      alert('No video available. Videos are only available when using the camera.');
+      return;
+    }
+    console.log('✅ Has videos from camera:', recordedClips.length);
+    
+    // Check video durations and warn if too long on mobile
+    if (mobileDevice && videos && videos.length > 0) {
+      const totalEstimatedDuration = videos.length * 4; // Assume avg 4s per video
+      if (totalEstimatedDuration > 15) {
+        console.warn('⚠️ Videos might be too long for mobile processing');
+        const proceed = window.confirm(
+          `You have ${videos.length} videos which might take a while to process on mobile. Continue anyway?`
+        );
+        if (!proceed) {
+          return;
+        }
+      }
+    }
+    
+    // Load photos first
+    console.log('🎥 [2/6] Loading photos...');
+    const loadBasePhoto = (photoDataUrl, index) =>
+      new Promise((resolve) => {
+        if (!photoDataUrl) {
+          console.warn(`⚠️ Photo ${index} has no data`);
+          resolve({ img: null, index });
+          return;
+        }
+        const img = new Image();
+        img.onload = () => {
+          console.log(`✅ Photo ${index} loaded: ${img.width}x${img.height}`);
+          resolve({ img, index });
+        };
+        img.onerror = (error) => {
+          console.error(`❌ Photo ${index} failed to load:`, error);
+          resolve({ img: null, index });
+        };
+        img.src = photoDataUrl;
+      });
+    
+    const loadedPhotos = await Promise.all(photos.map(loadBasePhoto));
+    console.log('✅ [3/6] Photos loaded:', loadedPhotos.filter(p => p.img).length, 'of', photos.length);
+    
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+    
+    // Canvas settings for video - smaller size for mobile  
+    let frameAspectRatio, canvasWidth, canvasHeight;
+    
+    // Use smaller canvas for mobile to speed up processing
+    const baseWidth = mobileDevice ? 600 : 800; // 600px mobile, 800px desktop
+    
+    if (frameConfig.id === 'Testframe4') {
+      frameAspectRatio = 2 / 3;
+      canvasWidth = baseWidth;
+      canvasHeight = canvasWidth / frameAspectRatio;
+    } else {
+      frameAspectRatio = 2 / 3;
+      canvasWidth = baseWidth;
+      canvasHeight = canvasWidth / frameAspectRatio;
+    }
+    console.log('✅ [4/6] Canvas configured:', canvasWidth, 'x', canvasHeight, `(${mobileDevice ? 'mobile' : 'desktop'})`);
+    
+    // MOBILE WORKAROUND: Download raw videos instead of generating framed video
+    if (mobileDevice) {
+      console.log('📱 [5/6] Mobile device - downloading raw videos without frame overlay');
+      console.log('📱 recordedClips:', recordedClips);
+      console.log('📱 videos array:', videos);
+      
+      try {
+        // Download each video from videos array
+        let downloadedCount = 0;
+        
+        for (let i = 0; i < videos.length; i++) {
+          const videoData = videos[i];
+          console.log(`📱 Processing video ${i+1}:`, videoData);
+          
+          if (!videoData) {
+            console.warn(`⚠️ Video ${i+1} is null/undefined`);
+            continue;
+          }
+          
+          let blob = null;
+          
+          // Try to get blob from different sources
+          if (videoData.blob) {
+            console.log(`✅ Video ${i+1} has blob directly`);
+            blob = videoData.blob;
+          } else if (videoData.dataUrl) {
+            console.log(`✅ Video ${i+1} has dataUrl, converting to blob...`);
+            blob = await fetch(videoData.dataUrl).then(r => r.blob());
+          } else if (typeof videoData === 'string' && videoData.startsWith('blob:')) {
+            console.log(`✅ Video ${i+1} is blob URL string`);
+            blob = await fetch(videoData).then(r => r.blob());
+          } else if (typeof videoData === 'string' && videoData.startsWith('data:')) {
+            console.log(`✅ Video ${i+1} is data URL string`);
+            blob = await fetch(videoData).then(r => r.blob());
+          }
+          
+          if (blob) {
+            const filename = `photobooth-${selectedFrame}-clip${i+1}-${timestamp}.webm`;
+            console.log(`📥 Downloading: ${filename} (${blob.size} bytes)`);
+            triggerBlobDownload(blob, filename);
+            downloadedCount++;
+            console.log(`✅ Downloaded clip ${i+1}/${videos.length}`);
+          } else {
+            console.error(`❌ Video ${i+1} has no valid data source`);
+          }
+        }
+        
+        if (downloadedCount > 0) {
+          console.log('✅ [6/6] All raw video clips downloaded successfully!');
+          alert(`✅ ${downloadedCount} video clip(s) downloaded successfully!\n\n📱 Mobile devices download raw videos without frame overlay.\n💻 Use desktop to generate videos with frames.`);
+          clearCapturedMediaStorage(selectedFrame);
+        } else {
+          console.error('❌ No video clips to download');
+          console.error('Debug info:', {
+            videosLength: videos.length,
+            recordedClipsLength: recordedClips.length,
+            videos: videos
+          });
+          alert('No video clips found to download. Please make sure you captured videos using the camera.');
+        }
+      } catch (error) {
+        console.error('❌ Error downloading videos:', error);
+        alert(`Failed to download videos: ${error.message}`);
+      }
+      return;
+    }
+    
+    // DESKTOP: Generate framed video normally
+    console.log('💻 [5/6] Desktop - generating framed video...');
+    const framedVideoResult = await generateFramedVideo({
+      loadedPhotos,
+      canvasWidth,
+      canvasHeight,
+      timestamp,
+      skipDownload: false
+    });
+    
+    console.log('🎥 [6/6] Video generation result:', framedVideoResult);
+    
+    if (framedVideoResult && framedVideoResult.success) {
+      console.log('✅ Video saved successfully!');
+      alert('Video saved successfully!');
+      clearCapturedMediaStorage(selectedFrame);
+    } else {
+      console.error('❌ Video generation failed:', framedVideoResult);
+      alert('Failed to generate video. Please try again.');
+    }
+  };
+
+  const handleSavePhoto = async () => {
+    if (isSaving) return;
+    
+    if (hasDevAccess) {
+      debugSaveState();
+    }
+    
+    setIsSaving(true);
+    try {
+      await savePhotoOnly();
+    } catch (error) {
+      console.error('❌ Save photo error:', error);
+      alert('Failed to save photo. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveVideo = async () => {
+    if (isSaving) return;
+    
+    setIsSaving(true);
+    try {
+      // Shorter timeout for mobile devices (30s mobile, 60s desktop)
+      const mobileDevice = isMobileDevice();
+      const timeoutMs = mobileDevice ? 30000 : 60000; // 30s mobile, 60s desktop
+      console.log(`⏱️ Video generation timeout set to ${timeoutMs/1000}s (${mobileDevice ? 'mobile' : 'desktop'})`);
+      
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Video generation timeout')), timeoutMs);
+      });
+      
+      await Promise.race([saveVideoOnly(), timeoutPromise]);
+    } catch (error) {
+      console.error('❌ Save video error:', error);
+      if (error.message === 'Video generation timeout') {
+        alert('Video generation took too long. Please try with shorter videos or fewer photos.');
+      } else {
+        alert('Failed to save video. Please try again.');
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleSave = async () => {
     if (isSaving) return; // Prevent multiple saves
     
@@ -3961,18 +4391,19 @@ export default function EditPhoto() {
                 boxShadow: '0 18px 30px rgba(15,23,42,0.18)',
                 overflow: 'hidden',
                 width: '100%',
-                maxWidth: isCompact ? '280px' : '320px'
+                maxWidth: isCompact ? '280px' : '320px',
+                gap: '1px'
               }}
             >
               <button
-                onClick={handleSave}
+                onClick={handleSavePhoto}
                 disabled={isSaving}
                 style={{
                   flex: 1,
                   border: 'none',
                   background: 'transparent',
-                  padding: isCompact ? '0.82rem 0' : '0.9rem 0',
-                  fontSize: isCompact ? '1rem' : '1.05rem',
+                  padding: isCompact ? '0.82rem 0.5rem' : '0.9rem 0.75rem',
+                  fontSize: isCompact ? '0.9rem' : '0.95rem',
                   fontWeight: 700,
                   color: isSaving ? '#94a3b8' : '#111827',
                   cursor: isSaving ? 'not-allowed' : 'pointer',
@@ -3980,7 +4411,7 @@ export default function EditPhoto() {
                   letterSpacing: '-0.01em'
                 }}
               >
-                {isSaving ? 'Saving…' : 'Save'}
+                {isSaving ? '💾 Saving…' : '📸 Save Photo'}
               </button>
               <div
                 style={{
@@ -3989,86 +4420,94 @@ export default function EditPhoto() {
                 }}
               />
               <button
-                onClick={handlePrint}
-                disabled={isUploading}
+                onClick={handleSaveVideo}
+                disabled={isSaving || !hasVideosFromCamera}
                 style={{
                   flex: 1,
                   border: 'none',
                   background: 'transparent',
-                  padding: isCompact ? '0.82rem 0' : '0.9rem 0',
-                  fontSize: isCompact ? '1rem' : '1.05rem',
+                  padding: isCompact ? '0.82rem 0.5rem' : '0.9rem 0.75rem',
+                  fontSize: isCompact ? '0.9rem' : '0.95rem',
                   fontWeight: 700,
-                  color: isUploading ? '#94a3b8' : '#111827',
-                  cursor: isUploading ? 'not-allowed' : 'pointer',
+                  color: (isSaving || !hasVideosFromCamera) ? '#94a3b8' : '#111827',
+                  cursor: (isSaving || !hasVideosFromCamera) ? 'not-allowed' : 'pointer',
                   transition: 'color 0.2s ease',
-                  letterSpacing: '-0.01em'
+                  letterSpacing: '-0.01em',
+                  opacity: (isSaving || !hasVideosFromCamera) ? 0.5 : 1
                 }}
               >
-                {isUploading ? 'Preparing…' : 'Print'}
+                {isSaving ? '🎥 Saving...' : '🎥 Save Video'}
               </button>
             </div>
           ) : (
-            <>
+            <div style={{
+              display: 'flex',
+              gap: '1rem',
+              justifyContent: 'center',
+              width: '100%'
+            }}>
               <button
-                onClick={handleSave}
+                onClick={handleSavePhoto}
                 disabled={isSaving}
                 style={{
-                  background: isSaving ? '#f5f5f5' : '#fff',
-                  border: '2px solid #E8A889',
-                  color: isSaving ? '#999' : '#E8A889',
+                  background: isSaving ? '#f5f5f5' : '#E8A889',
+                  border: 'none',
+                  color: isSaving ? '#999' : 'white',
                   borderRadius: '25px',
                   padding: '0.8rem 2rem',
                   fontSize: '1rem',
                   fontWeight: '600',
                   cursor: isSaving ? 'not-allowed' : 'pointer',
                   transition: 'all 0.3s ease',
-                  opacity: isSaving ? 0.7 : 1
+                  opacity: isSaving ? 0.7 : 1,
+                  flex: 1
                 }}
                 onMouseEnter={(e) => {
                   if (!isSaving) {
+                    e.target.style.background = '#d49673';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSaving) {
+                    e.target.style.background = '#E8A889';
+                  }
+                }}
+              >
+                {isSaving ? '💾 Saving...' : '📸 Save Photo'}
+              </button>
+              
+              <button
+                onClick={handleSaveVideo}
+                disabled={isSaving || !hasVideosFromCamera}
+                style={{
+                  background: (isSaving || !hasVideosFromCamera) ? '#f5f5f5' : '#fff',
+                  border: `2px solid ${(isSaving || !hasVideosFromCamera) ? '#ccc' : '#E8A889'}`,
+                  color: (isSaving || !hasVideosFromCamera) ? '#999' : '#E8A889',
+                  borderRadius: '25px',
+                  padding: '0.8rem 2rem',
+                  fontSize: '1rem',
+                  fontWeight: '600',
+                  cursor: (isSaving || !hasVideosFromCamera) ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.3s ease',
+                  opacity: (isSaving || !hasVideosFromCamera) ? 0.5 : 1,
+                  flex: 1
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSaving && hasVideosFromCamera) {
                     e.target.style.background = '#E8A889';
                     e.target.style.color = 'white';
                   }
                 }}
                 onMouseLeave={(e) => {
-                  if (!isSaving) {
+                  if (!isSaving && hasVideosFromCamera) {
                     e.target.style.background = '#fff';
                     e.target.style.color = '#E8A889';
                   }
                 }}
               >
-                {isSaving ? '💾 Saving...' : 'Save'}
+                {isSaving ? '🎥 Saving...' : '🎥 Save Video'}
               </button>
-              <button
-                onClick={handlePrint}
-                disabled={isUploading}
-                style={{
-                  background: isUploading ? '#f5f5f5' : '#E8A889',
-                  border: 'none',
-                  color: isUploading ? '#999' : 'white',
-                  borderRadius: '25px',
-                  padding: '0.8rem 2rem',
-                  fontSize: '1rem',
-                  fontWeight: '600',
-                  cursor: isUploading ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.3s ease',
-                  opacity: isUploading ? 0.7 : 1,
-                  marginLeft: '1rem'
-                }}
-                onMouseEnter={(e) => {
-                  if (!isUploading) {
-                    e.target.style.background = '#d49673';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isUploading) {
-                    e.target.style.background = '#E8A889';
-                  }
-                }}
-              >
-                {isUploading ? '⏳ Preparing...' : '🖨️ Print'}
-              </button>
-            </>
+            </div>
           )}
         </div>
       </div>
@@ -4124,7 +4563,7 @@ export default function EditPhoto() {
               opacity: 0.85
             }}
           >
-            Foto dan video sedang dikemas ke dalam satu folder. Mohon tunggu sampai unduhan dimulai.
+            Mohon tunggu, file sedang diproses.
           </div>
         </div>
       </div>

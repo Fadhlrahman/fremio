@@ -1,5 +1,6 @@
 import { NavLink, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
+import logoSalem from "../assets/logo-salem.png";
 
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -43,7 +44,9 @@ export default function Header() {
     <header className="site-header">
       <div className="container header-bar">
         {/* Left: Logo */}
-        <div className="logo">fremio</div>
+        <div className="logo">
+          <img src={logoSalem} alt="Fremio" style={{ height: "40px" }} />
+        </div>
 
         {/* Center: Nav */}
         <nav className="main-nav">{navLinks}</nav>

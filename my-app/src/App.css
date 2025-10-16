@@ -59,12 +59,17 @@
 }
 .mobile-menu.open{ display: block; }
 
-/* Logo kiri (serif) */
+/* Logo kiri */
 .logo{
-  font-family: ui-serif, Georgia, "Times New Roman", serif;
-  font-size: 40px;
-  font-weight: 600;
-  letter-spacing: .3px;
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+}
+
+.logo img{
+  height: 44px;
+  width: auto;
+  display: block;
 }
 
 /* Menu tengah */
@@ -117,7 +122,7 @@
 }
 @media (max-width: 680px){
   .header-bar{ grid-template-columns: auto 1fr auto; height: 68px; }
-  .logo{ font-size: 32px; }
+  .logo img{ height: 36px; }
   .nav-link.active::after{ width: 36px; bottom: -5px; }
 }
 

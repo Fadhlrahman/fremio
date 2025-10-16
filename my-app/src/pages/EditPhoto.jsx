@@ -6,7 +6,7 @@ import { reloadFrameConfig as reloadFrameConfigFromManager } from '../config/fra
 import frameProvider from '../utils/frameProvider.js';
 import safeStorage from '../utils/safeStorage.js';
 import QRCode from 'qrcode';
-import { convertBlobToMp4 } from '../utils/videoTranscoder.js';
+import { convertBlobToMp4, ensureFfmpeg } from '../utils/videoTranscoder.js';
 import swapIcon from '../assets/swap.png';
 import shiftIcon from '../assets/Shift.png';
 // FremioSeries Imports.
@@ -252,6 +252,7 @@ export default function EditPhoto() {
   const [configReloadKey, setConfigReloadKey] = useState(0);
   const [isReloading, setIsReloading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveStatusMessage, setSaveStatusMessage] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [printCode, setPrintCode] = useState(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -589,15 +590,41 @@ export default function EditPhoto() {
     };
   }, [frameConfig?.id]);
 
-  const recordedClips = useMemo(() => (
-    videos
+  const recordedClips = useMemo(() => {
+    console.log('🔍 Building recordedClips from videos array:', videos);
+    const clips = videos
       .map((clip, index) => {
-        if (!clip) return null;
-        if (!clip.dataUrl && !clip.blob) return null;
+        if (!clip) {
+          console.log(`📹 Video ${index}: null/undefined`);
+          return null;
+        }
+        
+        // Check various ways video data might exist
+        const hasDataUrl = !!clip.dataUrl;
+        const hasBlob = !!clip.blob;
+        const hasId = !!clip.id;
+        
+        console.log(`📹 Video ${index}:`, {
+          hasDataUrl,
+          hasBlob,
+          hasId,
+          type: typeof clip,
+          keys: Object.keys(clip || {})
+        });
+        
+        // Accept video if it has any of these indicators
+        if (!hasDataUrl && !hasBlob && !hasId) {
+          console.log(`⚠️ Video ${index}: No valid data source found`);
+          return null;
+        }
+        
         return { index, clip };
       })
-      .filter(Boolean)
-  ), [videos]);
+      .filter(Boolean);
+    
+    console.log('✅ recordedClips result:', clips.length, 'clips');
+    return clips;
+  }, [videos]);
 
   const pagePadding = useMemo(() => {
     if (!isMobile) {
@@ -2319,7 +2346,7 @@ export default function EditPhoto() {
       10: 6
     };
     // Shorter duration for mobile to speed up processing
-    const DEFAULT_TARGET_DURATION = mobileDevice ? 4 : 6; // 4s mobile, 6s desktop
+  const DEFAULT_TARGET_DURATION = mobileDevice ? 3.5 : 6; // shorter duration for mobile stability
     console.log(`🎬 Max video duration: ${DEFAULT_TARGET_DURATION}s (${mobileDevice ? 'mobile' : 'desktop'})`);
 
     const clampDuration = (value, hardCap = DEFAULT_TARGET_DURATION) => {
@@ -2372,54 +2399,8 @@ export default function EditPhoto() {
     videoCanvas.height = canvasHeight;
     const videoCtx = videoCanvas.getContext('2d');
 
-    // Lower bitrate and frame rate for mobile to speed up processing
-    const videoBitrate = mobileDevice ? 2_000_000 : 5_000_000; // 2Mbps mobile, 5Mbps desktop
-    const frameRate = mobileDevice ? 24 : 30; // 24fps mobile, 30fps desktop
-    console.log(`🎬 Video settings: ${videoBitrate/1_000_000}Mbps @ ${frameRate}fps (${mobileDevice ? 'mobile' : 'desktop'})`);
-    
-    const stream = videoCanvas.captureStream(frameRate);
-    const recorder = createRecorderFromStream(stream, { videoBitsPerSecond: videoBitrate });
-    if (!recorder) {
-      console.warn('🎬 Unable to initialize MediaRecorder; framed video export skipped');
-      return { success: false, reason: 'recorder-init-failed' };
-    }
-
-    const recordedChunks = [];
-    const recordingPromise = new Promise((resolve, reject) => {
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          recordedChunks.push(event.data);
-        }
-      };
-      recorder.onerror = (event) => {
-        console.error('❌ MediaRecorder error during framed video creation:', event);
-        reject(event.error || new Error('MediaRecorder error'));
-      };
-      recorder.onstop = () => {
-        try {
-          const mimeType = recorder.mimeType || 'video/webm';
-          resolve(new Blob(recordedChunks, { type: mimeType }));
-        } catch (blobError) {
-          reject(blobError);
-        }
-      };
-    });
-
-    recorder.start();
-
-    await Promise.all(activeVideos.map(async ({ video }) => {
-      try {
-        video.currentTime = 0;
-        if (video.paused) {
-          await video.play();
-        }
-      } catch (error) {
-        console.warn('⚠️ Video playback interrupted during framed video render:', error);
-      }
-    }));
-
-  const PREVIEW_WIDTH = Math.max(previewWidth, 1);
-  const PREVIEW_HEIGHT = Math.max(previewHeight, 1);
+    const PREVIEW_WIDTH = Math.max(previewWidth, 1);
+    const PREVIEW_HEIGHT = Math.max(previewHeight, 1);
     const SCALE_RATIO = canvasWidth / PREVIEW_WIDTH;
 
     const getMediaDimensions = (media) => {
@@ -2484,7 +2465,6 @@ export default function EditPhoto() {
 
       let computedScale = targetSlotDimension / currentDisplayDimension;
 
-      // Only allow zooming out (scale <= 1) using this auto adjustment
       if (computedScale > 1) {
         computedScale = 1;
       }
@@ -2592,6 +2572,239 @@ export default function EditPhoto() {
       videoCtx.restore();
     };
 
+    const drawCompositeFrame = () => {
+      videoCtx.clearRect(0, 0, canvasWidth, canvasHeight);
+      videoCtx.fillStyle = '#2563eb';
+      videoCtx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+      frameConfig.slots.forEach((_, slotIndex) => {
+        const videoEntry = slotVideoElements[slotIndex];
+        if (videoEntry && videoEntry.video.readyState >= 2) {
+          drawMediaInSlot(videoEntry.video, slotIndex, {
+            mirrored: Boolean(videoEntry.info?.mirrored)
+          });
+        } else {
+          const fallbackImage = slotPhotoElements[slotIndex];
+          if (fallbackImage) {
+            drawMediaInSlot(fallbackImage, slotIndex);
+          }
+        }
+      });
+
+      if (frameOverlayImage) {
+        videoCtx.drawImage(frameOverlayImage, 0, 0, canvasWidth, canvasHeight);
+      }
+    };
+
+    const encodeWithFfmpegFallback = async () => {
+      console.log('🎬 Falling back to FFmpeg-based encoder');
+      let cleanupArtifacts = async () => {};
+      try {
+        const ffmpeg = await ensureFfmpeg();
+        if (!ffmpeg) {
+          console.error('❌ FFmpeg instance unavailable');
+          return { success: false, reason: 'ffmpeg-unavailable' };
+        }
+
+        setSaveStatusMessage('🎞️ Merender video dengan mode kompatibilitas...');
+
+        const fallbackFrameRate = Math.max(12, Math.min(21, Math.round(frameRate * 0.8)));
+        const totalDuration = maxDuration + 0.25;
+        const padDigits = Math.max(4, String(Math.ceil(totalDuration * fallbackFrameRate) + 2).length);
+        const framePrefix = `frame_${timestamp}`;
+        const framePattern = `${framePrefix}_%0${padDigits}d.jpg`;
+        const capturedFrameNames = [];
+        let outputName = null;
+
+  cleanupArtifacts = async () => {
+          await Promise.all(capturedFrameNames.map(async (name) => {
+            try {
+              await ffmpeg.deleteFile(name);
+            } catch (cleanupError) {
+              // ignore cleanup errors
+            }
+          }));
+          if (outputName) {
+            try {
+              await ffmpeg.deleteFile(outputName);
+            } catch (cleanupError) {
+              // ignore
+            }
+          }
+        };
+
+        await Promise.all(activeVideos.map(async ({ video }) => {
+          try {
+            video.currentTime = 0;
+            if (video.paused) {
+              await video.play();
+            }
+          } catch (error) {
+            console.warn('⚠️ FFmpeg fallback: video playback start issue', error);
+          }
+        }));
+
+        const fallbackStart = performance.now();
+        let framesCaptured = 0;
+
+        const captureFrameToFfmpeg = async (frameName) => {
+          const blob = await new Promise((resolve, reject) => {
+            videoCanvas.toBlob((b) => {
+              if (!b) {
+                reject(new Error('Frame capture returned empty blob'));
+              } else {
+                resolve(b);
+              }
+            }, 'image/jpeg', 0.9);
+          });
+
+          const frameData = new Uint8Array(await blob.arrayBuffer());
+          await ffmpeg.writeFile(frameName, frameData);
+          capturedFrameNames.push(frameName);
+        };
+
+        while (true) {
+          drawCompositeFrame();
+
+          const frameName = `${framePrefix}_${String(framesCaptured).padStart(padDigits, '0')}.jpg`;
+          await captureFrameToFfmpeg(frameName);
+          framesCaptured += 1;
+
+          const elapsed = (performance.now() - fallbackStart) / 1000;
+          const allVideosEnded = slotVideoElements.every((entry, index) => {
+            if (!entry) return true;
+            const duration = slotTargetDurations[index] || maxDuration;
+            return entry.video.ended || entry.video.currentTime >= duration;
+          });
+
+          if (elapsed >= totalDuration || allVideosEnded) {
+            break;
+          }
+
+          const targetNextTimestamp = framesCaptured / fallbackFrameRate;
+          const waitMs = Math.max(0, (targetNextTimestamp - elapsed) * 1000);
+          if (waitMs > 16) {
+            await new Promise((resolve) => setTimeout(resolve, waitMs));
+          } else {
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+          }
+        }
+
+        activeVideos.forEach(({ video }) => {
+          try {
+            video.pause();
+          } catch (pauseError) {
+            console.warn('⚠️ FFmpeg fallback: failed to pause video', pauseError);
+          }
+        });
+
+        if (!capturedFrameNames.length) {
+          console.error('❌ FFmpeg fallback captured zero frames');
+          return { success: false, reason: 'ffmpeg-no-frames' };
+        }
+
+        outputName = `fallback_${timestamp}.mp4`;
+        try {
+          await ffmpeg.exec([
+            '-framerate', String(fallbackFrameRate),
+            '-start_number', '0',
+            '-i', framePattern,
+            '-c:v', 'libx264',
+            '-preset', 'veryfast',
+            '-pix_fmt', 'yuv420p',
+            '-movflags', 'faststart',
+            outputName
+          ]);
+        } catch (encodeError) {
+          console.error('❌ FFmpeg fallback encoding failed:', encodeError);
+          await cleanupArtifacts();
+          return { success: false, reason: 'ffmpeg-encode-failed', error: encodeError };
+        }
+
+        const outputData = await ffmpeg.readFile(outputName);
+        if (!outputData) {
+          console.error('❌ FFmpeg fallback produced empty output');
+          await cleanupArtifacts();
+          return { success: false, reason: 'ffmpeg-output-empty' };
+        }
+
+        const outputUint8 = outputData instanceof Uint8Array ? outputData : new Uint8Array(outputData);
+        const finalVideoBlob = new Blob([outputUint8], { type: 'video/mp4' });
+        const videoFilename = `photobooth-${selectedFrame}-${timestamp}.mp4`;
+
+        if (!skipDownload) {
+          triggerBlobDownload(finalVideoBlob, videoFilename);
+          console.log('✅ FFmpeg fallback download triggered');
+        }
+
+        await cleanupArtifacts();
+
+        return {
+          success: true,
+          blob: finalVideoBlob,
+          filename: videoFilename,
+          duration: maxDuration,
+          convertedToMp4: true,
+          encoder: 'ffmpeg'
+        };
+      } catch (fallbackError) {
+        console.error('❌ FFmpeg fallback failed:', fallbackError);
+        try {
+          // Attempt cleanup before returning failure
+          await cleanupArtifacts();
+        } catch (cleanupError) {
+          // ignore cleanup failures in error path
+        }
+        return { success: false, reason: 'ffmpeg-fallback-error', error: fallbackError };
+      }
+    };
+
+    // Lower bitrate and frame rate for mobile to speed up processing
+    const videoBitrate = mobileDevice ? 1_600_000 : 5_000_000; // optimized bitrate for mobile
+    const frameRate = mobileDevice ? 21 : 30; // lower fps on mobile to reduce workload
+    console.log(`🎬 Video settings: ${videoBitrate/1_000_000}Mbps @ ${frameRate}fps (${mobileDevice ? 'mobile' : 'desktop'})`);
+    
+    const stream = videoCanvas.captureStream(frameRate);
+    const recorder = createRecorderFromStream(stream, { videoBitsPerSecond: videoBitrate });
+    if (!recorder) {
+      console.warn('🎬 Unable to initialize MediaRecorder; switching to FFmpeg fallback');
+      return await encodeWithFfmpegFallback();
+    }
+
+    const recordedChunks = [];
+    const recordingPromise = new Promise((resolve, reject) => {
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordedChunks.push(event.data);
+        }
+      };
+      recorder.onerror = (event) => {
+        console.error('❌ MediaRecorder error during framed video creation:', event);
+        reject(event.error || new Error('MediaRecorder error'));
+      };
+      recorder.onstop = () => {
+        try {
+          const mimeType = recorder.mimeType || 'video/webm';
+          resolve(new Blob(recordedChunks, { type: mimeType }));
+        } catch (blobError) {
+          reject(blobError);
+        }
+      };
+    });
+
+    recorder.start();
+
+    await Promise.all(activeVideos.map(async ({ video }) => {
+      try {
+        video.currentTime = 0;
+        if (video.paused) {
+          await video.play();
+        }
+      } catch (error) {
+        console.warn('⚠️ Video playback interrupted during framed video render:', error);
+      }
+    }));
+
     const animationStart = performance.now();
     const totalDuration = maxDuration + 0.25;
     let animationFrameId = null;
@@ -2618,27 +2831,7 @@ export default function EditPhoto() {
     };
 
     const renderFrame = () => {
-      videoCtx.clearRect(0, 0, canvasWidth, canvasHeight);
-      videoCtx.fillStyle = '#2563eb';
-      videoCtx.fillRect(0, 0, canvasWidth, canvasHeight);
-
-      frameConfig.slots.forEach((_, slotIndex) => {
-        const videoEntry = slotVideoElements[slotIndex];
-        if (videoEntry && videoEntry.video.readyState >= 2) {
-          drawMediaInSlot(videoEntry.video, slotIndex, {
-            mirrored: Boolean(videoEntry.info?.mirrored)
-          });
-        } else {
-          const fallbackImage = slotPhotoElements[slotIndex];
-          if (fallbackImage) {
-            drawMediaInSlot(fallbackImage, slotIndex);
-          }
-        }
-      });
-
-      if (frameOverlayImage) {
-        videoCtx.drawImage(frameOverlayImage, 0, 0, canvasWidth, canvasHeight);
-      }
+      drawCompositeFrame();
 
       const elapsed = (performance.now() - animationStart) / 1000;
       const allVideosEnded = slotVideoElements.every((entry, index) => {
@@ -2663,7 +2856,11 @@ export default function EditPhoto() {
     } catch (recordingError) {
       console.error('❌ Failed to finalize framed video recording:', recordingError);
       stopRecording();
-      return { success: false, reason: 'recording-finalize-failed', error: recordingError };
+      const fallbackResult = await encodeWithFfmpegFallback();
+      if (fallbackResult?.success) {
+        return fallbackResult;
+      }
+      return fallbackResult || { success: false, reason: 'recording-finalize-failed', error: recordingError };
     }
 
     let finalVideoBlob = videoBlob;
@@ -3441,6 +3638,7 @@ export default function EditPhoto() {
 
   const savePhotoOnly = async () => {
     console.log('📸 Saving photo only...');
+    setSaveStatusMessage('📸 Menyiapkan foto dengan frame...');
     
     // Create canvas
     const canvas = document.createElement('canvas');
@@ -3465,6 +3663,7 @@ export default function EditPhoto() {
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     
     if (!frameConfig || !frameConfig.slots || photos.length === 0) {
+      setSaveStatusMessage('⚠️ Tidak ada foto untuk disimpan.');
       alert('No photos to save');
       return;
     }
@@ -3554,10 +3753,12 @@ export default function EditPhoto() {
     });
     
     const photoFilename = `photobooth-${selectedFrame}-${timestamp}.png`;
-    triggerBlobDownload(photoBlob, photoFilename);
+  triggerBlobDownload(photoBlob, photoFilename);
     
-    alert('Photo saved successfully!');
-    clearCapturedMediaStorage(selectedFrame);
+  setSaveStatusMessage('✅ Foto berhasil disimpan!');
+  alert('Photo saved successfully!');
+  clearCapturedMediaStorage(selectedFrame);
+  setTimeout(() => setSaveStatusMessage(''), 3000);
   };
 
   const saveVideoOnly = async () => {
@@ -3567,10 +3768,13 @@ export default function EditPhoto() {
       userAgent: navigator.userAgent,
       isMobile: mobileDevice
     });
+    setSaveStatusMessage('🎥 Menyiapkan video dengan frame...');
     
     if (!hasVideosFromCamera) {
       console.error('❌ No videos from camera available');
+      setSaveStatusMessage('⚠️ Belum ada video dari kamera untuk disimpan.');
       alert('No video available. Videos are only available when using the camera.');
+      setTimeout(() => setSaveStatusMessage(''), 3000);
       return;
     }
     console.log('✅ Has videos from camera:', recordedClips.length);
@@ -3584,6 +3788,8 @@ export default function EditPhoto() {
           `You have ${videos.length} videos which might take a while to process on mobile. Continue anyway?`
         );
         if (!proceed) {
+          setSaveStatusMessage('⏸️ Rendering dibatalkan.');
+          setTimeout(() => setSaveStatusMessage(''), 3000);
           return;
         }
       }
@@ -3591,6 +3797,7 @@ export default function EditPhoto() {
     
     // Load photos first
     console.log('🎥 [2/6] Loading photos...');
+    setSaveStatusMessage('🖼️ Memuat foto dan frame...');
     const loadBasePhoto = (photoDataUrl, index) =>
       new Promise((resolve) => {
         if (!photoDataUrl) {
@@ -3619,7 +3826,7 @@ export default function EditPhoto() {
     let frameAspectRatio, canvasWidth, canvasHeight;
     
     // Use smaller canvas for mobile to speed up processing
-    const baseWidth = mobileDevice ? 600 : 800; // 600px mobile, 800px desktop
+    const baseWidth = mobileDevice ? 540 : 880; // 540px mobile, 880px desktop
     
     if (frameConfig.id === 'Testframe4') {
       frameAspectRatio = 2 / 3;
@@ -3632,75 +3839,9 @@ export default function EditPhoto() {
     }
     console.log('✅ [4/6] Canvas configured:', canvasWidth, 'x', canvasHeight, `(${mobileDevice ? 'mobile' : 'desktop'})`);
     
-    // MOBILE WORKAROUND: Download raw videos instead of generating framed video
-    if (mobileDevice) {
-      console.log('📱 [5/6] Mobile device - downloading raw videos without frame overlay');
-      console.log('📱 recordedClips:', recordedClips);
-      console.log('📱 videos array:', videos);
-      
-      try {
-        // Download each video from videos array
-        let downloadedCount = 0;
-        
-        for (let i = 0; i < videos.length; i++) {
-          const videoData = videos[i];
-          console.log(`📱 Processing video ${i+1}:`, videoData);
-          
-          if (!videoData) {
-            console.warn(`⚠️ Video ${i+1} is null/undefined`);
-            continue;
-          }
-          
-          let blob = null;
-          
-          // Try to get blob from different sources
-          if (videoData.blob) {
-            console.log(`✅ Video ${i+1} has blob directly`);
-            blob = videoData.blob;
-          } else if (videoData.dataUrl) {
-            console.log(`✅ Video ${i+1} has dataUrl, converting to blob...`);
-            blob = await fetch(videoData.dataUrl).then(r => r.blob());
-          } else if (typeof videoData === 'string' && videoData.startsWith('blob:')) {
-            console.log(`✅ Video ${i+1} is blob URL string`);
-            blob = await fetch(videoData).then(r => r.blob());
-          } else if (typeof videoData === 'string' && videoData.startsWith('data:')) {
-            console.log(`✅ Video ${i+1} is data URL string`);
-            blob = await fetch(videoData).then(r => r.blob());
-          }
-          
-          if (blob) {
-            const filename = `photobooth-${selectedFrame}-clip${i+1}-${timestamp}.webm`;
-            console.log(`📥 Downloading: ${filename} (${blob.size} bytes)`);
-            triggerBlobDownload(blob, filename);
-            downloadedCount++;
-            console.log(`✅ Downloaded clip ${i+1}/${videos.length}`);
-          } else {
-            console.error(`❌ Video ${i+1} has no valid data source`);
-          }
-        }
-        
-        if (downloadedCount > 0) {
-          console.log('✅ [6/6] All raw video clips downloaded successfully!');
-          alert(`✅ ${downloadedCount} video clip(s) downloaded successfully!\n\n📱 Mobile devices download raw videos without frame overlay.\n💻 Use desktop to generate videos with frames.`);
-          clearCapturedMediaStorage(selectedFrame);
-        } else {
-          console.error('❌ No video clips to download');
-          console.error('Debug info:', {
-            videosLength: videos.length,
-            recordedClipsLength: recordedClips.length,
-            videos: videos
-          });
-          alert('No video clips found to download. Please make sure you captured videos using the camera.');
-        }
-      } catch (error) {
-        console.error('❌ Error downloading videos:', error);
-        alert(`Failed to download videos: ${error.message}`);
-      }
-      return;
-    }
-    
-    // DESKTOP: Generate framed video normally
-    console.log('💻 [5/6] Desktop - generating framed video...');
+    // Generate framed video for all devices (mobile optimized internally)
+    console.log('🧮 [5/6] Generating framed video with overlay...');
+    setSaveStatusMessage('🎞️ Merender video dengan frame. Mohon tunggu...');
     const framedVideoResult = await generateFramedVideo({
       loadedPhotos,
       canvasWidth,
@@ -3713,10 +3854,17 @@ export default function EditPhoto() {
     
     if (framedVideoResult && framedVideoResult.success) {
       console.log('✅ Video saved successfully!');
+      setSaveStatusMessage('✅ Video berhasil disimpan dengan frame!');
       alert('Video saved successfully!');
       clearCapturedMediaStorage(selectedFrame);
+      setTimeout(() => setSaveStatusMessage(''), 4000);
+    } else if (framedVideoResult && framedVideoResult.reason === 'recorder-init-failed') {
+      console.error('❌ Video generation failed due to recorder init issue:', framedVideoResult);
+      setSaveStatusMessage('❌ Perangkat tidak mendukung perekaman kanvas otomatis.');
+      alert('Perangkat ini belum mendukung perekaman video dengan frame secara langsung. Silakan gunakan desktop atau peramban yang lebih baru.');
     } else {
       console.error('❌ Video generation failed:', framedVideoResult);
+      setSaveStatusMessage('❌ Gagal merender video. Coba ulangi.');
       alert('Failed to generate video. Please try again.');
     }
   };
@@ -3743,10 +3891,11 @@ export default function EditPhoto() {
     if (isSaving) return;
     
     setIsSaving(true);
+    setSaveStatusMessage('⚙️ Menyiapkan proses render video...');
     try {
-      // Shorter timeout for mobile devices (30s mobile, 60s desktop)
+  // Timeout thresholds tuned for devices (90s mobile, 60s desktop)
       const mobileDevice = isMobileDevice();
-      const timeoutMs = mobileDevice ? 30000 : 60000; // 30s mobile, 60s desktop
+      const timeoutMs = mobileDevice ? 90000 : 60000; // 90s mobile, 60s desktop
       console.log(`⏱️ Video generation timeout set to ${timeoutMs/1000}s (${mobileDevice ? 'mobile' : 'desktop'})`);
       
       const timeoutPromise = new Promise((_, reject) => {
@@ -3757,8 +3906,10 @@ export default function EditPhoto() {
     } catch (error) {
       console.error('❌ Save video error:', error);
       if (error.message === 'Video generation timeout') {
+        setSaveStatusMessage('⏱️ Rendering melebihi batas waktu. Coba kurangi durasi video.');
         alert('Video generation took too long. Please try with shorter videos or fewer photos.');
       } else {
+        setSaveStatusMessage('❌ Gagal menyimpan video. Silakan coba lagi.');
         alert('Failed to save video. Please try again.');
       }
     } finally {
@@ -4510,6 +4661,20 @@ export default function EditPhoto() {
             </div>
           )}
         </div>
+
+        {saveStatusMessage && (
+          <div
+            style={{
+              marginTop: '0.35rem',
+              fontSize: useMobileLayout ? '0.85rem' : '0.9rem',
+              color: '#1f2937',
+              textAlign: 'center',
+              maxWidth: '360px'
+            }}
+          >
+            {saveStatusMessage}
+          </div>
+        )}
       </div>
     );
   };

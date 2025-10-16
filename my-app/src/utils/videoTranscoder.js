@@ -24,6 +24,8 @@ const loadFfmpeg = async () => {
   }
 };
 
+export const ensureFfmpeg = async () => loadFfmpeg();
+
 const generateUniqueName = (prefix, extension) => {
   const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   return `${prefix}-${uniqueSuffix}.${extension}`;

@@ -1,53 +1,133 @@
 import React, { useState, useEffect } from 'react';
+import frameProvider from '../utils/frameProvider.js';
 import { useNavigate } from 'react-router-dom';
-import filterIcon from '../assets/filter-icon.png';
-import adjustIcon from '../assets/adjust-icon.png';
 import { createSampleData, clearTestData } from '../utils/testData.js';
-import Testframe1 from '../assets/Testframe1.png';
-import Testframe2 from '../assets/Testframe2.png';
-import Testframe3 from '../assets/Testframe3.png';
+import { reloadFrameConfig as reloadFrameConfigFromManager } from '../config/frameConfigManager.js';
+import { createFremioSeriesTestData } from '../utils/fremioTestData.js';
+import safeStorage from '../utils/safeStorage.js';
+
+// FremioSeries Imports
+import FremioSeriesBlue2 from '../assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png';
+import FremioSeriesBabyblue3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-babyblue-3.png';
+import FremioSeriesBlack3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-black-3.png';
+import FremioSeriesBlue3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-blue-3.png';
+import FremioSeriesCream3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-cream-3.png';
+import FremioSeriesGreen3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-green-3.png';
+import FremioSeriesMaroon3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-maroon-3.png';
+import FremioSeriesOrange3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-orange-3.png';
+import FremioSeriesPink3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-pink-3.png';
+import FremioSeriesPurple3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-purple-3.png';
+import FremioSeriesWhite3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-white-3.png';
+import FremioSeriesBlue4 from '../assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png';
 
 export default function Editor() {
   const navigate = useNavigate();
-  const [selectedTool, setSelectedTool] = useState('Filter');
   const [photos, setPhotos] = useState([]);
   const [selectedFrame, setSelectedFrame] = useState(null);
   const [frameSlots, setFrameSlots] = useState(null);
+  const [frameId, setFrameId] = useState(null);
+  const [isReloading, setIsReloading] = useState(false);
+  const [duplicatePhotos, setDuplicatePhotos] = useState(false);
+  const [slotPhotos, setSlotPhotos] = useState({}); // individual photos per slot (for duplicate-photo frames)
+  const [draggedPhoto, setDraggedPhoto] = useState(null);
+  const [dragOverSlot, setDragOverSlot] = useState(null);
+
+  const getSlotPhotosStorageKey = (id) => (id ? `slotPhotos:${id}` : null);
+  const persistSlotPhotos = (id, data) => {
+    const storageKey = getSlotPhotosStorageKey(id);
+    if (!storageKey) return;
+    try {
+      safeStorage.setJSON(storageKey, data);
+    } catch (err) {
+      console.warn('⚠️ Failed to persist slotPhotos', err);
+    }
+  };
 
   // Frame mapping for imported assets
   const getFrameAsset = (frameName) => {
     const frameMap = {
-      'Testframe1': Testframe1,
-      'Testframe2': Testframe2,
-      'Testframe3': Testframe3
+      'FremioSeries-blue-2': FremioSeriesBlue2,
+      'FremioSeries-babyblue-3': FremioSeriesBabyblue3,
+      'FremioSeries-black-3': FremioSeriesBlack3,
+      'FremioSeries-blue-3': FremioSeriesBlue3,
+      'FremioSeries-cream-3': FremioSeriesCream3,
+      'FremioSeries-green-3': FremioSeriesGreen3,
+      'FremioSeries-maroon-3': FremioSeriesMaroon3,
+      'FremioSeries-orange-3': FremioSeriesOrange3,
+      'FremioSeries-pink-3': FremioSeriesPink3,
+      'FremioSeries-purple-3': FremioSeriesPurple3,
+      'FremioSeries-white-3': FremioSeriesWhite3,
+      'FremioSeries-blue-4': FremioSeriesBlue4
     };
     return frameMap[frameName] || null;
   };
 
   // Load photos and frame data from localStorage when component mounts
   useEffect(() => {
+    console.log('🔄 Editor useEffect started - loading data...');
+    
     // Get captured photos from localStorage
-    const capturedPhotos = localStorage.getItem('capturedPhotos');
+    const capturedPhotos = safeStorage.getJSON('capturedPhotos');
     if (capturedPhotos) {
-      const parsedPhotos = JSON.parse(capturedPhotos);
+      const parsedPhotos = Array.isArray(capturedPhotos) ? capturedPhotos : [];
       setPhotos(parsedPhotos);
       console.log('✅ Loaded photos:', parsedPhotos.length);
+    } else {
+      console.log('⚠️ No captured photos found in localStorage');
     }
 
     // Get frame data from localStorage (new format with frameConfig)
-    const frameName = localStorage.getItem('selectedFrame');
-    const frameConfigData = localStorage.getItem('frameConfig');
+    const frameName = safeStorage.getItem('selectedFrame');
+    const frameConfigData = safeStorage.getJSON('frameConfig');
+    
+    console.log('🔍 Loading frame data:', { frameName, frameConfigData: !!frameConfigData });
     
     if (frameName && frameConfigData) {
       try {
-        const frameConfig = JSON.parse(frameConfigData);
+        const frameConfig = frameConfigData;
         
         // Get the imported frame asset
         const frameAsset = getFrameAsset(frameName);
         
+        console.log('🔍 Frame loading results:', {
+          frameName,
+          frameAsset: !!frameAsset,
+          frameConfig: !!frameConfig,
+          slotsCount: frameConfig?.slots?.length
+        });
+        
         if (frameAsset) {
           setSelectedFrame(frameAsset);
           setFrameSlots(frameConfig.slots); // Extract slots from frameConfig
+          setFrameId(frameName);
+          setDuplicatePhotos(!!frameConfig.duplicatePhotos);
+          // Initialize slotPhotos for duplicate-photo frames so each slot can be independently swapped
+                if (frameConfig.duplicatePhotos && Array.isArray(frameConfig.slots)) {
+                  const initial = {};
+                  frameConfig.slots.forEach((slot, idx) => {
+                    const pIdx = slot.photoIndex !== undefined ? slot.photoIndex : idx;
+                    initial[idx] = (Array.isArray(photos) && photos[pIdx]) ? photos[pIdx] : null;
+                  });
+
+                  const storageKey = getSlotPhotosStorageKey(frameName);
+                  let normalized = initial;
+                  if (storageKey) {
+                    const stored = safeStorage.getJSON(storageKey);
+                    if (stored) {
+                      const merged = {};
+                      frameConfig.slots.forEach((_, idx) => {
+                        if (stored && Object.prototype.hasOwnProperty.call(stored, idx)) {
+                          merged[idx] = stored[idx];
+                        } else {
+                          merged[idx] = initial[idx] || null;
+                        }
+                      });
+                      normalized = merged;
+                    }
+                  }
+                  setSlotPhotos(normalized);
+                  persistSlotPhotos(frameName, normalized);
+                }
           
           console.log('✅ Loaded frame (new format):', frameName);
           console.log('✅ Frame asset:', frameAsset);
@@ -60,17 +140,38 @@ export default function Editor() {
       }
     } else {
       // Fallback: try old format
-      const legacyFrameData = localStorage.getItem('selectedFrame');
-      const legacySlotsData = localStorage.getItem('frameSlots');
+    const legacyFrameData = safeStorage.getItem('selectedFrame');
+    const legacySlotsData = safeStorage.getItem('frameSlots');
+      
+      // Try provider fallback first if available
+      if (frameProvider?.getCurrentConfig) {
+        const providerCfg = frameProvider.getCurrentConfig();
+        if (providerCfg?.id === frameName) {
+          const frameAsset = getFrameAsset(frameName);
+          if (frameAsset) {
+            setSelectedFrame(frameAsset);
+            setFrameSlots(providerCfg.slots);
+            setFrameId(frameName);
+            setDuplicatePhotos(!!providerCfg.duplicatePhotos);
+            console.log('✅ Loaded frame via frameProvider fallback:', frameName);
+            return;
+          }
+        }
+      }
       
       if (legacyFrameData && legacySlotsData) {
         // Extract frame name from legacy path
-        const frameName = legacyFrameData.split('/').pop().replace('.png', '');
-        const frameAsset = getFrameAsset(frameName);
+    const frameName = legacyFrameData.split('/').pop().replace('.png', '');
+    const frameAsset = getFrameAsset(frameName);
         
         if (frameAsset) {
           setSelectedFrame(frameAsset);
-          setFrameSlots(JSON.parse(legacySlotsData));
+          try {
+            setFrameSlots(JSON.parse(legacySlotsData));
+          } catch (error) {
+            console.warn('⚠️ Failed to parse legacy slots data', error);
+          }
+          setFrameId(frameName);
           console.log('✅ Loaded frame (legacy format):', frameName);
           console.log('✅ Frame asset:', frameAsset);
           console.log('✅ Loaded slots (legacy format):', legacySlotsData);
@@ -81,336 +182,428 @@ export default function Editor() {
     }
   }, []);
 
-  const tools = [
-    { name: 'Filter', icon: '🎨' },
-    { name: 'Saturasi', icon: '🌈' }
-  ];
+  // Ensure slotPhotos are initialized once photos and frameSlots are available (for duplicate-photo frames)
+  useEffect(() => {
+    if (!duplicatePhotos) return;
+    if (!Array.isArray(frameSlots) || frameSlots.length === 0) return;
+    if (!Array.isArray(photos) || photos.length === 0) return;
 
-  const filterOptions = [
-    { name: 'Normal', preview: '#ffffff' },
-    { name: 'Sepia', preview: '#deb887' },
-    { name: 'Grayscale', preview: '#808080' },
-    { name: 'Vintage', preview: '#d2b48c' },
-    { name: 'Cool', preview: '#87ceeb' },
-    { name: 'Warm', preview: '#ffa07a' }
-  ];
+    // If slotPhotos is empty or has missing entries, populate from photos using slot.photoIndex mapping
+    const needsInit = Object.keys(slotPhotos || {}).length === 0 || frameSlots.some((_, idx) => !slotPhotos[idx]);
+    if (!needsInit) return;
 
-  const saturasiOptions = [
-    { name: '0%', value: 0 },
-    { name: '25%', value: 25 },
-    { name: '50%', value: 50 },
-    { name: '75%', value: 75 },
-    { name: '100%', value: 100 },
-    { name: '125%', value: 125 },
-    { name: '150%', value: 150 }
-  ];
+    const initial = { ...(slotPhotos || {}) };
+    frameSlots.forEach((slot, idx) => {
+      if (!initial[idx]) {
+        const pIdx = slot.photoIndex !== undefined ? slot.photoIndex : idx;
+        initial[idx] = photos[pIdx] || null;
+      }
+    });
+    setSlotPhotos(initial);
+    const activeFrameId = frameId || safeStorage.getItem('selectedFrame');
+    persistSlotPhotos(activeFrameId, initial);
+  }, [duplicatePhotos, frameSlots, photos]);
+
+  // Drag and Drop handlers for preview.
+  const handleDragStart = (e, slotIndex) => {
+    e.stopPropagation();
+    setDraggedPhoto({ slotIndex });
+    console.log('[DnD] 🎯 Mulai drag dari slot', slotIndex + 1);
+    
+    // Set required data for cross-browser compatibility
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', `slot-${slotIndex}`);
+    
+    // Use the slot image as the drag preview when available
+    const imgEl = e.target.tagName === 'IMG' ? e.target : e.currentTarget.querySelector('img');
+    if (imgEl) {
+      e.dataTransfer.setDragImage(imgEl, imgEl.offsetWidth / 2, imgEl.offsetHeight / 2);
+    }
+  };
+
+  const handleDragOver = (e, slotIndex) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverSlot(slotIndex);
+    e.dataTransfer.dropEffect = 'move';
+    console.log('[DnD] 👆 Hover over slot', slotIndex + 1);
+  };
+
+  const handleDragEnter = (e, slotIndex) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverSlot(slotIndex);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Only clear if we're leaving the slot area completely
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setDragOverSlot(null);
+    }
+  };
+
+  const handleDrop = (e, targetSlotIndex) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverSlot(null);
+    
+    console.log('[DnD] 📸 Drop ke slot', targetSlotIndex + 1);
+    console.log('[DnD] draggedPhoto state:', draggedPhoto);
+    console.log('[DnD] duplicatePhotos:', duplicatePhotos);
+    console.log('[DnD] frameSlots length:', frameSlots?.length);
+    console.log('[DnD] photos length:', photos?.length);
+    console.log('[DnD] slotPhotos:', slotPhotos);
+    
+    if (!draggedPhoto) {
+      console.log('[DnD] ❌ No draggedPhoto state');
+      return;
+    }
+
+    const sourceSlotIndex = draggedPhoto.slotIndex;
+    if (sourceSlotIndex === targetSlotIndex) {
+      console.log('[DnD] ❌ Same slot, no swap needed');
+      setDraggedPhoto(null);
+      return;
+    }
+
+    // Duplicate-photo frames: swap only the targeted slots...
+    if (duplicatePhotos && Array.isArray(frameSlots)) {
+  const newSlotPhotos = { ...slotPhotos };
+      const srcSlot = frameSlots[sourceSlotIndex];
+      const dstSlot = frameSlots[targetSlotIndex];
+      const srcPhotoIdx = srcSlot?.photoIndex !== undefined ? srcSlot.photoIndex : sourceSlotIndex;
+      const dstPhotoIdx = dstSlot?.photoIndex !== undefined ? dstSlot.photoIndex : targetSlotIndex;
+      const srcImg = newSlotPhotos[sourceSlotIndex] || photos[srcPhotoIdx] || null;
+      const dstImg = newSlotPhotos[targetSlotIndex] || photos[dstPhotoIdx] || null;
+
+      newSlotPhotos[sourceSlotIndex] = dstImg;
+      newSlotPhotos[targetSlotIndex] = srcImg;
+
+  setSlotPhotos(newSlotPhotos);
+  const activeFrameId = frameId || safeStorage.getItem('selectedFrame');
+      persistSlotPhotos(activeFrameId, newSlotPhotos);
+
+      setDraggedPhoto(null);
+      console.log('[DnD] ✅ Berhasil tukar slot', sourceSlotIndex + 1, '↔', targetSlotIndex + 1, '(duplicate-photos frame, independent)');
+      return;
+    }
+
+    // Standard frames: swap the corresponding photo indices for the two slots
+    if (Array.isArray(frameSlots)) {
+      const srcSlot = frameSlots[sourceSlotIndex];
+      const dstSlot = frameSlots[targetSlotIndex];
+      const srcPhotoIdx = srcSlot?.photoIndex !== undefined ? srcSlot.photoIndex : sourceSlotIndex;
+      const dstPhotoIdx = dstSlot?.photoIndex !== undefined ? dstSlot.photoIndex : targetSlotIndex;
+
+      const newPhotos = [...photos];
+      const tmp = newPhotos[srcPhotoIdx];
+      newPhotos[srcPhotoIdx] = newPhotos[dstPhotoIdx];
+      newPhotos[dstPhotoIdx] = tmp;
+  setPhotos(newPhotos);
+  safeStorage.setJSON('capturedPhotos', newPhotos);
+      console.log('[DnD] ✅ Berhasil tukar slot', sourceSlotIndex + 1, '↔', targetSlotIndex + 1, '(standard frame)');
+    }
+
+    setDraggedPhoto(null);
+  };
+
+  // Tools removed on this page per request; keeping only the preview
   return (
     <div style={{
       minHeight: '100vh',
       background: '#f5f5f5',
-      padding: '20px',
-      paddingTop: '80px',
+      padding: '12px',
+      paddingTop: '44px',
       display: 'flex',
       flexDirection: 'column',
       fontFamily: 'system-ui, -apple-system, sans-serif'
     }}>
-      {/* Main Content */}
+      {/* Testing Buttons - Development Only */}
+      <div style={{
+        position: 'fixed',
+        top: '10px',
+        right: '10px',
+        display: 'flex',
+        gap: '5px',
+        zIndex: 1000,
+        background: 'rgba(255, 255, 255, 0.9)',
+        padding: '8px',
+        borderRadius: '6px',
+        border: '1px solid #e1e1e1'
+      }}>
+        <button 
+          onClick={() => {
+            // Create specific test data for FremioSeries-black-3
+            const createSamplePhoto = (color, text, width = 400, height = 500) => {
+              const canvas = document.createElement('canvas');
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              
+              ctx.fillStyle = color;
+              ctx.fillRect(0, 0, width, height);
+              
+              ctx.strokeStyle = 'white';
+              ctx.lineWidth = 8;
+              ctx.strokeRect(0, 0, width, height);
+              
+              ctx.fillStyle = 'white';
+              ctx.font = 'bold 32px Arial';
+              ctx.textAlign = 'center';
+              ctx.shadowColor = 'black';
+              ctx.shadowBlur = 4;
+              ctx.fillText(`FOTO ${text}`, width/2, height/2 - 20);
+              ctx.fillText('Test Image', width/2, height/2 + 20);
+              
+              return canvas.toDataURL('image/png');
+            };
+
+            const samplePhotos = [
+              createSamplePhoto('#e74c3c', '1'), // Red
+              createSamplePhoto('#2ecc71', '2'), // Green  
+              createSamplePhoto('#3498db', '3')  // Blue
+            ];
+
+            safeStorage.setJSON('capturedPhotos', samplePhotos);
+            safeStorage.setItem('selectedFrame', 'FremioSeries-black-3');
+            
+            const frameConfig = {
+              id: 'FremioSeries-black-3',
+              name: 'FremioSeries Black 6 Foto',
+              maxCaptures: 3,
+              duplicatePhotos: true,
+              slots: [
+                {id: 'slot_1a', left: 0.05, top: 0.03, width: 0.41, height: 0.28, aspectRatio: '4:5', zIndex: 2, photoIndex: 0},
+                {id: 'slot_1b', left: 0.545, top: 0.03, width: 0.41, height: 0.28, aspectRatio: '4:5', zIndex: 2, photoIndex: 0},
+                {id: 'slot_2a', left: 0.05, top: 0.33, width: 0.41, height: 0.28, aspectRatio: '4:5', zIndex: 2, photoIndex: 1},
+                {id: 'slot_2b', left: 0.545, top: 0.33, width: 0.41, height: 0.28, aspectRatio: '4:5', zIndex: 2, photoIndex: 1},
+                {id: 'slot_3a', left: 0.05, top: 0.63, width: 0.41, height: 0.28, aspectRatio: '4:5', zIndex: 2, photoIndex: 2},
+                {id: 'slot_3b', left: 0.545, top: 0.63, width: 0.41, height: 0.28, aspectRatio: '4:5', zIndex: 2, photoIndex: 2}
+              ]
+            };
+            
+            safeStorage.setJSON('frameConfig', frameConfig);
+            const slotPhotoMap = {};
+            frameConfig.slots.forEach((slot, idx) => {
+              const pIdx = slot.photoIndex !== undefined ? slot.photoIndex : idx;
+              slotPhotoMap[idx] = samplePhotos[pIdx] || null;
+            });
+            safeStorage.setJSON(`slotPhotos:${frameConfig.id}`, slotPhotoMap);
+            
+            console.log('✅ Test data created for FremioSeries-black-3');
+            console.log('Photos:', samplePhotos.length);
+            console.log('Frame config:', frameConfig);
+            
+            window.location.reload();
+          }}
+          style={{
+            padding: '4px 9px',
+            background: '#e74c3c',
+            color: 'white',
+            border: 'none',
+            borderRadius: '3px',
+            fontSize: '11px',
+            cursor: 'pointer'
+          }}
+        >
+          🎯 Load Black-3 Test Data
+        </button>
+        <button 
+          onClick={() => {
+            clearTestData();
+            window.location.reload();
+          }}
+          style={{
+            padding: '4px 9px',
+            background: '#dc3545',
+            color: 'white',
+            border: 'none',
+            borderRadius: '3px',
+            fontSize: '11px',
+            cursor: 'pointer'
+          }}
+        >
+          Clear
+        </button>
+      </div>
+      
+      {/* Main Content: Preview centered (toggle tools removed) */}
       <div style={{
         flex: 1,
-        display: 'grid',
-        gridTemplateColumns: '200px 1fr 200px',
-        gap: '20px',
-        maxWidth: '1000px',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: '10px',
+        maxWidth: '460px',
         margin: '0 auto',
         width: '100%'
       }}>
-        {/* Tools Panel (Kiri) */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '10px',
-          height: '500px'
-        }}>
-          <h3 style={{
-            margin: '0 0 15px 0',
-            fontSize: '1.1rem',
-            fontWeight: '500',
-            color: '#333',
-            textAlign: 'center'
-          }}>
-            Tools
-          </h3>
+        {/* Actions */}
+  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <button
+            onClick={async () => {
+              if (isReloading) return;
+              try {
+                setIsReloading(true);
+                const activeFrameId = frameId || safeStorage.getItem('selectedFrame');
+                if (!activeFrameId) return;
+                const fresh = await reloadFrameConfigFromManager(activeFrameId);
+                if (fresh?.slots) {
+                  setFrameSlots(fresh.slots);
+                  setDuplicatePhotos(!!fresh.duplicatePhotos);
+                  // Rebuild slotPhotos mapping for duplicate-photo frames from current photos
+                  if (fresh.duplicatePhotos) {
+                    const initial = {};
+                    fresh.slots.forEach((slot, idx) => {
+                      const pIdx = slot.photoIndex !== undefined ? slot.photoIndex : idx;
+                      initial[idx] = (Array.isArray(photos) && photos[pIdx]) ? photos[pIdx] : null;
+                    });
+                    setSlotPhotos(initial);
+                    persistSlotPhotos(activeFrameId, initial);
+                  } else {
+                    setSlotPhotos({});
+                  }
+                  safeStorage.setJSON('frameConfig', fresh);
+                  console.log('✅ Editor: reloaded frame slots');
+                }
+              } finally {
+                setIsReloading(false);
+              }
+            }}
+            style={{
+              padding: '5px 10px',
+              background: '#6c757d',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '0.78rem'
+            }}
+          >
+            {isReloading ? '⏳ Reloading...' : '🔄 Reload Config'}
+          </button>
           
+          {/* Drag & Drop Instructions */}
           <div style={{
-            background: '#E8C4B8',
-            borderRadius: '50px',
-            padding: '30px 20px',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '30px',
-            flex: 1,
-            justifyContent: 'center'
+            padding: '3px 8px',
+            background: '#e8f2ff',
+            color: '#0f3d8c',
+            borderRadius: '999px',
+            fontSize: '0.7rem',
+            border: '1px solid #c7ddff'
           }}>
-            {/* Tool 1 - Filter */}
-            <button
-              onClick={() => setSelectedTool('Filter')}
-              style={{
-                background: selectedTool === 'Filter' ? '#333' : 'transparent',
-                border: 'none',
-                borderRadius: '12px',
-                width: '60px',
-                height: '60px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                padding: '8px'
-              }}
-            >
-              <img 
-                src={filterIcon} 
-                alt="Filter" 
-                style={{
-                  width: '40px',
-                  height: '40px',
-                  filter: selectedTool === 'Filter' ? 'invert(1)' : 'none'
-                }}
-              />
-            </button>
-            
-            {/* Tool 2 - Adjust */}
-            <button
-              onClick={() => setSelectedTool('Saturasi')}
-              style={{
-                background: selectedTool === 'Saturasi' ? '#333' : 'transparent',
-                border: 'none',
-                borderRadius: '12px',
-                width: '60px',
-                height: '60px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                padding: '8px'
-              }}
-            >
-              <img 
-                src={adjustIcon} 
-                alt="Adjust" 
-                style={{
-                  width: '40px',
-                  height: '40px',
-                  filter: selectedTool === 'Saturasi' ? 'invert(1)' : 'none'
-                }}
-              />
-            </button>
+            💡 Drag foto antar slot untuk menukar posisi
           </div>
         </div>
-
-        {/* Preview Area (Tengah) */}
+        {/* Preview Area */}
         <div style={{
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          height: '500px'
+          minHeight: '300px'
         }}>
           <h3 style={{
-            margin: '0 0 15px 0',
-            fontSize: '1.1rem',
+            margin: '0 0 6px 0',
+            fontSize: '0.85rem',
             fontWeight: '500',
             color: '#333',
             textAlign: 'center'
           }}>
             Preview
           </h3>
-          
-          {/* Photo Preview Container with Frame */}
-          <div style={{
-            background: '#f0f0f0',
-            borderRadius: '20px',
-            padding: '30px',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            marginBottom: '20px',
-            flex: 1
-          }}>
-            {selectedFrame && frameSlots ? (
-              // Show with frame if frame data is available
-              <div style={{
-                position: 'relative',
-                width: '280px',
-                height: '420px',
-                background: '#ffffff',
-                borderRadius: '12px',
-                overflow: 'hidden',
-                border: '2px solid #e0e0e0'
-              }}>
-                {/* Debug info */}
-                <div style={{ 
-                  position: 'absolute', 
-                  top: '-40px', 
-                  left: 0, 
-                  fontSize: '10px', 
-                  color: '#666',
-                  background: '#f0f0f0',
-                  padding: '4px',
-                  borderRadius: '4px',
-                  zIndex: 10
-                }}>
-                  Frame: {selectedFrame ? 'Found' : 'Missing'} | Slots: {frameSlots ? frameSlots.length : 0} | Photos: {photos.length}
-                </div>
-                
-                {/* Background layer */}
-                <div style={{ 
-                  position: 'absolute', 
-                  width: '100%', 
-                  height: '100%', 
-                  background: '#ffffff',
-                  zIndex: 1 
-                }} />
-                
-                {/* Photos in slots */}
-                {photos && photos.length > 0 && frameSlots && frameSlots.map((slot, idx) => {
-                  const photo = photos[idx];
-                  
-                  return (
-                    <div
-                      key={idx}
-                      style={{
-                        position: 'absolute',
-                        left: `${slot.left * 100}%`,
-                        top: `${slot.top * 100}%`,
-                        width: `${slot.width * 100}%`,
-                        height: `${slot.height * 100}%`,
-                        background: photo ? 'transparent' : '#f8f8f8',
-                        border: photo ? 'none' : '2px dashed #ddd',
-                        borderRadius: '6px',
-                        overflow: 'hidden',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '11px',
-                        color: '#999',
-                        zIndex: 2
-                      }}
-                    >
-                      {photo ? (
-                        <img
-                          src={photo}
-                          alt={`Photo ${idx + 1}`}
-                          style={{
-                            width: '100%',
-                            height: '100%',
-                            objectFit: 'cover',
-                            border: 'none'
-                          }}
-                        />
-                      ) : (
-                        <span>Empty Slot</span>
-                      )}
-                    </div>
-                  );
-                })}
-                
-                {/* Frame overlay */}
-                <img
-                  src={selectedFrame}
-                  alt="Frame"
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'contain',
-                    pointerEvents: 'none',
-                    zIndex: 3
-                  }}
-                  onLoad={() => console.log('✅ Frame image loaded successfully:', selectedFrame)}
-                  onError={(e) => console.error('❌ Frame image failed to load:', selectedFrame, e)}
-                />
-              </div>
-            ) : photos && photos.length > 0 ? (
-              // Fallback: show photos without frame if frame data is missing
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '15px',
-                alignItems: 'center',
-                maxWidth: '300px'
-              }}>
-                {photos.map((photo, index) => (
+          {/* Preview canvas */}
+          {selectedFrame && frameSlots && Array.isArray(frameSlots) ? (
+            <div style={{
+              position: 'relative',
+              width: '188px',
+              height: '282px',
+              background: '#fff',
+              borderRadius: '10px',
+              boxShadow: '0 3px 10px rgba(15,23,42,0.12)',
+              border: '1px solid #e2e8f0',
+              overflow: 'hidden'
+            }}>
+              {/* Photos placed into slots */}
+              {frameSlots.map((slot, idx) => {
+                const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : idx;
+                const src = duplicatePhotos ? (slotPhotos[idx] || photos[photoIndex]) : photos[photoIndex];
+                if (!src) return null;
+                return (
                   <div
-                    key={index}
+                    key={`slot-${slot.id || idx}`}
                     style={{
-                      width: '200px',
-                      height: '150px',
-                      borderRadius: '12px',
+                      position: 'absolute',
+                      left: `${(slot.left || 0) * 100}%`,
+                      top: `${(slot.top || 0) * 100}%`,
+                      width: `${(slot.width || 0) * 100}%`,
+                      height: `${(slot.height || 0) * 100}%`,
                       overflow: 'hidden',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                      background: '#fff'
+                      borderRadius: '6px',
+                      background: '#ddd',
+                      outline: dragOverSlot === idx ? '3px solid #4f46e5' : 'none',
+                      transition: 'outline 120ms ease',
+                      cursor: draggedPhoto?.slotIndex === idx ? 'grabbing' : 'grab',
+                      opacity: draggedPhoto?.slotIndex === idx ? 0.85 : 1,
+                      boxShadow: dragOverSlot === idx ? '0 4px 12px rgba(79, 70, 229, 0.3)' : 'none'
                     }}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, idx)}
+                    onDragEnd={() => setDraggedPhoto(null)}
+                    onDragOver={(e) => handleDragOver(e, idx)}
+                    onDragEnter={(e) => handleDragEnter(e, idx)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, idx)}
                   >
                     <img
-                      src={photo}
-                      alt={`Photo ${index + 1}`}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover'
+                      src={src}
+                      alt={`Photo ${idx + 1}`}
+                      style={{ 
+                        width: '100%', 
+                        height: '100%', 
+                        objectFit: 'cover', 
+                        cursor: draggedPhoto?.slotIndex === idx ? 'grabbing' : 'grab',
+                        opacity: draggedPhoto?.slotIndex === idx ? 0.7 : 1,
+                        transform: draggedPhoto?.slotIndex === idx ? 'scale(0.95)' : 'scale(1)',
+                        transition: 'all 0.2s ease',
+                        pointerEvents: 'none'
                       }}
                     />
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{
-                textAlign: 'center',
-                color: '#999',
-                fontSize: '1.1rem'
-              }}>
-                Tidak ada foto yang tersedia.<br />
-                Silakan ambil foto terlebih dahulu.
-              </div>
-            )}
-          </div>
+                );
+              })}
 
-          {/* Action Buttons */}
-          <div style={{
-            display: 'flex',
-            gap: '0'
-          }}>
-            <button style={{
-              background: 'white',
-              color: '#333',
-              border: '1px solid #ddd',
-              borderRadius: '25px 0 0 25px',
-              padding: '12px 30px',
-              fontSize: '0.9rem',
-              fontWeight: '500',
-              cursor: 'pointer',
-              borderRight: '0.5px solid #ddd'
+              {/* Frame overlay */}
+              <img
+                src={selectedFrame}
+                alt="Frame"
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  pointerEvents: 'none'
+                }}
+              />
+            </div>
+          ) : (
+            <div style={{
+              height: '260px',
+              width: '188px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#666',
+              background: '#fff',
+              border: '1px dashed #cbd5f5',
+              borderRadius: '10px'
             }}>
-              Save
-            </button>
-            <button style={{
-              background: 'white',
-              color: '#333',
-              border: '1px solid #ddd',
-              borderRadius: '0 25px 25px 0',
-              padding: '12px 30px',
-              fontSize: '0.9rem',
-              fontWeight: '500',
-              cursor: 'pointer',
-              borderLeft: '0.5px solid #ddd'
-            }}>
-              Print
-            </button>
-          </div>
+              No frame selected
+            </div>
+          )}
+        </div>
           
           {/* Debug Button */}
           <button 
@@ -419,27 +612,31 @@ export default function Editor() {
               console.log('Photos from state:', photos);
               console.log('SelectedFrame from state:', selectedFrame);
               console.log('FrameSlots from state:', frameSlots);
-              console.log('LocalStorage capturedPhotos:', localStorage.getItem('capturedPhotos'));
-              console.log('LocalStorage selectedFrame:', localStorage.getItem('selectedFrame'));
-              console.log('LocalStorage frameConfig:', localStorage.getItem('frameConfig'));
-              console.log('LocalStorage frameSlots (legacy):', localStorage.getItem('frameSlots'));
+              console.log('DuplicatePhotos:', duplicatePhotos);
+              console.log('SlotPhotos:', slotPhotos);
+              console.log('DraggedPhoto:', draggedPhoto);
+              console.log('DragOverSlot:', dragOverSlot);
+              console.log('LocalStorage capturedPhotos:', safeStorage.getItem('capturedPhotos'));
+              console.log('LocalStorage selectedFrame:', safeStorage.getItem('selectedFrame'));
+              console.log('LocalStorage frameConfig:', safeStorage.getItem('frameConfig'));
+              console.log('LocalStorage frameSlots (legacy):', safeStorage.getItem('frameSlots'));
             }}
             style={{
-              marginTop: '10px',
+              marginTop: '8px',
               background: '#17a2b8',
               color: 'white',
               border: 'none',
-              borderRadius: '15px',
-              padding: '8px 20px',
-              fontSize: '0.8rem',
+              borderRadius: '13px',
+              padding: '7px 18px',
+              fontSize: '0.75rem',
               cursor: 'pointer'
             }}
           >
-            Debug Data
+            🔍 Debug Drag & Drop
           </button>
           
           {/* Test Data Buttons */}
-          <div style={{ marginTop: '10px', display: 'flex', gap: '5px' }}>
+          <div style={{ marginTop: '8px', display: 'flex', gap: '4px' }}>
             <button 
               onClick={() => {
                 const data = createSampleData();
@@ -450,9 +647,9 @@ export default function Editor() {
                 background: '#28a745',
                 color: 'white',
                 border: 'none',
-                borderRadius: '12px',
-                padding: '6px 12px',
-                fontSize: '0.7rem',
+                borderRadius: '10px',
+                padding: '5px 10px',
+                fontSize: '0.68rem',
                 cursor: 'pointer'
               }}
             >
@@ -468,217 +665,16 @@ export default function Editor() {
                 background: '#dc3545',
                 color: 'white',
                 border: 'none',
-                borderRadius: '12px',
-                padding: '6px 12px',
-                fontSize: '0.7rem',
+                borderRadius: '10px',
+                padding: '5px 10px',
+                fontSize: '0.68rem',
                 cursor: 'pointer'
               }}
             >
               Clear Test Data
             </button>
           </div>
-        </div>
-
-        {/* Sub-Tools Panel (Kanan) */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '10px',
-          height: '500px'
-        }}>
-          <h3 style={{
-            margin: '0 0 15px 0',
-            fontSize: '1.1rem',
-            fontWeight: '500',
-            color: '#333',
-            textAlign: 'center'
-          }}>
-            Sub - Tools
-          </h3>
-          
-          <div style={{
-            background: '#E8C4B8',
-            borderRadius: '50px',
-            padding: '30px 20px',
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}>
-            {selectedTool === 'Filter' && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '30px',
-                alignItems: 'center',
-                height: '100%',
-                justifyContent: 'center'
-              }}>
-                {/* Filter 1 - Dark Brown */}
-                <div
-                  style={{
-                    width: '50px',
-                    height: '50px',
-                    borderRadius: '50%',
-                    background: '#8B4513',
-                    cursor: 'pointer',
-                    border: '3px solid #fff',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                    transition: 'transform 0.2s ease',
-                  }}
-                  onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
-                  onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
-                />
-                
-                {/* Filter 2 - Medium Brown */}
-                <div
-                  style={{
-                    width: '50px',
-                    height: '50px',
-                    borderRadius: '50%',
-                    background: '#D2691E',
-                    cursor: 'pointer',
-                    border: '3px solid #fff',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                    transition: 'transform 0.2s ease',
-                  }}
-                  onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
-                  onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
-                />
-                
-                {/* Filter 3 - Light Brown */}
-                <div
-                  style={{
-                    width: '50px',
-                    height: '50px',
-                    borderRadius: '50%',
-                    background: '#F4A460',
-                    cursor: 'pointer',
-                    border: '3px solid #fff',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                    transition: 'transform 0.2s ease',
-                  }}
-                  onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
-                  onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
-                />
-                
-                {/* Filter 4 - Tan */}
-                <div
-                  style={{
-                    width: '50px',
-                    height: '50px',
-                    borderRadius: '50%',
-                    background: '#CD853F',
-                    cursor: 'pointer',
-                    border: '3px solid #fff',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                    transition: 'transform 0.2s ease',
-                  }}
-                  onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
-                  onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
-                />
-                
-                {/* Filter 5 - Light Tan */}
-                <div
-                  style={{
-                    width: '50px',
-                    height: '50px',
-                    borderRadius: '50%',
-                    background: '#DEB887',
-                    cursor: 'pointer',
-                    border: '3px solid #fff',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                    transition: 'transform 0.2s ease',
-                  }}
-                  onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
-                  onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
-                />
-              </div>
-            )}
-
-            {selectedTool === 'Saturasi' && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '60px',
-                alignItems: 'center',
-                height: '100%',
-                justifyContent: 'center'
-              }}>
-                {/* Slider 1 */}
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '10px'
-                }}>
-                  <div
-                    style={{
-                      width: '100px',
-                      height: '30px',
-                      background: '#333',
-                      borderRadius: '15px',
-                      position: 'relative',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      padding: '0 5px'
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: '20px',
-                        height: '20px',
-                        background: '#fff',
-                        borderRadius: '50%',
-                        position: 'absolute',
-                        left: '10px',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-                        transition: 'left 0.2s ease'
-                      }}
-                    />
-                  </div>
-                </div>
-                
-                {/* Slider 2 */}
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '10px'
-                }}>
-                  <div
-                    style={{
-                      width: '100px',
-                      height: '30px',
-                      background: '#333',
-                      borderRadius: '15px',
-                      position: 'relative',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      padding: '0 5px'
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: '20px',
-                        height: '20px',
-                        background: '#fff',
-                        borderRadius: '50%',
-                        position: 'absolute',
-                        left: '40px',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-                        transition: 'left 0.2s ease'
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+        {/* End of Preview section and actions */}
       </div>
     </div>
   );

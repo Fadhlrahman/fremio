@@ -5,6 +5,8 @@ import { useEffect } from "react";
 
 export default function RootLayout() {
   const { hash, pathname } = useLocation();
+  const hideHeader = false;
+  const hideFooter = false;
 
   useEffect(() => {
     // scroll ke anchor di homepage
@@ -20,11 +22,11 @@ export default function RootLayout() {
 
   return (
     <div className="app-shell">
-      <Header />
+      {!hideHeader && <Header />}
       <main className="app-main">
         <Outlet />
       </main>
-      <Footer />
+      {!hideFooter && <Footer />}
     </div>
   );
 }

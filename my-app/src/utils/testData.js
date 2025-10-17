@@ -1,5 +1,8 @@
 // Test data for development - creates sample photos and frame selection
 
+import FremioSeriesBlue2Config from '../config/frame-configs/FremioSeries-blue-2.js';
+import safeStorage from './safeStorage.js';
+
 export function createSampleData() {
   // Create sample base64 photos (small colored rectangles)
   const createSamplePhoto = (color, width = 200, height = 150) => {
@@ -29,56 +32,36 @@ export function createSampleData() {
   ];
 
   // Store in localStorage
-  localStorage.setItem('capturedPhotos', JSON.stringify(samplePhotos));
+  safeStorage.setJSON('capturedPhotos', samplePhotos);
   
-  // Set a sample frame (Testframe1)
-  localStorage.setItem('selectedFrame', 'Testframe1');
+  // Set a sample frame (FremioSeries-blue-2)
+  safeStorage.setItem('selectedFrame', 'FremioSeries-blue-2');
   
-  // Set frame config for Testframe1
+  // Persist frame config for FremioSeries-blue-2
   const frameConfig = {
-    id: 'Testframe1',
-    name: 'Frame 2 Foto',
-    maxCaptures: 2,
-    description: '2 slot foto vertikal',
-    slots: [
-      {
-        id: 'slot_1',
-        left: 0.1,      // 10% dari kiri
-        top: 0.15,      // 15% dari atas  
-        width: 0.8,     // 80% lebar
-        height: 0.35,   // 35% tinggi
-        zIndex: 2
-      },
-      {
-        id: 'slot_2', 
-        left: 0.1,      // 10% dari kiri
-        top: 0.55,      // 55% dari atas
-        width: 0.8,     // 80% lebar
-        height: 0.35,   // 35% tinggi
-        zIndex: 2
-      }
-    ]
+    ...FremioSeriesBlue2Config,
+    id: 'FremioSeries-blue-2'
   };
   
-  localStorage.setItem('frameConfig', JSON.stringify(frameConfig));
+  safeStorage.setJSON('frameConfig', frameConfig);
   
   console.log('✅ Sample data created:');
   console.log('- 3 sample photos stored in capturedPhotos');
-  console.log('- Testframe1 selected as frame');
-  console.log('- Frame config with 2 slots stored');
+  console.log('- FremioSeries-blue-2 selected as frame');
+  console.log('- Frame config with duplicated slots stored');
   
   return {
     photos: samplePhotos,
-    frame: 'Testframe1',
+  frame: 'FremioSeries-blue-2',
     config: frameConfig
   };
 }
 
 export function clearTestData() {
-  localStorage.removeItem('capturedPhotos');
-  localStorage.removeItem('selectedFrame');
-  localStorage.removeItem('frameConfig');
-  localStorage.removeItem('frameSlots'); // legacy
+  safeStorage.removeItem('capturedPhotos');
+  safeStorage.removeItem('selectedFrame');
+  safeStorage.removeItem('frameConfig');
+  safeStorage.removeItem('frameSlots'); // legacy
   
   console.log('🗑️ Test data cleared from localStorage');
 }

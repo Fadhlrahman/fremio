@@ -1,123 +1,34 @@
 // Frame configurations untuk berbagai jenis photobooth frames
-// Setiap frame memiliki informasi slots, maksimal capture, dan layout
+// File ini menyediakan akses sinkron ke konfigurasi FremioSeries
+
+import FremioSeriesBlue2 from './frame-configs/FremioSeries-blue-2.js';
+import FremioSeriesBabyblue3 from './frame-configs/FremioSeries-babyblue-3.js';
+import FremioSeriesBlack3 from './frame-configs/FremioSeries-black-3.js';
+import FremioSeriesBlue3 from './frame-configs/FremioSeries-blue-3.js';
+import FremioSeriesCream3 from './frame-configs/FremioSeries-cream-3.js';
+import FremioSeriesGreen3 from './frame-configs/FremioSeries-green-3.js';
+import FremioSeriesMaroon3 from './frame-configs/FremioSeries-maroon-3.js';
+import FremioSeriesOrange3 from './frame-configs/FremioSeries-orange-3.js';
+import FremioSeriesPink3 from './frame-configs/FremioSeries-pink-3.js';
+import FremioSeriesPurple3 from './frame-configs/FremioSeries-purple-3.js';
+import FremioSeriesWhite3 from './frame-configs/FremioSeries-white-3.js';
+import FremioSeriesBlue4 from './frame-configs/FremioSeries-blue-4.js';
+import EverythingYouAre3x2 from './frame-configs/EverythingYouAre-3x2.js';
 
 export const FRAME_CONFIGS = {
-  Testframe1: {
-    id: 'Testframe1',
-    name: 'Frame 2 Foto',
-    maxCaptures: 2,
-    description: '2 slot foto vertikal',
-    imagePath: '/src/assets/Testframe1.png',
-    slots: [
-      {
-        id: 'slot_1',
-        left: 0.1,      // 10% dari kiri
-        top: 0.15,      // 15% dari atas
-        width: 0.8,     // 80% lebar
-        height: 0.35,   // 35% tinggi
-        zIndex: 2
-      },
-      {
-        id: 'slot_2', 
-        left: 0.1,      // 10% dari kiri
-        top: 0.55,      // 55% dari atas
-        width: 0.8,     // 80% lebar
-        height: 0.35,   // 35% tinggi
-        zIndex: 2
-      }
-    ],
-    layout: {
-      aspectRatio: '2:3',
-      orientation: 'portrait',
-      backgroundColor: '#ffffff'
-    }
-  },
-
-  Testframe2: {
-    id: 'Testframe2',
-    name: 'Frame 3 Foto',
-    maxCaptures: 3,
-    description: '3 slot foto vertikal',
-    imagePath: '/src/assets/Testframe2.png',
-    slots: [
-      {
-        id: 'slot_1',
-        left: 0.1,      // 10% dari kiri
-        top: 0.1,       // 10% dari atas
-        width: 0.8,     // 80% lebar
-        height: 0.25,   // 25% tinggi
-        zIndex: 2
-      },
-      {
-        id: 'slot_2',
-        left: 0.1,      // 10% dari kiri
-        top: 0.38,      // 38% dari atas
-        width: 0.8,     // 80% lebar
-        height: 0.25,   // 25% tinggi
-        zIndex: 2
-      },
-      {
-        id: 'slot_3',
-        left: 0.1,      // 10% dari kiri
-        top: 0.66,      // 66% dari atas
-        width: 0.8,     // 80% lebar
-        height: 0.25,   // 25% tinggi
-        zIndex: 2
-      }
-    ],
-    layout: {
-      aspectRatio: '2:3',
-      orientation: 'portrait',
-      backgroundColor: '#ffffff'
-    }
-  },
-
-  Testframe3: {
-    id: 'Testframe3',
-    name: 'Frame 4 Foto',
-    maxCaptures: 4,
-    description: '4 slot foto grid 2x2',
-    imagePath: '/src/assets/Testframe3.png',
-    slots: [
-      {
-        id: 'slot_1',
-        left: 0.05,     // 5% dari kiri (kiri atas)
-        top: 0.1,       // 10% dari atas
-        width: 0.4,     // 40% lebar
-        height: 0.35,   // 35% tinggi
-        zIndex: 2
-      },
-      {
-        id: 'slot_2',
-        left: 0.55,     // 55% dari kiri (kanan atas)
-        top: 0.1,       // 10% dari atas
-        width: 0.4,     // 40% lebar
-        height: 0.35,   // 35% tinggi
-        zIndex: 2
-      },
-      {
-        id: 'slot_3',
-        left: 0.05,     // 5% dari kiri (kiri bawah)
-        top: 0.55,      // 55% dari atas
-        width: 0.4,     // 40% lebar
-        height: 0.35,   // 35% tinggi
-        zIndex: 2
-      },
-      {
-        id: 'slot_4',
-        left: 0.55,     // 55% dari kiri (kanan bawah)
-        top: 0.55,      // 55% dari atas
-        width: 0.4,     // 40% lebar
-        height: 0.35,   // 35% tinggi
-        zIndex: 2
-      }
-    ],
-    layout: {
-      aspectRatio: '2:3',
-      orientation: 'portrait',
-      backgroundColor: '#ffffff'
-    }
-  }
+  'FremioSeries-blue-2': FremioSeriesBlue2,
+  'FremioSeries-babyblue-3': FremioSeriesBabyblue3,
+  'FremioSeries-black-3': FremioSeriesBlack3,
+  'FremioSeries-blue-3': FremioSeriesBlue3,
+  'FremioSeries-cream-3': FremioSeriesCream3,
+  'FremioSeries-green-3': FremioSeriesGreen3,
+  'FremioSeries-maroon-3': FremioSeriesMaroon3,
+  'FremioSeries-orange-3': FremioSeriesOrange3,
+  'FremioSeries-pink-3': FremioSeriesPink3,
+  'FremioSeries-purple-3': FremioSeriesPurple3,
+  'FremioSeries-white-3': FremioSeriesWhite3,
+  'FremioSeries-blue-4': FremioSeriesBlue4,
+  'EverythingYouAre-3x2': EverythingYouAre3x2
 };
 
 // Helper function untuk mendapatkan konfigurasi frame berdasarkan nama
@@ -132,5 +43,5 @@ export const getAllFrames = () => {
 
 // Helper function untuk validasi frame
 export const isValidFrame = (frameName) => {
-  return frameName && FRAME_CONFIGS.hasOwnProperty(frameName);
+  return frameName && Object.prototype.hasOwnProperty.call(FRAME_CONFIGS, frameName);
 };

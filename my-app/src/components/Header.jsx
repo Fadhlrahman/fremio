@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 export default function Header() {
   const [open, setOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const headerRef = useRef(null);
   const { pathname, hash } = useLocation();
 
@@ -30,7 +31,7 @@ export default function Header() {
       el.classList.toggle("elev", window.scrollY > 6);
     };
     onScroll();
-    window.addEventListener("scroll", onScroll);
+    window.addEventListener("scroll", onScroll, { passive: false });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
@@ -91,6 +92,46 @@ export default function Header() {
             Login/Register
           </NavLink>
         </div>
+
+        <button
+          type="button"
+          className="menu-toggle"
+          aria-label="Toggle navigation"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((prev) => !prev)}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
+      </div>
+
+      <div className={`mobile-menu ${menuOpen ? "open" : ""}`}>
+        <nav className="mobile-nav">
+          <Link
+            to="/#home"
+            className={"nav-link" + (isHomeActive ? " active" : "")}
+          >
+            Home
+          </Link>
+          <Link
+            to="/#about"
+            className={"nav-link" + (isAboutActive ? " active" : "")}
+          >
+            About
+          </Link>
+          <NavLink
+            to="/frames"
+            className={({ isActive }) =>
+              "nav-link" + (isActive ? " active" : "")
+            }
+          >
+            Frames
+          </NavLink>
+        </nav>
+        <NavLink to="/login" className="btn-login mobile">
+          Login/Register
+        </NavLink>
       </div>
     </header>
   );

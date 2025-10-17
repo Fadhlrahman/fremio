@@ -274,13 +274,13 @@ export default function Create() {
             initial="hidden"
             animate="visible"
             transition={{ delay: 0.1 }}
-            className="creator-panel flex flex-col gap-4 overflow-hidden rounded-[36px] border border-white/70 bg-white/85 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.14)] backdrop-blur"
+            className="creator-panel flex flex-col gap-4 overflow-hidden rounded-[36px] border border-slate-200 bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.12)]"
           >
-            <div className="flex w-full flex-col gap-2">
+            <div className="flex w-full flex-col gap-2 rounded-2xl bg-white p-3">
               <h3 className="text-center text-lg font-semibold text-slate-800">Tools</h3>
               <div className="h-px w-full bg-slate-300/70" />
             </div>
-            <div className="mt-1 grid flex-1 grid-rows-5 gap-3">
+            <div className="mt-1 grid flex-1 grid-rows-5 gap-3 rounded-3xl bg-white p-2">
               <ToolButton
                 label="Background"
                 icon={Palette}
@@ -315,16 +315,16 @@ export default function Create() {
             initial="hidden"
             animate="visible"
             transition={{ delay: 0.15 }}
-            className="flex flex-col items-center gap-4 rounded-[36px] border border-white/70 bg-white/85 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.14)] backdrop-blur"
+            className="flex flex-col items-center gap-4 rounded-[36px] border border-slate-200 bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.12)]"
           >
-            <div className="flex w-full flex-col gap-2">
+            <div className="flex w-full flex-col gap-2 rounded-2xl bg-white p-3">
               <h3 className="text-center text-lg font-semibold text-slate-800">
                 Preview
               </h3>
               <div className="h-px w-full bg-slate-300/70" />
             </div>
 
-            <div className="mt-8 w-full max-w-[420px] px-4 py-8 sm:px-6 sm:py-10">
+            <div className="mt-8 w-full max-w-[420px] rounded-[32px] bg-white px-4 py-8 shadow-[0_18px_46px_rgba(15,23,42,0.08)] sm:px-6 sm:py-10">
               <CanvasPreview
                 elements={elements}
                 selectedElementId={selectedElementId}
@@ -349,13 +349,13 @@ export default function Create() {
             initial="hidden"
             animate="visible"
             transition={{ delay: 0.2 }}
-            className="creator-panel rounded-[36px] border border-white/70 bg-white/85 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.14)] backdrop-blur"
+            className="creator-panel rounded-[36px] border border-slate-200 bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.12)]"
           >
-            <div className="flex w-full flex-col gap-2">
+            <div className="flex w-full flex-col gap-2 rounded-2xl bg-white p-3">
               <h3 className="text-center text-lg font-semibold text-slate-800">Properties</h3>
               <div className="h-px w-full bg-slate-300/70" />
             </div>
-            <div className="mt-4">
+            <div className="mt-4 space-y-5 rounded-3xl bg-white p-3">
             <PropertiesPanel
               selectedElement={selectedElement}
               canvasBackground={canvasBackground}

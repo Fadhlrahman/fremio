@@ -7,7 +7,7 @@ const panelVariant = {
 };
 
 const Section = ({ title, children }) => (
-  <div className="space-y-4 rounded-3xl border border-rose-100/70 bg-white/90 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.08)]">
+  <div className="space-y-4 rounded-3xl border border-rose-100/70 bg-white p-5 shadow-[0_16px_36px_rgba(15,23,42,0.08)]">
     <h4 className="text-sm font-semibold text-slate-700">{title}</h4>
     <div className="space-y-3 text-sm text-slate-600">{children}</div>
   </div>

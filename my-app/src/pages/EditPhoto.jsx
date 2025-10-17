@@ -2726,15 +2726,56 @@ export default function EditPhoto() {
     const ensureVideoReady = (video, slotNumber) =>
       new Promise((resolve) => {
         let resolved = false;
+        const timeoutDuration = 10000; // 10 seconds timeout (increased for slow connections)
+        let timeoutId = null;
 
-        const finalize = () => {
+        const finalize = (success = true) => {
           if (resolved) return;
           resolved = true;
+
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+          }
+
           video.onloadedmetadata = null;
+          video.onloadeddata = null;
           video.oncanplay = null;
           video.onerror = null;
-          resolve(video.readyState >= 2);
+
+          // Check if video is ready to play (accept Infinity duration as it's common with WebM)
+          // Duration validation will be done later with fallback to info.duration
+          const isValid = success && video.readyState >= 2;
+
+          if (!isValid && success) {
+            console.warn(
+              `⚠️ Video for slot ${slotNumber} loaded but readyState is not sufficient:`,
+              { readyState: video.readyState, duration: video.duration }
+            );
+          } else if (isValid && !Number.isFinite(video.duration)) {
+            console.log(
+              `ℹ️ Video for slot ${slotNumber} ready but has non-finite duration (${video.duration}) - will use stored duration`
+            );
+          }
+
+          resolve(isValid);
         };
+
+        // Set timeout to prevent hanging - but accept video even if readyState < 2
+        timeoutId = setTimeout(() => {
+          // Last resort: if video has metadata and can be played, accept it
+          if (video.readyState >= 1) {
+            console.warn(
+              `⚠️ Timeout waiting for video slot ${slotNumber} but accepting with readyState ${video.readyState}`
+            );
+            finalize(true);
+          } else {
+            console.error(
+              `❌ Timeout waiting for video slot ${slotNumber} with readyState ${video.readyState}`
+            );
+            finalize(false);
+          }
+        }, timeoutDuration);
 
         video.onloadedmetadata = () => {
           if (video.readyState >= 1) {
@@ -2747,10 +2788,28 @@ export default function EditPhoto() {
               );
             }
           }
+
+          // Accept if readyState is sufficient (don't require finite duration)
+          if (video.readyState >= 2) {
+            finalize(true);
+          }
+        };
+
+        video.onloadeddata = () => {
+          // Accept if readyState is sufficient
+          if (video.readyState >= 2) {
+            finalize(true);
+          }
         };
 
         video.oncanplay = () => {
-          finalize();
+          // Video can play - accept regardless of duration or readyState
+          finalize(true);
+        };
+
+        video.oncanplaythrough = () => {
+          // Video can play through - definitely accept
+          finalize(true);
         };
 
         video.onerror = (event) => {
@@ -2758,11 +2817,22 @@ export default function EditPhoto() {
             `❌ Failed to load recorded video for slot ${slotNumber}:`,
             event
           );
-          finalize();
+          finalize(false);
         };
 
+        // Check if video is already ready
         if (video.readyState >= 2) {
-          finalize();
+          finalize(true);
+        } else if (video.readyState >= 1) {
+          // Try to trigger loading by setting currentTime
+          try {
+            video.load();
+          } catch (e) {
+            console.warn(
+              `⚠️ Failed to call video.load() for slot ${slotNumber}:`,
+              e
+            );
+          }
         }
       });
 
@@ -2778,6 +2848,40 @@ export default function EditPhoto() {
         continue;
       }
 
+      // Additional validation for dataUrl/blob
+      if (info.dataUrl) {
+        const dataUrlSizeEstimate = info.dataUrl.length * 0.75; // Rough estimate of decoded size
+        console.log(
+          `📹 Slot ${i + 1} video dataUrl size: ${(
+            dataUrlSizeEstimate /
+            1024 /
+            1024
+          ).toFixed(2)}MB`
+        );
+        if (dataUrlSizeEstimate < 1000) {
+          console.warn(
+            `⚠️ Slot ${
+              i + 1
+            } dataUrl seems too small (${dataUrlSizeEstimate} bytes), might be corrupt`
+          );
+        }
+      } else if (info.blob) {
+        console.log(
+          `📹 Slot ${i + 1} video blob size: ${(
+            info.blob.size /
+            1024 /
+            1024
+          ).toFixed(2)}MB, type: ${info.blob.type}`
+        );
+        if (info.blob.size < 1000) {
+          console.warn(
+            `⚠️ Slot ${i + 1} blob seems too small (${
+              info.blob.size
+            } bytes), might be corrupt`
+          );
+        }
+      }
+
       const baseKey = info.baseVideoIndex ?? i;
 
       if (videoElementCache.has(baseKey)) {
@@ -2788,33 +2892,99 @@ export default function EditPhoto() {
       let video;
       if (info.dataUrl) {
         video = document.createElement("video");
+        video.muted = true;
+        video.loop = true;
+        video.playsInline = true;
+        video.crossOrigin = "anonymous";
+        video.preload = "metadata";
+        video.setAttribute("playsinline", "");
         video.src = info.dataUrl;
       } else if (info.blob) {
         video = document.createElement("video");
+        video.muted = true;
+        video.loop = true;
+        video.playsInline = true;
+        video.crossOrigin = "anonymous";
+        video.preload = "metadata";
+        video.setAttribute("playsinline", "");
         video.src = URL.createObjectURL(info.blob);
       } else {
         slotVideoElements.push(null);
         continue;
       }
-      video.muted = true;
-      video.loop = true;
-      video.playsInline = true;
-      video.crossOrigin = "anonymous";
-      video.preload = "auto";
-      video.setAttribute("playsinline", "");
 
       const isReady = await ensureVideoReady(video, i + 1);
 
-      // Accept if video is ready and has a valid duration
-      if (!isReady || !Number.isFinite(video.duration) || video.duration <= 0) {
+      // Check video duration - use info.duration as fallback if video.duration is invalid
+      let effectiveDuration = video.duration;
+
+      // Handle Infinity duration (common issue with WebM videos from MediaRecorder)
+      if (!Number.isFinite(effectiveDuration) || effectiveDuration <= 0) {
+        if (
+          info.duration &&
+          Number.isFinite(info.duration) &&
+          info.duration > 0
+        ) {
+          effectiveDuration = info.duration;
+          console.log(
+            `ℹ️ Slot ${i + 1} video has invalid duration (${
+              video.duration
+            }), using stored duration: ${effectiveDuration.toFixed(2)}s`
+          );
+        }
+      }
+
+      // Accept if we have a valid duration (from video or info), even if isReady is false
+      // This is because some browsers may not fully load video metadata but the video is still playable
+      const hasValidDuration =
+        Number.isFinite(effectiveDuration) && effectiveDuration > 0;
+      const canProceed = (isReady || video.readyState >= 1) && hasValidDuration;
+
+      if (!canProceed) {
         console.warn(
           `⚠️ Recorded video for slot ${
             i + 1
           } is not ready or has invalid duration; skipping`,
-          { isReady, duration: video.duration, info }
+          {
+            isReady,
+            readyState: video.readyState,
+            videoDuration: video.duration,
+            infoDuration: info.duration,
+            effectiveDuration,
+            hasValidDuration,
+            canProceed,
+            networkState: video.networkState,
+            error: video.error,
+            srcType: info.dataUrl ? "dataUrl" : "blob",
+            srcSize: info.dataUrl ? info.dataUrl.length : info.blob?.size,
+          }
         );
+
+        // Cleanup the video element and revoke object URL if created from blob
+        if (info.blob && video.src) {
+          try {
+            URL.revokeObjectURL(video.src);
+          } catch (e) {
+            // ignore
+          }
+        }
+
         slotVideoElements.push(null);
         continue;
+      }
+
+      console.log(`✅ Slot ${i + 1} video ready:`, {
+        duration: effectiveDuration.toFixed(2) + "s",
+        videoDuration: video.duration,
+        usedStoredDuration: effectiveDuration !== video.duration,
+        readyState: video.readyState,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+      });
+
+      // Store effective duration in video element for later use
+      if (effectiveDuration !== video.duration) {
+        video.dataset.effectiveDuration = effectiveDuration;
       }
 
       video.loop = false;
@@ -2826,11 +2996,38 @@ export default function EditPhoto() {
 
     const activeVideos = Array.from(videoElementCache.values()).filter(Boolean);
     if (!activeVideos.length) {
-      console.warn(
-        "🎬 No playable recorded videos after preparation; skipping video export"
+      const totalSlots = slotVideoInfos.length;
+      const slotsWithData = slotVideoInfos.filter(
+        (info) => info && (info.dataUrl || info.blob)
+      ).length;
+
+      console.error(
+        "🎬 No playable recorded videos after preparation; skipping video export",
+        {
+          totalSlots,
+          slotsWithData,
+          reason: "All video sources failed to load or have invalid duration",
+        }
       );
-      return { success: false, reason: "no-playable-video" };
+
+      // Show user-friendly error message
+      setSaveStatusMessage(
+        "❌ Gagal memproses video. Video mungkin corrupt atau terlalu pendek."
+      );
+
+      return {
+        success: false,
+        reason: "no-playable-video",
+        details: {
+          totalSlots,
+          slotsWithData,
+          message:
+            "All videos failed validation (no valid duration or corrupt data)",
+        },
+      };
     }
+
+    console.log(`✅ ${activeVideos.length} playable video(s) ready for export`);
 
     const TIMER_PLAYBACK_TARGETS = {
       3: 4,

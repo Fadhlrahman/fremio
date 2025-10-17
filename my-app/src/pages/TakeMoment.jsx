@@ -1,4 +1,10 @@
-import React, { useRef, useState, useEffect, useMemo, useCallback } from "react";
+import React, {
+  useRef,
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import frameProvider from "../utils/frameProvider.js";
 import safeStorage from "../utils/safeStorage.js";
@@ -77,13 +83,17 @@ const canvasToBlob = (canvas, mimeType = "image/jpeg", quality = 0.92) =>
     }
 
     if (canvas.toBlob) {
-      canvas.toBlob((blob) => {
-        if (blob) {
-          resolve(blob);
-        } else {
-          reject(new Error("Failed to extract blob from canvas"));
-        }
-      }, mimeType, quality);
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error("Failed to extract blob from canvas"));
+          }
+        },
+        mimeType,
+        quality
+      );
       return;
     }
 
@@ -109,7 +119,8 @@ const revokeObjectURL = (url) => {
   }
 };
 
-const isBlobUrl = (value) => typeof value === "string" && value.startsWith("blob:");
+const isBlobUrl = (value) =>
+  typeof value === "string" && value.startsWith("blob:");
 
 const measureBlobDuration = (blob) =>
   new Promise((resolve) => {
@@ -123,7 +134,9 @@ const measureBlobDuration = (blob) =>
       const videoEl = document.createElement("video");
       videoEl.preload = "metadata";
       videoEl.onloadedmetadata = () => {
-        const duration = Number.isFinite(videoEl.duration) ? videoEl.duration : null;
+        const duration = Number.isFinite(videoEl.duration)
+          ? videoEl.duration
+          : null;
         revokeObjectURL(tempUrl);
         resolve(duration);
       };
@@ -143,7 +156,9 @@ const loadImageSourceFromBlob = async (blob) => {
     throw new Error("Image blob is not available");
   }
 
-  const supportsImageBitmap = typeof window !== "undefined" && typeof window.createImageBitmap === "function";
+  const supportsImageBitmap =
+    typeof window !== "undefined" &&
+    typeof window.createImageBitmap === "function";
   if (supportsImageBitmap) {
     const bitmap = await window.createImageBitmap(blob);
     return {
@@ -195,8 +210,13 @@ const loadImageSourceFromBlob = async (blob) => {
   });
 };
 
-const generateScaledPhotoVariant = async (inputBlob, { maxWidth = 600, maxHeight = 600, quality = 0.8 }) => {
-  const { source, width, height, cleanup } = await loadImageSourceFromBlob(inputBlob);
+const generateScaledPhotoVariant = async (
+  inputBlob,
+  { maxWidth = 600, maxHeight = 600, quality = 0.8 }
+) => {
+  const { source, width, height, cleanup } = await loadImageSourceFromBlob(
+    inputBlob
+  );
 
   try {
     const widthRatio = maxWidth ? maxWidth / width : 1;
@@ -210,7 +230,11 @@ const generateScaledPhotoVariant = async (inputBlob, { maxWidth = 600, maxHeight
     canvas.width = targetWidth;
     canvas.height = targetHeight;
 
-    const ctx = canvas.getContext("2d", { alpha: false, willReadFrequently: false, desynchronized: true });
+    const ctx = canvas.getContext("2d", {
+      alpha: false,
+      willReadFrequently: false,
+      desynchronized: true,
+    });
     if (!ctx) {
       throw new Error("Failed to obtain 2D context for photo compression");
     }
@@ -250,7 +274,10 @@ const calculateStorageSize = ({ photos = [], videos = [] }) => {
       if (item?.dataUrl) {
         return sum + item.dataUrl.length * 2;
       }
-      if (typeof item?.sizeBytes === "number" && Number.isFinite(item.sizeBytes)) {
+      if (
+        typeof item?.sizeBytes === "number" &&
+        Number.isFinite(item.sizeBytes)
+      ) {
         return sum + item.sizeBytes;
       }
       if (item?.blob && typeof item.blob.size === "number") {
@@ -280,7 +307,10 @@ const calculateProjectedStorageSize = ({ photos = [], videos = [] }) => {
       if (item?.dataUrl) {
         return item.dataUrl;
       }
-      const sizeBytes = typeof item?.sizeBytes === "number" ? item.sizeBytes : item?.blob?.size ?? null;
+      const sizeBytes =
+        typeof item?.sizeBytes === "number"
+          ? item.sizeBytes
+          : item?.blob?.size ?? null;
       return {
         id: item.id ?? null,
         sizeBytes,
@@ -288,8 +318,12 @@ const calculateProjectedStorageSize = ({ photos = [], videos = [] }) => {
       };
     });
 
-  const photosBytes = safeStorage.estimateJSONBytes(sanitizeForEstimate(photos));
-  const videosBytes = safeStorage.estimateJSONBytes(sanitizeForEstimate(videos));
+  const photosBytes = safeStorage.estimateJSONBytes(
+    sanitizeForEstimate(photos)
+  );
+  const videosBytes = safeStorage.estimateJSONBytes(
+    sanitizeForEstimate(videos)
+  );
   const totalBytes = photosBytes + videosBytes;
   const kb = totalBytes / 1024;
   const mb = kb / 1024;
@@ -309,7 +343,9 @@ const detectMobile = () => {
   if (typeof window === "undefined") return false;
   const ua = navigator.userAgent || navigator.vendor || window.opera;
   const touchCapable =
-    "ontouchstart" in window || navigator.maxTouchPoints > 0 || navigator.msMaxTouchPoints > 0;
+    "ontouchstart" in window ||
+    navigator.maxTouchPoints > 0 ||
+    navigator.msMaxTouchPoints > 0;
   return /android|iPad|iPhone|iPod/i.test(ua) && touchCapable;
 };
 
@@ -329,7 +365,10 @@ const useIsMobile = () => {
   return isMobile;
 };
 
-const compressImage = (dataUrl, { quality = 0.8, maxWidth = 600, maxHeight = 600 } = {}) =>
+const compressImage = (
+  dataUrl,
+  { quality = 0.8, maxWidth = 600, maxHeight = 600 } = {}
+) =>
   new Promise((resolve, reject) => {
     try {
       const img = new Image();
@@ -369,14 +408,20 @@ const compressPhotosArray = async (photos, options) => {
 };
 
 const generateVideoEntryId = () => {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
   return `video-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
 const generatePhotoEntryId = () => {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
   return `photo-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -420,7 +465,10 @@ export default function TakeMoment() {
   const replaceCurrentPhoto = useCallback((updater) => {
     setCurrentPhoto((prev) => {
       const nextValue = typeof updater === "function" ? updater(prev) : updater;
-      if (prev?.previewUrl && (!nextValue || prev.previewUrl !== nextValue.previewUrl)) {
+      if (
+        prev?.previewUrl &&
+        (!nextValue || prev.previewUrl !== nextValue.previewUrl)
+      ) {
         revokeObjectURL(prev.previewUrl);
       }
       return nextValue ?? null;
@@ -430,7 +478,10 @@ export default function TakeMoment() {
   const replaceCurrentVideo = useCallback((updater) => {
     setCurrentVideo((prev) => {
       const nextValue = typeof updater === "function" ? updater(prev) : updater;
-      if (prev?.previewUrl && (!nextValue || prev.previewUrl !== nextValue.previewUrl)) {
+      if (
+        prev?.previewUrl &&
+        (!nextValue || prev.previewUrl !== nextValue.previewUrl)
+      ) {
         revokeObjectURL(prev.previewUrl);
       }
       return nextValue ?? null;
@@ -544,7 +595,11 @@ export default function TakeMoment() {
   }, []);
 
   const clearScheduledStorage = useCallback(() => {
-    if (pendingStorageIdleRef.current && typeof window !== "undefined" && typeof window.cancelIdleCallback === "function") {
+    if (
+      pendingStorageIdleRef.current &&
+      typeof window !== "undefined" &&
+      typeof window.cancelIdleCallback === "function"
+    ) {
       window.cancelIdleCallback(pendingStorageIdleRef.current);
     }
     if (pendingStorageTimeoutRef.current) {
@@ -568,17 +623,27 @@ export default function TakeMoment() {
           if (typeof dataUrl === "string" && dataUrl.startsWith("data:")) {
             return dataUrl;
           }
-          if (typeof previewUrl === "string" && previewUrl.startsWith("data:")) {
+          if (
+            typeof previewUrl === "string" &&
+            previewUrl.startsWith("data:")
+          ) {
             return previewUrl;
           }
           return null;
         })
       : [];
 
-    const videosPayload = sanitizeVideosForStorage(Array.isArray(payload.videos) ? payload.videos : []);
+    const videosPayload = sanitizeVideosForStorage(
+      Array.isArray(payload.videos) ? payload.videos : []
+    );
 
-    const hasPersistablePhotos = photosPayload.some((item) => typeof item === "string" && item.startsWith("data:"));
-    const hasPersistableVideos = videosPayload.some((item) => typeof item?.dataUrl === "string" && item.dataUrl.startsWith("data:"));
+    const hasPersistablePhotos = photosPayload.some(
+      (item) => typeof item === "string" && item.startsWith("data:")
+    );
+    const hasPersistableVideos = videosPayload.some(
+      (item) =>
+        typeof item?.dataUrl === "string" && item.dataUrl.startsWith("data:")
+    );
 
     try {
       if (!hasPersistablePhotos && !hasPersistableVideos) {
@@ -590,7 +655,9 @@ export default function TakeMoment() {
       }
     } catch (error) {
       console.error("❌ Failed to persist captured media", error);
-      alert("Penyimpanan penuh atau tidak tersedia. Silakan kurangi foto yang disimpan.");
+      alert(
+        "Penyimpanan penuh atau tidak tersedia. Silakan kurangi foto yang disimpan."
+      );
     } finally {
       latestStoragePayloadRef.current = { photos: null, videos: null };
     }
@@ -611,9 +678,14 @@ export default function TakeMoment() {
         return;
       }
 
-      if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+      if (
+        typeof window !== "undefined" &&
+        typeof window.requestIdleCallback === "function"
+      ) {
         clearScheduledStorage();
-        pendingStorageIdleRef.current = window.requestIdleCallback(execute, { timeout: 120 });
+        pendingStorageIdleRef.current = window.requestIdleCallback(execute, {
+          timeout: 120,
+        });
       } else {
         clearScheduledStorage();
         pendingStorageTimeoutRef.current = window.setTimeout(execute, 0);
@@ -629,11 +701,13 @@ export default function TakeMoment() {
   }, [clearScheduledStorage, runStorageWrite]);
 
   const clearCapturedMedia = useCallback(() => {
-    const existingPhotos = Array.isArray(capturedPhotosRef.current) ? capturedPhotosRef.current : [];
+    const existingPhotos = Array.isArray(capturedPhotosRef.current)
+      ? capturedPhotosRef.current
+      : [];
     existingPhotos.forEach((entry) => cleanupCapturedPhotoPreview(entry));
 
-  setCapturedPhotos([]);
-  setCapturedVideos([]);
+    setCapturedPhotos([]);
+    setCapturedVideos([]);
 
     if (!safeStorage.isAvailable()) return;
 
@@ -657,28 +731,28 @@ export default function TakeMoment() {
     }
   }, [maxCaptures]);
 
-    const stopCamera = useCallback(() => {
-      if (activeRecordingRef.current) {
-        try {
-          activeRecordingRef.current.stop?.();
-        } catch (error) {
-          console.warn("⚠️ Error stopping active recording", error);
-        }
-        activeRecordingRef.current = null;
+  const stopCamera = useCallback(() => {
+    if (activeRecordingRef.current) {
+      try {
+        activeRecordingRef.current.stop?.();
+      } catch (error) {
+        console.warn("⚠️ Error stopping active recording", error);
       }
+      activeRecordingRef.current = null;
+    }
 
-      if (videoRef.current?.srcObject) {
-        videoRef.current.srcObject.getTracks().forEach((track) => track.stop());
-        videoRef.current.srcObject = null;
-      }
+    if (videoRef.current?.srcObject) {
+      videoRef.current.srcObject.getTracks().forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
+    }
 
-      if (cameraStreamRef.current) {
-        cameraStreamRef.current.getTracks().forEach((track) => track.stop());
-        cameraStreamRef.current = null;
-      }
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach((track) => track.stop());
+      cameraStreamRef.current = null;
+    }
 
-      setCameraActive(false);
-    }, []);
+    setCameraActive(false);
+  }, []);
 
   useEffect(() => {
     clearCapturedMedia();
@@ -701,8 +775,14 @@ export default function TakeMoment() {
   useEffect(() => {
     if (!capturedPhotos.length) return;
 
-    const storageSize = calculateStorageSize({ photos: capturedPhotos, videos: capturedVideos });
-    const projectedSize = calculateProjectedStorageSize({ photos: capturedPhotos, videos: capturedVideos });
+    const storageSize = calculateStorageSize({
+      photos: capturedPhotos,
+      videos: capturedVideos,
+    });
+    const projectedSize = calculateProjectedStorageSize({
+      photos: capturedPhotos,
+      videos: capturedVideos,
+    });
     console.log("💾 Storage size", {
       raw: storageSize,
       projected: projectedSize,
@@ -739,7 +819,10 @@ export default function TakeMoment() {
         }
       };
 
-      if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      if (
+        typeof window !== "undefined" &&
+        typeof window.requestAnimationFrame === "function"
+      ) {
         window.requestAnimationFrame(performScroll);
       } else {
         performScroll();
@@ -798,9 +881,13 @@ export default function TakeMoment() {
     capturedVideosRef.current = capturedVideos;
   }, [capturedVideos]);
 
-  const shouldMirrorVideo = useMemo(() => !isUsingBackCamera, [isUsingBackCamera]);
+  const shouldMirrorVideo = useMemo(
+    () => !isUsingBackCamera,
+    [isUsingBackCamera]
+  );
   const hasReachedMaxPhotos = capturedPhotos.length >= maxCaptures;
-  const isCaptureDisabled = capturing || isVideoProcessing || hasReachedMaxPhotos;
+  const isCaptureDisabled =
+    capturing || isVideoProcessing || hasReachedMaxPhotos;
 
   const determineVideoBitrate = (recordSeconds) => {
     if (recordSeconds <= 4) return 2_500_000;
@@ -821,15 +908,22 @@ export default function TakeMoment() {
       blob,
       dataUrl: videoSource.dataUrl ?? null,
       mimeType,
-      duration: Number.isFinite(videoSource.duration) ? videoSource.duration : null,
+      duration: Number.isFinite(videoSource.duration)
+        ? videoSource.duration
+        : null,
       timer: Number.isFinite(videoSource.timer) ? videoSource.timer : null,
-      mirrored: Boolean(videoSource.mirrored ?? videoSource.requiresPreviewMirror),
+      mirrored: Boolean(
+        videoSource.mirrored ?? videoSource.requiresPreviewMirror
+      ),
       requiresPreviewMirror: Boolean(videoSource.requiresPreviewMirror),
       facingMode: videoSource.facingMode || null,
       sizeBytes: videoSource.sizeBytes ?? (blob ? blob.size : null),
       baseVideoIndex: videoSource.baseVideoIndex ?? videoIndex,
-      recordedAt: videoSource.recordedAt ?? videoSource.capturedAt ?? Date.now(),
-      isConverting: Boolean(blob && !(videoSource.dataUrl && videoSource.dataUrl.length > 0)),
+      recordedAt:
+        videoSource.recordedAt ?? videoSource.capturedAt ?? Date.now(),
+      isConverting: Boolean(
+        blob && !(videoSource.dataUrl && videoSource.dataUrl.length > 0)
+      ),
       conversionError: false,
     };
   };
@@ -952,46 +1046,43 @@ export default function TakeMoment() {
     );
   };
 
-  const startCamera = useCallback(
-    async (desiredFacingMode = "user") => {
-      try {
-        setCameraError(null);
-        setIsSwitchingCamera(true);
+  const startCamera = useCallback(async (desiredFacingMode = "user") => {
+    try {
+      setCameraError(null);
+      setIsSwitchingCamera(true);
 
-        const constraints = {
-          audio: false,
-          video: {
-            width: { ideal: 640 },
-            height: { ideal: 480 },
-            facingMode: desiredFacingMode,
-          },
-        };
+      const constraints = {
+        audio: false,
+        video: {
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          facingMode: desiredFacingMode,
+        },
+      };
 
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        cameraStreamRef.current = stream;
-        setCameraActive(true);
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      cameraStreamRef.current = stream;
+      setCameraActive(true);
 
-        setTimeout(() => {
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            videoRef.current
-              .play()
-              .then(() => {})
-              .catch((error) => {
-                console.error("❌ video play failed", error);
-              });
-          }
-        }, 100);
-      } catch (error) {
-        console.error("❌ Error accessing camera", error);
-        setCameraError(error.message);
-        alert(`Error accessing camera: ${error.message}`);
-      } finally {
-        setIsSwitchingCamera(false);
-      }
-    },
-    []
-  );
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current
+            .play()
+            .then(() => {})
+            .catch((error) => {
+              console.error("❌ video play failed", error);
+            });
+        }
+      }, 100);
+    } catch (error) {
+      console.error("❌ Error accessing camera", error);
+      setCameraError(error.message);
+      alert(`Error accessing camera: ${error.message}`);
+    } finally {
+      setIsSwitchingCamera(false);
+    }
+  }, []);
 
   const handleCameraToggle = useCallback(() => {
     if (cameraActive) {
@@ -1008,11 +1099,19 @@ export default function TakeMoment() {
     stopCamera();
     setIsUsingBackCamera(nextState);
     await startCamera(nextState ? "environment" : "user");
-  }, [cameraActive, isUsingBackCamera, isSwitchingCamera, startCamera, stopCamera]);
+  }, [
+    cameraActive,
+    isUsingBackCamera,
+    isSwitchingCamera,
+    startCamera,
+    stopCamera,
+  ]);
 
   const handleFileSelect = useCallback(
     async (event) => {
-      const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith("image/"));
+      const files = Array.from(event.target.files || []).filter((file) =>
+        file.type.startsWith("image/")
+      );
       if (!files.length) {
         event.target.value = "";
         return;
@@ -1035,7 +1134,10 @@ export default function TakeMoment() {
                 source: "upload",
               };
             } catch (previewError) {
-              console.warn("⚠️ Failed to prepare uploaded photo preview", previewError);
+              console.warn(
+                "⚠️ Failed to prepare uploaded photo preview",
+                previewError
+              );
               return null;
             }
           })
@@ -1048,8 +1150,12 @@ export default function TakeMoment() {
         }
 
         const availableSlots = Math.max(0, maxCaptures - capturedPhotos.length);
-        const acceptedEntries = availableSlots ? validEntries.slice(0, availableSlots) : [];
-        const discardedEntries = availableSlots ? validEntries.slice(availableSlots) : validEntries;
+        const acceptedEntries = availableSlots
+          ? validEntries.slice(0, availableSlots)
+          : [];
+        const discardedEntries = availableSlots
+          ? validEntries.slice(availableSlots)
+          : validEntries;
         discardedEntries.forEach((entry) => cleanupCapturedPhotoPreview(entry));
 
         if (!acceptedEntries.length) {
@@ -1076,7 +1182,13 @@ export default function TakeMoment() {
         event.target.value = "";
       }
     },
-    [capturedPhotos, capturedVideos, cleanupCapturedPhotoPreview, maxCaptures, scheduleStorageWrite]
+    [
+      capturedPhotos,
+      capturedVideos,
+      cleanupCapturedPhotoPreview,
+      maxCaptures,
+      scheduleStorageWrite,
+    ]
   );
 
   const renderCountdownOverlay = () => {
@@ -1115,10 +1227,14 @@ export default function TakeMoment() {
         return null;
       }
 
-      const { record: recordSeconds } =
-        TIMER_VIDEO_DURATION_MAP[timerSeconds] || { record: timerSeconds + 1 };
+      const { record: recordSeconds } = TIMER_VIDEO_DURATION_MAP[
+        timerSeconds
+      ] || { record: timerSeconds + 1 };
       const desiredStopSeconds = timerSeconds + POST_CAPTURE_BUFFER_SECONDS;
-      const delayBeforeStartSeconds = Math.max(0, desiredStopSeconds - recordSeconds);
+      const delayBeforeStartSeconds = Math.max(
+        0,
+        desiredStopSeconds - recordSeconds
+      );
 
       const recordingStream = baseStream.clone();
 
@@ -1159,12 +1275,19 @@ export default function TakeMoment() {
               videoBitsPerSecond: tunedBitrate,
               ...(hasAudioTrack ? { audioBitsPerSecond: 64_000 } : {}),
             }
-          : { videoBitsPerSecond: tunedBitrate, ...(hasAudioTrack ? { audioBitsPerSecond: 64_000 } : {}) };
+          : {
+              videoBitsPerSecond: tunedBitrate,
+              ...(hasAudioTrack ? { audioBitsPerSecond: 64_000 } : {}),
+            };
         recorder = new MediaRecorder(recordingStream, options);
       } catch (error) {
         console.warn("⚠️ Failed to create tuned MediaRecorder", error);
         try {
-          recorder = supportedMimeType ? new MediaRecorder(recordingStream, { mimeType: supportedMimeType }) : new MediaRecorder(recordingStream);
+          recorder = supportedMimeType
+            ? new MediaRecorder(recordingStream, {
+                mimeType: supportedMimeType,
+              })
+            : new MediaRecorder(recordingStream);
         } catch (fallbackError) {
           console.error("❌ Failed to create MediaRecorder", fallbackError);
           stopRecordingStream();
@@ -1214,6 +1337,16 @@ export default function TakeMoment() {
         recorder.ondataavailable = (event) => {
           if (event.data && event.data.size > 0) {
             chunks.push(event.data);
+            // Only log first and last chunks to avoid console spam
+            if (chunks.length === 1 || chunks.length % 10 === 0) {
+              console.log(
+                `📹 Received video chunk: ${(event.data.size / 1024).toFixed(
+                  2
+                )}KB (total: ${chunks.length} chunks)`
+              );
+            }
+          } else {
+            console.warn("⚠️ Received empty video chunk");
           }
         };
 
@@ -1231,12 +1364,120 @@ export default function TakeMoment() {
             const blob = new Blob(chunks, {
               type: recorder.mimeType || supportedMimeType || "video/webm",
             });
+
+            // Validate blob size
+            if (blob.size < 100) {
+              console.error(
+                "❌ Recorded video blob is too small:",
+                blob.size,
+                "bytes"
+              );
+              throw new Error(
+                `Invalid video blob: size is only ${blob.size} bytes`
+              );
+            }
+
+            console.log("✅ Video blob created:", {
+              size: (blob.size / 1024).toFixed(2) + "KB",
+              type: blob.type,
+              chunkCount: chunks.length,
+              recordDuration: recordSeconds + "s",
+            });
+
             previewUrl = URL.createObjectURL(blob);
+
+            // Try to validate video duration, but don't block if it fails
+            // Some browsers may not be able to determine duration immediately
+            const validationResult = await new Promise((validateResolve) => {
+              const tempVideo = document.createElement("video");
+              tempVideo.preload = "metadata";
+              tempVideo.muted = true;
+              let validated = false;
+
+              const cleanup = () => {
+                if (validated) return;
+                validated = true;
+                tempVideo.onloadedmetadata = null;
+                tempVideo.onloadeddata = null;
+                tempVideo.onerror = null;
+                tempVideo.src = "";
+              };
+
+              tempVideo.onloadedmetadata = () => {
+                const actualDuration = tempVideo.duration;
+                if (Number.isFinite(actualDuration) && actualDuration > 0) {
+                  cleanup();
+                  console.log("✅ Video duration validated:", {
+                    actualDuration: actualDuration.toFixed(2) + "s",
+                    expectedDuration: recordSeconds + "s",
+                  });
+                  validateResolve({
+                    isValid: true,
+                    actualDuration,
+                  });
+                }
+              };
+
+              tempVideo.onloadeddata = () => {
+                const actualDuration = tempVideo.duration;
+                if (Number.isFinite(actualDuration) && actualDuration > 0) {
+                  cleanup();
+                  console.log("✅ Video duration validated (onloadeddata):", {
+                    actualDuration: actualDuration.toFixed(2) + "s",
+                  });
+                  validateResolve({
+                    isValid: true,
+                    actualDuration,
+                  });
+                }
+              };
+
+              tempVideo.onerror = (e) => {
+                cleanup();
+                console.warn("⚠️ Video validation error (non-critical):", e);
+                // Don't fail - just use estimated duration
+                validateResolve({
+                  isValid: true,
+                  actualDuration: recordSeconds,
+                });
+              };
+
+              // Timeout after 2 seconds - use estimated duration as fallback
+              setTimeout(() => {
+                cleanup();
+                console.warn(
+                  "⚠️ Video validation timeout - using estimated duration"
+                );
+                validateResolve({
+                  isValid: true,
+                  actualDuration: recordSeconds,
+                });
+              }, 2000);
+
+              tempVideo.src = previewUrl;
+            });
+
+            console.log("📹 Video recording complete:", {
+              blobSize: (blob.size / 1024).toFixed(2) + "KB",
+              duration:
+                (validationResult.actualDuration || recordSeconds).toFixed(2) +
+                "s",
+              validated:
+                validationResult.isValid &&
+                Number.isFinite(validationResult.actualDuration),
+            });
+
             resolve({
               blob,
               previewUrl,
-              mimeType: blob.type || recorder.mimeType || supportedMimeType || "video/webm",
-              duration: recordSeconds,
+              mimeType:
+                blob.type ||
+                recorder.mimeType ||
+                supportedMimeType ||
+                "video/webm",
+              duration: Number.isFinite(validationResult.actualDuration)
+                ? validationResult.actualDuration
+                : recordSeconds,
               timer: timerSeconds,
               actualDelay: delayBeforeStartSeconds,
               facingMode: shouldMirrorVideo ? "user" : "environment",
@@ -1260,10 +1501,27 @@ export default function TakeMoment() {
         if (hasRecordingStarted || hasRecordingStopped) return;
         hasRecordingStarted = true;
         try {
-          recorder.start(250);
-          const totalRecordDurationMs = Math.max(750, Math.round(recordSeconds * 1000 + 500));
+          // Use timeslice of 100ms for more frequent data chunks
+          recorder.start(100);
+          console.log(
+            `🎬 Recording started: ${recordSeconds}s duration planned`
+          );
+
+          const totalRecordDurationMs = Math.max(
+            750,
+            Math.round(recordSeconds * 1000 + 500)
+          );
           stopTimeout = setTimeout(() => {
             if (recorder.state !== "inactive") {
+              console.log(
+                `🎬 Recording stopping after ${totalRecordDurationMs}ms`
+              );
+
+              // Check if we received any chunks
+              if (chunks.length === 0) {
+                console.error("❌ No video chunks received during recording!");
+              }
+
               recorder.stop();
             }
           }, totalRecordDurationMs);
@@ -1276,7 +1534,10 @@ export default function TakeMoment() {
       };
 
       if (delayBeforeStartSeconds > 0) {
-        startTimeout = setTimeout(startRecording, delayBeforeStartSeconds * 1000);
+        startTimeout = setTimeout(
+          startRecording,
+          delayBeforeStartSeconds * 1000
+        );
       } else {
         startRecording();
       }
@@ -1346,7 +1607,9 @@ export default function TakeMoment() {
       return;
     }
 
-    const effectiveTimer = TIMER_OPTIONS.includes(timer) ? timer : TIMER_OPTIONS[0];
+    const effectiveTimer = TIMER_OPTIONS.includes(timer)
+      ? timer
+      : TIMER_OPTIONS[0];
     if (effectiveTimer !== timer) setTimer(effectiveTimer);
 
     if (activeRecordingRef.current) {
@@ -1449,24 +1712,37 @@ export default function TakeMoment() {
         width: currentPhoto.width ?? null,
         height: currentPhoto.height ?? null,
         capturedAt: currentPhoto.capturedAt ?? Date.now(),
-        sizeBytes: typeof currentPhoto.blob.size === "number" ? currentPhoto.blob.size : null,
+        sizeBytes:
+          typeof currentPhoto.blob.size === "number"
+            ? currentPhoto.blob.size
+            : null,
         source: "camera",
       };
 
-      const basePhotos = Array.isArray(capturedPhotosRef.current) ? [...capturedPhotosRef.current] : [];
-      const baseVideos = Array.isArray(capturedVideosRef.current) ? [...capturedVideosRef.current] : [];
+      const basePhotos = Array.isArray(capturedPhotosRef.current)
+        ? [...capturedPhotosRef.current]
+        : [];
+      const baseVideos = Array.isArray(capturedVideosRef.current)
+        ? [...capturedVideosRef.current]
+        : [];
 
       const appendedPhotos = [...basePhotos, photoEntry];
       const trimmedPhotos = appendedPhotos.slice(0, maxCaptures);
       const overflowPhotos = appendedPhotos.slice(maxCaptures);
       overflowPhotos.forEach((entry) => cleanupCapturedPhotoPreview(entry));
 
-      const insertedIndex = trimmedPhotos.findIndex((entry) => entry?.id === photoEntry.id);
+      const insertedIndex = trimmedPhotos.findIndex(
+        (entry) => entry?.id === photoEntry.id
+      );
 
       let preparedVideoEntry = null;
       if (currentVideo?.blob || currentVideo?.dataUrl) {
-        const targetIndex = insertedIndex === -1 ? trimmedPhotos.length - 1 : insertedIndex;
-        preparedVideoEntry = createCapturedVideoEntry(currentVideo, Math.max(0, targetIndex));
+        const targetIndex =
+          insertedIndex === -1 ? trimmedPhotos.length - 1 : insertedIndex;
+        preparedVideoEntry = createCapturedVideoEntry(
+          currentVideo,
+          Math.max(0, targetIndex)
+        );
       }
 
       const videosWorking = [...baseVideos];
@@ -1528,8 +1804,12 @@ export default function TakeMoment() {
       const removedPhoto = capturedPhotos[indexToDelete];
       cleanupCapturedPhotoPreview(removedPhoto);
 
-      const newPhotos = capturedPhotos.filter((_, index) => index !== indexToDelete);
-      const trimmedVideos = capturedVideos.filter((_, index) => index !== indexToDelete);
+      const newPhotos = capturedPhotos.filter(
+        (_, index) => index !== indexToDelete
+      );
+      const trimmedVideos = capturedVideos.filter(
+        (_, index) => index !== indexToDelete
+      );
       const reindexedVideos = trimmedVideos.map((entry, idx) => {
         if (!entry) return null;
         return {
@@ -1542,7 +1822,12 @@ export default function TakeMoment() {
       setCapturedVideos(reindexedVideos);
       scheduleStorageWrite(newPhotos, reindexedVideos);
     },
-    [capturedPhotos, capturedVideos, cleanupCapturedPhotoPreview, scheduleStorageWrite]
+    [
+      capturedPhotos,
+      capturedVideos,
+      cleanupCapturedPhotoPreview,
+      scheduleStorageWrite,
+    ]
   );
 
   const handleEdit = useCallback(async () => {
@@ -1586,7 +1871,8 @@ export default function TakeMoment() {
       maxWidth: 600,
       maxHeight: 600,
     };
-    const fallbackPhotoProfile = compressionProfile?.moderate ?? primaryPhotoProfile;
+    const fallbackPhotoProfile =
+      compressionProfile?.moderate ?? primaryPhotoProfile;
 
     const convertPhotosForEditing = async (entries) => {
       const results = [];
@@ -1613,16 +1899,21 @@ export default function TakeMoment() {
 
         if (entry.dataUrl) {
           const shouldReplacePreview =
-            entry.previewUrl && isBlobUrl(entry.previewUrl) && entry.previewUrl !== entry.dataUrl;
+            entry.previewUrl &&
+            isBlobUrl(entry.previewUrl) &&
+            entry.previewUrl !== entry.dataUrl;
           if (shouldReplacePreview) {
             revokeObjectURL(entry.previewUrl);
           }
           results.push({
             ...entry,
             blob: null,
-            previewUrl: shouldReplacePreview ? entry.dataUrl : entry.previewUrl || entry.dataUrl,
+            previewUrl: shouldReplacePreview
+              ? entry.dataUrl
+              : entry.previewUrl || entry.dataUrl,
             sizeBytes:
-              typeof entry.sizeBytes === "number" && Number.isFinite(entry.sizeBytes)
+              typeof entry.sizeBytes === "number" &&
+              Number.isFinite(entry.sizeBytes)
                 ? entry.sizeBytes
                 : entry.dataUrl.length * 2,
           });
@@ -1630,18 +1921,32 @@ export default function TakeMoment() {
         }
 
         if (!entry.blob) {
-          throw new Error(`Photo ${index + 1} tidak memiliki data untuk diproses.`);
+          throw new Error(
+            `Photo ${index + 1} tidak memiliki data untuk diproses.`
+          );
         }
 
         let scaledResult;
         try {
-          scaledResult = await generateScaledPhotoVariant(entry.blob, primaryPhotoProfile);
+          scaledResult = await generateScaledPhotoVariant(
+            entry.blob,
+            primaryPhotoProfile
+          );
         } catch (primaryError) {
-          console.warn("⚠️ Gagal kompresi foto dengan profil utama, mencoba fallback", primaryError);
+          console.warn(
+            "⚠️ Gagal kompresi foto dengan profil utama, mencoba fallback",
+            primaryError
+          );
           try {
-            scaledResult = await generateScaledPhotoVariant(entry.blob, fallbackPhotoProfile);
+            scaledResult = await generateScaledPhotoVariant(
+              entry.blob,
+              fallbackPhotoProfile
+            );
           } catch (fallbackError) {
-            console.warn("⚠️ Fallback kompresi foto gagal, memakai blob asli", fallbackError);
+            console.warn(
+              "⚠️ Fallback kompresi foto gagal, memakai blob asli",
+              fallbackError
+            );
             scaledResult = {
               blob: entry.blob,
               width: entry.width ?? null,
@@ -1663,7 +1968,10 @@ export default function TakeMoment() {
           blob: null,
           width: scaledResult?.width ?? entry.width ?? null,
           height: scaledResult?.height ?? entry.height ?? null,
-          sizeBytes: typeof targetBlob.size === "number" ? targetBlob.size : entry.sizeBytes ?? null,
+          sizeBytes:
+            typeof targetBlob.size === "number"
+              ? targetBlob.size
+              : entry.sizeBytes ?? null,
         });
       }
       return results;
@@ -1685,7 +1993,8 @@ export default function TakeMoment() {
             isConverting: false,
             conversionError: false,
             sizeBytes:
-              typeof entry.sizeBytes === "number" && Number.isFinite(entry.sizeBytes)
+              typeof entry.sizeBytes === "number" &&
+              Number.isFinite(entry.sizeBytes)
                 ? entry.sizeBytes
                 : entry.dataUrl.length * 2,
           });
@@ -1693,7 +2002,9 @@ export default function TakeMoment() {
         }
 
         if (!entry.blob) {
-          throw new Error(`Video ${index + 1} tidak memiliki data untuk diproses.`);
+          throw new Error(
+            `Video ${index + 1} tidak memiliki data untuk diproses.`
+          );
         }
 
         try {
@@ -1704,7 +2015,10 @@ export default function TakeMoment() {
             blob: null,
             isConverting: false,
             conversionError: false,
-            sizeBytes: typeof entry.sizeBytes === "number" ? entry.sizeBytes : entry.blob.size ?? null,
+            sizeBytes:
+              typeof entry.sizeBytes === "number"
+                ? entry.sizeBytes
+                : entry.blob.size ?? null,
           });
         } catch (error) {
           console.error("❌ Gagal mengonversi video untuk editor", error);
@@ -1749,12 +2063,14 @@ export default function TakeMoment() {
     }
 
     if (convertedVideos.some((entry) => entry && !entry.dataUrl)) {
-      alert("Video masih diproses atau gagal tersimpan. Mohon tunggu sebentar dan coba lagi.");
+      alert(
+        "Video masih diproses atau gagal tersimpan. Mohon tunggu sebentar dan coba lagi."
+      );
       clearProcessingIndicator();
       return;
     }
 
-  const frameConfig = frameProvider.getCurrentConfig();
+    const frameConfig = frameProvider.getCurrentConfig();
     const sanitizeVideoForPayload = (video, index) => {
       if (!video || !video.dataUrl) return null;
       return {
@@ -1783,7 +2099,10 @@ export default function TakeMoment() {
 
     const preparePayload = (photosSource, videosSource) => {
       const photosPrepared = [...photosSource];
-      const videosPrepared = normalizeVideos(videosSource, photosPrepared.length);
+      const videosPrepared = normalizeVideos(
+        videosSource,
+        photosPrepared.length
+      );
       return {
         photos: photosPrepared,
         videos: videosPrepared,
@@ -1791,7 +2110,9 @@ export default function TakeMoment() {
     };
 
     try {
-      const photoPayloadSource = convertedPhotos.map((entry) => entry?.dataUrl ?? null);
+      const photoPayloadSource = convertedPhotos.map(
+        (entry) => entry?.dataUrl ?? null
+      );
       if (photoPayloadSource.some((value) => !value)) {
         throw new Error("Foto tidak lengkap untuk disimpan.");
       }
@@ -1803,12 +2124,18 @@ export default function TakeMoment() {
       const storageSize = calculateStorageSize(basePayload);
 
       if (parseFloat(storageSize.mb) > 4) {
-        const emergencyCompressedBase = await compressPhotosArray(photoPayloadSource, {
-          quality: frameName === "Testframe4" ? 0.7 : 0.6,
-          maxWidth: frameName === "Testframe4" ? 500 : 400,
-          maxHeight: frameName === "Testframe4" ? 400 : 400,
-        });
-        const emergencyPayload = preparePayload(emergencyCompressedBase, convertedVideos);
+        const emergencyCompressedBase = await compressPhotosArray(
+          photoPayloadSource,
+          {
+            quality: frameName === "Testframe4" ? 0.7 : 0.6,
+            maxWidth: frameName === "Testframe4" ? 500 : 400,
+            maxHeight: frameName === "Testframe4" ? 400 : 400,
+          }
+        );
+        const emergencyPayload = preparePayload(
+          emergencyCompressedBase,
+          convertedVideos
+        );
         safeStorage.setJSON("capturedPhotos", emergencyPayload.photos);
         safeStorage.setJSON("capturedVideos", emergencyPayload.videos);
       } else {
@@ -1821,13 +2148,20 @@ export default function TakeMoment() {
           safeStorage.setItem("selectedFrame", frameConfig.id);
           safeStorage.setJSON("frameConfig", frameConfig);
         } catch (error) {
-          console.error("❌ QuotaExceededError when saving frame config", error);
-          alert("Warning: Could not save frame configuration due to storage limits.");
+          console.error(
+            "❌ QuotaExceededError when saving frame config",
+            error
+          );
+          alert(
+            "Warning: Could not save frame configuration due to storage limits."
+          );
         }
       }
     } catch (error) {
       console.error("❌ Gagal menyimpan data sebelum masuk editor", error);
-      alert(error?.message || "Terjadi kesalahan saat menyiapkan data untuk editor.");
+      alert(
+        error?.message || "Terjadi kesalahan saat menyiapkan data untuk editor."
+      );
       clearProcessingIndicator();
       return;
     }
@@ -1902,7 +2236,8 @@ export default function TakeMoment() {
               opacity: 0.85,
             }}
           >
-            Foto dan video kamu sedang diproses. Mohon tunggu sebentar sampai halaman editor siap.
+            Foto dan video kamu sedang diproses. Mohon tunggu sebentar sampai
+            halaman editor siap.
           </div>
         </div>
       </div>
@@ -1916,12 +2251,17 @@ export default function TakeMoment() {
       .filter(({ photo }) => Boolean(photo))
       .map(({ photo, idx }) => {
         const previewSource =
-          typeof photo === "string" ? photo : photo.previewUrl || photo.dataUrl || null;
+          typeof photo === "string"
+            ? photo
+            : photo.previewUrl || photo.dataUrl || null;
         if (!previewSource) {
           return null;
         }
         return {
-          id: typeof photo === "string" ? `photo-${idx}` : photo.id || `photo-${idx}`,
+          id:
+            typeof photo === "string"
+              ? `photo-${idx}`
+              : photo.id || `photo-${idx}`,
           src: previewSource,
           index: idx,
         };
@@ -2001,7 +2341,9 @@ export default function TakeMoment() {
               style={{
                 display: "grid",
                 gridTemplateColumns:
-                  capturedPhotos.length > 1 ? "repeat(auto-fit, minmax(110px, 1fr))" : "1fr",
+                  capturedPhotos.length > 1
+                    ? "repeat(auto-fit, minmax(110px, 1fr))"
+                    : "1fr",
                 gap: isMobileVariant ? "0.45rem" : "0.45rem",
                 width: "100%",
                 maxWidth: isMobileVariant ? "240px" : "100%",
@@ -2015,7 +2357,9 @@ export default function TakeMoment() {
                     aspectRatio: videoAspectRatio.toString(),
                     borderRadius: "12px",
                     overflow: "hidden",
-                    boxShadow: isMobileVariant ? "0 2px 10px rgba(0,0,0,0.12)" : "0 10px 20px rgba(15,23,42,0.15)",
+                    boxShadow: isMobileVariant
+                      ? "0 2px 10px rgba(0,0,0,0.12)"
+                      : "0 10px 20px rgba(15,23,42,0.15)",
                     transition: "transform 0.2s ease",
                   }}
                 >
@@ -2101,14 +2445,18 @@ export default function TakeMoment() {
           style={{
             width: "100%",
             padding: isMobileVariant ? "0.75rem" : "0.65rem",
-            background: capturedPhotos.length >= maxCaptures ? "#1E293B" : "#d7dde5",
+            background:
+              capturedPhotos.length >= maxCaptures ? "#1E293B" : "#d7dde5",
             color: "white",
             border: "none",
             borderRadius: "999px",
             fontSize: isMobileVariant ? "0.95rem" : "0.88rem",
             fontWeight: 600,
-            cursor: capturedPhotos.length >= maxCaptures ? "pointer" : "not-allowed",
-            boxShadow: isMobileVariant ? "0 8px 16px rgba(0,0,0,0.1)" : "0 14px 28px rgba(30,41,59,0.15)",
+            cursor:
+              capturedPhotos.length >= maxCaptures ? "pointer" : "not-allowed",
+            boxShadow: isMobileVariant
+              ? "0 8px 16px rgba(0,0,0,0.1)"
+              : "0 14px 28px rgba(30,41,59,0.15)",
             transition: "transform 0.2s ease",
             opacity: capturedPhotos.length >= maxCaptures ? 1 : 0.7,
           }}
@@ -2123,7 +2471,11 @@ export default function TakeMoment() {
 
   const renderCameraControls = (variant) => {
     const isMobileVariant = variant === "mobile";
-    const showCameraButtonLabel = isMobileVariant ? "Pakai Kamera" : cameraActive ? "Stop Camera" : "Camera";
+    const showCameraButtonLabel = isMobileVariant
+      ? "Pakai Kamera"
+      : cameraActive
+      ? "Stop Camera"
+      : "Camera";
     const shouldShowTimer = cameraActive;
 
     const containerStyle = isMobileVariant
@@ -2163,16 +2515,22 @@ export default function TakeMoment() {
             fileInputRef.current?.click();
           }}
           disabled={capturedPhotos.length >= maxCaptures}
-          title={capturedPhotos.length >= maxCaptures ? "Maksimal foto sudah tercapai" : "Pilih file dari galeri"}
+          title={
+            capturedPhotos.length >= maxCaptures
+              ? "Maksimal foto sudah tercapai"
+              : "Pilih file dari galeri"
+          }
           style={{
             padding: isMobileVariant ? "0.65rem 0.85rem" : "0.7rem 1.35rem",
-            background: capturedPhotos.length >= maxCaptures ? "#f1f5f9" : "#fff",
+            background:
+              capturedPhotos.length >= maxCaptures ? "#f1f5f9" : "#fff",
             color: capturedPhotos.length >= maxCaptures ? "#94a3b8" : "#333",
             border: "1px solid #e2e8f0",
             borderRadius: "999px",
             fontSize: isMobileVariant ? "0.92rem" : "1rem",
             fontWeight: 500,
-            cursor: capturedPhotos.length >= maxCaptures ? "not-allowed" : "pointer",
+            cursor:
+              capturedPhotos.length >= maxCaptures ? "not-allowed" : "pointer",
             boxShadow: "0 12px 24px rgba(15,23,42,0.08)",
             display: "flex",
             alignItems: "center",
@@ -2253,7 +2611,9 @@ export default function TakeMoment() {
             fontSize: isMobileVariant ? "0.92rem" : "1rem",
             fontWeight: 500,
             cursor: "pointer",
-            boxShadow: cameraActive ? "0 16px 32px rgba(232,168,137,0.35)" : "0 12px 24px rgba(15,23,42,0.08)",
+            boxShadow: cameraActive
+              ? "0 16px 32px rgba(232,168,137,0.35)"
+              : "0 12px 24px rgba(15,23,42,0.08)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -2262,7 +2622,11 @@ export default function TakeMoment() {
             gridColumn: "3",
           }}
         >
-          {isMobileVariant && <span role="img" aria-hidden="true">📷</span>}
+          {isMobileVariant && (
+            <span role="img" aria-hidden="true">
+              📷
+            </span>
+          )}
           {showCameraButtonLabel}
         </button>
       </div>
@@ -2307,7 +2671,10 @@ export default function TakeMoment() {
               }}
               onLoadedMetadata={() => {
                 if (videoRef.current) {
-                  setVideoAspectRatio(videoRef.current.videoWidth / Math.max(videoRef.current.videoHeight, 1));
+                  setVideoAspectRatio(
+                    videoRef.current.videoWidth /
+                      Math.max(videoRef.current.videoHeight, 1)
+                  );
                 }
               }}
               onError={(error) => {
@@ -2359,7 +2726,11 @@ export default function TakeMoment() {
                   justifyContent: "center",
                 }}
               >
-                <img src={flipIcon} alt="Flip camera" style={{ width: "20px", height: "20px" }} />
+                <img
+                  src={flipIcon}
+                  alt="Flip camera"
+                  style={{ width: "20px", height: "20px" }}
+                />
               </button>
             )}
           </>
@@ -2377,7 +2748,9 @@ export default function TakeMoment() {
           >
             <div style={{ fontSize: "3.5rem", lineHeight: 1 }}>📷</div>
             <div style={{ fontWeight: 600 }}>Kamera belum aktif</div>
-            <div style={{ fontSize: "0.9rem" }}>aktifkan kamera atau upload dari galeri</div>
+            <div style={{ fontSize: "0.9rem" }}>
+              aktifkan kamera atau upload dari galeri
+            </div>
             {cameraError && (
               <div
                 style={{
@@ -2441,7 +2814,9 @@ export default function TakeMoment() {
               color: "white",
               fontSize: "1.4rem",
               fontWeight: 700,
-              boxShadow: disableCapture ? "none" : "0 20px 40px rgba(232,168,137,0.4)",
+              boxShadow: disableCapture
+                ? "none"
+                : "0 20px 40px rgba(232,168,137,0.4)",
               cursor: disableCapture ? "not-allowed" : "pointer",
               display: "flex",
               alignItems: "center",
@@ -2485,7 +2860,9 @@ export default function TakeMoment() {
             fontSize: "1.05rem",
             fontWeight: 600,
             cursor: disableCapture ? "not-allowed" : "pointer",
-            boxShadow: disableCapture ? "none" : "0 18px 36px rgba(15,23,42,0.2)",
+            boxShadow: disableCapture
+              ? "none"
+              : "0 18px 36px rgba(15,23,42,0.2)",
             minWidth: "200px",
             transition: "transform 0.2s ease, box-shadow 0.2s ease",
           }}
@@ -2563,37 +2940,39 @@ export default function TakeMoment() {
                 textAlign: "center",
               }}
             >
-                <button
-                  type="button"
-                  onClick={() => navigate("/frames")}
-                  style={{
-                    alignSelf: "flex-start",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.4rem",
-                    padding: "0.55rem 1.1rem",
-                    borderRadius: "999px",
-                    border: "none",
-                    background: "#fff",
-                    color: "#1E293B",
-                    fontWeight: 600,
-                    fontSize: "0.95rem",
-                    cursor: "pointer",
-                    boxShadow: "0 14px 28px rgba(15,23,42,0.12)",
-                    transition: "transform 0.15s ease, box-shadow 0.15s ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = "translateY(-1px)";
-                    e.currentTarget.style.boxShadow = "0 18px 32px rgba(15,23,42,0.18)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = "none";
-                    e.currentTarget.style.boxShadow = "0 14px 28px rgba(15,23,42,0.12)";
-                  }}
-                >
-                  <span style={{ fontSize: "1rem" }}>←</span>
-                  <span>Kembali</span>
-                </button>
+              <button
+                type="button"
+                onClick={() => navigate("/frames")}
+                style={{
+                  alignSelf: "flex-start",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.4rem",
+                  padding: "0.55rem 1.1rem",
+                  borderRadius: "999px",
+                  border: "none",
+                  background: "#fff",
+                  color: "#1E293B",
+                  fontWeight: 600,
+                  fontSize: "0.95rem",
+                  cursor: "pointer",
+                  boxShadow: "0 14px 28px rgba(15,23,42,0.12)",
+                  transition: "transform 0.15s ease, box-shadow 0.15s ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "translateY(-1px)";
+                  e.currentTarget.style.boxShadow =
+                    "0 18px 32px rgba(15,23,42,0.18)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "none";
+                  e.currentTarget.style.boxShadow =
+                    "0 14px 28px rgba(15,23,42,0.12)";
+                }}
+              >
+                <span style={{ fontSize: "1rem" }}>←</span>
+                <span>Kembali</span>
+              </button>
               <h1 style={headingStyles}>
                 <span style={headingLineOneStyle}>Pilih momen berhargamu</span>
                 <span style={headingLineTwoStyle}>
@@ -2603,11 +2982,17 @@ export default function TakeMoment() {
               </h1>
             </div>
 
-            <div style={{ width: "100%", maxWidth: "640px" }}>{renderCameraControls("desktop")}</div>
+            <div style={{ width: "100%", maxWidth: "640px" }}>
+              {renderCameraControls("desktop")}
+            </div>
 
-            <div style={{ width: "100%", maxWidth: "820px" }}>{renderCaptureArea("desktop", captureSectionRef)}</div>
+            <div style={{ width: "100%", maxWidth: "820px" }}>
+              {renderCaptureArea("desktop", captureSectionRef)}
+            </div>
 
-            <div style={{ width: "100%", maxWidth: "640px" }}>{captureControls}</div>
+            <div style={{ width: "100%", maxWidth: "640px" }}>
+              {captureControls}
+            </div>
 
             <div
               ref={previewSectionRef}
@@ -2654,29 +3039,29 @@ export default function TakeMoment() {
             textAlign: "center",
           }}
         >
-            <button
-              type="button"
-              onClick={() => navigate("/frames")}
-              style={{
-                alignSelf: "flex-start",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.35rem",
-                padding: "0.45rem 0.95rem",
-                borderRadius: "999px",
-                border: "none",
-                background: "#fff",
-                color: "#1E293B",
-                fontWeight: 600,
-                fontSize: "0.9rem",
-                boxShadow: "0 12px 24px rgba(15,23,42,0.12)",
-                cursor: "pointer",
-                marginBottom: "1.35rem",
-              }}
-            >
-              <span style={{ fontSize: "0.95rem" }}>←</span>
-              <span>Kembali</span>
-            </button>
+          <button
+            type="button"
+            onClick={() => navigate("/frames")}
+            style={{
+              alignSelf: "flex-start",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.35rem",
+              padding: "0.45rem 0.95rem",
+              borderRadius: "999px",
+              border: "none",
+              background: "#fff",
+              color: "#1E293B",
+              fontWeight: 600,
+              fontSize: "0.9rem",
+              boxShadow: "0 12px 24px rgba(15,23,42,0.12)",
+              cursor: "pointer",
+              marginBottom: "1.35rem",
+            }}
+          >
+            <span style={{ fontSize: "0.95rem" }}>←</span>
+            <span>Kembali</span>
+          </button>
           <h1
             style={{
               ...headingStyles,

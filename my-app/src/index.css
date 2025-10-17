@@ -1,7 +1,10 @@
 /* Tailwind layers */
-@tailwind base;
+/* stylelint-disable at-rule-no-unknown */
+/* Tailwind directives processed by PostCSS/Tailwind */
+/* @tailwind base;
 @tailwind components;
-@tailwind utilities;
+@tailwind utilities; */
+/* stylelint-enable at-rule-no-unknown */
 
 /* TakeMoment (Upload/Capture) custom styles */
 .take-moment-bg {

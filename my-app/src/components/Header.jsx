@@ -37,6 +37,14 @@ export default function Header() {
       >
         Frames
       </NavLink>
+      <NavLink
+        to="/create"
+        className={({ isActive }) =>
+          "nav-link" + (isActive ? " active" : "")
+        }
+      >
+        Create
+      </NavLink>
     </>
   );
 

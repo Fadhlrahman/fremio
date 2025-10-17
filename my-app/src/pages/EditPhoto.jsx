@@ -1762,7 +1762,7 @@ export default function EditPhoto() {
     if (!autoSelectedSlotRef.current) {
       autoSelectedSlotRef.current = true;
       setShouldAutoSelectInitialSlot(false);
-      setSelectedPhotoForEdit(firstEditableSlot);
+      // Do not auto-select a slot on initial load; wait for explicit user interaction.
     }
   }, [frameConfig?.id, frameConfig?.slots?.length, frameConfig?.duplicatePhotos, photos, slotPhotos, swapModeActive, selectedPhotoForEdit, shouldAutoSelectInitialSlot]);
 

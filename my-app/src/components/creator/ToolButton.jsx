@@ -4,7 +4,7 @@ export default function ToolButton({ icon: Icon, label, onClick, active, classNa
   const baseClasses = `group flex h-full w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition-all duration-200 ${
     active
       ? 'border-rose-200 bg-rose-50/80 text-rose-700 shadow-sm shadow-rose-100'
-      : 'border-transparent bg-white/70 text-slate-700 hover:border-rose-200 hover:bg-rose-50/70 hover:text-rose-700'
+      : 'border-rose-100/20 bg-white/70 text-slate-700 hover:border-rose-200 hover:bg-rose-50/70 hover:text-rose-700'
   }`;
   const combinedClasses = `${baseClasses} ${className}`.trim();
 

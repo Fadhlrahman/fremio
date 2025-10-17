@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import html2canvas from 'html2canvas';
 import {
@@ -30,15 +30,30 @@ const toastStyles = {
     'text-rose-600 bg-rose-50 border border-rose-100 shadow-[0_14px_30px_rgba(244,63,94,0.15)]'
 };
 
-const initialTooltips = {
-  success: 'Template tersimpan! 🎉',
-  error: 'Gagal menyimpan template. Coba lagi.'
+const TOAST_MESSAGES = {
+  saveSuccess: 'Template tersimpan! 🎉',
+  saveError: 'Gagal menyimpan template. Coba lagi.',
+  pasteSuccess: 'Gambar ditempel ke kanvas.',
+  pasteError: 'Gagal menempel gambar. Pastikan clipboard berisi gambar.',
+  deleteSuccess: 'Elemen dihapus dari kanvas.'
 };
 
 export default function Create() {
   const fileInputRef = useRef(null);
+  const toastTimeoutRef = useRef(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
+
+  const showToast = useCallback((type, message, duration = 3200) => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    setToast({ type, message });
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimeoutRef.current = null;
+    }, duration);
+  }, []);
 
   const {
     elements,
@@ -70,6 +85,12 @@ export default function Create() {
     if (selectedElementId === 'background') return 'background';
     return elements.find((el) => el.id === selectedElementId) || null;
   }, [elements, selectedElementId]);
+
+  useEffect(() => () => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+  }, []);
 
   const triggerUpload = () => {
     if (fileInputRef.current) {
@@ -120,13 +141,12 @@ export default function Create() {
       const payload = [...storedTemplates, { ...template, preview: previewDataUrl }];
       localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(payload));
 
-      setToast({ type: 'success', message: initialTooltips.success });
+      showToast('success', TOAST_MESSAGES.saveSuccess);
     } catch (error) {
       console.error('Failed to save template', error);
-      setToast({ type: 'error', message: initialTooltips.error });
+      showToast('error', TOAST_MESSAGES.saveError);
     } finally {
       setSaving(false);
-      setTimeout(() => setToast(null), 3200);
     }
   };
 
@@ -141,6 +161,77 @@ export default function Create() {
     }
     addElement(type);
   };
+
+  useEffect(() => {
+    const handlePaste = (event) => {
+      const clipboardData = event.clipboardData;
+      if (!clipboardData) return;
+
+      const target = event.target;
+      if (
+        target &&
+        (target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      const items = clipboardData.items ? Array.from(clipboardData.items) : [];
+      const imageItem = items.find((item) => item.type.startsWith('image/'));
+      if (!imageItem) return;
+
+      const file = imageItem.getAsFile();
+      if (!file) return;
+
+      event.preventDefault();
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        if (typeof result === 'string') {
+          addUploadElement(result);
+          showToast('success', TOAST_MESSAGES.pasteSuccess);
+        } else {
+          showToast('error', TOAST_MESSAGES.pasteError);
+        }
+      };
+      reader.onerror = () => {
+        showToast('error', TOAST_MESSAGES.pasteError);
+      };
+      reader.readAsDataURL(file);
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [addUploadElement, showToast]);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.defaultPrevented) return;
+
+      if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+
+      const target = event.target;
+      if (
+        target &&
+        (target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (!selectedElementId || selectedElementId === 'background') return;
+
+      event.preventDefault();
+      removeElement(selectedElementId);
+      showToast('success', TOAST_MESSAGES.deleteSuccess, 2200);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedElementId, removeElement, showToast]);
 
   return (
     <div className="bg-gradient-to-b from-[#fdf7f4] via-white to-[#f7f1ed] py-10 lg:py-12">
@@ -183,10 +274,13 @@ export default function Create() {
             initial="hidden"
             animate="visible"
             transition={{ delay: 0.1 }}
-            className="creator-panel flex flex-col gap-4 rounded-[36px] border border-white/70 bg-white/85 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.14)] backdrop-blur"
+            className="creator-panel flex flex-col gap-4 overflow-hidden rounded-[36px] border border-white/70 bg-white/85 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.14)] backdrop-blur"
           >
-            <h3 className="text-lg font-semibold text-slate-800">Tools</h3>
-            <div className="mt-2 grid flex-1 grid-rows-5 gap-3">
+            <div className="flex w-full flex-col gap-2">
+              <h3 className="text-center text-lg font-semibold text-slate-800">Tools</h3>
+              <div className="h-px w-full bg-slate-300/70" />
+            </div>
+            <div className="mt-1 grid flex-1 grid-rows-5 gap-3">
               <ToolButton
                 label="Background"
                 icon={Palette}
@@ -257,7 +351,11 @@ export default function Create() {
             transition={{ delay: 0.2 }}
             className="creator-panel rounded-[36px] border border-white/70 bg-white/85 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.14)] backdrop-blur"
           >
-            <h3 className="text-lg font-semibold text-slate-800">Properties</h3>
+            <div className="flex w-full flex-col gap-2">
+              <h3 className="text-center text-lg font-semibold text-slate-800">Properties</h3>
+              <div className="h-px w-full bg-slate-300/70" />
+            </div>
+            <div className="mt-4">
             <PropertiesPanel
               selectedElement={selectedElement}
               canvasBackground={canvasBackground}
@@ -266,6 +364,7 @@ export default function Create() {
               onDeleteElement={removeElement}
               clearSelection={clearSelection}
             />
+            </div>
           </motion.aside>
 
           <motion.div

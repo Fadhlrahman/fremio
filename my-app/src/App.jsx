@@ -9,6 +9,7 @@ import EditPhoto from "./pages/EditPhoto.jsx";
 import TabletPrinter from "./pages/TabletPrinter.jsx";
 import FrameDebugSimple from "./pages/FrameDebugSimple.jsx";
 import FrameBuilder from "./pages/FrameBuilder.jsx";
+import Create from "./pages/Create.jsx";
 import NotFound from "./pages/NotFound.jsx";
 import "./App.css";
 
@@ -19,6 +20,7 @@ export default function App() {
         <Route index element={<Home />} />
         <Route path="/about" element={<About />} />
         <Route path="/frames" element={<Frames />} />
+    <Route path="/create" element={<Create />} />
         <Route path="/take-moment" element={<TakeMoment />} />
         <Route path="/editor" element={<Editor />} />
         <Route path="/edit-photo" element={<EditPhoto />} />
@@ -31,4 +33,3 @@ export default function App() {
     </Routes>
   );
 }
-// test change.

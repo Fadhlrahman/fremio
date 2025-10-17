@@ -16,7 +16,6 @@ export const FRAME_REGISTRY = [
   'FremioSeries-purple-3',
   'FremioSeries-white-3',
   'FremioSeries-blue-4',
-  'EverythingYouAre-3x2',
   // Legacy/Test frames
   'Testframe1',
   'Testframe2',
@@ -124,14 +123,6 @@ export const FRAME_METADATA = {
     description: '4 slot foto grid 2x2 - Blue Frame',
     imagePath: '/src/assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png',
     category: 'grid'
-  },
-  'EverythingYouAre-3x2': {
-    id: 'EverythingYouAre-3x2',
-    name: 'Everything You Are 6 Foto',
-    maxCaptures: 3,
-    description: '3 foto x 2 = 6 slot photobooth klasik - Everything You Are Frame',
-    imagePath: '/src/assets/frames/Everything You Are.png',
-    category: 'photobooth'
   },
   // Legacy/Test frames metadata
   'Testframe1': {

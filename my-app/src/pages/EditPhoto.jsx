@@ -22,7 +22,6 @@ import FremioSeriesPink3 from '../assets/frames/FremioSeries/FremioSeries-3/Frem
 import FremioSeriesPurple3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-purple-3.png';
 import FremioSeriesWhite3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-white-3.png';
 import FremioSeriesBlue4 from '../assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png';
-import EverythingYouAre3x2 from '../assets/frames/Everything You Are.png';
 
 const FILTER_PRESETS = [
   { id: 'none', label: 'Original', description: 'Tanpa filter, warna asli foto', css: '' },
@@ -1423,8 +1422,7 @@ export default function EditPhoto() {
       'FremioSeries-pink-3': FremioSeriesPink3,
       'FremioSeries-purple-3': FremioSeriesPurple3,
       'FremioSeries-white-3': FremioSeriesWhite3,
-      'FremioSeries-blue-4': FremioSeriesBlue4,
-      'EverythingYouAre-3x2': EverythingYouAre3x2
+      'FremioSeries-blue-4': FremioSeriesBlue4
     };
     return frameMap[frameId] || FremioSeriesBlue2;
   };

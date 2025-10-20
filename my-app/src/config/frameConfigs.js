@@ -13,7 +13,6 @@ import FremioSeriesPink3 from './frame-configs/FremioSeries-pink-3.js';
 import FremioSeriesPurple3 from './frame-configs/FremioSeries-purple-3.js';
 import FremioSeriesWhite3 from './frame-configs/FremioSeries-white-3.js';
 import FremioSeriesBlue4 from './frame-configs/FremioSeries-blue-4.js';
-import EverythingYouAre3x2 from './frame-configs/EverythingYouAre-3x2.js';
 
 export const FRAME_CONFIGS = {
   'FremioSeries-blue-2': FremioSeriesBlue2,
@@ -27,8 +26,7 @@ export const FRAME_CONFIGS = {
   'FremioSeries-pink-3': FremioSeriesPink3,
   'FremioSeries-purple-3': FremioSeriesPurple3,
   'FremioSeries-white-3': FremioSeriesWhite3,
-  'FremioSeries-blue-4': FremioSeriesBlue4,
-  'EverythingYouAre-3x2': EverythingYouAre3x2
+  'FremioSeries-blue-4': FremioSeriesBlue4
 };
 
 // Helper function untuk mendapatkan konfigurasi frame berdasarkan nama

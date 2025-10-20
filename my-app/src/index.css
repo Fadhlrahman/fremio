@@ -505,6 +505,22 @@ code {
     padding: 0 12px;
   }
 }
+
+.creator-layout {
+  align-items: stretch;
+}
+
+@media (min-width: 1024px) {
+  .creator-layout {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr) 320px;
+    gap: 2.25rem;
+  }
+
+  .creator-layout .creator-panel {
+    height: 100%;
+  }
+}
 /* Custom styles for Frames pa.ge */
 .frames-wrapper {
   display: flex;

@@ -8,7 +8,7 @@ export default function Header() {
   const headerRef = useRef(null);
   const { pathname, hash } = useLocation();
 
-  // Active state manual untuk link hash (#home/#about)
+  // Active state untuk section di homepage
   const isHomeActive = pathname === "/" && (hash === "" || hash === "#home");
   const isAboutActive = pathname === "/" && hash === "#about";
 
@@ -23,7 +23,7 @@ export default function Header() {
     return () => document.removeEventListener("click", onDoc);
   }, []);
 
-  // Elevation on scroll
+  // Elevation on scroll (pertahankan dari kode lama)
   useEffect(() => {
     const el = headerRef.current;
     const onScroll = () => {
@@ -43,7 +43,7 @@ export default function Header() {
 
         {/* Center: Nav */}
         <nav className="main-nav">
-          {/* Home & About: scroll section di homepage */}
+          {/* Home & About: tetap hash-section */}
           <Link
             to="/#home"
             className={"nav-link" + (isHomeActive ? " active" : "")}
@@ -57,7 +57,7 @@ export default function Header() {
             About
           </Link>
 
-          {/* Frames tetap route terpisah */}
+          {/* Route pages */}
           <NavLink
             to="/frames"
             className={({ isActive }) =>
@@ -66,18 +66,24 @@ export default function Header() {
           >
             Frames
           </NavLink>
+          <NavLink
+            to="/create"
+            className={({ isActive }) =>
+              "nav-link" + (isActive ? " active" : "")
+            }
+          >
+            Create
+          </NavLink>
         </nav>
 
         {/* Right: Action */}
         <div className="header-actions" style={{ display: "flex", gap: 8 }}>
-          {/* Toggle (muncul saat mobile via CSS) */}
           <button
             className="nav-toggle"
             aria-label="Toggle menu"
             aria-expanded={open}
             onClick={() => setOpen((v) => !v)}
           >
-            {/* ikon burger sederhana */}
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path
                 d="M3 6h18M3 12h18M3 18h18"
@@ -93,6 +99,8 @@ export default function Header() {
           </NavLink>
         </div>
 
+        {/* (Opsional) Kamu punya dua tombol toggle: nav-toggle & menu-toggle.
+            Kalau cuma perlu satu, hapus salah satunya di sini + CSS-nya. */}
         <button
           type="button"
           className="menu-toggle"
@@ -106,6 +114,7 @@ export default function Header() {
         </button>
       </div>
 
+      {/* Mobile menu */}
       <div className={`mobile-menu ${menuOpen ? "open" : ""}`}>
         <nav className="mobile-nav">
           <Link
@@ -128,7 +137,16 @@ export default function Header() {
           >
             Frames
           </NavLink>
+          <NavLink
+            to="/create"
+            className={({ isActive }) =>
+              "nav-link" + (isActive ? " active" : "")
+            }
+          >
+            Create
+          </NavLink>
         </nav>
+
         <NavLink to="/login" className="btn-login mobile">
           Login/Register
         </NavLink>

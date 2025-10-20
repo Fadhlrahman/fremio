@@ -84,6 +84,7 @@ const renderDebugPanel = () => (
 // {debugPanelOpen && renderDebugPanel()}
 // <button ... onClick={() => setDebugPanelOpen(open => !open)}>...</button>
 
+
 const FILTER_PRESETS = [
   {
     id: "none",
@@ -2066,7 +2067,7 @@ export default function EditPhoto() {
     if (!autoSelectedSlotRef.current) {
       autoSelectedSlotRef.current = true;
       setShouldAutoSelectInitialSlot(false);
-      setSelectedPhotoForEdit(firstEditableSlot);
+      // Do not auto-select a slot on initial load; wait for explicit user interaction.
     }
   }, [
     frameConfig?.id,

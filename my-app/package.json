@@ -17,10 +17,15 @@
     "jsqr": "^1.4.0",
     "jszip": "^3.10.1",
     "lz-string": "^1.5.0",
+    "framer-motion": "^12.5.0",
+    "html2canvas": "^1.4.1",
+    "lucide-react": "^0.473.0",
     "qrcode": "^1.5.4",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "react-router-dom": "^7.9.3"
+    "react-router-dom": "^7.9.3",
+    "react-rnd": "^10.4.1",
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",

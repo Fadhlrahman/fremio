@@ -91,7 +91,7 @@ export default function Footer() {
             </a>
             <a
               className="social-btn ig"
-              href="https://instagram.com/fremio"
+              href="https://instagram.com/fremio.id"
               aria-label="Instagram"
               target="_blank"
               rel="noopener noreferrer"

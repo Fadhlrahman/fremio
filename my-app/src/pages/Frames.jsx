@@ -12,7 +12,6 @@ import FremioSeriesPink3 from "../assets/frames/FremioSeries/FremioSeries-3/Frem
 import FremioSeriesPurple3 from "../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-purple-3.png";
 import FremioSeriesWhite3 from "../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-white-3.png";
 import FremioSeriesBlue4 from "../assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png";
-import EverythingYouAre3x2 from "../assets/frames/Everything You Are.png";
 
 import { useNavigate } from "react-router-dom";
 import frameProvider from '../utils/frameProvider.js';
@@ -102,13 +101,6 @@ const frames = [
     description: "",
     img: FremioSeriesBlue4,
     maxCaptures: 4
-  },
-  {
-    id: "EverythingYouAre-3x2",
-    title: "Everything You Are",
-    description: "",
-    img: EverythingYouAre3x2,
-    maxCaptures: 3
   }
 ];
 

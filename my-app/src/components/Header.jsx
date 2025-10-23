@@ -1,6 +1,7 @@
 // src/components/Header.jsx
 import { NavLink, Link, useLocation } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
+import logoSalem from "../assets/logo-salem.png";
 
 export default function Header() {
   const [open, setOpen] = useState(false);
@@ -39,7 +40,9 @@ export default function Header() {
     <header ref={headerRef} className={`site-header ${open ? "open" : ""}`}>
       <div className="container header-bar">
         {/* Left: Logo */}
-        <div className="logo">fremio</div>
+        <div className="logo">
+          <img src={logoSalem} alt="Fremio Logo" className="logo-image" />
+        </div>
 
         {/* Center: Nav */}
         <nav className="main-nav">
@@ -77,30 +80,13 @@ export default function Header() {
         </nav>
 
         {/* Right: Action */}
-        <div className="header-actions" style={{ display: "flex", gap: 8 }}>
-          <button
-            className="nav-toggle"
-            aria-label="Toggle menu"
-            aria-expanded={open}
-            onClick={() => setOpen((v) => !v)}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M3 6h18M3 12h18M3 18h18"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-
+        <div className="header-actions">
           <NavLink to="/login" className="btn-login">
             Login/Register
           </NavLink>
         </div>
 
-        {/* (Opsional) Kamu punya dua tombol toggle: nav-toggle & menu-toggle.
-            Kalau cuma perlu satu, hapus salah satunya di sini + CSS-nya. */}
+        {/* Mobile menu toggle */}
         <button
           type="button"
           className="menu-toggle"

@@ -1,54 +1,54 @@
-import { memo, useMemo } from 'react';
-import { Rnd } from 'react-rnd';
-import { motion } from 'framer-motion';
+import { memo, useMemo } from "react";
+import { Rnd } from "react-rnd";
+import { motion } from "framer-motion";
 
-const elementShadow = '0 18px 36px rgba(15, 23, 42, 0.14)';
+const elementShadow = "0 18px 36px rgba(15, 23, 42, 0.14)";
 const CANVAS_WIDTH = 360;
 const CANVAS_HEIGHT = 540;
 
 const getElementStyle = (element, isSelected) => {
   switch (element.type) {
-    case 'text':
+    case "text":
       return {
         fontFamily: element.data?.fontFamily,
         fontSize: `${element.data?.fontSize ?? 24}px`,
-        color: element.data?.color ?? '#111827',
+        color: element.data?.color ?? "#111827",
         fontWeight: element.data?.fontWeight ?? 500,
-        textAlign: element.data?.align ?? 'left',
-        whiteSpace: 'pre-wrap',
+        textAlign: element.data?.align ?? "left",
+        whiteSpace: "pre-wrap",
         lineHeight: 1.25,
-        display: 'flex',
-        alignItems: 'center',
+        display: "flex",
+        alignItems: "center",
         justifyContent:
-          element.data?.align === 'left'
-            ? 'flex-start'
-            : element.data?.align === 'right'
-            ? 'flex-end'
-            : 'center',
-        padding: '12px 18px',
-        borderRadius: '18px',
-        backgroundColor: isSelected ? 'rgba(255,255,255,0.65)' : 'transparent'
+          element.data?.align === "left"
+            ? "flex-start"
+            : element.data?.align === "right"
+            ? "flex-end"
+            : "center",
+        padding: "12px 18px",
+        borderRadius: "18px",
+        backgroundColor: isSelected ? "rgba(255,255,255,0.65)" : "transparent",
       };
-    case 'shape':
+    case "shape":
       return {
-        background: element.data?.fill ?? '#f4d3c2',
+        background: element.data?.fill ?? "#f4d3c2",
         borderRadius: `${element.data?.borderRadius ?? 24}px`,
         border: element.data?.stroke
           ? `${element.data?.strokeWidth ?? 2}px solid ${element.data.stroke}`
-          : 'none'
+          : "none",
       };
-    case 'upload':
-    case 'photo':
+    case "upload":
+    case "photo":
       return {
         borderRadius: `${element.data?.borderRadius ?? 24}px`,
         border: element.data?.stroke
           ? `${element.data?.strokeWidth ?? 4}px solid ${element.data.stroke}`
-          : '6px solid rgba(255,255,255,0.9)',
-        background: element.data?.fill ?? '#dbeafe',
-        overflow: 'hidden',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center'
+          : "6px solid rgba(255,255,255,0.9)",
+        background: element.data?.fill ?? "#dbeafe",
+        overflow: "hidden",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
       };
     default:
       return {};
@@ -58,19 +58,19 @@ const getElementStyle = (element, isSelected) => {
 const ElementContent = ({ element, isSelected }) => {
   const style = getElementStyle(element, isSelected);
 
-  if (element.type === 'text') {
+  if (element.type === "text") {
     return (
       <div style={style} className="h-full w-full">
-        {element.data?.text ?? 'Teks' }
+        {element.data?.text ?? "Teks"}
       </div>
     );
   }
 
-  if (element.type === 'shape') {
+  if (element.type === "shape") {
     return <div style={style} className="h-full w-full" />;
   }
 
-  if (element.type === 'upload') {
+  if (element.type === "upload") {
     return (
       <div style={style} className="h-full w-full">
         {element.data?.image ? (
@@ -78,23 +78,26 @@ const ElementContent = ({ element, isSelected }) => {
             src={element.data.image}
             alt="Unggahan"
             className="h-full w-full object-cover"
-            style={{ objectFit: element.data?.objectFit ?? 'cover' }}
+            style={{ objectFit: element.data?.objectFit ?? "cover" }}
             draggable={false}
           />
         ) : (
           <div className="text-xs font-medium uppercase tracking-widest text-slate-600">
-            {element.data?.label ?? 'Unggahan'}
+            {element.data?.label ?? "Unggahan"}
           </div>
         )}
       </div>
     );
   }
 
-  if (element.type === 'photo') {
+  if (element.type === "photo") {
     return (
-      <div style={style} className="h-full w-full bg-gradient-to-br from-sky-100 to-sky-200">
+      <div
+        style={style}
+        className="h-full w-full bg-gradient-to-br from-sky-100 to-sky-200"
+      >
         <div className="text-xs font-semibold uppercase tracking-widest text-slate-500">
-          {element.data?.label ?? 'Foto Area'}
+          {element.data?.label ?? "Foto Area"}
         </div>
       </div>
     );
@@ -109,7 +112,7 @@ function CanvasPreviewComponent({
   canvasBackground,
   onSelect,
   onUpdate,
-  onBringToFront
+  onBringToFront,
 }) {
   const sortedElements = useMemo(
     () => [...elements].sort((a, b) => (a.zIndex ?? 1) - (b.zIndex ?? 1)),
@@ -125,14 +128,21 @@ function CanvasPreviewComponent({
         borderRadius: 0,
         width: `${CANVAS_WIDTH}px`,
         height: `${CANVAS_HEIGHT}px`,
-        maxWidth: '70vw',
-        maxHeight: '68vh'
+        maxWidth: "70vw",
+        maxHeight: "68vh",
+        position: "relative",
+        touchAction: "none",
+        userSelect: "none",
       }}
       layout
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
-          onSelect('background');
+          onSelect("background");
         }
+      }}
+      onWheel={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
       }}
     >
       {sortedElements.map((element) => {
@@ -151,7 +161,7 @@ function CanvasPreviewComponent({
                 width: parseFloat(ref.style.width),
                 height: parseFloat(ref.style.height),
                 x: position.x,
-                y: position.y
+                y: position.y,
               })
             }
             minWidth={60}
@@ -159,10 +169,13 @@ function CanvasPreviewComponent({
             dragMomentum={false}
             style={{
               zIndex: element.zIndex,
-              boxShadow: isSelected ? elementShadow : '0 12px 32px rgba(15,23,42,0.12)'
+              boxShadow: isSelected
+                ? elementShadow
+                : "0 12px 32px rgba(15,23,42,0.12)",
+              position: "absolute",
             }}
             className={`border border-transparent transition-colors ${
-              isSelected ? 'border-rose-200' : ''
+              isSelected ? "border-rose-200" : ""
             }`}
             onMouseDown={(event) => {
               event.stopPropagation();

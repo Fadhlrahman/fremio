@@ -2507,7 +2507,12 @@ export default function TakeMoment() {
           accept="image/*"
           multiple
           onChange={handleFileSelect}
-          style={{ display: "none" }}
+          style={{
+            position: "absolute",
+            left: "-9999px",
+            opacity: 0,
+            pointerEvents: "none",
+          }}
         />
         <button
           onClick={() => {

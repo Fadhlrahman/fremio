@@ -12,36 +12,46 @@ export default function Home() {
         className="hero-fremio"
         style={{ scrollMarginTop: "64px" }}
       >
-        <div className="container hero-grid">
-          {/* LEFT */}
-          <div className="hero-left">
-            <h1 className="hero-h1">
-              Not a <span className="accent">photobooth</span>
-              <br />
-              Not a <span className="accent">photobox</span>
-            </h1>
+        <div className="container">
+          <div className="hero-grid">
+            {/* LEFT */}
+            <div className="hero-left">
+              <h1 className="hero-h1">
+                Not a <span className="accent">photobooth</span>
+                <br />
+                Not a <span className="accent">photobox</span>
+              </h1>
 
-            <p className="hero-sub">
-              fremio adalah cara baru merayakan momen. Pilih frame, cetak
-              instan, dan jadikan kenanganmu sesuatu yang hidup
-            </p>
+              <p className="hero-sub">
+                fremio adalah cara baru merayakan momen. Pilih frame, cetak
+                instan, dan jadikan kenanganmu sesuatu yang hidup
+              </p>
 
-            <NavLink to="/login" className="cta-pink">
-              Get Started
-            </NavLink>
+              <NavLink to="/login" className="cta-pink">
+                Get Started
+              </NavLink>
 
-            {/* dekorasi: kamera + roll film */}
-            <CameraIcon className="deco cam-tl" />
-            <FilmIcon className="deco film-tc" />
-            <CameraIcon className="deco cam-bl" />
-            <FilmIcon className="deco film-bc" />
-          </div>
+              {/* dekorasi: kamera + roll film */}
+              <CameraIcon className="deco cam-tl" />
+              <FilmIcon className="deco film-tc" />
+              <CameraIcon className="deco cam-bl" />
+              <FilmIcon className="deco film-bc" />
+            </div>
 
-          {/* RIGHT – kolase */}
-          <div className="hero-right">
-            <img src={frame1} alt="Contoh frame utama" className="shot main" />
-            <img src={frame2} alt="Contoh frame kiri" className="shot left" />
-            <img src={frame3} alt="Contoh frame kanan" className="shot right" />
+            {/* RIGHT – kolase */}
+            <div className="hero-right">
+              <img
+                src={frame1}
+                alt="Contoh frame utama"
+                className="shot main"
+              />
+              <img src={frame2} alt="Contoh frame kiri" className="shot left" />
+              <img
+                src={frame3}
+                alt="Contoh frame kanan"
+                className="shot right"
+              />
+            </div>
           </div>
         </div>
       </section>
@@ -49,53 +59,45 @@ export default function Home() {
       {/* ======= ABOUT (/#about) ======= */}
       <section
         id="about"
-        className="container pad"
+        className="about-section"
         style={{ scrollMarginTop: "64px" }}
       >
-        <div className="mt-10 px-8">
-          <h2 className="mb-8">
-            <span
-              className="font-bold"
-              style={{ color: "#D9B9AB", fontSize: "2rem", lineHeight: "1" }}
-            >
-              Tentang&nbsp;
-            </span>
-            <span
-              className="font-bold text-black"
-              style={{ fontSize: "2rem", lineHeight: "1" }}
-            >
-              Kami
-            </span>
-          </h2>
+        <div className="container">
+          <div className="about-content">
+            <h2 className="about-title">
+              <span className="about-title-accent">Tentang&nbsp;</span>
+              <span className="about-title-main">Kami</span>
+            </h2>
 
-          <div className="space-y-8 text-xl text-black">
-            <p>
-              Kami percaya bahwa setiap momen berharga layak untuk diabadikan
-              dengan cara yang istimewa.
-              <br />
-              Fremio hadir bukan sekadar photobooth atau photobox, tapi sebuah
-              pengalaman baru dalam merayakan kenangan.
-            </p>
+            <div className="space-y-8">
+              <p className="about-text">
+                Kami percaya bahwa setiap momen berharga layak untuk diabadikan
+                dengan cara yang istimewa.
+                <br />
+                Fremio hadir bukan sekadar photobooth atau photobox, tapi sebuah
+                pengalaman baru dalam merayakan kenangan.
+              </p>
 
-            <p>
-              Dengan Fremio, kamu bisa memilih frame yang unik, mencetak foto
-              instan, dan menyimpannya sebagai bagian dari cerita hidupmu.
-              <br />
-              Kami menghubungkan kreator desain, coffee shop, dan komunitas
-              dalam satu ekosistem yang membuat kenangan terasa lebih hidup,
-              personal, dan bermakna.
-            </p>
+              <p className="about-text">
+                Dengan Fremio, kamu bisa memilih frame yang unik, mencetak foto
+                instan, dan menyimpannya sebagai bagian dari cerita hidupmu.
+                <br />
+                Kami menghubungkan kreator desain, coffee shop, dan komunitas
+                dalam satu ekosistem yang membuat kenangan terasa lebih hidup,
+                personal, dan bermakna.
+              </p>
 
-            <p>
-              Purpose kami sederhana:{" "}
-              <span className="font-bold text-black text-xl">
-                We help people cherish what matters most.
-              </span>
-              <br />
-              Kami ingin menjadikan foto bukan sekadar gambar, tapi sebuah
-              pengalaman emosional yang bisa kamu sentuh, bagikan, dan kenang
-              selamanya.
-            </p>
+              <p className="about-text">
+                Purpose kami sederhana:{" "}
+                <span className="about-text-bold">
+                  We help people cherish what matters most.
+                </span>
+                <br />
+                Kami ingin menjadikan foto bukan sekadar gambar, tapi sebuah
+                pengalaman emosional yang bisa kamu sentuh, bagikan, dan kenang
+                selamanya.
+              </p>
+            </div>
           </div>
         </div>
       </section>

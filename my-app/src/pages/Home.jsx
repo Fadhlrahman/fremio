@@ -1,9 +1,12 @@
 import { NavLink } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext.jsx";
 import frame1 from "../assets/frame1.png";
 import frame2 from "../assets/frame2.png";
 import frame3 from "../assets/frame3.png";
 
 export default function Home() {
+  const { isAuthenticated } = useAuth();
+
   return (
     <>
       {/* ======= HERO (/#home) ======= */}
@@ -27,7 +30,10 @@ export default function Home() {
                 instan, dan jadikan kenanganmu sesuatu yang hidup
               </p>
 
-              <NavLink to="/login" className="cta-pink">
+              <NavLink
+                to={isAuthenticated ? "/frames" : "/login"}
+                className="cta-pink"
+              >
                 Get Started
               </NavLink>
 

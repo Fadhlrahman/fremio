@@ -1,5 +1,6 @@
 import { useAuth } from "../contexts/AuthContext.jsx";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import "../styles/profile.css";
 
 export default function Profile() {
   const { user, logout } = useAuth();
@@ -10,60 +11,100 @@ export default function Profile() {
     navigate("/", { replace: true });
   };
 
+  // Derive readable identity pieces
+  const fullName =
+    user?.name ||
+    [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
+    (user?.email ? user.email.split("@")[0] : "User");
+
+  const firstName = user?.firstName || fullName.split(" ")[0] || "-";
+  const lastName =
+    user?.lastName || fullName.split(" ").slice(1).join(" ") || "-";
+  const username =
+    user?.username ||
+    (user?.email
+      ? user.email.split("@")[0]
+      : fullName.replace(/\s+/g, "").toLowerCase());
+  const email = user?.email || "-";
+  const phone = user?.phone || user?.phoneNumber || "-";
+  const bio = user?.bio || "-";
+  const registered = user?.createdAt
+    ? new Date(user.createdAt).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    : "-";
+
+  const initials =
+    (fullName || "U")
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((s) => s[0]?.toUpperCase())
+      .join("") || "U";
+
   return (
-    <section className="min-h-screen bg-gradient-to-b from-[#fdf7f4] via-white to-[#f7f1ed] py-16">
-      <div className="container mx-auto px-4 max-w-2xl">
-        <div className="bg-white rounded-2xl shadow-lg p-8">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-3xl font-bold bg-gradient-to-r from-[#e0b7a9] to-[#c89585] bg-clip-text text-transparent">
-              Your Profile
-            </h2>
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
-            >
+    <section className="profile-page">
+      <div className="profile-shell container">
+        {/* Header */}
+        <div className="profile-header">
+          <div className="profile-avatar" aria-hidden>
+            <span>{initials}</span>
+          </div>
+          <h1 className="profile-title">{fullName}</h1>
+        </div>
+
+        <div className="profile-body">
+          {/* Sidebar (static for now - reference look) */}
+          <aside className="profile-sidebar" aria-label="Profile navigation">
+            <nav>
+              <a className="nav-item active" href="#profile">
+                My Profile
+              </a>
+              <Link className="nav-item" to="/settings">
+                Settings
+              </Link>
+            </nav>
+            <button className="nav-logout" onClick={handleLogout}>
               Logout
             </button>
-          </div>
+          </aside>
 
-          <div className="space-y-4">
-            <div className="border-b pb-4">
-              <label className="block text-sm font-semibold text-gray-600 mb-1">
-                Name
-              </label>
-              <p className="text-lg text-gray-900">
-                {user?.name || `${user?.firstName} ${user?.lastName}` || "-"}
-              </p>
+          {/* Content */}
+          <main className="profile-content" id="profile">
+            <h2 className="section-title">My Profile</h2>
+            <div className="profile-details">
+              <div className="profile-row">
+                <div className="label">Registration Date</div>
+                <div className="value">{registered}</div>
+              </div>
+              <div className="profile-row">
+                <div className="label">First Name</div>
+                <div className="value">{firstName}</div>
+              </div>
+              <div className="profile-row">
+                <div className="label">Last Name</div>
+                <div className="value">{lastName}</div>
+              </div>
+              <div className="profile-row">
+                <div className="label">Username</div>
+                <div className="value">{username}</div>
+              </div>
+              <div className="profile-row">
+                <div className="label">Email</div>
+                <div className="value">{email}</div>
+              </div>
+              <div className="profile-row">
+                <div className="label">Phone Number</div>
+                <div className="value">{phone}</div>
+              </div>
+              <div className="profile-row">
+                <div className="label">Bio</div>
+                <div className="value">{bio}</div>
+              </div>
             </div>
-
-            <div className="border-b pb-4">
-              <label className="block text-sm font-semibold text-gray-600 mb-1">
-                Email
-              </label>
-              <p className="text-lg text-gray-900">{user?.email || "-"}</p>
-            </div>
-
-            <div className="border-b pb-4">
-              <label className="block text-sm font-semibold text-gray-600 mb-1">
-                Member Since
-              </label>
-              <p className="text-lg text-gray-900">
-                {user?.createdAt
-                  ? new Date(user.createdAt).toLocaleDateString("en-US", {
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })
-                  : "-"}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-8 p-4 bg-gradient-to-r from-[#fdf7f4] to-[#f7f1ed] rounded-lg">
-            <p className="text-sm text-gray-600 text-center">
-              🎉 Thank you for being part of Fremio community!
-            </p>
-          </div>
+          </main>
         </div>
       </div>
     </section>

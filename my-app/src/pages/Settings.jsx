@@ -1,58 +1,149 @@
 import { useAuth } from "../contexts/AuthContext.jsx";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import "../styles/profile.css";
+
+// Wishlist pindah ke halaman /wishlist (mock data dipindahkan ke halaman tersebut)
+
+const MOCK_PURCHASES = [
+  {
+    id: "INV-240001",
+    date: "2025-06-12T09:30:00Z",
+    items: 2,
+    total: 120000,
+    currency: "IDR",
+    status: "Paid",
+  },
+  {
+    id: "INV-240002",
+    date: "2025-07-01T14:12:00Z",
+    items: 1,
+    total: 45000,
+    currency: "IDR",
+    status: "Pending",
+  },
+  {
+    id: "INV-240003",
+    date: "2025-08-05T19:05:00Z",
+    items: 4,
+    total: 210000,
+    currency: "IDR",
+    status: "Paid",
+  },
+];
+
+const formatCurrency = (value, currency = "IDR") =>
+  new Intl.NumberFormat("id-ID", { style: "currency", currency }).format(value);
 
 export default function Settings() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState("account");
+  const location = useLocation();
+  const navigate = useNavigate();
+  const purchases = useMemo(() => MOCK_PURCHASES, []);
+
+  const handleLogout = () => {
+    logout();
+    navigate("/", { replace: true });
+  };
+
+  // Derive readable identity pieces (for avatar/initials like Profile)
+  const fullName =
+    user?.name ||
+    [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
+    (user?.email ? user.email.split("@")[0] : "User");
+
+  const initials =
+    (fullName || "U")
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((s) => s[0]?.toUpperCase())
+      .join("") || "U";
+
+  // Open tab from URL hash: #account | #preferences | #privacy | #purchases
+  useEffect(() => {
+    const hash = location.hash?.replace("#", "");
+    if (!hash) return;
+    const allowed = ["account", "preferences", "privacy", "purchases"];
+    if (allowed.includes(hash)) setActiveTab(hash);
+  }, [location.hash]);
 
   return (
-    <section className="min-h-screen bg-gradient-to-b from-[#fdf7f4] via-white to-[#f7f1ed] py-16">
-      <div className="container mx-auto px-4 max-w-4xl">
-        <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
-          {/* Header */}
-          <div className="bg-gradient-to-r from-[#e0b7a9] to-[#c89585] p-8">
-            <h2 className="text-3xl font-bold text-white">Settings</h2>
-            <p className="text-white/90 mt-2">
-              Manage your account preferences and settings
-            </p>
+    <section className="profile-page">
+      <div className="profile-shell container">
+        {/* Header matches Profile */}
+        <div className="profile-header">
+          <div className="profile-avatar" aria-hidden>
+            <span>{initials}</span>
           </div>
+          <h1 className="profile-title">Settings</h1>
+        </div>
 
-          {/* Tabs */}
-          <div className="flex border-b">
-            <button
-              onClick={() => setActiveTab("account")}
-              className={`flex-1 px-6 py-4 font-semibold transition-colors ${
-                activeTab === "account"
-                  ? "text-[#e0b7a9] border-b-2 border-[#e0b7a9]"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              Account
+        <div className="profile-body">
+          {/* Sidebar (mirrors Profile) */}
+          <aside className="profile-sidebar" aria-label="Settings navigation">
+            <nav>
+              <Link className="nav-item" to="/profile">
+                My Profile
+              </Link>
+              <Link className="nav-item active" to="/settings">
+                Settings
+              </Link>
+            </nav>
+            <button className="nav-logout" onClick={handleLogout}>
+              Logout
             </button>
-            <button
-              onClick={() => setActiveTab("preferences")}
-              className={`flex-1 px-6 py-4 font-semibold transition-colors ${
-                activeTab === "preferences"
-                  ? "text-[#e0b7a9] border-b-2 border-[#e0b7a9]"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              Preferences
-            </button>
-            <button
-              onClick={() => setActiveTab("privacy")}
-              className={`flex-1 px-6 py-4 font-semibold transition-colors ${
-                activeTab === "privacy"
-                  ? "text-[#e0b7a9] border-b-2 border-[#e0b7a9]"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              Privacy
-            </button>
-          </div>
+          </aside>
 
-          {/* Content */}
-          <div className="p-8">
+          {/* Content card */}
+          <main className="profile-content" id="settings">
+            <h2 className="section-title">Settings</h2>
+
+            {/* Tabs */}
+            <div className="flex border-b mb-4">
+              <button
+                onClick={() => setActiveTab("account")}
+                className={`flex-1 px-4 py-3 font-semibold transition-colors ${
+                  activeTab === "account"
+                    ? "text-[#e0b7a9] border-b-2 border-[#e0b7a9]"
+                    : "text-gray-600 hover:text-gray-800"
+                }`}
+              >
+                Account
+              </button>
+              <button
+                onClick={() => setActiveTab("preferences")}
+                className={`flex-1 px-4 py-3 font-semibold transition-colors ${
+                  activeTab === "preferences"
+                    ? "text-[#e0b7a9] border-b-2 border-[#e0b7a9]"
+                    : "text-gray-600 hover:text-gray-800"
+                }`}
+              >
+                Preferences
+              </button>
+              <button
+                onClick={() => setActiveTab("privacy")}
+                className={`flex-1 px-4 py-3 font-semibold transition-colors ${
+                  activeTab === "privacy"
+                    ? "text-[#e0b7a9] border-b-2 border-[#e0b7a9]"
+                    : "text-gray-600 hover:text-gray-800"
+                }`}
+              >
+                Privacy
+              </button>
+              <button
+                onClick={() => setActiveTab("purchases")}
+                className={`flex-1 px-4 py-3 font-semibold transition-colors ${
+                  activeTab === "purchases"
+                    ? "text-[#e0b7a9] border-b-2 border-[#e0b7a9]"
+                    : "text-gray-600 hover:text-gray-800"
+                }`}
+              >
+                Purchase History
+              </button>
+            </div>
+
             {activeTab === "account" && (
               <div className="space-y-6">
                 <h3 className="text-xl font-bold text-gray-900 mb-4">
@@ -217,7 +308,76 @@ export default function Settings() {
                 </div>
               </div>
             )}
-          </div>
+
+            {/* Wishlist is a separate page (/wishlist) */}
+
+            {activeTab === "purchases" && (
+              <div className="space-y-6">
+                <h3 className="text-xl font-bold text-gray-900 mb-4">
+                  Purchase History
+                </h3>
+                <div className="overflow-hidden rounded-xl border border-gray-200">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-gray-50 text-gray-600">
+                      <tr>
+                        <th className="px-4 py-3">Order ID</th>
+                        <th className="px-4 py-3">Date</th>
+                        <th className="px-4 py-3">Items</th>
+                        <th className="px-4 py-3">Total</th>
+                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {purchases.length === 0 ? (
+                        <tr>
+                          <td className="px-4 py-3 text-gray-500" colSpan={6}>
+                            Belum ada transaksi.
+                          </td>
+                        </tr>
+                      ) : (
+                        purchases.map((p) => (
+                          <tr key={p.id} className="border-t border-gray-100">
+                            <td className="px-4 py-3 font-medium text-gray-900">
+                              {p.id}
+                            </td>
+                            <td className="px-4 py-3 text-gray-600">
+                              {new Date(p.date).toLocaleString("id-ID")}
+                            </td>
+                            <td className="px-4 py-3 text-gray-600">
+                              {p.items}
+                            </td>
+                            <td className="px-4 py-3 text-gray-900">
+                              {formatCurrency(p.total, p.currency)}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={
+                                  "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold " +
+                                  (p.status === "Paid"
+                                    ? "bg-green-50 text-green-700 ring-1 ring-green-200"
+                                    : p.status === "Pending"
+                                    ? "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                                    : "bg-red-50 text-red-700 ring-1 ring-red-200")
+                                }
+                              >
+                                {p.status}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <button className="px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50">
+                                View
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </main>
         </div>
       </div>
     </section>

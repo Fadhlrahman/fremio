@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 
 const elementShadow = "0 18px 36px rgba(15, 23, 42, 0.14)";
 const CANVAS_WIDTH = 360;
-const CANVAS_HEIGHT = 540;
+const CANVAS_HEIGHT = 640;
 
 const getElementStyle = (element, isSelected) => {
   switch (element.type) {

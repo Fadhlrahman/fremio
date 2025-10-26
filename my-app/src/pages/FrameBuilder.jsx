@@ -63,7 +63,7 @@ export default function FrameBuilder() {
   const exportConfig = () => {
     const config = {
       frame_id: "custom_frame",
-      canvas_size: { width: 1080, height: 1620 },
+      canvas_size: { width: 1080, height: 1920 },
       slots: slots.map(({ x, y, width, height, shape, id }) => ({
         id,
         shape,
@@ -152,7 +152,7 @@ export default function FrameBuilder() {
                 <canvas
                   ref={canvasRef}
                   width={540}
-                  height={810}
+                  height={960}
                   className="canvas-base"
                 />
                 {frameImg && (

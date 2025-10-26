@@ -72,7 +72,7 @@ export const frameConfig = {
     }
   ],
   layout: {
-    aspectRatio: '2:3',
+    aspectRatio: '9:16',
     orientation: 'portrait',
     backgroundColor: '#ffffff'
   }

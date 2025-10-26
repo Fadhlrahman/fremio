@@ -60,7 +60,7 @@ export function createFremioSeriesTestData() {
       {id: 'slot_3a', left: 0.05, top: 0.63, width: 0.41, height: 0.28, aspectRatio: '4:5', zIndex: 2, photoIndex: 2},
       {id: 'slot_3b', left: 0.55, top: 0.63, width: 0.41, height: 0.28, aspectRatio: '4:5', zIndex: 2, photoIndex: 2}
     ],
-    layout: { aspectRatio: '2:3', orientation: 'portrait', backgroundColor: '#ffffff' }
+  layout: { aspectRatio: '9:16', orientation: 'portrait', backgroundColor: '#ffffff' }
   };
   
   safeStorage.setJSON('frameConfig', frameConfig);

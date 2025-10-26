@@ -13,6 +13,13 @@ import FremioSeriesPink3 from './frame-configs/FremioSeries-pink-3.js';
 import FremioSeriesPurple3 from './frame-configs/FremioSeries-purple-3.js';
 import FremioSeriesWhite3 from './frame-configs/FremioSeries-white-3.js';
 import FremioSeriesBlue4 from './frame-configs/FremioSeries-blue-4.js';
+import SalPriadi from './frame-configs/SalPriadi.js';
+import InspiredBy7Des from './frame-configs/InspiredBy-7Des.js';
+import InspiredByAbbeyRoad from './frame-configs/InspiredBy-AbbeyRoad.js';
+import InspiredByLagipulaHidupAkanBerakhir from './frame-configs/InspiredBy-LagipulaHidupAkanBerakhir.js';
+import InspiredByMembangunDanMenghancurkan from './frame-configs/InspiredBy-MembangunDanMenghancurkan.js';
+import InspiredByMenariDenganBayangan from './frame-configs/InspiredBy-MenariDenganBayangan.js';
+import InspiredByPSILOVEYOU from './frame-configs/InspiredBy-PSILOVEYOU.js';
 
 export const FRAME_CONFIGS = {
   'FremioSeries-blue-2': FremioSeriesBlue2,
@@ -26,7 +33,14 @@ export const FRAME_CONFIGS = {
   'FremioSeries-pink-3': FremioSeriesPink3,
   'FremioSeries-purple-3': FremioSeriesPurple3,
   'FremioSeries-white-3': FremioSeriesWhite3,
-  'FremioSeries-blue-4': FremioSeriesBlue4
+  'FremioSeries-blue-4': FremioSeriesBlue4,
+  'SalPriadi': SalPriadi,
+  'InspiredBy-7Des': InspiredBy7Des,
+  'InspiredBy-AbbeyRoad': InspiredByAbbeyRoad,
+  'InspiredBy-LagipulaHidupAkanBerakhir': InspiredByLagipulaHidupAkanBerakhir,
+  'InspiredBy-MembangunDanMenghancurkan': InspiredByMembangunDanMenghancurkan,
+  'InspiredBy-MenariDenganBayangan': InspiredByMenariDenganBayangan,
+  'InspiredBy-PSILOVEYOU': InspiredByPSILOVEYOU
 };
 
 // Helper function untuk mendapatkan konfigurasi frame berdasarkan nama

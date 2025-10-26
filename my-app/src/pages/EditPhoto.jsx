@@ -29,6 +29,13 @@ import FremioSeriesPurple3 from "../assets/frames/FremioSeries/FremioSeries-3/Fr
 import FremioSeriesWhite3 from "../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-white-3.png";
 import FremioSeriesBlue4 from "../assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png";
 import EverythingYouAre3x2 from "../assets/frames/Everything You Are.png";
+import SalPriadi from "../assets/frames/InspiredBy/Sal Priadi.png";
+import InspiredBy7Des from "../assets/frames/InspiredBy/7 Des.png";
+import InspiredByAbbeyRoad from "../assets/frames/InspiredBy/Abbey Road.png";
+import InspiredByLagipulaHidupAkanBerakhir from "../assets/frames/InspiredBy/Lagipula Hidup Akan Berakhir.png";
+import InspiredByMembangunDanMenghancurkan from "../assets/frames/InspiredBy/Membangun & Menghancurkan.png";
+import InspiredByMenariDenganBayangan from "../assets/frames/InspiredBy/Menari dengan Bayangan.png";
+import InspiredByPSILOVEYOU from "../assets/frames/InspiredBy/PS. I LOVE YOU.png";
 
 // ...existing code...
 
@@ -180,14 +187,52 @@ const FILTER_PIPELINES = {
 };
 
 const ZIP_GENERATION_TIMEOUT_MS = 35000;
+const DEFAULT_FRAME_ASPECT_RATIO = 9 / 16;
+const DEFAULT_LAYOUT_ASPECT_RATIO_STRING = "9:16";
+const DEFAULT_LAYOUT_ASPECT_RATIO_CSS = "9/16";
 const DEFAULT_PREVIEW_WIDTH = 280;
-const DEFAULT_PREVIEW_HEIGHT = DEFAULT_PREVIEW_WIDTH / (2 / 3);
+const DEFAULT_PREVIEW_HEIGHT =
+  DEFAULT_PREVIEW_WIDTH / DEFAULT_FRAME_ASPECT_RATIO;
 const AUTO_SELECT_INITIAL_SLOT_KEY = "editorAutoSelectFirstSlot";
 
 // Helper function to detect mobile devices
 const isMobileDevice = () => {
   if (typeof navigator === "undefined") return false;
   return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+};
+
+const parseAspectRatio = (aspect, fallback = DEFAULT_FRAME_ASPECT_RATIO) => {
+  if (
+    typeof aspect === "number" &&
+    Number.isFinite(aspect) &&
+    aspect > 0
+  ) {
+    return aspect;
+  }
+
+  if (typeof aspect === "string") {
+    const trimmed = aspect.trim();
+    if (trimmed.includes(":")) {
+      const [rawWidth, rawHeight] = trimmed.split(":");
+      const width = Number(rawWidth);
+      const height = Number(rawHeight);
+      if (
+        Number.isFinite(width) &&
+        Number.isFinite(height) &&
+        width > 0 &&
+        height > 0
+      ) {
+        return width / height;
+      }
+    } else {
+      const numeric = Number(trimmed);
+      if (Number.isFinite(numeric) && numeric > 0) {
+        return numeric;
+      }
+    }
+  }
+
+  return fallback;
 };
 
 const detectCanvasFilterSupport = () => {
@@ -394,6 +439,36 @@ export default function EditPhoto() {
       return false;
     });
   const [slotMeasurements, setSlotMeasurements] = useState({});
+
+  const getCanvasDimensions = useCallback(
+    (baseWidth = 800) => {
+      const ratio = parseAspectRatio(
+        frameConfig?.layout?.aspectRatio,
+        DEFAULT_FRAME_ASPECT_RATIO
+      );
+      const width = baseWidth;
+      const height = Math.round(width / ratio);
+      return { width, height, ratio };
+    },
+    [frameConfig?.layout?.aspectRatio]
+  );
+
+  const layoutAspectRatioCss = useMemo(() => {
+    const aspect = frameConfig?.layout?.aspectRatio;
+    if (typeof aspect === "string") {
+      return aspect.includes(":")
+        ? aspect.replace(":", "/")
+        : aspect;
+    }
+    if (
+      typeof aspect === "number" &&
+      Number.isFinite(aspect) &&
+      aspect > 0
+    ) {
+      return aspect.toString();
+    }
+    return DEFAULT_LAYOUT_ASPECT_RATIO_CSS;
+  }, [frameConfig?.layout?.aspectRatio]);
 
   const [viewport, setViewport] = useState(() => ({
     width: isBrowser ? window.innerWidth : 1280,
@@ -1676,8 +1751,15 @@ export default function EditPhoto() {
       "FremioSeries-pink-3": FremioSeriesPink3,
       "FremioSeries-purple-3": FremioSeriesPurple3,
       "FremioSeries-white-3": FremioSeriesWhite3,
-      "FremioSeries-blue-4": FremioSeriesBlue4,
-      "EverythingYouAre-3x2": EverythingYouAre3x2,
+  "FremioSeries-blue-4": FremioSeriesBlue4,
+  "EverythingYouAre-3x2": EverythingYouAre3x2,
+  "SalPriadi": SalPriadi,
+  "InspiredBy-7Des": InspiredBy7Des,
+  "InspiredBy-AbbeyRoad": InspiredByAbbeyRoad,
+  "InspiredBy-LagipulaHidupAkanBerakhir": InspiredByLagipulaHidupAkanBerakhir,
+  "InspiredBy-MembangunDanMenghancurkan": InspiredByMembangunDanMenghancurkan,
+  "InspiredBy-MenariDenganBayangan": InspiredByMenariDenganBayangan,
+  "InspiredBy-PSILOVEYOU": InspiredByPSILOVEYOU,
     };
     return frameMap[frameId] || FremioSeriesBlue2;
   };
@@ -4636,17 +4718,8 @@ export default function EditPhoto() {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
 
-    let frameAspectRatio, canvasWidth, canvasHeight;
-
-    if (frameConfig.id === "Testframe4") {
-      frameAspectRatio = 2 / 3;
-      canvasWidth = 800;
-      canvasHeight = canvasWidth / frameAspectRatio;
-    } else {
-      frameAspectRatio = 2 / 3;
-      canvasWidth = 800;
-      canvasHeight = canvasWidth / frameAspectRatio;
-    }
+    const { width: canvasWidth, height: canvasHeight } =
+      getCanvasDimensions(800);
 
     canvas.width = canvasWidth;
     canvas.height = canvasHeight;
@@ -5071,20 +5144,11 @@ export default function EditPhoto() {
       .replace(/[:-]/g, "");
 
     // Canvas settings for video - smaller size for mobile
-    let frameAspectRatio, canvasWidth, canvasHeight;
-
     // Use smaller canvas for mobile to speed up processing
     const baseWidth = mobileDevice ? 540 : 880; // 540px mobile, 880px desktop
 
-    if (frameConfig.id === "Testframe4") {
-      frameAspectRatio = 2 / 3;
-      canvasWidth = baseWidth;
-      canvasHeight = canvasWidth / frameAspectRatio;
-    } else {
-      frameAspectRatio = 2 / 3;
-      canvasWidth = baseWidth;
-      canvasHeight = canvasWidth / frameAspectRatio;
-    }
+    const { width: canvasWidth, height: canvasHeight } =
+      getCanvasDimensions(baseWidth);
     console.log(
       "✅ [4/6] Canvas configured:",
       canvasWidth,
@@ -5226,34 +5290,19 @@ export default function EditPhoto() {
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
 
-      // Set canvas size sesuai frame aspect ratio dari preview
-      let frameAspectRatio, canvasWidth, canvasHeight;
-
-      // Dynamic sizing based on frame type
-      if (frameConfig.id === "Testframe4") {
-        // Testframe4 has portrait frame but landscape slots
-        frameAspectRatio = 2 / 3; // Portrait frame like others
-        canvasWidth = 800;
-        canvasHeight = canvasWidth / frameAspectRatio; // 800 / (2/3) = 1200
-        console.log(
-          "🎯 Testframe4 canvas sizing: portrait frame with landscape slots"
-        );
-      } else {
-        // Other frames (Testframe1, 2, 3)
-        frameAspectRatio = 2 / 3; // Frame portrait 2:3 ratio seperti di preview
-        canvasWidth = 800;
-        canvasHeight = canvasWidth / frameAspectRatio; // 800 / (2/3) = 1200
-      }
-
+      const {
+        width: canvasWidth,
+        height: canvasHeight,
+        ratio: frameAspectRatio,
+      } = getCanvasDimensions(800);
       canvas.width = canvasWidth;
       canvas.height = canvasHeight;
-
       console.log(
         "✅ Canvas created with aspect ratio:",
         canvasWidth,
         "x",
         canvasHeight,
-        `(${frameConfig.id})`
+        `(${frameConfig?.id ?? "unknown"}) ratio=${frameAspectRatio.toFixed(4)}`
       );
 
       // Fill background dengan frame color (blue) seperti di preview
@@ -5706,9 +5755,8 @@ export default function EditPhoto() {
       const ctx = canvas.getContext("2d");
 
       // Set canvas size (same as handleSave)
-      let frameAspectRatio = 2 / 3;
-      const canvasWidth = 800;
-      const canvasHeight = canvasWidth / frameAspectRatio;
+      const { width: canvasWidth, height: canvasHeight } =
+        getCanvasDimensions(800);
 
       canvas.width = canvasWidth;
       canvas.height = canvasHeight;
@@ -6346,7 +6394,7 @@ export default function EditPhoto() {
                   style={{
                     position: "relative",
                     width: isMobile ? "min(280px, 82vw)" : "280px",
-                    aspectRatio: "2/3",
+                    aspectRatio: layoutAspectRatioCss,
                     maxWidth: "100%",
                     margin: "0 auto",
                   }}
@@ -6860,7 +6908,8 @@ export default function EditPhoto() {
                         <strong>Max Captures:</strong> {frameConfig.maxCaptures}
                         <br />
                         <strong>Layout Ratio:</strong>{" "}
-                        {frameConfig.layout.aspectRatio}
+                        {frameConfig.layout?.aspectRatio ??
+                          DEFAULT_LAYOUT_ASPECT_RATIO_STRING}
                       </div>
                       <div
                         style={{

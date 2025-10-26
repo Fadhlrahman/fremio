@@ -16,6 +16,13 @@ export const FRAME_REGISTRY = [
   'FremioSeries-purple-3',
   'FremioSeries-white-3',
   'FremioSeries-blue-4',
+  'SalPriadi',
+  'InspiredBy-7Des',
+  'InspiredBy-AbbeyRoad',
+  'InspiredBy-LagipulaHidupAkanBerakhir',
+  'InspiredBy-MembangunDanMenghancurkan',
+  'InspiredBy-MenariDenganBayangan',
+  'InspiredBy-PSILOVEYOU',
   // Legacy/Test frames
   'Testframe1',
   'Testframe2',
@@ -123,6 +130,62 @@ export const FRAME_METADATA = {
     description: '4 slot foto grid 2x2 - Blue Frame',
     imagePath: '/src/assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png',
     category: 'grid'
+  },
+  'SalPriadi': {
+    id: 'SalPriadi',
+    name: 'Sal Priadi 6 Foto',
+    maxCaptures: 3,
+    description: 'Frame kolaborasi Sal Priadi dengan layout photobooth 3 x 2.',
+    imagePath: '/src/assets/frames/InspiredBy/Sal Priadi.png',
+    category: 'photobooth'
+  },
+  'InspiredBy-7Des': {
+    id: 'InspiredBy-7Des',
+    name: 'Inspired By 7 Des',
+    maxCaptures: 4,
+    description: 'Frame Inspired By dengan layout photobooth 4 x 2 (8 slot).',
+    imagePath: '/src/assets/frames/InspiredBy/7 Des.png',
+    category: 'photobooth'
+  },
+  'InspiredBy-AbbeyRoad': {
+    id: 'InspiredBy-AbbeyRoad',
+    name: 'Inspired By Abbey Road',
+    maxCaptures: 3,
+    description: 'Frame Inspired By dengan layout photobooth 3 x 2.',
+    imagePath: '/src/assets/frames/InspiredBy/Abbey Road.png',
+    category: 'photobooth'
+  },
+  'InspiredBy-LagipulaHidupAkanBerakhir': {
+    id: 'InspiredBy-LagipulaHidupAkanBerakhir',
+    name: 'Inspired By Lagipula Hidup Akan Berakhir',
+    maxCaptures: 3,
+    description: 'Frame Inspired By dengan layout photobooth 3 x 2.',
+    imagePath: '/src/assets/frames/InspiredBy/Lagipula Hidup Akan Berakhir.png',
+    category: 'photobooth'
+  },
+  'InspiredBy-MembangunDanMenghancurkan': {
+    id: 'InspiredBy-MembangunDanMenghancurkan',
+    name: 'Inspired By Membangun & Menghancurkan',
+    maxCaptures: 3,
+    description: 'Frame Inspired By dengan layout photobooth 3 x 2.',
+    imagePath: '/src/assets/frames/InspiredBy/Membangun & Menghancurkan.png',
+    category: 'photobooth'
+  },
+  'InspiredBy-MenariDenganBayangan': {
+    id: 'InspiredBy-MenariDenganBayangan',
+    name: 'Inspired By Menari dengan Bayangan',
+    maxCaptures: 3,
+    description: 'Frame Inspired By dengan layout photobooth 3 x 2.',
+    imagePath: '/src/assets/frames/InspiredBy/Menari dengan Bayangan.png',
+    category: 'photobooth'
+  },
+  'InspiredBy-PSILOVEYOU': {
+    id: 'InspiredBy-PSILOVEYOU',
+    name: 'Inspired By PS. I LOVE YOU',
+    maxCaptures: 3,
+    description: 'Frame Inspired By dengan layout photobooth 3 x 2.',
+    imagePath: '/src/assets/frames/InspiredBy/PS. I LOVE YOU.png',
+    category: 'photobooth'
   },
   // Legacy/Test frames metadata
   'Testframe1': {

@@ -266,7 +266,7 @@ class FrameService {
       imageUrl: `/api/frames/${frameId}/image`,
       slots: this.generateMockSlots(3),
       layout: {
-        aspectRatio: '2:3',
+        aspectRatio: '9:16',
         orientation: 'portrait',
         backgroundColor: '#ffffff'
       }

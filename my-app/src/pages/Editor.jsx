@@ -19,6 +19,13 @@ import FremioSeriesPink3 from '../assets/frames/FremioSeries/FremioSeries-3/Frem
 import FremioSeriesPurple3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-purple-3.png';
 import FremioSeriesWhite3 from '../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-white-3.png';
 import FremioSeriesBlue4 from '../assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png';
+import SalPriadi from '../assets/frames/InspiredBy/Sal Priadi.png';
+import InspiredBy7Des from '../assets/frames/InspiredBy/7 Des.png';
+import InspiredByAbbeyRoad from '../assets/frames/InspiredBy/Abbey Road.png';
+import InspiredByLagipulaHidupAkanBerakhir from '../assets/frames/InspiredBy/Lagipula Hidup Akan Berakhir.png';
+import InspiredByMembangunDanMenghancurkan from '../assets/frames/InspiredBy/Membangun & Menghancurkan.png';
+import InspiredByMenariDenganBayangan from '../assets/frames/InspiredBy/Menari dengan Bayangan.png';
+import InspiredByPSILOVEYOU from '../assets/frames/InspiredBy/PS. I LOVE YOU.png';
 
 export default function Editor() {
   const navigate = useNavigate();
@@ -57,7 +64,14 @@ export default function Editor() {
       'FremioSeries-pink-3': FremioSeriesPink3,
       'FremioSeries-purple-3': FremioSeriesPurple3,
       'FremioSeries-white-3': FremioSeriesWhite3,
-      'FremioSeries-blue-4': FremioSeriesBlue4
+      'FremioSeries-blue-4': FremioSeriesBlue4,
+      'SalPriadi': SalPriadi,
+      'InspiredBy-7Des': InspiredBy7Des,
+      'InspiredBy-AbbeyRoad': InspiredByAbbeyRoad,
+      'InspiredBy-LagipulaHidupAkanBerakhir': InspiredByLagipulaHidupAkanBerakhir,
+      'InspiredBy-MembangunDanMenghancurkan': InspiredByMembangunDanMenghancurkan,
+      'InspiredBy-MenariDenganBayangan': InspiredByMenariDenganBayangan,
+      'InspiredBy-PSILOVEYOU': InspiredByPSILOVEYOU
     };
     return frameMap[frameName] || null;
   };

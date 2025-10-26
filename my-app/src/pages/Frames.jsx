@@ -11,6 +11,13 @@ import FremioSeriesPink3 from "../assets/frames/FremioSeries/FremioSeries-3/Frem
 import FremioSeriesPurple3 from "../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-purple-3.png";
 import FremioSeriesWhite3 from "../assets/frames/FremioSeries/FremioSeries-3/FremioSeries-white-3.png";
 import FremioSeriesBlue4 from "../assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png";
+import SalPriadi from "../assets/frames/InspiredBy/Sal Priadi.png";
+import InspiredBy7Des from "../assets/frames/InspiredBy/7 Des.png";
+import InspiredByAbbeyRoad from "../assets/frames/InspiredBy/Abbey Road.png";
+import InspiredByLagipulaHidupAkanBerakhir from "../assets/frames/InspiredBy/Lagipula Hidup Akan Berakhir.png";
+import InspiredByMembangunDanMenghancurkan from "../assets/frames/InspiredBy/Membangun & Menghancurkan.png";
+import InspiredByMenariDenganBayangan from "../assets/frames/InspiredBy/Menari dengan Bayangan.png";
+import InspiredByPSILOVEYOU from "../assets/frames/InspiredBy/PS. I LOVE YOU.png";
 
 import { useNavigate } from "react-router-dom";
 import frameProvider from "../utils/frameProvider.js";
@@ -73,6 +80,55 @@ const frames = [
     img: FremioSeriesBlue4,
     maxCaptures: 4,
   },
+  {
+    id: "SalPriadi",
+    title: "Sal Priadi",
+    description: "",
+    img: SalPriadi,
+    maxCaptures: 3,
+  },
+  {
+    id: "InspiredBy-7Des",
+    title: "Inspired By 7 Des",
+    description: "",
+    img: InspiredBy7Des,
+    maxCaptures: 4,
+  },
+  {
+    id: "InspiredBy-AbbeyRoad",
+    title: "Inspired By Abbey Road",
+    description: "",
+    img: InspiredByAbbeyRoad,
+    maxCaptures: 3,
+  },
+  {
+    id: "InspiredBy-LagipulaHidupAkanBerakhir",
+    title: "Inspired By Lagipula Hidup Akan Berakhir",
+    description: "",
+    img: InspiredByLagipulaHidupAkanBerakhir,
+    maxCaptures: 3,
+  },
+  {
+    id: "InspiredBy-MembangunDanMenghancurkan",
+    title: "Inspired By Membangun & Menghancurkan",
+    description: "",
+    img: InspiredByMembangunDanMenghancurkan,
+    maxCaptures: 3,
+  },
+  {
+    id: "InspiredBy-MenariDenganBayangan",
+    title: "Inspired By Menari dengan Bayangan",
+    description: "",
+    img: InspiredByMenariDenganBayangan,
+    maxCaptures: 3,
+  },
+  {
+    id: "InspiredBy-PSILOVEYOU",
+    title: "Inspired By PS. I LOVE YOU",
+    description: "",
+    img: InspiredByPSILOVEYOU,
+    maxCaptures: 3,
+  },
 ];
 
 export default function Frames() {
@@ -105,11 +161,11 @@ export default function Frames() {
   const getFrameAspectClass = (count) => {
     switch (count) {
       case 2:
-        return "aspect-[2/3]";
+        return "aspect-[9/16]";
       case 4:
         return "aspect-[4/5]";
       default:
-        return "aspect-[3/4]";
+        return "aspect-[9/16]";
     }
   };
 

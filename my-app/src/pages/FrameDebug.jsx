@@ -129,7 +129,7 @@ export default function FrameDebug() {
               <div style={{ marginBottom: '1rem' }}>
                 <strong>Frame:</strong> {frameConfig.name}<br/>
                 <strong>Max Captures:</strong> {frameConfig.maxCaptures}<br/>
-                <strong>Layout Ratio:</strong> {frameConfig.layout.aspectRatio}
+                <strong>Layout Ratio:</strong> {frameConfig.layout?.aspectRatio ?? "9:16"}
               </div>
               
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>

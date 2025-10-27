@@ -1,33 +1,18 @@
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import html2canvas from "html2canvas";
-import {
-  Palette,
-  Image as ImageIcon,
-  Type as TypeIcon,
-  Shapes as ShapesIcon,
-  Upload as UploadIcon,
-  CheckCircle2,
-  AlertTriangle,
-} from "lucide-react";
-import ToolButton from "../components/creator/ToolButton.jsx";
+import { CheckCircle2, AlertTriangle } from "lucide-react";
 import CanvasPreview from "../components/creator/CanvasPreview.jsx";
 import PropertiesPanel from "../components/creator/PropertiesPanel.jsx";
 import useCreatorStore from "../store/useCreatorStore.js";
 import { useShallow } from "zustand/react/shallow";
+import "./Create.css";
 
 const TEMPLATE_STORAGE_KEY = "fremio-creator-templates";
 
 const panelMotion = {
   hidden: { opacity: 0, y: 16 },
   visible: { opacity: 1, y: 0 },
-};
-
-const toastStyles = {
-  success:
-    "text-emerald-700 bg-gradient-to-r from-emerald-50 to-emerald-100/80 border-2 border-emerald-200 shadow-[0_8px_32px_rgba(16,185,129,0.25),0_4px_12px_rgba(0,0,0,0.08)]",
-  error:
-    "text-rose-700 bg-gradient-to-r from-rose-50 to-rose-100/80 border-2 border-rose-200 shadow-[0_8px_32px_rgba(244,63,94,0.25),0_4px_12px_rgba(0,0,0,0.08)]",
 };
 
 const TOAST_MESSAGES = {
@@ -241,221 +226,174 @@ export default function Create() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedElementId, removeElement, showToast]);
 
+  const toolButtons = useMemo(
+    () => [
+      {
+        id: "background",
+        label: "Background",
+        onClick: () => selectElement("background"),
+        isActive: selectedElementId === "background",
+      },
+      {
+        id: "photo",
+        label: "Area Foto",
+        onClick: () => addToolElement("photo"),
+        isActive: selectedElement?.type === "photo",
+      },
+      {
+        id: "text",
+        label: "Add Text",
+        onClick: () => addToolElement("text"),
+        isActive: selectedElement?.type === "text",
+      },
+      {
+        id: "shape",
+        label: "Shape",
+        onClick: () => addToolElement("shape"),
+        isActive: selectedElement?.type === "shape",
+      },
+      {
+        id: "upload",
+        label: "Unggahan",
+        onClick: () => addToolElement("upload"),
+        isActive: selectedElement?.type === "upload",
+      },
+    ],
+    [addToolElement, selectElement, selectedElement?.type, selectedElementId]
+  );
+
   return (
-    <div className="bg-gradient-to-b from-[#fdf7f4] via-white to-[#f7f1ed] py-10 lg:py-12">
-      <div className="container mx-auto max-w-6xl px-4">
+    <div className="create-page">
+      {toast && (
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, ease: "easeOut" }}
-          className="mb-8 text-center"
+          className="create-toast-wrapper"
+          initial={{ opacity: 0, y: -12, scale: 0.94 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -12, scale: 0.94 }}
+          transition={{ type: "spring", stiffness: 460, damping: 26 }}
         >
-          <p className="text-sm font-semibold uppercase tracking-[0.4em] text-rose-300/80">
-            Fremio Creator
-          </p>
-          <h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-            Susun frame sesuai gayamu
-          </h1>
+          <div
+            className={`create-toast ${toast.type === "success" ? "create-toast--success" : "create-toast--error"}`}
+          >
+            {toast.type === "success" ? (
+              <CheckCircle2 size={18} strokeWidth={2.5} />
+            ) : (
+              <AlertTriangle size={18} strokeWidth={2.5} />
+            )}
+            <span>{toast.message}</span>
+          </div>
         </motion.div>
+      )}
 
-        {toast && (
-          <motion.div
-            className="mb-6 flex justify-center"
-            initial={{ opacity: 0, y: -20, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -20, scale: 0.9 }}
-            transition={{ type: "spring", stiffness: 400, damping: 20 }}
-          >
-            <div
-              className={`flex items-center gap-3 rounded-2xl px-6 py-4 text-sm font-bold shadow-2xl backdrop-blur-sm ${
-                toastStyles[toast.type]
-              }`}
-            >
-              {toast.type === "success" ? (
-                <CheckCircle2
-                  size={20}
-                  strokeWidth={2.5}
-                  className="animate-bounce"
-                />
-              ) : (
-                <AlertTriangle size={20} strokeWidth={2.5} />
-              )}
-              {toast.message}
-            </div>
-          </motion.div>
-        )}
-
-        <div
-          id="creator-layout"
-          className="creator-layout grid grid-cols-1 gap-6 lg:grid-cols-[300px_1fr_320px] lg:gap-8"
+      <div className="create-grid">
+        <motion.aside
+          variants={panelMotion}
+          initial="hidden"
+          animate="visible"
+          transition={{ delay: 0.05 }}
+          className="create-panel create-panel--tools"
         >
-          <motion.aside
-            variants={panelMotion}
-            initial="hidden"
-            animate="visible"
-            transition={{ delay: 0.1 }}
-            className="creator-panel flex flex-col gap-6 overflow-hidden rounded-[32px] border border-[#e0b7a9]/20 bg-gradient-to-br from-white/95 via-white/90 to-[#fdf7f4]/80 p-7 shadow-[0_20px_60px_rgba(224,183,169,0.15),0_8px_24px_rgba(0,0,0,0.06)] backdrop-blur-xl"
+          <h2 className="create-panel__title">Tools</h2>
+          <div className="create-tools__list">
+            {toolButtons.map((button) => (
+              <button
+                key={button.id}
+                type="button"
+                onClick={button.onClick}
+                className={`create-tools__button ${button.isActive ? "create-tools__button--active" : ""}`.trim()}
+              >
+                {button.label}
+              </button>
+            ))}
+          </div>
+        </motion.aside>
+
+        <motion.section
+          variants={panelMotion}
+          initial="hidden"
+          animate="visible"
+          transition={{ delay: 0.1 }}
+          className="create-preview"
+        >
+          <h2 className="create-preview__title">Preview</h2>
+          <div className="create-preview__frame">
+            <CanvasPreview
+              elements={elements}
+              selectedElementId={selectedElementId}
+              canvasBackground={canvasBackground}
+              onSelect={(id) => {
+                if (id === null) {
+                  clearSelection();
+                } else if (id === "background") {
+                  selectElement("background");
+                } else {
+                  selectElement(id);
+                }
+              }}
+              onUpdate={updateElement}
+              onBringToFront={bringToFront}
+            />
+          </div>
+          <motion.button
+            type="button"
+            onClick={handleSaveTemplate}
+            disabled={saving}
+            className="create-save"
+            whileTap={{ scale: 0.97 }}
+            whileHover={{ y: -3 }}
           >
-            <div className="flex w-full flex-col gap-3 rounded-3xl border border-[#e0b7a9]/10 bg-gradient-to-br from-white to-[#fdf7f4]/50 p-4 shadow-[0_4px_16px_rgba(224,183,169,0.08)]">
-              <h3 className="bg-gradient-to-r from-[#e0b7a9] to-[#c89585] bg-clip-text text-center text-xl font-bold tracking-tight text-transparent">
-                Tools
-              </h3>
-              <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-[#e0b7a9]/40 to-transparent" />
-            </div>
-            <div className="mt-1 grid flex-1 grid-rows-5 gap-4 rounded-3xl bg-gradient-to-br from-white/50 to-transparent p-3">
-              <ToolButton
-                label="Background"
-                icon={Palette}
-                active={selectedElementId === "background"}
-                onClick={() => setCanvasBackground(canvasBackground)}
-              />
-              <ToolButton
-                label="Area Foto"
-                icon={ImageIcon}
-                onClick={() => addToolElement("photo")}
-              />
-              <ToolButton
-                label="Add Text"
-                icon={TypeIcon}
-                onClick={() => addToolElement("text")}
-              />
-              <ToolButton
-                label="Shape"
-                icon={ShapesIcon}
-                onClick={() => addToolElement("shape")}
-              />
-              <ToolButton
-                label="Unggahan"
-                icon={UploadIcon}
-                onClick={() => addToolElement("upload")}
-              />
-            </div>
-          </motion.aside>
+            {saving ? (
+              <>
+                <svg
+                  className="create-save__spinner"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="create-save__spinner-track"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  ></circle>
+                  <path
+                    className="create-save__spinner-head"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
+                </svg>
+                Menyimpan...
+              </>
+            ) : (
+              <>
+                <CheckCircle2 size={18} strokeWidth={2.5} />
+                Save Template
+              </>
+            )}
+          </motion.button>
+        </motion.section>
 
-          <motion.section
-            variants={panelMotion}
-            initial="hidden"
-            animate="visible"
-            transition={{ delay: 0.15 }}
-            className="flex flex-col items-center gap-6 rounded-[32px] border border-[#e0b7a9]/20 bg-gradient-to-br from-white/95 via-white/90 to-[#fdf7f4]/80 p-7 shadow-[0_20px_60px_rgba(224,183,169,0.15),0_8px_24px_rgba(0,0,0,0.06)] backdrop-blur-xl"
-          >
-            <div className="flex w-full flex-col gap-3 rounded-3xl border border-[#e0b7a9]/10 bg-gradient-to-br from-white to-[#fdf7f4]/50 p-4 shadow-[0_4px_16px_rgba(224,183,169,0.08)]">
-              <h3 className="bg-gradient-to-r from-[#e0b7a9] to-[#c89585] bg-clip-text text-center text-xl font-bold tracking-tight text-transparent">
-                Preview
-              </h3>
-              <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-[#e0b7a9]/40 to-transparent" />
-            </div>
-
-            <div
-              className="mt-6 w-full max-w-[420px] rounded-[28px] border border-[#e0b7a9]/10 bg-gradient-to-br from-white to-[#fdf7f4]/30 px-5 py-10 shadow-[0_12px_36px_rgba(224,183,169,0.12),0_4px_12px_rgba(0,0,0,0.04)] sm:px-7 sm:py-12"
-              style={{ overflow: "visible" }}
-            >
-              <CanvasPreview
-                elements={elements}
-                selectedElementId={selectedElementId}
-                canvasBackground={canvasBackground}
-                onSelect={(id) => {
-                  if (id === null) {
-                    clearSelection();
-                  } else if (id === "background") {
-                    selectElement("background");
-                  } else {
-                    selectElement(id);
-                  }
-                }}
-                onUpdate={updateElement}
-                onBringToFront={bringToFront}
-              />
-            </div>
-          </motion.section>
-
-          <motion.aside
-            variants={panelMotion}
-            initial="hidden"
-            animate="visible"
-            transition={{ delay: 0.2 }}
-            className="creator-panel rounded-[32px] border border-[#e0b7a9]/20 bg-gradient-to-br from-white/95 via-white/90 to-[#fdf7f4]/80 p-7 shadow-[0_20px_60px_rgba(224,183,169,0.15),0_8px_24px_rgba(0,0,0,0.06)] backdrop-blur-xl"
-          >
-            <div className="flex w-full flex-col gap-3 rounded-3xl border border-[#e0b7a9]/10 bg-gradient-to-br from-white to-[#fdf7f4]/50 p-4 shadow-[0_4px_16px_rgba(224,183,169,0.08)]">
-              <h3 className="bg-gradient-to-r from-[#e0b7a9] to-[#c89585] bg-clip-text text-center text-xl font-bold tracking-tight text-transparent">
-                Properties
-              </h3>
-              <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-[#e0b7a9]/40 to-transparent" />
-            </div>
-            <div className="mt-6 space-y-6 rounded-3xl bg-gradient-to-br from-white/50 to-transparent p-4">
-              <PropertiesPanel
-                selectedElement={selectedElement}
-                canvasBackground={canvasBackground}
-                onBackgroundChange={(color) => setCanvasBackground(color)}
-                onUpdateElement={updateElement}
-                onDeleteElement={removeElement}
-                clearSelection={clearSelection}
-              />
-            </div>
-          </motion.aside>
-
-          <motion.div
-            variants={panelMotion}
-            initial="hidden"
-            animate="visible"
-            transition={{ delay: 0.25 }}
-            className="col-span-1 flex items-center justify-center lg:col-span-3"
-          >
-            <motion.button
-              type="button"
-              onClick={handleSaveTemplate}
-              disabled={saving}
-              className="group relative flex w-full max-w-md items-center justify-center gap-3 overflow-hidden rounded-full bg-gradient-to-r from-[#e0b7a9] via-[#d4a99a] to-[#e0b7a9] bg-size-200 bg-pos-0 px-10 py-5 text-lg font-bold text-white shadow-[0_10px_0_#c9a193,0_15px_35px_rgba(224,183,169,0.4),0_5px_15px_rgba(0,0,0,0.1)] transition-all duration-300 hover:bg-pos-100 hover:shadow-[0_14px_0_#c9a193,0_20px_45px_rgba(224,183,169,0.5),0_8px_20px_rgba(0,0,0,0.15)] active:shadow-[0_5px_0_#c9a193,0_8px_20px_rgba(224,183,169,0.3),0_3px_10px_rgba(0,0,0,0.1)] disabled:pointer-events-none disabled:opacity-60"
-              style={{ backgroundSize: "200% 100%" }}
-              whileTap={{ y: 5, scale: 0.98 }}
-              whileHover={{ y: -4 }}
-              transition={{ type: "spring", stiffness: 400, damping: 17 }}
-            >
-              {/* Shine effect */}
-              <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
-
-              {/* Pulse effect */}
-              <div className="absolute inset-0 rounded-full bg-white opacity-0 transition-opacity duration-300 group-hover:animate-ping group-hover:opacity-20" />
-
-              <span className="relative z-10 flex items-center gap-3">
-                {saving ? (
-                  <>
-                    <svg
-                      className="h-5 w-5 animate-spin"
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      ></circle>
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      ></path>
-                    </svg>
-                    <span className="tracking-wide">Menyimpan...</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2
-                      size={22}
-                      strokeWidth={2.5}
-                      className="transition-transform group-hover:scale-110 group-hover:rotate-12"
-                    />
-                    <span className="tracking-wide">Save Template</span>
-                  </>
-                )}
-              </span>
-            </motion.button>
-          </motion.div>
-        </div>
+        <motion.aside
+          variants={panelMotion}
+          initial="hidden"
+          animate="visible"
+          transition={{ delay: 0.15 }}
+          className="create-panel create-panel--properties"
+        >
+          <h2 className="create-panel__title">Properties</h2>
+          <div className="create-panel__body">
+            <PropertiesPanel
+              selectedElement={selectedElement}
+              canvasBackground={canvasBackground}
+              onBackgroundChange={(color) => setCanvasBackground(color)}
+              onUpdateElement={updateElement}
+              onDeleteElement={removeElement}
+              clearSelection={clearSelection}
+            />
+          </div>
+        </motion.aside>
       </div>
 
       <input

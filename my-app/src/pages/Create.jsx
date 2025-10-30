@@ -6,6 +6,7 @@ import CanvasPreview from "../components/creator/CanvasPreview.jsx";
 import PropertiesPanel from "../components/creator/PropertiesPanel.jsx";
 import useCreatorStore from "../store/useCreatorStore.js";
 import { useShallow } from "zustand/react/shallow";
+import { CANVAS_WIDTH, CANVAS_HEIGHT } from "../components/creator/canvasConstants.js";
 import "./Create.css";
 
 const TEMPLATE_STORAGE_KEY = "fremio-creator-templates";
@@ -25,6 +26,7 @@ const TOAST_MESSAGES = {
 
 export default function Create() {
   const fileInputRef = useRef(null);
+  const uploadPurposeRef = useRef("upload");
   const toastTimeoutRef = useRef(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
@@ -46,12 +48,14 @@ export default function Create() {
     canvasBackground,
     addElement,
     addUploadElement,
+    addBackgroundPhoto,
     updateElement,
     selectElement,
     setCanvasBackground,
     removeElement,
     bringToFront,
     clearSelection,
+    fitBackgroundPhotoToCanvas,
   } = useCreatorStore(
     useShallow((state) => ({
       elements: state.elements,
@@ -59,12 +63,14 @@ export default function Create() {
       canvasBackground: state.canvasBackground,
       addElement: state.addElement,
       addUploadElement: state.addUploadElement,
+      addBackgroundPhoto: state.addBackgroundPhoto,
       updateElement: state.updateElement,
       selectElement: state.selectElement,
       setCanvasBackground: state.setCanvasBackground,
       removeElement: state.removeElement,
       bringToFront: state.bringToFront,
       clearSelection: state.clearSelection,
+      fitBackgroundPhotoToCanvas: state.fitBackgroundPhotoToCanvas,
     }))
   );
 
@@ -72,6 +78,46 @@ export default function Create() {
     if (selectedElementId === "background") return "background";
     return elements.find((el) => el.id === selectedElementId) || null;
   }, [elements, selectedElementId]);
+
+  const backgroundPhotoElement = useMemo(
+    () => elements.find((el) => el.type === "background-photo") || null,
+    [elements]
+  );
+
+  const getImageMetadata = useCallback((src) => {
+    return new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => {
+        resolve({
+          width: image.naturalWidth,
+          height: image.naturalHeight,
+          aspectRatio:
+            image.naturalWidth > 0 && image.naturalHeight > 0
+              ? image.naturalWidth / image.naturalHeight
+              : undefined,
+        });
+      };
+      image.onerror = () => resolve({});
+      image.decoding = "async";
+      image.src = src;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!backgroundPhotoElement) {
+      return;
+    }
+
+    if (!backgroundPhotoElement.data?.imageAspectRatio) {
+      const inferredRatio =
+        backgroundPhotoElement.width > 0 && backgroundPhotoElement.height > 0
+          ? backgroundPhotoElement.width / backgroundPhotoElement.height
+          : CANVAS_WIDTH / CANVAS_HEIGHT;
+      updateElement(backgroundPhotoElement.id, {
+        data: { imageAspectRatio: inferredRatio },
+      });
+    }
+  }, [backgroundPhotoElement, updateElement]);
 
   useEffect(
     () => () => {
@@ -82,22 +128,37 @@ export default function Create() {
     []
   );
 
-  const triggerUpload = () => {
+  const triggerUpload = useCallback(() => {
+    uploadPurposeRef.current = "upload";
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
       fileInputRef.current.click();
     }
-  };
+  }, []);
+
+  const triggerBackgroundUpload = useCallback(() => {
+    uploadPurposeRef.current = "background";
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+      fileInputRef.current.click();
+    }
+  }, []);
 
   const handleFileChange = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const dataUrl = reader.result;
       if (typeof dataUrl === "string") {
-        addUploadElement(dataUrl);
+        if (uploadPurposeRef.current === "background") {
+          const metadata = await getImageMetadata(dataUrl);
+          addBackgroundPhoto(dataUrl, metadata);
+          showToast("success", "Background foto diperbarui.", 2200);
+        } else {
+          addUploadElement(dataUrl);
+        }
       }
     };
     reader.readAsDataURL(file);
@@ -145,7 +206,7 @@ export default function Create() {
 
   const addToolElement = (type) => {
     if (type === "background") {
-      setCanvasBackground(canvasBackground);
+      selectElement("background");
       return;
     }
     if (type === "upload") {
@@ -156,6 +217,15 @@ export default function Create() {
   };
 
   useEffect(() => {
+    const handleBackgroundUploadRequest = () => {
+      triggerBackgroundUpload();
+    };
+
+    window.addEventListener(
+      "creator:request-background-upload",
+      handleBackgroundUploadRequest
+    );
+
     const handlePaste = (event) => {
       const clipboardData = event.clipboardData;
       if (!clipboardData) return;
@@ -196,8 +266,14 @@ export default function Create() {
     };
 
     window.addEventListener("paste", handlePaste);
-    return () => window.removeEventListener("paste", handlePaste);
-  }, [addUploadElement, showToast]);
+    return () => {
+      window.removeEventListener("paste", handlePaste);
+      window.removeEventListener(
+        "creator:request-background-upload",
+        handleBackgroundUploadRequest
+      );
+    };
+  }, [addUploadElement, showToast, triggerBackgroundUpload]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -231,8 +307,15 @@ export default function Create() {
       {
         id: "background",
         label: "Background",
-        onClick: () => selectElement("background"),
-        isActive: selectedElementId === "background",
+        onClick: () => {
+          selectElement("background");
+          if (!backgroundPhotoElement) {
+            triggerBackgroundUpload();
+          }
+        },
+        isActive:
+          selectedElementId === "background" ||
+          selectedElement?.type === "background-photo",
       },
       {
         id: "photo",
@@ -259,7 +342,14 @@ export default function Create() {
         isActive: selectedElement?.type === "upload",
       },
     ],
-    [addToolElement, selectElement, selectedElement?.type, selectedElementId]
+    [
+      addToolElement,
+      selectElement,
+      selectedElement?.type,
+      selectedElementId,
+      backgroundPhotoElement,
+      triggerBackgroundUpload,
+    ]
   );
 
   return (
@@ -391,6 +481,15 @@ export default function Create() {
               onUpdateElement={updateElement}
               onDeleteElement={removeElement}
               clearSelection={clearSelection}
+              onSelectBackgroundPhoto={() => {
+                if (backgroundPhotoElement) {
+                  selectElement(backgroundPhotoElement.id);
+                } else {
+                  triggerBackgroundUpload();
+                }
+              }}
+              onFitBackgroundPhoto={fitBackgroundPhotoToCanvas}
+              backgroundPhoto={backgroundPhotoElement}
             />
           </div>
         </motion.aside>

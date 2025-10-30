@@ -89,20 +89,14 @@ body {
   align-items: center;
   justify-content: center;
   background: #fff;
-  padding: 0;
+  padding: 10px;
   cursor: pointer;
   transition: box-shadow 0.15s ease, transform 0.15s ease;
 }
-.menu-toggle span {
-  display: block;
-  width: 18px;
-  height: 2px;
-  background: #222;
-  border-radius: 999px;
-  transition: transform 0.2s ease, opacity 0.2s ease;
-}
-.menu-toggle span + span {
-  margin-top: 4px;
+.menu-toggle-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
 }
 .menu-toggle:hover {
   transform: translateY(-2px);
@@ -111,27 +105,89 @@ body {
 
 .mobile-menu {
   display: none;
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 280px;
+  height: 100vh;
   background: #fff;
-  border-bottom: 1px solid #eee;
-  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.03);
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.1);
+  z-index: 999;
+  overflow-y: auto;
+  transform: translateX(100%);
+  transition: transform 0.3s ease;
+  pointer-events: auto;
+}
+.mobile-menu.open {
+  display: block;
+  transform: translateX(0);
+}
+.mobile-menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 280px;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 998;
+  backdrop-filter: blur(2px);
+}
+
+@media (max-width: 760px) {
+  .mobile-menu-overlay {
+    display: block;
+  }
 }
 .mobile-menu .mobile-nav {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px 24px 10px;
+  gap: 8px;
+  padding: 24px 24px 20px;
 }
 .mobile-menu .nav-link {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
+  padding: 12px 16px 16px 16px;
+  border-radius: 8px;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  position: relative;
+  text-align: left;
+  text-decoration: none;
+  color: #333;
+}
+.mobile-menu .nav-link .nav-icon {
+  width: 22px;
+  height: 22px;
+}
+.mobile-menu .nav-link:hover {
+  background: rgba(224, 183, 169, 0.1);
+}
+.mobile-menu .nav-link.active {
+  background: rgba(224, 183, 169, 0.15);
+  color: #111;
+}
+.mobile-menu .nav-link.active::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 4px;
+  width: calc(100% - 32px);
+  height: 3px;
+  background: var(--accent);
+  border-radius: 999px;
 }
 .mobile-menu .btn-login.mobile {
-  margin: 10px 24px 20px;
+  margin: 20px 24px;
   width: calc(100% - 48px);
   justify-content: center;
-}
-.mobile-menu.open {
-  display: block;
+  padding: 12px;
+  border-radius: 12px;
+  font-weight: 600;
 }
 
 /* Logo kiri */
@@ -162,6 +218,14 @@ body {
   text-decoration: none;
   font-weight: 600;
   transition: color 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nav-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
 }
 .nav-link:hover {
   color: #111;
@@ -169,10 +233,9 @@ body {
 .nav-link.active::after {
   content: "";
   position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
   bottom: -6px;
-  width: 44px;
   height: 6px;
   background: var(--accent);
   border-radius: 999px;
@@ -242,21 +305,15 @@ body {
   }
   .menu-toggle {
     display: inline-flex;
+    justify-self: end;
+    margin-left: auto;
+    align-self: center;
   }
   .mobile-menu .btn-login.mobile {
     display: inline-flex;
   }
   .mobile-menu .nav-link.active::after {
     bottom: -4px;
-  }
-  .menu-toggle[aria-expanded="true"] span:nth-child(1) {
-    transform: translateY(6px) rotate(45deg);
-  }
-  .menu-toggle[aria-expanded="true"] span:nth-child(2) {
-    opacity: 0;
-  }
-  .menu-toggle[aria-expanded="true"] span:nth-child(3) {
-    transform: translateY(-6px) rotate(-45deg);
   }
   .logo img {
     height: 34px;

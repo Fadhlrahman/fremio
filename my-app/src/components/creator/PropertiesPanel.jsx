@@ -29,7 +29,29 @@ export default function PropertiesPanel({
   onUpdateElement,
   onDeleteElement,
   clearSelection,
+  onSelectBackgroundPhoto = () => {},
+  onFitBackgroundPhoto = () => {},
+  backgroundPhoto = null,
 }) {
+  const handleDimensionInput = (dimension, rawValue) => {
+    if (!selectedElement || typeof rawValue === "undefined") {
+      return;
+    }
+
+    const numericValue = Number(rawValue);
+    if (!Number.isFinite(numericValue)) {
+      return;
+    }
+
+    const nextValue = Math.round(
+      numericValue > 0 ? numericValue : selectedElement[dimension]
+    );
+    const minFallback = 60;
+    onUpdateElement(selectedElement.id, {
+      [dimension]: Math.max(minFallback, nextValue),
+    });
+  };
+
   const renderSharedControls = () => (
     <Section title="Dimensi">
       <div className="grid grid-cols-2 gap-3">
@@ -39,11 +61,7 @@ export default function PropertiesPanel({
             min={60}
             className="rounded-2xl border-2 border-[#e0b7a9]/20 bg-white px-4 py-3 text-slate-700 shadow-[0_2px_8px_rgba(224,183,169,0.08)] transition-all focus:border-[#e0b7a9]/50 focus:shadow-[0_4px_12px_rgba(224,183,169,0.15)] focus:outline-none"
             value={Math.round(selectedElement?.width ?? 0)}
-            onChange={(event) =>
-              onUpdateElement(selectedElement.id, {
-                width: Number(event.target.value) || selectedElement.width,
-              })
-            }
+            onChange={(event) => handleDimensionInput("width", event.target.value)}
           />
         </InputRow>
         <InputRow label="Tinggi">
@@ -52,11 +70,7 @@ export default function PropertiesPanel({
             min={60}
             className="rounded-2xl border-2 border-[#e0b7a9]/20 bg-white px-4 py-3 text-slate-700 shadow-[0_2px_8px_rgba(224,183,169,0.08)] transition-all focus:border-[#e0b7a9]/50 focus:shadow-[0_4px_12px_rgba(224,183,169,0.15)] focus:outline-none"
             value={Math.round(selectedElement?.height ?? 0)}
-            onChange={(event) =>
-              onUpdateElement(selectedElement.id, {
-                height: Number(event.target.value) || selectedElement.height,
-              })
-            }
+            onChange={(event) => handleDimensionInput("height", event.target.value)}
           />
         </InputRow>
       </div>
@@ -169,7 +183,7 @@ export default function PropertiesPanel({
       <InputRow label="Objek Fit">
         <select
           className="rounded-xl border border-rose-100/70 bg-white px-3 py-2 text-sm text-slate-600 focus:border-rose-300 focus:outline-none"
-          value={selectedElement.data?.objectFit ?? "cover"}
+          value={selectedElement.data?.objectFit ?? "contain"}
           onChange={(event) =>
             onUpdateElement(selectedElement.id, {
               data: { objectFit: event.target.value },
@@ -181,7 +195,7 @@ export default function PropertiesPanel({
           <option value="fill">Fill</option>
         </select>
       </InputRow>
-      {selectedElement.type === "upload" && selectedElement.data?.image && (
+      {selectedElement.data?.image && (
         <button
           type="button"
           className="flex items-center justify-center gap-2 rounded-xl border border-rose-100 bg-rose-50/90 px-3 py-2 text-xs font-semibold text-rose-600"
@@ -194,6 +208,61 @@ export default function PropertiesPanel({
           <X size={14} /> Hapus gambar
         </button>
       )}
+    </Section>
+  );
+
+  const renderBackgroundPhotoControls = () => (
+    <Section title="Foto Background">
+      <InputRow label="Mode Isi">
+        <select
+          className="rounded-xl border border-rose-100/70 bg-white px-3 py-2 text-sm text-slate-600 focus:border-rose-300 focus:outline-none"
+          value={selectedElement.data?.objectFit ?? "contain"}
+          onChange={(event) =>
+            onUpdateElement(selectedElement.id, {
+              data: { objectFit: event.target.value },
+            })
+          }
+        >
+          <option value="cover">Cover</option>
+          <option value="contain">Contain</option>
+          <option value="fill">Fill</option>
+        </select>
+      </InputRow>
+      <div className="flex flex-col gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            if (typeof window !== "undefined") {
+              const uploadEvent = new CustomEvent(
+                "creator:request-background-upload"
+              );
+              window.dispatchEvent(uploadEvent);
+            }
+          }}
+          className="flex items-center justify-center gap-3 rounded-2xl border-2 border-[#e0b7a9]/40 bg-gradient-to-r from-[#f7e3da] to-[#f1cfc0] px-5 py-3 text-sm font-semibold text-[#4a302b] shadow-[0_6px_16px_rgba(224,183,169,0.25)] transition-all hover:translate-y-[-2px] hover:shadow-[0_12px_26px_rgba(224,183,169,0.35)]"
+        >
+          Ganti foto background
+        </button>
+        <button
+          type="button"
+          onClick={() => onFitBackgroundPhoto?.()}
+          className="flex items-center justify-center gap-3 rounded-2xl border-2 border-[#e0b7a9]/40 bg-white px-5 py-3 text-sm font-semibold text-[#4a302b] shadow-[0_4px_12px_rgba(224,183,169,0.18)] transition-all hover:translate-y-[-2px] hover:shadow-[0_10px_24px_rgba(224,183,169,0.24)]"
+        >
+          Sesuaikan ke kanvas
+        </button>
+        {selectedElement.data?.image && (
+          <button
+            type="button"
+            onClick={() => {
+              onDeleteElement(selectedElement.id);
+              clearSelection();
+            }}
+            className="flex items-center justify-center gap-3 rounded-2xl border-2 border-red-200/50 bg-gradient-to-r from-red-50 to-red-100/60 px-5 py-3 text-sm font-semibold text-red-600 shadow-[0_4px_12px_rgba(239,68,68,0.18)] transition-all hover:translate-y-[-2px] hover:shadow-[0_10px_22px_rgba(239,68,68,0.25)]"
+          >
+            <X size={14} /> Hapus foto background
+          </button>
+        )}
+      </div>
     </Section>
   );
 
@@ -230,6 +299,39 @@ export default function PropertiesPanel({
               onChange={(event) => onBackgroundChange(event.target.value)}
             />
           </InputRow>
+          {backgroundPhoto ? (
+            <div className="flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={() => onSelectBackgroundPhoto?.()}
+                className="flex items-center justify-center gap-3 rounded-2xl border-2 border-[#e0b7a9]/40 bg-white px-5 py-3 text-sm font-semibold text-[#4a302b] shadow-[0_4px_12px_rgba(224,183,169,0.18)] transition-all hover:translate-y-[-2px] hover:shadow-[0_10px_24px_rgba(224,183,169,0.24)]"
+              >
+                Edit foto background
+              </button>
+              <button
+                type="button"
+                onClick={() => onFitBackgroundPhoto?.()}
+                className="flex items-center justify-center gap-3 rounded-2xl border-2 border-[#e0b7a9]/40 bg-gradient-to-r from-[#f7e3da] to-[#f1cfc0] px-5 py-3 text-sm font-semibold text-[#4a302b] shadow-[0_6px_16px_rgba(224,183,169,0.25)] transition-all hover:translate-y-[-2px] hover:shadow-[0_12px_26px_rgba(224,183,169,0.35)]"
+              >
+                Sesuaikan ke kanvas
+              </button>
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              if (selectedElement !== "background") return;
+              if (typeof window !== "undefined") {
+                const uploadEvent = new CustomEvent(
+                  "creator:request-background-upload"
+                );
+                window.dispatchEvent(uploadEvent);
+              }
+            }}
+            className="flex items-center justify-center gap-3 rounded-2xl border-2 border-[#e0b7a9]/40 bg-gradient-to-r from-[#f7e3da] to-[#f1cfc0] px-5 py-3 text-sm font-semibold text-[#4a302b] shadow-[0_6px_16px_rgba(224,183,169,0.25)] transition-all hover:translate-y-[-2px] hover:shadow-[0_12px_26px_rgba(224,183,169,0.35)]"
+          >
+            Unggah foto background
+          </button>
         </Section>
       </motion.div>
     );
@@ -246,7 +348,7 @@ export default function PropertiesPanel({
       animate="visible"
       className="flex h-full flex-col gap-4"
     >
-      {renderSharedControls()}
+      {selectedElement.type !== "background-photo" && renderSharedControls()}
 
       {selectedElement.type === "text" && renderTextControls()}
 
@@ -262,6 +364,9 @@ export default function PropertiesPanel({
           {renderFillControls({ showBorderRadius: true })}
         </>
       )}
+
+      {selectedElement.type === "background-photo" &&
+        renderBackgroundPhotoControls()}
 
       <button
         type="button"

@@ -1,10 +1,14 @@
 import { memo, useMemo } from "react";
 import { Rnd } from "react-rnd";
 import { motion } from "framer-motion";
+import {
+  CANVAS_WIDTH,
+  CANVAS_HEIGHT,
+  DEFAULT_ELEMENT_MIN,
+  BACKGROUND_MIN_SHORT_SIDE,
+} from "./canvasConstants.js";
 
 const elementShadow = "0 18px 36px rgba(15, 23, 42, 0.14)";
-const CANVAS_WIDTH = 360;
-const CANVAS_HEIGHT = 640;
 
 const getElementStyle = (element, isSelected) => {
   switch (element.type) {
@@ -32,6 +36,7 @@ const getElementStyle = (element, isSelected) => {
     case "shape":
       return {
         background: element.data?.fill ?? "#f4d3c2",
+        backgroundColor: element.data?.fill ?? "#f4d3c2",
         borderRadius: `${element.data?.borderRadius ?? 24}px`,
         border: element.data?.stroke
           ? `${element.data?.strokeWidth ?? 2}px solid ${element.data.stroke}`
@@ -39,12 +44,21 @@ const getElementStyle = (element, isSelected) => {
       };
     case "upload":
     case "photo":
+    case "background-photo":
       return {
-        borderRadius: `${element.data?.borderRadius ?? 24}px`,
+        borderRadius: `${
+          element.data?.borderRadius ??
+          (element.type === "background-photo" ? 0 : 24)
+        }px`,
         border: element.data?.stroke
           ? `${element.data?.strokeWidth ?? 4}px solid ${element.data.stroke}`
+          : element.type === "background-photo"
+          ? "none"
           : "6px solid rgba(255,255,255,0.9)",
-        background: element.data?.fill ?? "#dbeafe",
+        background: element.data?.fill ?? (element.type === "background-photo" ? "transparent" : "#dbeafe"),
+        backgroundColor:
+          element.data?.fill ?? (element.type === "background-photo" ? "transparent" : "#dbeafe"),
+        backgroundImage: "none",
         overflow: "hidden",
         display: "flex",
         alignItems: "center",
@@ -54,25 +68,28 @@ const getElementStyle = (element, isSelected) => {
       return {};
   }
 };
-
 const ElementContent = ({ element, isSelected }) => {
-  const style = getElementStyle(element, isSelected);
+  const style = {
+    width: "100%",
+    height: "100%",
+    ...getElementStyle(element, isSelected),
+  };
 
   if (element.type === "text") {
     return (
-      <div style={style} className="h-full w-full">
+      <div style={style}>
         {element.data?.text ?? "Teks"}
       </div>
     );
   }
 
   if (element.type === "shape") {
-    return <div style={style} className="h-full w-full" />;
+    return <div style={style} />;
   }
 
   if (element.type === "upload") {
     return (
-      <div style={style} className="h-full w-full">
+      <div style={style}>
         {element.data?.image ? (
           <img
             src={element.data.image}
@@ -90,11 +107,31 @@ const ElementContent = ({ element, isSelected }) => {
     );
   }
 
+  if (element.type === "background-photo") {
+    return (
+      <div style={style}>
+        {element.data?.image ? (
+          <img
+            src={element.data.image}
+            alt="Background"
+            className="h-full w-full object-cover"
+            style={{ objectFit: element.data?.objectFit ?? "contain" }}
+            draggable={false}
+          />
+        ) : (
+          <div className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+            {element.data?.label ?? "Background"}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (element.type === "photo") {
     return (
       <div
         style={style}
-        className="h-full w-full bg-gradient-to-br from-sky-100 to-sky-200"
+        className="h-full w-full"
       >
         <div className="text-xs font-semibold uppercase tracking-widest text-slate-500">
           {element.data?.label ?? "Foto Area"}
@@ -119,12 +156,26 @@ function CanvasPreviewComponent({
     [elements]
   );
 
+  const clampBackgroundPosition = (width, height, x, y) => {
+    const minX = Math.min(0, CANVAS_WIDTH - width);
+    const maxX = Math.max(0, CANVAS_WIDTH - width);
+    const minY = Math.min(0, CANVAS_HEIGHT - height);
+    const maxY = Math.max(0, CANVAS_HEIGHT - height);
+    return {
+      x: Math.min(maxX, Math.max(minX, x)),
+      y: Math.min(maxY, Math.max(minY, y)),
+    };
+  };
+
   return (
     <motion.div
       id="creator-canvas"
-      className="relative mx-auto overflow-hidden border border-white/70 shadow-[0_30px_70px_rgba(15,23,42,0.14)]"
+      className="relative mx-auto overflow-hidden shadow-[0_42px_90px_rgba(58,38,32,0.28)]"
       style={{
         background: canvasBackground,
+        border: "4px solid rgba(92, 62, 48, 0.65)",
+        boxShadow:
+          "0 42px 90px rgba(58,38,32,0.28), 0 0 0 2px rgba(255,255,255,0.18) inset",
         borderRadius: 0,
         width: `${CANVAS_WIDTH}px`,
         height: `${CANVAS_HEIGHT}px`,
@@ -147,39 +198,119 @@ function CanvasPreviewComponent({
     >
       {sortedElements.map((element) => {
         const isSelected = selectedElementId === element.id;
+        const isBackgroundPhoto = element.type === "background-photo";
+        const backgroundAspectRatio = isBackgroundPhoto
+          ? Number(element.data?.imageAspectRatio) > 0
+            ? Number(element.data?.imageAspectRatio)
+            : element.width > 0 && element.height > 0
+            ? element.width / element.height
+            : 1
+          : 1;
+        const safeAspectRatio = backgroundAspectRatio > 0 ? backgroundAspectRatio : 1;
+        const baseClassName = isBackgroundPhoto
+          ? "transition-colors"
+          : `border border-transparent transition-colors ${
+              isSelected ? "border-rose-200" : ""
+            }`;
+        const backgroundMinWidth = isBackgroundPhoto
+          ? Math.min(
+              CANVAS_WIDTH,
+              Math.max(
+                BACKGROUND_MIN_SHORT_SIDE,
+                Math.round(BACKGROUND_MIN_SHORT_SIDE * safeAspectRatio)
+              )
+            )
+          : DEFAULT_ELEMENT_MIN;
+        const backgroundMinHeight = isBackgroundPhoto
+          ? Math.min(
+              CANVAS_HEIGHT,
+              Math.max(
+                BACKGROUND_MIN_SHORT_SIDE,
+                Math.round(BACKGROUND_MIN_SHORT_SIDE / safeAspectRatio)
+              )
+            )
+          : DEFAULT_ELEMENT_MIN;
         return (
           <Rnd
             key={element.id}
             size={{ width: element.width, height: element.height }}
             position={{ x: element.x, y: element.y }}
             bounds="parent"
-            onDragStop={(_, data) =>
-              onUpdate(element.id, { x: data.x, y: data.y })
-            }
+            onDragStop={(_, data) => {
+              if (isBackgroundPhoto) {
+                const clamped = clampBackgroundPosition(
+                  element.width,
+                  element.height,
+                  data.x,
+                  data.y
+                );
+                onUpdate(element.id, clamped);
+                return;
+              }
+              onUpdate(element.id, { x: data.x, y: data.y });
+            }}
             onResizeStop={(_, __, ref, delta, position) =>
-              onUpdate(element.id, {
-                width: parseFloat(ref.style.width),
-                height: parseFloat(ref.style.height),
-                x: position.x,
-                y: position.y,
-              })
+              onUpdate(element.id, (() => {
+                const nextWidth = parseFloat(ref.style.width);
+                const nextHeight = parseFloat(ref.style.height);
+                if (isBackgroundPhoto) {
+                  let adjustedWidth = nextWidth;
+                  let adjustedHeight = nextHeight;
+
+                  if (adjustedWidth > CANVAS_WIDTH) {
+                    adjustedWidth = CANVAS_WIDTH;
+                    adjustedHeight = Math.round(adjustedWidth / safeAspectRatio);
+                  }
+
+                  if (adjustedHeight > CANVAS_HEIGHT) {
+                    adjustedHeight = CANVAS_HEIGHT;
+                    adjustedWidth = Math.round(adjustedHeight * safeAspectRatio);
+                  }
+
+                  const clamped = clampBackgroundPosition(
+                    adjustedWidth,
+                    adjustedHeight,
+                    position.x,
+                    position.y
+                  );
+                  return {
+                    width: adjustedWidth,
+                    height: adjustedHeight,
+                    ...clamped,
+                  };
+                }
+                return {
+                  width: nextWidth,
+                  height: nextHeight,
+                  x: position.x,
+                  y: position.y,
+                };
+              })())
             }
-            minWidth={60}
-            minHeight={60}
+            minWidth={isBackgroundPhoto ? backgroundMinWidth : DEFAULT_ELEMENT_MIN}
+            minHeight={isBackgroundPhoto ? backgroundMinHeight : DEFAULT_ELEMENT_MIN}
             dragMomentum={false}
+            lockAspectRatio={isBackgroundPhoto ? backgroundAspectRatio : false}
             style={{
               zIndex: element.zIndex,
-              boxShadow: isSelected
+              boxShadow: isBackgroundPhoto
+                ? "none"
+                : isSelected
                 ? elementShadow
                 : "0 12px 32px rgba(15,23,42,0.12)",
               position: "absolute",
+              outline:
+                isBackgroundPhoto && isSelected
+                  ? "3px solid rgba(244,114,182,0.6)"
+                  : "none",
+              outlineOffset: 0,
             }}
-            className={`border border-transparent transition-colors ${
-              isSelected ? "border-rose-200" : ""
-            }`}
+            className={baseClassName}
             onMouseDown={(event) => {
               event.stopPropagation();
-              onBringToFront(element.id);
+              if (!isBackgroundPhoto) {
+                onBringToFront(element.id);
+              }
               onSelect(element.id);
             }}
             onClick={(event) => {

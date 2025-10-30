@@ -3,6 +3,14 @@ import { NavLink, Link, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../contexts/AuthContext.jsx";
 import logoSalem from "../assets/logo-salem.png";
+import burgerBarIcon from "../assets/burger-bar.png";
+import homeIcon from "../assets/page-icon/page-home.png";
+import aboutIcon from "../assets/page-icon/page-about.png";
+import framesIcon from "../assets/page-icon/page-frames.png";
+import createIcon from "../assets/page-icon/page-create.png";
+import profileIcon from "../assets/page-icon/page-profile.png";
+import settingsIcon from "../assets/page-icon/page-settings.png";
+import logoutIcon from "../assets/page-icon/logout.png";
 
 export default function Header() {
   const [open, setOpen] = useState(false);
@@ -62,8 +70,17 @@ export default function Header() {
   };
 
   return (
-    <header ref={headerRef} className={`site-header ${open ? "open" : ""}`}>
-      <div className="container header-bar">
+    <>
+      {/* Overlay untuk menggelapkan background saat menu mobile terbuka */}
+      {menuOpen && (
+        <div
+          className="mobile-menu-overlay"
+          onClick={() => setMenuOpen(false)}
+        />
+      )}
+
+      <header ref={headerRef} className={`site-header ${open ? "open" : ""}`}>
+        <div className="container header-bar">
         {/* Left: Logo */}
         <div className="logo">
           <img src={logoSalem} alt="Fremio Logo" className="logo-image" />
@@ -76,13 +93,15 @@ export default function Header() {
             to="/#home"
             className={"nav-link" + (isHomeActive ? " active" : "")}
           >
-            Home
+            <img src={homeIcon} alt="" className="nav-icon" />
+            <span>Home</span>
           </Link>
           <Link
             to="/#about"
             className={"nav-link" + (isAboutActive ? " active" : "")}
           >
-            About
+            <img src={aboutIcon} alt="" className="nav-icon" />
+            <span>About</span>
           </Link>
 
           {/* Route pages */}
@@ -92,7 +111,8 @@ export default function Header() {
               "nav-link" + (isActive ? " active" : "")
             }
           >
-            Frames
+            <img src={framesIcon} alt="" className="nav-icon" />
+            <span>Frames</span>
           </NavLink>
           <NavLink
             to="/create"
@@ -100,7 +120,8 @@ export default function Header() {
               "nav-link" + (isActive ? " active" : "")
             }
           >
-            Create
+            <img src={createIcon} alt="" className="nav-icon" />
+            <span>Create</span>
           </NavLink>
         </nav>
 
@@ -187,7 +208,7 @@ export default function Header() {
                       e.currentTarget.style.background = "transparent";
                     }}
                   >
-                    <span style={{ fontSize: "18px" }}>👤</span>
+                    <img src={profileIcon} alt="" style={{ width: "18px", height: "18px" }} />
                     <span>Profile</span>
                   </Link>
 
@@ -215,7 +236,7 @@ export default function Header() {
                       e.currentTarget.style.background = "transparent";
                     }}
                   >
-                    <span style={{ fontSize: "18px" }}>⚙️</span>
+                    <img src={settingsIcon} alt="" style={{ width: "18px", height: "18px" }} />
                     <span>Settings</span>
                   </Link>
 
@@ -255,7 +276,7 @@ export default function Header() {
                       e.currentTarget.style.background = "transparent";
                     }}
                   >
-                    <span style={{ fontSize: "18px" }}>🚪</span>
+                    <img src={logoutIcon} alt="" style={{ width: "18px", height: "18px" }} />
                     <span>Logout</span>
                   </button>
                 </div>
@@ -272,30 +293,40 @@ export default function Header() {
         <button
           type="button"
           className="menu-toggle"
-          aria-label="Toggle navigation"
+          aria-label={menuOpen ? "Close navigation" : "Open navigation"}
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((prev) => !prev)}
         >
-          <span />
-          <span />
-          <span />
+          <img
+            src={burgerBarIcon}
+            alt="Menu"
+            className="menu-toggle-icon"
+            draggable={false}
+          />
         </button>
       </div>
 
       {/* Mobile menu */}
       <div className={`mobile-menu ${menuOpen ? "open" : ""}`}>
+        {/* Logo di dalam menu */}
+        <div style={{ padding: "24px", borderBottom: "1px solid rgba(224, 183, 169, 0.2)" }}>
+          <img src={logoSalem} alt="Fremio Logo" style={{ height: "32px" }} />
+        </div>
+
         <nav className="mobile-nav">
           <Link
             to="/#home"
             className={"nav-link" + (isHomeActive ? " active" : "")}
           >
-            Home
+            <img src={homeIcon} alt="" className="nav-icon" />
+            <span>Home</span>
           </Link>
           <Link
             to="/#about"
             className={"nav-link" + (isAboutActive ? " active" : "")}
           >
-            About
+            <img src={aboutIcon} alt="" className="nav-icon" />
+            <span>About</span>
           </Link>
           <NavLink
             to="/frames"
@@ -303,7 +334,8 @@ export default function Header() {
               "nav-link" + (isActive ? " active" : "")
             }
           >
-            Frames
+            <img src={framesIcon} alt="" className="nav-icon" />
+            <span>Frames</span>
           </NavLink>
           <NavLink
             to="/create"
@@ -311,61 +343,36 @@ export default function Header() {
               "nav-link" + (isActive ? " active" : "")
             }
           >
-            Create
+            <img src={createIcon} alt="" className="nav-icon" />
+            <span>Create</span>
           </NavLink>
         </nav>
 
         {isAuthenticated ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            <button
-              onClick={() => {
-                setMenuOpen(false);
-                navigate("/profile");
-              }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "12px",
-                padding: "12px 16px",
-                borderRadius: "8px",
-                border: "none",
-                background: "transparent",
-                color: "#333",
-                fontSize: "14px",
-                fontWeight: 500,
-                cursor: "pointer",
-                width: "100%",
-                textAlign: "left",
-              }}
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px", padding: "0 24px", width: "100%" }}>
+            <NavLink
+              to="/profile"
+              onClick={() => setMenuOpen(false)}
+              className={({ isActive }) =>
+                "nav-link" + (isActive ? " active" : "")
+              }
+              style={{ width: "100%" }}
             >
-              <span style={{ fontSize: "18px" }}>👤</span>
+              <img src={profileIcon} alt="" style={{ width: "22px", height: "22px" }} />
               <span>Profile</span>
-            </button>
+            </NavLink>
 
-            <button
-              onClick={() => {
-                setMenuOpen(false);
-                navigate("/settings");
-              }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "12px",
-                padding: "12px 16px",
-                borderRadius: "8px",
-                border: "none",
-                background: "transparent",
-                color: "#333",
-                fontSize: "14px",
-                fontWeight: 500,
-                cursor: "pointer",
-                width: "100%",
-                textAlign: "left",
-              }}
+            <NavLink
+              to="/settings"
+              onClick={() => setMenuOpen(false)}
+              className={({ isActive }) =>
+                "nav-link" + (isActive ? " active" : "")
+              }
+              style={{ width: "100%" }}
             >
-              <span style={{ fontSize: "18px" }}>⚙️</span>
+              <img src={settingsIcon} alt="" style={{ width: "22px", height: "22px" }} />
               <span>Settings</span>
-            </button>
+            </NavLink>
 
             <div
               style={{
@@ -396,7 +403,7 @@ export default function Header() {
                 textAlign: "left",
               }}
             >
-              <span style={{ fontSize: "18px" }}>🚪</span>
+              <img src={logoutIcon} alt="" style={{ width: "22px", height: "22px" }} />
               <span>Logout</span>
             </button>
           </div>
@@ -406,6 +413,7 @@ export default function Header() {
           </NavLink>
         )}
       </div>
-    </header>
+      </header>
+    </>
   );
 }

@@ -1,7 +1,16 @@
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import html2canvas from "html2canvas";
-import { CheckCircle2, AlertTriangle } from "lucide-react";
+import {
+  CheckCircle2,
+  AlertTriangle,
+  Palette,
+  Image as ImageIcon,
+  Type as TypeIcon,
+  Shapes,
+  UploadCloud,
+  ChevronDown,
+} from "lucide-react";
 import CanvasPreview from "../components/creator/CanvasPreview.jsx";
 import PropertiesPanel from "../components/creator/PropertiesPanel.jsx";
 import useCreatorStore from "../store/useCreatorStore.js";
@@ -30,6 +39,8 @@ export default function Create() {
   const toastTimeoutRef = useRef(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
+  const [isMobileView, setIsMobileView] = useState(false);
+  const [isMobilePropertiesOpen, setIsMobilePropertiesOpen] = useState(false);
 
   const showToast = useCallback((type, message, duration = 3200) => {
     if (toastTimeoutRef.current) {
@@ -307,6 +318,8 @@ export default function Create() {
       {
         id: "background",
         label: "Background",
+        mobileLabel: "Desain",
+        icon: Palette,
         onClick: () => {
           selectElement("background");
           if (!backgroundPhotoElement) {
@@ -320,24 +333,32 @@ export default function Create() {
       {
         id: "photo",
         label: "Area Foto",
+        mobileLabel: "Foto",
+        icon: ImageIcon,
         onClick: () => addToolElement("photo"),
         isActive: selectedElement?.type === "photo",
       },
       {
         id: "text",
         label: "Add Text",
+        mobileLabel: "Teks",
+        icon: TypeIcon,
         onClick: () => addToolElement("text"),
         isActive: selectedElement?.type === "text",
       },
       {
         id: "shape",
         label: "Shape",
+        mobileLabel: "Elemen",
+        icon: Shapes,
         onClick: () => addToolElement("shape"),
         isActive: selectedElement?.type === "shape",
       },
       {
         id: "upload",
         label: "Unggahan",
+        mobileLabel: "Unggah",
+        icon: UploadCloud,
         onClick: () => addToolElement("upload"),
         isActive: selectedElement?.type === "upload",
       },
@@ -351,6 +372,40 @@ export default function Create() {
       triggerBackgroundUpload,
     ]
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const mediaQuery = window.matchMedia("(max-width: 768px)");
+    const handleChange = (event) => {
+      setIsMobileView(event.matches);
+    };
+
+    setIsMobileView(mediaQuery.matches);
+
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", handleChange);
+      return () => mediaQuery.removeEventListener("change", handleChange);
+    }
+
+    mediaQuery.addListener(handleChange);
+    return () => mediaQuery.removeListener(handleChange);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobileView) {
+      setIsMobilePropertiesOpen(false);
+    }
+  }, [isMobileView]);
+
+  const handleToolButtonPress = (button) => {
+    button.onClick();
+    if (isMobileView) {
+      setIsMobilePropertiesOpen(true);
+    }
+  };
 
   return (
     <div className="create-page">
@@ -376,27 +431,29 @@ export default function Create() {
       )}
 
       <div className="create-grid">
-        <motion.aside
-          variants={panelMotion}
-          initial="hidden"
-          animate="visible"
-          transition={{ delay: 0.05 }}
-          className="create-panel create-panel--tools"
-        >
-          <h2 className="create-panel__title">Tools</h2>
-          <div className="create-tools__list">
-            {toolButtons.map((button) => (
-              <button
-                key={button.id}
-                type="button"
-                onClick={button.onClick}
-                className={`create-tools__button ${button.isActive ? "create-tools__button--active" : ""}`.trim()}
-              >
-                {button.label}
-              </button>
-            ))}
-          </div>
-        </motion.aside>
+        {!isMobileView && (
+          <motion.aside
+            variants={panelMotion}
+            initial="hidden"
+            animate="visible"
+            transition={{ delay: 0.05 }}
+            className="create-panel create-panel--tools"
+          >
+            <h2 className="create-panel__title">Tools</h2>
+            <div className="create-tools__list">
+              {toolButtons.map((button) => (
+                <button
+                  key={button.id}
+                  type="button"
+                  onClick={() => handleToolButtonPress(button)}
+                  className={`create-tools__button ${button.isActive ? "create-tools__button--active" : ""}`.trim()}
+                >
+                  {button.label}
+                </button>
+              ))}
+            </div>
+          </motion.aside>
+        )}
 
         <motion.section
           variants={panelMotion}
@@ -414,10 +471,19 @@ export default function Create() {
               onSelect={(id) => {
                 if (id === null) {
                   clearSelection();
+                  if (isMobileView) {
+                    setIsMobilePropertiesOpen(false);
+                  }
                 } else if (id === "background") {
                   selectElement("background");
+                  if (isMobileView) {
+                    setIsMobilePropertiesOpen(true);
+                  }
                 } else {
                   selectElement(id);
+                  if (isMobileView) {
+                    setIsMobilePropertiesOpen(true);
+                  }
                 }
               }}
               onUpdate={updateElement}
@@ -465,35 +531,109 @@ export default function Create() {
           </motion.button>
         </motion.section>
 
-        <motion.aside
-          variants={panelMotion}
-          initial="hidden"
-          animate="visible"
-          transition={{ delay: 0.15 }}
-          className="create-panel create-panel--properties"
-        >
-          <h2 className="create-panel__title">Properties</h2>
-          <div className="create-panel__body">
-            <PropertiesPanel
-              selectedElement={selectedElement}
-              canvasBackground={canvasBackground}
-              onBackgroundChange={(color) => setCanvasBackground(color)}
-              onUpdateElement={updateElement}
-              onDeleteElement={removeElement}
-              clearSelection={clearSelection}
-              onSelectBackgroundPhoto={() => {
-                if (backgroundPhotoElement) {
-                  selectElement(backgroundPhotoElement.id);
-                } else {
-                  triggerBackgroundUpload();
-                }
-              }}
-              onFitBackgroundPhoto={fitBackgroundPhotoToCanvas}
-              backgroundPhoto={backgroundPhotoElement}
-            />
-          </div>
-        </motion.aside>
+        {!isMobileView && (
+          <motion.aside
+            variants={panelMotion}
+            initial="hidden"
+            animate="visible"
+            transition={{ delay: 0.15 }}
+            className="create-panel create-panel--properties"
+          >
+            <h2 className="create-panel__title">Properties</h2>
+            <div className="create-panel__body">
+              <PropertiesPanel
+                selectedElement={selectedElement}
+                canvasBackground={canvasBackground}
+                onBackgroundChange={(color) => setCanvasBackground(color)}
+                onUpdateElement={updateElement}
+                onDeleteElement={removeElement}
+                clearSelection={clearSelection}
+                onSelectBackgroundPhoto={() => {
+                  if (backgroundPhotoElement) {
+                    selectElement(backgroundPhotoElement.id);
+                  } else {
+                    triggerBackgroundUpload();
+                  }
+                }}
+                onFitBackgroundPhoto={fitBackgroundPhotoToCanvas}
+                backgroundPhoto={backgroundPhotoElement}
+              />
+            </div>
+          </motion.aside>
+        )}
       </div>
+
+      {isMobileView && (
+        <>
+          <button
+            type="button"
+            className={`create-mobile-sheet__backdrop ${isMobilePropertiesOpen ? "create-mobile-sheet__backdrop--visible" : ""}`.trim()}
+            onClick={() => setIsMobilePropertiesOpen(false)}
+          />
+          <motion.div
+            className="create-mobile-sheet"
+            initial={{ y: "100%" }}
+            animate={{ y: isMobilePropertiesOpen ? 0 : "100%" }}
+            transition={{ type: "spring", stiffness: 280, damping: 35 }}
+            drag="y"
+            dragConstraints={{ top: 0, bottom: 280 }}
+            dragElastic={{ top: 0.2, bottom: 0.4 }}
+            onDragEnd={(event, info) => {
+              if (info.offset.y > 120 || info.velocity.y > 400) {
+                setIsMobilePropertiesOpen(false);
+              }
+            }}
+          >
+            <div className="create-mobile-sheet__handle" />
+            <div className="create-mobile-sheet__header">
+              <h2>Properties</h2>
+              <button
+                type="button"
+                className="create-mobile-sheet__close"
+                onClick={() => setIsMobilePropertiesOpen(false)}
+              >
+                <ChevronDown size={20} />
+              </button>
+            </div>
+            <div className="create-mobile-sheet__body">
+              <PropertiesPanel
+                selectedElement={selectedElement}
+                canvasBackground={canvasBackground}
+                onBackgroundChange={(color) => setCanvasBackground(color)}
+                onUpdateElement={updateElement}
+                onDeleteElement={removeElement}
+                clearSelection={clearSelection}
+                onSelectBackgroundPhoto={() => {
+                  if (backgroundPhotoElement) {
+                    selectElement(backgroundPhotoElement.id);
+                  } else {
+                    triggerBackgroundUpload();
+                  }
+                }}
+                onFitBackgroundPhoto={fitBackgroundPhotoToCanvas}
+                backgroundPhoto={backgroundPhotoElement}
+              />
+            </div>
+          </motion.div>
+
+          <nav className="create-mobile-toolbar">
+            {toolButtons.map((button) => {
+              const Icon = button.icon;
+              return (
+                <button
+                  key={button.id}
+                  type="button"
+                  onClick={() => handleToolButtonPress(button)}
+                  className={`create-mobile-toolbar__button ${button.isActive ? "create-mobile-toolbar__button--active" : ""}`.trim()}
+                >
+                  <Icon size={20} strokeWidth={2.4} />
+                  <span>{button.mobileLabel ?? button.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </>
+      )}
 
       <input
         ref={fileInputRef}

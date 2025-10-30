@@ -71,14 +71,6 @@ export default function Header() {
 
   return (
     <>
-      {/* Overlay untuk menggelapkan background saat menu mobile terbuka */}
-      {menuOpen && (
-        <div
-          className="mobile-menu-overlay"
-          onClick={() => setMenuOpen(false)}
-        />
-      )}
-
       <header ref={headerRef} className={`site-header ${open ? "open" : ""}`}>
         <div className="container header-bar">
         {/* Left: Logo */}
@@ -305,6 +297,13 @@ export default function Header() {
           />
         </button>
       </div>
+      </header>
+
+      {/* Overlay untuk menggelapkan background saat menu mobile terbuka */}
+      <div
+        className={`mobile-menu-overlay ${menuOpen ? "open" : ""}`}
+        onClick={() => setMenuOpen(false)}
+      />
 
       {/* Mobile menu */}
       <div className={`mobile-menu ${menuOpen ? "open" : ""}`}>
@@ -413,7 +412,6 @@ export default function Header() {
           </NavLink>
         )}
       </div>
-      </header>
     </>
   );
 }

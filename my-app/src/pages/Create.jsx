@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useEffect, useCallback, useLayoutEffect } from "react";
-import { motion, useDragControls } from "framer-motion";
+import { motion as Motion } from "framer-motion";
 import html2canvas from "html2canvas";
 import {
   CheckCircle2,
@@ -9,10 +9,17 @@ import {
   Type as TypeIcon,
   Shapes,
   UploadCloud,
-  ChevronDown,
+  Maximize2,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  CornerDownRight,
+  Settings2,
+  X,
 } from "lucide-react";
 import CanvasPreview from "../components/creator/CanvasPreview.jsx";
 import PropertiesPanel from "../components/creator/PropertiesPanel.jsx";
+import ColorPicker from "../components/creator/ColorPicker.jsx";
 import useCreatorStore from "../store/useCreatorStore.js";
 import { useShallow } from "zustand/react/shallow";
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from "../components/creator/canvasConstants.js";
@@ -40,18 +47,13 @@ export default function Create() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const [isMobileView, setIsMobileView] = useState(false);
-  const [isMobilePropertiesOpen, setIsMobilePropertiesOpen] = useState(false);
+  const [activeMobileProperty, setActiveMobileProperty] = useState(null);
   const [canvasAspectRatio, setCanvasAspectRatio] = useState("9:16"); // Story Instagram default
-  const mobileSheetDragControls = useDragControls();
   const previewFrameRef = useRef(null);
   const [previewConstraints, setPreviewConstraints] = useState({
     maxWidth: 320,
     maxHeight: 440,
   });
-
-  const shouldOpenPropertiesForInteraction = (interaction) => {
-    return interaction === undefined || interaction === "tap";
-  };
 
   const showToast = useCallback((type, message, duration = 3200) => {
     if (toastTimeoutRef.current) {
@@ -101,10 +103,98 @@ export default function Create() {
     return elements.find((el) => el.id === selectedElementId) || null;
   }, [elements, selectedElementId]);
 
+  useEffect(() => {
+    if (!isMobileView) {
+      setActiveMobileProperty(null);
+      return;
+    }
+    if (!selectedElementId) {
+      setActiveMobileProperty(null);
+    }
+  }, [isMobileView, selectedElementId]);
+
   const backgroundPhotoElement = useMemo(
     () => elements.find((el) => el.type === "background-photo") || null,
     [elements]
   );
+
+  const selectedElementObject =
+    selectedElement && selectedElement !== "background" ? selectedElement : null;
+  const isBackgroundSelected = selectedElement === "background";
+  const isMobilePropertyToolbar =
+    isMobileView && (isBackgroundSelected || Boolean(selectedElementObject));
+
+  const mobilePropertyButtons = useMemo(() => {
+    if (!isMobilePropertyToolbar) {
+      return [];
+    }
+
+    if (isBackgroundSelected) {
+      return [
+        { id: "background-color", label: "Warna", icon: Palette },
+        {
+          id: "background-photo",
+          label: backgroundPhotoElement ? "Foto" : "Tambah Foto",
+          icon: ImageIcon,
+        },
+      ];
+    }
+
+    if (!selectedElementObject) {
+      return [];
+    }
+
+    switch (selectedElementObject.type) {
+      case "text":
+        return [
+          { id: "text-edit", label: "Edit", icon: TypeIcon },
+          { id: "text-color", label: "Warna", icon: Palette },
+          { id: "text-size", label: "Ukuran", icon: Maximize2 },
+          { id: "text-align", label: "Rata", icon: AlignCenter },
+        ];
+      case "shape":
+        return [
+          { id: "shape-color", label: "Warna", icon: Palette },
+          { id: "shape-size", label: "Ukuran", icon: Maximize2 },
+          { id: "shape-radius", label: "Sudut", icon: CornerDownRight },
+        ];
+      case "photo":
+      case "upload":
+        return [
+          { id: "photo-color", label: "Warna", icon: Palette },
+          { id: "photo-fit", label: "Gaya", icon: Settings2 },
+          { id: "photo-size", label: "Ukuran", icon: Maximize2 },
+          { id: "photo-radius", label: "Sudut", icon: CornerDownRight },
+        ];
+      case "background-photo":
+        return [
+          { id: "bg-photo-fit", label: "Gaya", icon: Settings2 },
+          { id: "bg-photo-size", label: "Ukuran", icon: Maximize2 },
+          { id: "bg-photo-manage", label: "Foto", icon: ImageIcon },
+        ];
+      default:
+        return [];
+    }
+  }, [
+    isMobilePropertyToolbar,
+    isBackgroundSelected,
+    backgroundPhotoElement,
+    selectedElementObject,
+  ]);
+
+  useEffect(() => {
+    if (!activeMobileProperty) {
+      return;
+    }
+    if (!isMobilePropertyToolbar) {
+      setActiveMobileProperty(null);
+      return;
+    }
+    const availableIds = new Set(mobilePropertyButtons.map((item) => item.id));
+    if (!availableIds.has(activeMobileProperty)) {
+      setActiveMobileProperty(null);
+    }
+  }, [activeMobileProperty, isMobilePropertyToolbar, mobilePropertyButtons]);
 
   const getImageMetadata = useCallback((src) => {
     return new Promise((resolve) => {
@@ -235,7 +325,10 @@ export default function Create() {
       triggerUpload();
       return;
     }
-    addElement(type);
+    const newElementId = addElement(type);
+    if (newElementId) {
+      selectElement(newElementId);
+    }
   };
 
   useEffect(() => {
@@ -408,24 +501,13 @@ export default function Create() {
 
   useEffect(() => {
     if (!isMobileView) {
-      setIsMobilePropertiesOpen(false);
+      setActiveMobileProperty(null);
     }
   }, [isMobileView]);
 
   const handleToolButtonPress = (button) => {
+    setActiveMobileProperty(null);
     button.onClick();
-    if (isMobileView) {
-      setIsMobilePropertiesOpen(true);
-    }
-  };
-
-  const startMobileSheetDrag = (event) => {
-    if (event.type === "touchstart" && typeof window !== "undefined" && "PointerEvent" in window) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    mobileSheetDragControls.start(event.nativeEvent ?? event);
   };
 
   useLayoutEffect(() => {
@@ -469,22 +551,366 @@ export default function Create() {
     { id: "2:3", label: "Photostrip", ratio: 2 / 3 },
   ];
 
-  const getCanvasScale = () => {
-    const baseScale = 0.7;
-    const currentRatio = canvasRatioOptions.find(
-      (opt) => opt.id === canvasAspectRatio
-    )?.ratio || 9 / 16;
-    
-    // Adjust scale based on aspect ratio to fit in frame
-    if (canvasAspectRatio === "4:5") return baseScale * 0.9;
-    if (canvasAspectRatio === "2:3") return baseScale * 0.85;
-    return baseScale;
+  const handleElementDimensionChange = useCallback(
+    (dimension, rawValue) => {
+      if (!selectedElementObject) {
+        return;
+      }
+      const numericValue = Number(rawValue);
+      if (!Number.isFinite(numericValue)) {
+        return;
+      }
+      const minValue = 40;
+      const nextValue = Math.round(Math.max(minValue, numericValue));
+      updateElement(selectedElementObject.id, { [dimension]: nextValue });
+    },
+    [selectedElementObject, updateElement]
+  );
+
+  const getMobilePropertyTitle = (propertyId) => {
+    switch (propertyId) {
+      case "text-edit":
+        return "Edit Teks";
+      case "text-color":
+        return "Warna Teks";
+      case "text-size":
+        return "Ukuran Teks";
+      case "text-align":
+        return "Perataan";
+      case "shape-color":
+        return "Warna Bentuk";
+      case "shape-size":
+        return "Ukuran Bentuk";
+      case "shape-radius":
+        return "Sudut Bentuk";
+      case "photo-color":
+        return "Warna";
+      case "photo-fit":
+        return "Gaya Foto";
+      case "photo-size":
+        return "Ukuran";
+      case "photo-radius":
+        return "Sudut";
+      case "background-color":
+        return "Warna Latar";
+      case "background-photo":
+        return backgroundPhotoElement ? "Foto Latar" : "Tambah Foto";
+      case "bg-photo-fit":
+        return "Mode Foto";
+      case "bg-photo-size":
+        return "Ukuran Foto";
+      case "bg-photo-manage":
+        return "Kelola Foto";
+      default:
+        return "Properti";
+    }
+  };
+
+  const renderMobilePropertyPanel = () => {
+    if (!isMobilePropertyToolbar || !activeMobileProperty) {
+      return null;
+    }
+
+    let content = null;
+    let title = getMobilePropertyTitle(activeMobileProperty);
+
+    if (isBackgroundSelected) {
+      if (activeMobileProperty === "background-color") {
+        content = (
+          <ColorPicker
+            value={canvasBackground}
+            onChange={(nextColor) => setCanvasBackground(nextColor)}
+          />
+        );
+      } else if (activeMobileProperty === "background-photo") {
+        content = (
+          <div className="create-mobile-property-panel__actions">
+            <button
+              type="button"
+              onClick={() => {
+                triggerBackgroundUpload();
+                setActiveMobileProperty(null);
+              }}
+              className="create-mobile-property-panel__action"
+            >
+              {backgroundPhotoElement ? "Ganti foto background" : "Tambah foto background"}
+            </button>
+            {backgroundPhotoElement && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    fitBackgroundPhotoToCanvas();
+                    setActiveMobileProperty(null);
+                  }}
+                  className="create-mobile-property-panel__action"
+                >
+                  Sesuaikan ke kanvas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    removeElement(backgroundPhotoElement.id);
+                    clearSelection();
+                    setActiveMobileProperty(null);
+                  }}
+                  className="create-mobile-property-panel__action create-mobile-property-panel__action--danger"
+                >
+                  Hapus foto background
+                </button>
+              </>
+            )}
+          </div>
+        );
+      }
+    } else if (selectedElementObject) {
+      const data = selectedElementObject.data ?? {};
+      switch (activeMobileProperty) {
+        case "text-edit":
+          content = (
+            <textarea
+              className="create-mobile-property-panel__textarea"
+              rows={4}
+              value={data.text ?? ""}
+              onChange={(event) =>
+                updateElement(selectedElementObject.id, {
+                  data: { text: event.target.value },
+                })
+              }
+            />
+          );
+          break;
+        case "text-color":
+          content = (
+            <ColorPicker
+              value={data.color ?? "#1F2933"}
+              onChange={(nextColor) =>
+                updateElement(selectedElementObject.id, {
+                  data: { color: nextColor },
+                })
+              }
+            />
+          );
+          break;
+        case "text-size": {
+          const fontSize = data.fontSize ?? 24;
+          content = (
+            <div className="create-mobile-property-panel__slider">
+              <input
+                type="range"
+                min={12}
+                max={72}
+                value={fontSize}
+                onChange={(event) =>
+                  updateElement(selectedElementObject.id, {
+                    data: { fontSize: Number(event.target.value) },
+                  })
+                }
+              />
+              <div className="create-mobile-property-panel__value-label">
+                {fontSize}
+                px
+              </div>
+            </div>
+          );
+          break;
+        }
+        case "text-align": {
+          const alignOptions = [
+            { id: "left", Icon: AlignLeft },
+            { id: "center", Icon: AlignCenter },
+            { id: "right", Icon: AlignRight },
+          ];
+          content = (
+            <div className="create-mobile-property-panel__button-group">
+              {alignOptions.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() =>
+                    updateElement(selectedElementObject.id, {
+                      data: { align: option.id },
+                    })
+                  }
+                  className={`create-mobile-property-panel__button ${
+                    (data.align ?? "center") === option.id
+                      ? "create-mobile-property-panel__button--active"
+                      : ""
+                  }`.trim()}
+                >
+                  <option.Icon size={18} strokeWidth={2.5} />
+                </button>
+              ))}
+            </div>
+          );
+          break;
+        }
+        case "shape-color":
+        case "photo-color":
+          content = (
+            <ColorPicker
+              value={data.fill ?? "#F4D3C2"}
+              onChange={(nextColor) =>
+                updateElement(selectedElementObject.id, {
+                  data: { fill: nextColor },
+                })
+              }
+            />
+          );
+          break;
+        case "shape-size":
+        case "photo-size":
+          content = (
+            <div className="create-mobile-property-panel__form-grid">
+              <label className="create-mobile-property-panel__input">
+                <span>Lebar</span>
+                <input
+                  type="number"
+                  min={40}
+                  value={Math.round(selectedElementObject.width ?? 0)}
+                  onChange={(event) =>
+                    handleElementDimensionChange("width", event.target.value)
+                  }
+                />
+              </label>
+              <label className="create-mobile-property-panel__input">
+                <span>Tinggi</span>
+                <input
+                  type="number"
+                  min={40}
+                  value={Math.round(selectedElementObject.height ?? 0)}
+                  onChange={(event) =>
+                    handleElementDimensionChange("height", event.target.value)
+                  }
+                />
+              </label>
+            </div>
+          );
+          break;
+        case "shape-radius":
+        case "photo-radius": {
+          const radiusValue = data.borderRadius ?? 24;
+          content = (
+            <div className="create-mobile-property-panel__slider">
+              <input
+                type="range"
+                min={0}
+                max={120}
+                value={radiusValue}
+                onChange={(event) =>
+                  updateElement(selectedElementObject.id, {
+                    data: { borderRadius: Number(event.target.value) },
+                  })
+                }
+              />
+              <div className="create-mobile-property-panel__value-label">
+                {radiusValue}
+                px
+              </div>
+            </div>
+          );
+          break;
+        }
+        case "photo-fit":
+        case "bg-photo-fit":
+          content = (
+            <div className="create-mobile-property-panel__select">
+              <select
+                value={data.objectFit ?? "cover"}
+                onChange={(event) =>
+                  updateElement(selectedElementObject.id, {
+                    data: { objectFit: event.target.value },
+                  })
+                }
+              >
+                <option value="cover">Cover</option>
+                <option value="contain">Contain</option>
+                <option value="fill">Fill</option>
+              </select>
+            </div>
+          );
+          break;
+        case "bg-photo-size":
+          content = (
+            <div className="create-mobile-property-panel__actions">
+              <button
+                type="button"
+                onClick={() => {
+                  fitBackgroundPhotoToCanvas();
+                  setActiveMobileProperty(null);
+                }}
+                className="create-mobile-property-panel__action"
+              >
+                Sesuaikan ke kanvas
+              </button>
+            </div>
+          );
+          break;
+        case "bg-photo-manage":
+          content = (
+            <div className="create-mobile-property-panel__actions">
+              <button
+                type="button"
+                onClick={() => {
+                  triggerBackgroundUpload();
+                  setActiveMobileProperty(null);
+                }}
+                className="create-mobile-property-panel__action"
+              >
+                Ganti foto background
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  removeElement(selectedElementObject.id);
+                  clearSelection();
+                  setActiveMobileProperty(null);
+                }}
+                className="create-mobile-property-panel__action create-mobile-property-panel__action--danger"
+              >
+                Hapus foto background
+              </button>
+            </div>
+          );
+          break;
+        default:
+          break;
+      }
+    }
+
+    if (!content) {
+      return null;
+    }
+
+    return (
+  <Motion.div
+        key={activeMobileProperty}
+        className="create-mobile-property-panel"
+        initial={{ opacity: 0, y: 32 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 32 }}
+        transition={{ type: "spring", stiffness: 360, damping: 32 }}
+      >
+        <div className="create-mobile-property-panel__header">
+          <span>{title}</span>
+          <button
+            type="button"
+            onClick={() => setActiveMobileProperty(null)}
+            className="create-mobile-property-panel__close"
+            aria-label="Tutup pengaturan"
+          >
+            <X size={18} strokeWidth={2.5} />
+          </button>
+        </div>
+        <div className="create-mobile-property-panel__content">{content}</div>
+  </Motion.div>
+    );
   };
 
   return (
     <div className="create-page">
       {toast && (
-        <motion.div
+  <Motion.div
           className="create-toast-wrapper"
           initial={{ opacity: 0, y: -12, scale: 0.94 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -501,12 +927,12 @@ export default function Create() {
             )}
             <span>{toast.message}</span>
           </div>
-        </motion.div>
+  </Motion.div>
       )}
 
       <div className="create-grid">
         {!isMobileView && (
-          <motion.aside
+          <Motion.aside
             variants={panelMotion}
             initial="hidden"
             animate="visible"
@@ -526,10 +952,10 @@ export default function Create() {
                 </button>
               ))}
             </div>
-          </motion.aside>
+          </Motion.aside>
         )}
 
-        <motion.section
+  <Motion.section
           variants={panelMotion}
           initial="hidden"
           animate="visible"
@@ -568,23 +994,14 @@ export default function Create() {
                 canvasBackground={canvasBackground}
                 aspectRatio={canvasAspectRatio}
                 previewConstraints={previewConstraints}
-                onSelect={(id, meta = {}) => {
-                  const interaction = meta.interaction;
+                onSelect={(id) => {
+                  setActiveMobileProperty(null);
                   if (id === null) {
                     clearSelection();
-                    if (isMobileView) {
-                      setIsMobilePropertiesOpen(false);
-                    }
                   } else if (id === "background") {
                     selectElement("background");
-                    if (isMobileView && shouldOpenPropertiesForInteraction(interaction)) {
-                      setIsMobilePropertiesOpen(true);
-                    }
                   } else {
                     selectElement(id);
-                    if (isMobileView && shouldOpenPropertiesForInteraction(interaction)) {
-                      setIsMobilePropertiesOpen(true);
-                    }
                   }
                 }}
                 onUpdate={updateElement}
@@ -592,7 +1009,7 @@ export default function Create() {
               />
             </div>
           </div>
-          <motion.button
+          <Motion.button
             type="button"
             onClick={handleSaveTemplate}
             disabled={saving}
@@ -630,11 +1047,11 @@ export default function Create() {
                 Save Template
               </>
             )}
-          </motion.button>
-        </motion.section>
+          </Motion.button>
+  </Motion.section>
 
         {!isMobileView && (
-          <motion.aside
+          <Motion.aside
             variants={panelMotion}
             initial="hidden"
             animate="visible"
@@ -661,87 +1078,48 @@ export default function Create() {
                 backgroundPhoto={backgroundPhotoElement}
               />
             </div>
-          </motion.aside>
+          </Motion.aside>
         )}
       </div>
 
       {isMobileView && (
         <>
-          <button
-            type="button"
-            className={`create-mobile-sheet__backdrop ${isMobilePropertiesOpen ? "create-mobile-sheet__backdrop--visible" : ""}`.trim()}
-            onClick={() => setIsMobilePropertiesOpen(false)}
-          />
-          <motion.div
-            className="create-mobile-sheet"
-            initial={{ y: "100%" }}
-            animate={{ y: isMobilePropertiesOpen ? 0 : "100%" }}
-            transition={{ type: "spring", stiffness: 280, damping: 35 }}
-            drag="y"
-            dragControls={mobileSheetDragControls}
-            dragListener={false}
-            dragConstraints={{ top: 0, bottom: 280 }}
-            dragElastic={{ top: 0.2, bottom: 0.4 }}
-            onDragEnd={(event, info) => {
-              if (info.offset.y > 120 || info.velocity.y > 400) {
-                setIsMobilePropertiesOpen(false);
-              }
-            }}
+          {renderMobilePropertyPanel()}
+          <nav
+            className={`create-mobile-toolbar ${
+              isMobilePropertyToolbar ? "create-mobile-toolbar--properties" : ""
+            }`.trim()}
           >
-            <div
-              className="create-mobile-sheet__handle"
-              onPointerDown={startMobileSheetDrag}
-              onTouchStart={startMobileSheetDrag}
-            />
-            <div
-              className="create-mobile-sheet__header"
-              onPointerDown={startMobileSheetDrag}
-              onTouchStart={startMobileSheetDrag}
-            >
-              <h2>Properties</h2>
-              <button
-                type="button"
-                className="create-mobile-sheet__close"
-                onClick={() => setIsMobilePropertiesOpen(false)}
-                onPointerDown={(event) => event.stopPropagation()}
-                onTouchStart={(event) => event.stopPropagation()}
-              >
-                <ChevronDown size={20} />
-              </button>
-            </div>
-            <div className="create-mobile-sheet__body">
-              <PropertiesPanel
-                selectedElement={selectedElement}
-                canvasBackground={canvasBackground}
-                onBackgroundChange={(color) => setCanvasBackground(color)}
-                onUpdateElement={updateElement}
-                onDeleteElement={removeElement}
-                clearSelection={clearSelection}
-                onSelectBackgroundPhoto={() => {
-                  if (backgroundPhotoElement) {
-                    selectElement(backgroundPhotoElement.id);
-                  } else {
-                    triggerBackgroundUpload();
-                  }
-                }}
-                onFitBackgroundPhoto={fitBackgroundPhotoToCanvas}
-                backgroundPhoto={backgroundPhotoElement}
-              />
-            </div>
-          </motion.div>
-
-          <nav className="create-mobile-toolbar">
-            {toolButtons.map((button) => {
+            {(isMobilePropertyToolbar ? mobilePropertyButtons : toolButtons).map((button) => {
               const Icon = button.icon;
+              const isActive = isMobilePropertyToolbar
+                ? activeMobileProperty === button.id
+                : Boolean(button.isActive);
+              const label = isMobilePropertyToolbar
+                ? button.label
+                : button.mobileLabel ?? button.label;
+
+              const handleClick = () => {
+                if (isMobilePropertyToolbar) {
+                  setActiveMobileProperty((prev) =>
+                    prev === button.id ? null : button.id
+                  );
+                } else {
+                  handleToolButtonPress(button);
+                }
+              };
+
               return (
                 <button
                   key={button.id}
                   type="button"
-                  onClick={() => handleToolButtonPress(button)}
-                  className={`create-mobile-toolbar__button ${button.isActive ? "create-mobile-toolbar__button--active" : ""}`.trim()}
+                  onClick={handleClick}
+                  className={`create-mobile-toolbar__button ${
+                    isActive ? "create-mobile-toolbar__button--active" : ""
+                  }`.trim()}
                 >
                   <Icon size={20} strokeWidth={2.4} />
-                  <span>{button.mobileLabel ?? button.label}</span>
+                  <span>{label}</span>
                 </button>
               );
             })}

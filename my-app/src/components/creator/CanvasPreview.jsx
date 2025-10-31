@@ -1,15 +1,15 @@
 import { memo, useEffect, useMemo, useRef } from "react";
 import { Rnd } from "react-rnd";
-import { motion } from "framer-motion";
+import { motion as Motion } from "framer-motion";
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
   DEFAULT_ELEMENT_MIN,
   BACKGROUND_MIN_SHORT_SIDE,
 } from "./canvasConstants.js";
-
 const elementShadow = "0 18px 36px rgba(15, 23, 42, 0.14)";
 const HOLD_THRESHOLD_MS = 350;
+const DRAG_THRESHOLD_PX = 6;
 
 const createInteractionState = () => ({
   pointerActive: false,
@@ -17,7 +17,26 @@ const createInteractionState = () => ({
   didTriggerTap: false,
   hadHold: false,
   holdTimer: null,
+  totalDistance: 0,
+  startX: null,
+  startY: null,
+  rndRef: null,
+  isDragging: false,
 });
+
+const resetRndPosition = (meta) => {
+  if (!meta?.rndRef) {
+    return;
+  }
+  const nextX = typeof meta.startX === "number" ? meta.startX : null;
+  const nextY = typeof meta.startY === "number" ? meta.startY : null;
+  if (nextX === null || nextY === null) {
+    return;
+  }
+  if (typeof meta.rndRef.updatePosition === "function") {
+    meta.rndRef.updatePosition({ x: nextX, y: nextY });
+  }
+};
 
 const getElementStyle = (element, isSelected) => {
   switch (element.type) {
@@ -64,7 +83,8 @@ const getElementStyle = (element, isSelected) => {
           : element.type === "background-photo"
           ? "none"
           : "6px solid rgba(255,255,255,0.9)",
-        background: element.data?.fill ?? (element.type === "background-photo" ? "transparent" : "#dbeafe"),
+        background:
+          element.data?.fill ?? (element.type === "background-photo" ? "transparent" : "#dbeafe"),
         backgroundColor:
           element.data?.fill ?? (element.type === "background-photo" ? "transparent" : "#dbeafe"),
         backgroundImage: "none",
@@ -174,18 +194,18 @@ function CanvasPreviewComponent({
     }
     meta.holdTimer = window.setTimeout(() => {
       meta.hadHold = true;
-      meta.holdTimer = null;
+      resetRndPosition(meta);
     }, HOLD_THRESHOLD_MS);
   };
 
   useEffect(() => {
-    const validIds = new Set(elements.map((element) => element.id));
-    interactionMetaRef.current.forEach((meta, key) => {
-      if (!validIds.has(key)) {
-        clearHoldTimer(meta);
-        interactionMetaRef.current.delete(key);
-      }
-    });
+      const elementIds = new Set(elements.map((element) => element.id));
+      interactionMetaRef.current.forEach((meta, key) => {
+        if (!elementIds.has(key)) {
+          clearHoldTimer(meta);
+          interactionMetaRef.current.delete(key);
+        }
+      });
   }, [elements]);
 
   useEffect(
@@ -335,7 +355,7 @@ function CanvasPreviewComponent({
         position: "relative",
       }}
     >
-      <motion.div
+  <Motion.div
         key={`canvas-${aspectRatio}-${canvasDimensions.width}-${canvasDimensions.height}`}
         id="creator-canvas"
         className="relative mx-auto overflow-hidden shadow-[0_42px_90px_rgba(58,38,32,0.28)]"
@@ -405,14 +425,18 @@ function CanvasPreviewComponent({
           const meta = getInteractionMeta(element.id);
 
           const handlePointerDown = (event) => {
-            event.stopPropagation();
             if (meta.pointerActive) {
               return;
             }
+            event.stopPropagation();
             meta.pointerActive = true;
             meta.hadDrag = false;
             meta.didTriggerTap = false;
             meta.hadHold = false;
+            meta.totalDistance = 0;
+            meta.startX = element.x;
+            meta.startY = element.y;
+            meta.isDragging = false;
             startHoldTimer(meta);
             if (!isBackgroundPhoto) {
               onBringToFront(element.id);
@@ -422,20 +446,27 @@ function CanvasPreviewComponent({
 
           const handlePointerUp = (event) => {
             event.stopPropagation();
+            clearHoldTimer(meta);
+            if (meta.hadDrag || meta.isDragging) {
+              meta.pointerActive = false;
+              meta.hadDrag = false;
+              meta.isDragging = false;
+              meta.totalDistance = 0;
+              return;
+            }
             if (!meta.pointerActive) {
               return;
             }
             meta.pointerActive = false;
-            clearHoldTimer(meta);
-            if (meta.hadDrag) {
-              meta.hadDrag = false;
-              return;
-            }
             if (meta.hadHold) {
               meta.hadHold = false;
+              meta.totalDistance = 0;
+              resetRndPosition(meta);
               return;
             }
             meta.didTriggerTap = true;
+            meta.totalDistance = 0;
+            resetRndPosition(meta);
             onSelect(element.id, { interaction: "tap" });
           };
 
@@ -445,6 +476,9 @@ function CanvasPreviewComponent({
             meta.hadDrag = false;
             meta.didTriggerTap = false;
             meta.hadHold = false;
+            meta.totalDistance = 0;
+            meta.isDragging = false;
+            resetRndPosition(meta);
             clearHoldTimer(meta);
           };
 
@@ -463,23 +497,43 @@ function CanvasPreviewComponent({
               size={{ width: element.width, height: element.height }}
               position={{ x: element.x, y: element.y }}
               bounds="parent"
+              scale={previewScale}
               onDragStart={(event) => {
-                meta.hadDrag = true;
-                meta.pointerActive = false;
                 meta.hadHold = false;
                 meta.didTriggerTap = false;
+                meta.isDragging = false;
+                meta.hadDrag = false;
+                meta.totalDistance = 0;
                 clearHoldTimer(meta);
                 if (typeof event?.stopPropagation === "function") {
                   event.stopPropagation();
                 }
                 onSelect(element.id, { interaction: "drag" });
               }}
+              onDrag={(event, data) => {
+                meta.totalDistance += Math.abs(data.deltaX) + Math.abs(data.deltaY);
+                if (!meta.hadDrag && meta.totalDistance >= DRAG_THRESHOLD_PX) {
+                  meta.hadDrag = true;
+                  meta.didTriggerTap = false;
+                  meta.isDragging = true;
+                }
+              }}
               onDragStop={(_, data) => {
+                const totalDelta =
+                  Math.abs((meta.startX ?? data.x) - data.x) +
+                  Math.abs((meta.startY ?? data.y) - data.y);
+                const didDrag = meta.hadDrag || totalDelta >= 1;
                 meta.pointerActive = false;
                 meta.hadDrag = false;
                 meta.didTriggerTap = false;
                 meta.hadHold = false;
+                meta.totalDistance = 0;
+                meta.isDragging = false;
                 clearHoldTimer(meta);
+                if (!didDrag) {
+                  resetRndPosition(meta);
+                  return;
+                }
                 if (isBackgroundPhoto) {
                   const clamped = clampBackgroundPosition(
                     element.width,
@@ -491,6 +545,8 @@ function CanvasPreviewComponent({
                 } else {
                   onUpdate(element.id, { x: data.x, y: data.y });
                 }
+                meta.startX = data.x;
+                meta.startY = data.y;
               }}
               onResizeStop={(_, __, ref, delta, position) =>
                 onUpdate(
@@ -552,6 +608,9 @@ function CanvasPreviewComponent({
                 outlineOffset: 0,
               }}
               className={baseClassName}
+              ref={(instance) => {
+                meta.rndRef = instance;
+              }}
               onPointerDown={handlePointerDown}
               onTouchStart={handlePointerDown}
               onPointerUp={handlePointerUp}
@@ -564,7 +623,7 @@ function CanvasPreviewComponent({
             </Rnd>
           );
         })}
-      </motion.div>
+  </Motion.div>
     </div>
   );
 }

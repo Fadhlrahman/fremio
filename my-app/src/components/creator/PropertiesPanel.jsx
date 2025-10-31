@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { X, Trash2 } from "lucide-react";
+import ColorPicker from "./ColorPicker.jsx";
 
 const panelVariant = {
   hidden: { opacity: 0, y: 16 },
@@ -109,13 +110,11 @@ export default function PropertiesPanel({
           </div>
         </InputRow>
         <InputRow label="Warna">
-          <input
-            type="color"
-            className="h-12 w-full cursor-pointer rounded-2xl border-2 border-[#e0b7a9]/20 shadow-[0_2px_8px_rgba(224,183,169,0.08)] transition-all hover:border-[#e0b7a9]/40 hover:shadow-[0_4px_12px_rgba(224,183,169,0.15)]"
-            value={selectedElement.data?.color ?? "#1f2933"}
-            onChange={(event) =>
+          <ColorPicker
+            value={selectedElement.data?.color ?? "#1F2933"}
+            onChange={(nextColor) =>
               onUpdateElement(selectedElement.id, {
-                data: { color: event.target.value },
+                data: { color: nextColor },
               })
             }
           />
@@ -149,13 +148,11 @@ export default function PropertiesPanel({
   const renderFillControls = ({ showBorderRadius = true } = {}) => (
     <Section title="Warna & Bentuk">
       <InputRow label="Warna Isi">
-        <input
-          type="color"
-          className="h-11 w-full cursor-pointer rounded-xl border border-rose-100/70"
-          value={selectedElement.data?.fill ?? "#f4d3c2"}
-          onChange={(event) =>
+        <ColorPicker
+          value={selectedElement.data?.fill ?? "#F4D3C2"}
+          onChange={(nextColor) =>
             onUpdateElement(selectedElement.id, {
-              data: { fill: event.target.value },
+              data: { fill: nextColor },
             })
           }
         />
@@ -292,12 +289,7 @@ export default function PropertiesPanel({
       >
         <Section title="Warna Latar">
           <InputRow label="Background">
-            <input
-              type="color"
-              className="h-12 w-full cursor-pointer rounded-xl border border-rose-100/70"
-              value={canvasBackground}
-              onChange={(event) => onBackgroundChange(event.target.value)}
-            />
+            <ColorPicker value={canvasBackground} onChange={onBackgroundChange} />
           </InputRow>
           {backgroundPhoto ? (
             <div className="flex flex-col gap-3">

@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState, useEffect, useCallback } from "react";
-import { motion } from "framer-motion";
+import { useMemo, useRef, useState, useEffect, useCallback, useLayoutEffect } from "react";
+import { motion, useDragControls } from "framer-motion";
 import html2canvas from "html2canvas";
 import {
   CheckCircle2,
@@ -41,6 +41,17 @@ export default function Create() {
   const [toast, setToast] = useState(null);
   const [isMobileView, setIsMobileView] = useState(false);
   const [isMobilePropertiesOpen, setIsMobilePropertiesOpen] = useState(false);
+  const [canvasAspectRatio, setCanvasAspectRatio] = useState("9:16"); // Story Instagram default
+  const mobileSheetDragControls = useDragControls();
+  const previewFrameRef = useRef(null);
+  const [previewConstraints, setPreviewConstraints] = useState({
+    maxWidth: 320,
+    maxHeight: 440,
+  });
+
+  const shouldOpenPropertiesForInteraction = (interaction) => {
+    return interaction === undefined || interaction === "tap";
+  };
 
   const showToast = useCallback((type, message, duration = 3200) => {
     if (toastTimeoutRef.current) {
@@ -318,11 +329,11 @@ export default function Create() {
       {
         id: "background",
         label: "Background",
-        mobileLabel: "Desain",
+        mobileLabel: "Background",
         icon: Palette,
         onClick: () => {
           selectElement("background");
-          if (!backgroundPhotoElement) {
+          if (!backgroundPhotoElement && !isMobileView) {
             triggerBackgroundUpload();
           }
         },
@@ -349,7 +360,7 @@ export default function Create() {
       {
         id: "shape",
         label: "Shape",
-        mobileLabel: "Elemen",
+        mobileLabel: "Bentuk",
         icon: Shapes,
         onClick: () => addToolElement("shape"),
         isActive: selectedElement?.type === "shape",
@@ -370,6 +381,7 @@ export default function Create() {
       selectedElementId,
       backgroundPhotoElement,
       triggerBackgroundUpload,
+      isMobileView,
     ]
   );
 
@@ -405,6 +417,68 @@ export default function Create() {
     if (isMobileView) {
       setIsMobilePropertiesOpen(true);
     }
+  };
+
+  const startMobileSheetDrag = (event) => {
+    if (event.type === "touchstart" && typeof window !== "undefined" && "PointerEvent" in window) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    mobileSheetDragControls.start(event.nativeEvent ?? event);
+  };
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const node = previewFrameRef.current;
+    if (!node) {
+      return undefined;
+    }
+
+    const computeConstraints = () => {
+      const { clientWidth, clientHeight } = node;
+      const usableWidth = Math.max(0, Math.floor(clientWidth - 12));
+      const usableHeight = Math.max(0, Math.floor(clientHeight - 12));
+
+      if (usableWidth > 0 && usableHeight > 0) {
+        setPreviewConstraints({
+          maxWidth: usableWidth,
+          maxHeight: usableHeight,
+        });
+      }
+    };
+
+    computeConstraints();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(() => computeConstraints());
+      observer.observe(node);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener("resize", computeConstraints);
+    return () => window.removeEventListener("resize", computeConstraints);
+  }, [isMobileView, canvasAspectRatio]);
+
+  const canvasRatioOptions = [
+    { id: "9:16", label: "Story Instagram", ratio: 9 / 16 },
+    { id: "4:5", label: "Instagram Feed", ratio: 4 / 5 },
+    { id: "2:3", label: "Photostrip", ratio: 2 / 3 },
+  ];
+
+  const getCanvasScale = () => {
+    const baseScale = 0.7;
+    const currentRatio = canvasRatioOptions.find(
+      (opt) => opt.id === canvasAspectRatio
+    )?.ratio || 9 / 16;
+    
+    // Adjust scale based on aspect ratio to fit in frame
+    if (canvasAspectRatio === "4:5") return baseScale * 0.9;
+    if (canvasAspectRatio === "2:3") return baseScale * 0.85;
+    return baseScale;
   };
 
   return (
@@ -463,32 +537,60 @@ export default function Create() {
           className="create-preview"
         >
           <h2 className="create-preview__title">Preview</h2>
-          <div className="create-preview__frame">
-            <CanvasPreview
-              elements={elements}
-              selectedElementId={selectedElementId}
-              canvasBackground={canvasBackground}
-              onSelect={(id) => {
-                if (id === null) {
-                  clearSelection();
-                  if (isMobileView) {
-                    setIsMobilePropertiesOpen(false);
+          
+          <div className="create-preview__body">
+            <div className="create-ratio-selector">
+              <label htmlFor="canvas-ratio-select" className="create-ratio-label">
+                Ukuran Canvas:
+              </label>
+              <select
+                id="canvas-ratio-select"
+                value={canvasAspectRatio}
+                onChange={(e) => setCanvasAspectRatio(e.target.value)}
+                className="create-ratio-dropdown"
+              >
+                {canvasRatioOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div
+              ref={previewFrameRef}
+              className="create-preview__frame"
+              data-canvas-ratio={canvasAspectRatio}
+            >
+              <CanvasPreview
+                elements={elements}
+                selectedElementId={selectedElementId}
+                canvasBackground={canvasBackground}
+                aspectRatio={canvasAspectRatio}
+                previewConstraints={previewConstraints}
+                onSelect={(id, meta = {}) => {
+                  const interaction = meta.interaction;
+                  if (id === null) {
+                    clearSelection();
+                    if (isMobileView) {
+                      setIsMobilePropertiesOpen(false);
+                    }
+                  } else if (id === "background") {
+                    selectElement("background");
+                    if (isMobileView && shouldOpenPropertiesForInteraction(interaction)) {
+                      setIsMobilePropertiesOpen(true);
+                    }
+                  } else {
+                    selectElement(id);
+                    if (isMobileView && shouldOpenPropertiesForInteraction(interaction)) {
+                      setIsMobilePropertiesOpen(true);
+                    }
                   }
-                } else if (id === "background") {
-                  selectElement("background");
-                  if (isMobileView) {
-                    setIsMobilePropertiesOpen(true);
-                  }
-                } else {
-                  selectElement(id);
-                  if (isMobileView) {
-                    setIsMobilePropertiesOpen(true);
-                  }
-                }
-              }}
-              onUpdate={updateElement}
-              onBringToFront={bringToFront}
-            />
+                }}
+                onUpdate={updateElement}
+                onBringToFront={bringToFront}
+              />
+            </div>
           </div>
           <motion.button
             type="button"
@@ -576,6 +678,8 @@ export default function Create() {
             animate={{ y: isMobilePropertiesOpen ? 0 : "100%" }}
             transition={{ type: "spring", stiffness: 280, damping: 35 }}
             drag="y"
+            dragControls={mobileSheetDragControls}
+            dragListener={false}
             dragConstraints={{ top: 0, bottom: 280 }}
             dragElastic={{ top: 0.2, bottom: 0.4 }}
             onDragEnd={(event, info) => {
@@ -584,13 +688,23 @@ export default function Create() {
               }
             }}
           >
-            <div className="create-mobile-sheet__handle" />
-            <div className="create-mobile-sheet__header">
+            <div
+              className="create-mobile-sheet__handle"
+              onPointerDown={startMobileSheetDrag}
+              onTouchStart={startMobileSheetDrag}
+            />
+            <div
+              className="create-mobile-sheet__header"
+              onPointerDown={startMobileSheetDrag}
+              onTouchStart={startMobileSheetDrag}
+            >
               <h2>Properties</h2>
               <button
                 type="button"
                 className="create-mobile-sheet__close"
                 onClick={() => setIsMobilePropertiesOpen(false)}
+                onPointerDown={(event) => event.stopPropagation()}
+                onTouchStart={(event) => event.stopPropagation()}
               >
                 <ChevronDown size={20} />
               </button>

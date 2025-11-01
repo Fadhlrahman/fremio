@@ -50,7 +50,7 @@ export default function Editor() {
     }
   };
 
-  // Frame mapping for imported assets
+  // Frame mapping for imported assets.
   const getFrameAsset = (frameName) => {
     const frameMap = {
       'FremioSeries-blue-2': FremioSeriesBlue2,

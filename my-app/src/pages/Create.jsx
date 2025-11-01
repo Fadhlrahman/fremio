@@ -47,6 +47,7 @@ const TOAST_MESSAGES = {
 };
 
 export default function Create() {
+  console.log('[Create] Component rendering...');
   const fileInputRef = useRef(null);
   const uploadPurposeRef = useRef("upload");
   const toastTimeoutRef = useRef(null);
@@ -85,6 +86,7 @@ export default function Create() {
     removeElement,
     duplicateElement,
     toggleLock,
+    resizeUploadImage,
     bringToFront,
     sendToBack,
     bringForward,
@@ -105,6 +107,7 @@ export default function Create() {
       removeElement: state.removeElement,
       duplicateElement: state.duplicateElement,
       toggleLock: state.toggleLock,
+      resizeUploadImage: state.resizeUploadImage,
       bringToFront: state.bringToFront,
       sendToBack: state.sendToBack,
       bringForward: state.bringForward,
@@ -270,21 +273,37 @@ export default function Create() {
     });
   }, []);
 
+  // Calculate canvas dimensions based on selected aspect ratio
+  const getCanvasDimensions = useCallback((ratio) => {
+    const baseWidth = CANVAS_WIDTH; // 480
+    switch (ratio) {
+      case "9:16": // Instagram Story
+        return { width: baseWidth, height: 853 };
+      case "4:5": // Instagram Post
+        return { width: baseWidth, height: 600 };
+      case "2:3": // Pinterest
+        return { width: baseWidth, height: 720 };
+      default:
+        return { width: baseWidth, height: 853 };
+    }
+  }, []);
+
   useEffect(() => {
     if (!backgroundPhotoElement) {
       return;
     }
 
     if (!backgroundPhotoElement.data?.imageAspectRatio) {
+      const { width: canvasWidth, height: canvasHeight } = getCanvasDimensions(canvasAspectRatio);
       const inferredRatio =
         backgroundPhotoElement.width > 0 && backgroundPhotoElement.height > 0
           ? backgroundPhotoElement.width / backgroundPhotoElement.height
-          : CANVAS_WIDTH / CANVAS_HEIGHT;
+          : canvasWidth / canvasHeight;
       updateElement(backgroundPhotoElement.id, {
         data: { imageAspectRatio: inferredRatio },
       });
     }
-  }, [backgroundPhotoElement, updateElement]);
+  }, [backgroundPhotoElement, updateElement, canvasAspectRatio, getCanvasDimensions]);
 
   useEffect(
     () => () => {
@@ -321,7 +340,12 @@ export default function Create() {
       if (typeof dataUrl === "string") {
         if (uploadPurposeRef.current === "background") {
           const metadata = await getImageMetadata(dataUrl);
-          addBackgroundPhoto(dataUrl, metadata);
+          const { width: canvasWidth, height: canvasHeight } = getCanvasDimensions(canvasAspectRatio);
+          addBackgroundPhoto(dataUrl, { 
+            ...metadata, 
+            canvasWidth, 
+            canvasHeight 
+          });
           showToast("success", "Background foto diperbarui.", 2200);
         } else {
           addUploadElement(dataUrl);
@@ -705,7 +729,8 @@ export default function Create() {
                 <button
                   type="button"
                   onClick={() => {
-                    fitBackgroundPhotoToCanvas();
+                    const { width: canvasWidth, height: canvasHeight } = getCanvasDimensions(canvasAspectRatio);
+                    fitBackgroundPhotoToCanvas({ canvasWidth, canvasHeight });
                     setActiveMobileProperty(null);
                   }}
                   className="create-mobile-property-panel__action"
@@ -987,7 +1012,8 @@ export default function Create() {
               <button
                 type="button"
                 onClick={() => {
-                  fitBackgroundPhotoToCanvas();
+                  const { width: canvasWidth, height: canvasHeight } = getCanvasDimensions(canvasAspectRatio);
+                  fitBackgroundPhotoToCanvas({ canvasWidth, canvasHeight });
                   setActiveMobileProperty(null);
                 }}
                 className="create-mobile-property-panel__action"
@@ -1212,6 +1238,7 @@ export default function Create() {
                 onRemove={removeElement}
                 onDuplicate={duplicateElement}
                 onToggleLock={toggleLock}
+                onResizeUpload={resizeUploadImage}
               />
             </div>
           </div>

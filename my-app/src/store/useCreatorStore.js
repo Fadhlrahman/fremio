@@ -73,7 +73,7 @@ const defaultPropsByType = (type) => {
         height: DEFAULT_UPLOAD_HEIGHT,
         data: {
           image: null,
-          objectFit: 'cover',
+          objectFit: 'contain',
           label: 'Unggahan',
           fill: '#d1e3f0',
           borderRadius: 24,
@@ -124,6 +124,8 @@ const centerWithinCanvas = (width, height) => ({
   y: Math.round((CANVAS_HEIGHT - height) / 2),
 });
 
+console.log('[useCreatorStore] Store module loaded');
+
 export const useCreatorStore = create((set, get) => ({
   elements: [],
   selectedElementId: null,
@@ -151,12 +153,76 @@ export const useCreatorStore = create((set, get) => ({
     return element.id;
   },
   addUploadElement: (imageDataUrl) => {
+    // Create image to get dimensions
+    const img = new Image();
+    img.src = imageDataUrl;
+    
+    img.onload = () => {
+      const aspectRatio = img.width / img.height;
+      const state = get();
+      
+      // Target size is 1/3 of canvas for display
+      const targetWidth = CANVAS_WIDTH / 3;
+      const targetHeight = CANVAS_HEIGHT / 3;
+      
+      let width, height;
+      
+      // Scale to fit within 1/3 canvas while maintaining aspect ratio
+      if (img.width / targetWidth > img.height / targetHeight) {
+        // Width is the limiting factor
+        width = targetWidth;
+        height = width / aspectRatio;
+      } else {
+        // Height is the limiting factor
+        height = targetHeight;
+        width = height * aspectRatio;
+      }
+      
+      // Create display version (smaller)
+      const displayCanvas = document.createElement('canvas');
+      displayCanvas.width = Math.round(width);
+      displayCanvas.height = Math.round(height);
+      const displayCtx = displayCanvas.getContext('2d');
+      displayCtx.drawImage(img, 0, 0, Math.round(width), Math.round(height));
+      const displayImageDataUrl = displayCanvas.toDataURL('image/png', 0.95);
+      
+      const elements = state.elements;
+      const uploadElement = elements.find(el => el.data?.image === imageDataUrl && el.type === 'upload');
+      
+      if (uploadElement) {
+        // Center the element on canvas
+        const x = Math.round((CANVAS_WIDTH - width) / 2);
+        const y = Math.round((CANVAS_HEIGHT - height) / 2);
+        
+        set({
+          elements: elements.map(el => 
+            el.id === uploadElement.id 
+              ? { 
+                  ...el, 
+                  width: Math.round(width),
+                  height: Math.round(height),
+                  x,
+                  y,
+                  data: {
+                    ...el.data,
+                    image: displayImageDataUrl, // Use smaller version for display
+                    originalImage: imageDataUrl, // Keep original for high-quality resize
+                    imageAspectRatio: aspectRatio,
+                    objectFit: 'contain'
+                  }
+                }
+              : el
+          )
+        });
+      }
+    };
+    
     const id = get().addElement('upload', {
       x: Math.round((CANVAS_WIDTH - DEFAULT_UPLOAD_WIDTH) / 2),
       y: Math.round((CANVAS_HEIGHT - DEFAULT_UPLOAD_HEIGHT) / 2),
       data: {
         image: imageDataUrl,
-        objectFit: 'cover',
+        objectFit: 'contain',
         label: 'Unggahan'
       }
     });
@@ -166,61 +232,132 @@ export const useCreatorStore = create((set, get) => ({
     const state = get();
     const existing = state.elements.find((el) => el.type === 'background-photo');
 
-    const metaRatio = Number(meta.aspectRatio);
-    const ratioFromMeta = Number.isFinite(metaRatio) && metaRatio > 0 ? metaRatio : undefined;
-    const derivedRatio = (() => {
-      if (ratioFromMeta) return ratioFromMeta;
-      const width = Number(meta.width);
-      const height = Number(meta.height);
-      if (width > 0 && height > 0) {
-        return width / height;
-      }
-      if (existing?.data?.imageAspectRatio) {
-        return existing.data.imageAspectRatio;
-      }
-      return CANVAS_WIDTH / CANVAS_HEIGHT;
-    })();
+    // Get canvas dimensions from meta or use defaults
+    const canvasWidth = meta.canvasWidth || CANVAS_WIDTH;
+    const canvasHeight = meta.canvasHeight || CANVAS_HEIGHT;
 
-    const size = computeContainedSize(derivedRatio);
-    const position = centerWithinCanvas(size.width, size.height);
+    // Load image to get actual dimensions
+    const img = new Image();
+    img.src = imageDataUrl;
+    
+    const processImage = () => {
+      const aspectRatio = img.width / img.height;
+      const canvasAspectRatio = canvasWidth / canvasHeight;
+      
+      // Calculate size to COVER canvas (not contain)
+      // Image must be >= canvas size on all sides
+      let width, height;
+      
+      if (aspectRatio > canvasAspectRatio) {
+        // Image is wider than canvas - match height, let width overflow
+        height = canvasHeight;
+        width = height * aspectRatio;
+      } else {
+        // Image is taller/same as canvas - match width, let height overflow
+        width = canvasWidth;
+        height = width / aspectRatio;
+      }
+      
+      // Center the image so it covers canvas
+      const x = Math.round((canvasWidth - width) / 2);
+      const y = Math.round((canvasHeight - height) / 2);
 
-    const baseData = {
-      ...existing?.data,
-      image: imageDataUrl,
-      objectFit: existing?.data?.objectFit ?? 'contain',
-      imageAspectRatio: derivedRatio,
-      label: existing?.data?.label ?? 'Background'
+      const baseData = {
+        image: imageDataUrl,
+        objectFit: 'cover',
+        imageAspectRatio: aspectRatio,
+        label: 'Background'
+      };
+
+      if (existing) {
+        set({
+          elements: state.elements.map((el) =>
+            el.id === existing.id
+              ? {
+                  ...el,
+                  zIndex: 0,
+                  data: {
+                    ...el.data,
+                    ...baseData
+                  },
+                  width: Math.round(width),
+                  height: Math.round(height),
+                  x,
+                  y
+                }
+              : {
+                  ...el,
+                  zIndex: el.zIndex === undefined ? 1 : Math.max(el.zIndex, 1)
+                }
+          ),
+          selectedElementId: existing.id
+        });
+        return existing.id;
+      }
+
+      const id = get().addElement('background-photo', {
+        x,
+        y,
+        zIndex: 0,
+        data: baseData,
+        width: Math.round(width),
+        height: Math.round(height)
+      });
+
+      set((prev) => ({
+        elements: prev.elements.map((el) =>
+          el.id === id
+            ? { ...el, zIndex: 0 }
+            : { ...el, zIndex: (el.zIndex || 1) + 1 }
+        ),
+        lastZIndex: Math.max(prev.lastZIndex + 1, prev.elements.length + 1)
+      }));
+      
+      return id;
     };
 
+    // If image already loaded, process immediately
+    if (img.complete) {
+      return processImage();
+    }
+    
+    // Otherwise wait for load
+    img.onload = processImage;
+    
+    // Return placeholder ID for existing, or create placeholder
     if (existing) {
       set({
         elements: state.elements.map((el) =>
           el.id === existing.id
             ? {
                 ...el,
-                zIndex: 0,
                 data: {
                   ...el.data,
-                  ...baseData
-                },
-                width: size.width,
-                height: size.height,
-                ...position
+                  image: imageDataUrl,
+                  label: 'Background'
+                }
               }
-            : {
-                ...el,
-                zIndex: el.zIndex === undefined ? 1 : Math.max(el.zIndex, 1)
-              }
-        ),
-        selectedElementId: existing.id
+            : el
+        )
       });
       return existing.id;
     }
 
-    const id = state.addElement('background-photo', {
+    // Create placeholder with temp dimensions
+    const metaRatio = Number(meta.aspectRatio);
+    const ratioFromMeta = Number.isFinite(metaRatio) && metaRatio > 0 ? metaRatio : undefined;
+    const derivedRatio = ratioFromMeta || canvasWidth / canvasHeight;
+    const size = computeContainedSize(derivedRatio);
+    const position = centerWithinCanvas(size.width, size.height);
+
+    const id = get().addElement('background-photo', {
       ...position,
       zIndex: 0,
-      data: baseData,
+      data: {
+        image: imageDataUrl,
+        objectFit: 'cover',
+        label: 'Background'
+      },
       width: size.width,
       height: size.height
     });
@@ -228,37 +365,62 @@ export const useCreatorStore = create((set, get) => ({
     set((prev) => ({
       elements: prev.elements.map((el) =>
         el.id === id
-          ? {
-              ...el,
-              zIndex: 0
-            }
+          ? { ...el, zIndex: 0 }
           : { ...el, zIndex: (el.zIndex || 1) + 1 }
       ),
       lastZIndex: Math.max(prev.lastZIndex + 1, prev.elements.length + 1)
     }));
+    
     return id;
   },
-  fitBackgroundPhotoToCanvas: () => {
+  fitBackgroundPhotoToCanvas: (meta = {}) => {
     const state = get();
     const background = state.elements.find((el) => el.type === 'background-photo');
     if (!background) {
       return;
     }
+    
+    // Use dynamic canvas dimensions from meta or fallback to constants
+    const canvasWidth = meta.canvasWidth || CANVAS_WIDTH;
+    const canvasHeight = meta.canvasHeight || CANVAS_HEIGHT;
+    
     const aspectRatio = Number(background.data?.imageAspectRatio) > 0
       ? background.data.imageAspectRatio
       : background.width > 0 && background.height > 0
       ? background.width / background.height
-      : CANVAS_WIDTH / CANVAS_HEIGHT;
-    const size = computeContainedSize(aspectRatio);
-    const position = centerWithinCanvas(size.width, size.height);
+      : canvasWidth / canvasHeight;
+    
+    // Use COVER mode - image must fill entire canvas
+    const canvasAspectRatio = canvasWidth / canvasHeight;
+    let width, height;
+    
+    if (aspectRatio > canvasAspectRatio) {
+      // Image is wider - match height, let width overflow
+      height = canvasHeight;
+      width = height * aspectRatio;
+    } else {
+      // Image is taller/same - match width, let height overflow
+      width = canvasWidth;
+      height = width / aspectRatio;
+    }
+    
+    const position = {
+      x: Math.round((canvasWidth - width) / 2),
+      y: Math.round((canvasHeight - height) / 2)
+    };
+    
     set((prev) => ({
       elements: prev.elements.map((el) =>
         el.id === background.id
           ? {
               ...el,
-              width: size.width,
-              height: size.height,
-              ...position
+              width: Math.round(width),
+              height: Math.round(height),
+              ...position,
+              data: {
+                ...el.data,
+                objectFit: 'cover'
+              }
             }
           : el
       ),
@@ -292,6 +454,39 @@ export const useCreatorStore = create((set, get) => ({
           : el
       )
     }));
+  },
+  resizeUploadImage: (id, newWidth, newHeight) => {
+    const element = get().elements.find((el) => el.id === id);
+    if (!element || element.type !== 'upload' || !element.data?.originalImage) {
+      return;
+    }
+
+    const img = new Image();
+    img.src = element.data.originalImage; // Use original high-quality image
+    
+    img.onload = () => {
+      // Create canvas with new dimensions
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(newWidth);
+      canvas.height = Math.round(newHeight);
+      const ctx = canvas.getContext('2d');
+      
+      // Use high-quality image smoothing
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      
+      // Draw resized image from original
+      ctx.drawImage(img, 0, 0, Math.round(newWidth), Math.round(newHeight));
+      const resizedImageDataUrl = canvas.toDataURL('image/png', 0.95);
+      
+      // Update element with resized image
+      get().updateElement(id, {
+        data: {
+          image: resizedImageDataUrl
+          // Keep originalImage unchanged for future resizes
+        }
+      });
+    };
   },
   selectElement: (id) => {
     set({ selectedElementId: id });

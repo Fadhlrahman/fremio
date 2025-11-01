@@ -24,6 +24,7 @@ const baseElement = (type, overrides = {}) => ({
   height: 160,
   rotation: 0,
   zIndex: 1,
+  isLocked: false,
   data: {},
   ...overrides
 });
@@ -37,8 +38,8 @@ const defaultPropsByType = (type) => {
         data: {
           fill: '#d1e3f0',
           borderRadius: 24,
-          stroke: '#ffffff',
-          strokeWidth: 6,
+          stroke: null,
+          strokeWidth: 0,
           label: 'Foto'
         }
       };
@@ -49,7 +50,7 @@ const defaultPropsByType = (type) => {
         data: {
           text: 'Judul Baru',
           fontSize: 28,
-          fontFamily: '"DM Sans", sans-serif',
+          fontFamily: 'Inter',
           color: '#1f2933',
           align: 'center',
           fontWeight: 600
@@ -62,8 +63,8 @@ const defaultPropsByType = (type) => {
         data: {
           fill: '#f4d3c2',
           borderRadius: 32,
-          stroke: '#d9b9ab',
-          strokeWidth: 2
+          stroke: null,
+          strokeWidth: 0
         }
       };
     case 'upload':
@@ -73,7 +74,11 @@ const defaultPropsByType = (type) => {
         data: {
           image: null,
           objectFit: 'cover',
-          label: 'Unggahan'
+          label: 'Unggahan',
+          fill: '#d1e3f0',
+          borderRadius: 24,
+          stroke: null,
+          strokeWidth: 0
         }
       };
     case 'background-photo':
@@ -298,6 +303,31 @@ export const useCreatorStore = create((set, get) => ({
         state.selectedElementId === id ? null : state.selectedElementId
     }));
   },
+  duplicateElement: (id) => {
+    const element = get().elements.find((el) => el.id === id);
+    if (!element) return;
+    
+    const duplicate = {
+      ...element,
+      id: generateId(),
+      x: element.x + 20,
+      y: element.y + 20,
+      zIndex: get().lastZIndex + 1,
+    };
+    
+    set((state) => ({
+      elements: [...state.elements, duplicate],
+      lastZIndex: state.lastZIndex + 1,
+      selectedElementId: duplicate.id,
+    }));
+  },
+  toggleLock: (id) => {
+    set((state) => ({
+      elements: state.elements.map((el) =>
+        el.id === id ? { ...el, isLocked: !el.isLocked } : el
+      ),
+    }));
+  },
   bringToFront: (id) => {
     const target = get().elements.find((el) => el.id === id);
     if (target?.type === 'background-photo') {
@@ -315,6 +345,88 @@ export const useCreatorStore = create((set, get) => ({
           : el
       ),
       lastZIndex: nextZ
+    }));
+  },
+  sendToBack: (id) => {
+    const target = get().elements.find((el) => el.id === id);
+    if (target?.type === 'background-photo') {
+      return;
+    }
+    const allElements = get().elements;
+    const minZ = Math.min(...allElements.filter(el => el.type !== 'background-photo').map(el => el.zIndex || 1));
+    const nextZ = Math.max(1, minZ - 1);
+    
+    set((state) => ({
+      elements: state.elements.map((el) =>
+        el.id === id
+          ? {
+              ...el,
+              zIndex: nextZ
+            }
+          : el
+      )
+    }));
+  },
+  bringForward: (id) => {
+    const target = get().elements.find((el) => el.id === id);
+    if (target?.type === 'background-photo') {
+      return;
+    }
+    const allElements = get().elements;
+    const sorted = allElements
+      .filter(el => el.type !== 'background-photo')
+      .sort((a, b) => (a.zIndex || 1) - (b.zIndex || 1));
+    
+    const currentIndex = sorted.findIndex(el => el.id === id);
+    if (currentIndex === -1 || currentIndex === sorted.length - 1) {
+      return;
+    }
+    
+    const nextElement = sorted[currentIndex + 1];
+    const currentZ = target.zIndex || 1;
+    const nextZ = nextElement.zIndex || 1;
+    
+    set((state) => ({
+      elements: state.elements.map((el) => {
+        if (el.id === id) {
+          return { ...el, zIndex: nextZ };
+        }
+        if (el.id === nextElement.id) {
+          return { ...el, zIndex: currentZ };
+        }
+        return el;
+      })
+    }));
+  },
+  sendBackward: (id) => {
+    const target = get().elements.find((el) => el.id === id);
+    if (target?.type === 'background-photo') {
+      return;
+    }
+    const allElements = get().elements;
+    const sorted = allElements
+      .filter(el => el.type !== 'background-photo')
+      .sort((a, b) => (a.zIndex || 1) - (b.zIndex || 1));
+    
+    const currentIndex = sorted.findIndex(el => el.id === id);
+    if (currentIndex === -1 || currentIndex === 0) {
+      return;
+    }
+    
+    const prevElement = sorted[currentIndex - 1];
+    const currentZ = target.zIndex || 1;
+    const prevZ = prevElement.zIndex || 1;
+    
+    set((state) => ({
+      elements: state.elements.map((el) => {
+        if (el.id === id) {
+          return { ...el, zIndex: prevZ };
+        }
+        if (el.id === prevElement.id) {
+          return { ...el, zIndex: currentZ };
+        }
+        return el;
+      })
     }));
   },
   setCanvasBackground: (color) => {

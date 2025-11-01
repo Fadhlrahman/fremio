@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { X, Trash2 } from "lucide-react";
+import { X, Trash2, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown } from "lucide-react";
 import ColorPicker from "./ColorPicker.jsx";
 
 const panelVariant = {
@@ -33,6 +33,10 @@ export default function PropertiesPanel({
   onSelectBackgroundPhoto = () => {},
   onFitBackgroundPhoto = () => {},
   backgroundPhoto = null,
+  onBringToFront,
+  onSendToBack,
+  onBringForward,
+  onSendBackward,
 }) {
   const handleDimensionInput = (dimension, rawValue) => {
     if (!selectedElement || typeof rawValue === "undefined") {
@@ -54,28 +58,64 @@ export default function PropertiesPanel({
   };
 
   const renderSharedControls = () => (
-    <Section title="Dimensi">
-      <div className="grid grid-cols-2 gap-3">
-        <InputRow label="Lebar">
-          <input
-            type="number"
-            min={60}
-            className="rounded-2xl border-2 border-[#e0b7a9]/20 bg-white px-4 py-3 text-slate-700 shadow-[0_2px_8px_rgba(224,183,169,0.08)] transition-all focus:border-[#e0b7a9]/50 focus:shadow-[0_4px_12px_rgba(224,183,169,0.15)] focus:outline-none"
-            value={Math.round(selectedElement?.width ?? 0)}
-            onChange={(event) => handleDimensionInput("width", event.target.value)}
-          />
-        </InputRow>
-        <InputRow label="Tinggi">
-          <input
-            type="number"
-            min={60}
-            className="rounded-2xl border-2 border-[#e0b7a9]/20 bg-white px-4 py-3 text-slate-700 shadow-[0_2px_8px_rgba(224,183,169,0.08)] transition-all focus:border-[#e0b7a9]/50 focus:shadow-[0_4px_12px_rgba(224,183,169,0.15)] focus:outline-none"
-            value={Math.round(selectedElement?.height ?? 0)}
-            onChange={(event) => handleDimensionInput("height", event.target.value)}
-          />
-        </InputRow>
-      </div>
-    </Section>
+    <>
+      {selectedElement?.type !== 'background-photo' && (
+        <Section title="Lapisan">
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => onBringToFront?.(selectedElement.id)}
+              className="flex items-center justify-center gap-2 rounded-xl border-2 border-[#e0b7a9]/20 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:border-[#e0b7a9]/40 hover:bg-[#fdf7f4] hover:shadow-md active:scale-95"
+            >
+              <ChevronsUp size={18} className="text-[#e0b7a9]" />
+              Paling Depan
+            </button>
+            <button
+              onClick={() => onSendToBack?.(selectedElement.id)}
+              className="flex items-center justify-center gap-2 rounded-xl border-2 border-[#e0b7a9]/20 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:border-[#e0b7a9]/40 hover:bg-[#fdf7f4] hover:shadow-md active:scale-95"
+            >
+              <ChevronsDown size={18} className="text-[#e0b7a9]" />
+              Paling Belakang
+            </button>
+            <button
+              onClick={() => onBringForward?.(selectedElement.id)}
+              className="flex items-center justify-center gap-2 rounded-xl border-2 border-[#e0b7a9]/20 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:border-[#e0b7a9]/40 hover:bg-[#fdf7f4] hover:shadow-md active:scale-95"
+            >
+              <ArrowUp size={18} className="text-[#e0b7a9]" />
+              Kedepankan
+            </button>
+            <button
+              onClick={() => onSendBackward?.(selectedElement.id)}
+              className="flex items-center justify-center gap-2 rounded-xl border-2 border-[#e0b7a9]/20 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:border-[#e0b7a9]/40 hover:bg-[#fdf7f4] hover:shadow-md active:scale-95"
+            >
+              <ArrowDown size={18} className="text-[#e0b7a9]" />
+              Kebelakangkan
+            </button>
+          </div>
+        </Section>
+      )}
+      <Section title="Dimensi">
+        <div className="grid grid-cols-2 gap-3">
+          <InputRow label="Lebar">
+            <input
+              type="number"
+              min={60}
+              className="rounded-2xl border-2 border-[#e0b7a9]/20 bg-white px-4 py-3 text-slate-700 shadow-[0_2px_8px_rgba(224,183,169,0.08)] transition-all focus:border-[#e0b7a9]/50 focus:shadow-[0_4px_12px_rgba(224,183,169,0.15)] focus:outline-none"
+              value={Math.round(selectedElement?.width ?? 0)}
+              onChange={(event) => handleDimensionInput("width", event.target.value)}
+            />
+          </InputRow>
+          <InputRow label="Tinggi">
+            <input
+              type="number"
+              min={60}
+              className="rounded-2xl border-2 border-[#e0b7a9]/20 bg-white px-4 py-3 text-slate-700 shadow-[0_2px_8px_rgba(224,183,169,0.08)] transition-all focus:border-[#e0b7a9]/50 focus:shadow-[0_4px_12px_rgba(224,183,169,0.15)] focus:outline-none"
+              value={Math.round(selectedElement?.height ?? 0)}
+              onChange={(event) => handleDimensionInput("height", event.target.value)}
+            />
+          </InputRow>
+        </div>
+      </Section>
+    </>
   );
 
   const renderTextControls = () => (
@@ -91,6 +131,38 @@ export default function PropertiesPanel({
             })
           }
         />
+      </InputRow>
+      <InputRow label="Font">
+        <select
+          className="rounded-xl border-2 border-[#e0b7a9]/20 bg-white px-3 py-2 text-sm text-slate-600 shadow-[0_2px_8px_rgba(224,183,169,0.08)] transition-all focus:border-[#e0b7a9]/50 focus:shadow-[0_4px_12px_rgba(224,183,169,0.15)] focus:outline-none"
+          value={selectedElement.data?.fontFamily ?? 'Inter'}
+          onChange={(event) =>
+            onUpdateElement(selectedElement.id, {
+              data: { fontFamily: event.target.value },
+            })
+          }
+        >
+          <option value="Inter">Inter</option>
+          <option value="Roboto">Roboto</option>
+          <option value="Lato">Lato</option>
+          <option value="Open Sans">Open Sans</option>
+          <option value="Montserrat">Montserrat</option>
+          <option value="Poppins">Poppins</option>
+          <option value="Nunito Sans">Nunito Sans</option>
+          <option value="Rubik">Rubik</option>
+          <option value="Work Sans">Work Sans</option>
+          <option value="Source Sans Pro">Source Sans Pro</option>
+          <option value="Merriweather">Merriweather</option>
+          <option value="Playfair Display">Playfair Display</option>
+          <option value="Libre Baskerville">Libre Baskerville</option>
+          <option value="Cormorant Garamond">Cormorant Garamond</option>
+          <option value="Bitter">Bitter</option>
+          <option value="Raleway">Raleway</option>
+          <option value="Oswald">Oswald</option>
+          <option value="Bebas Neue">Bebas Neue</option>
+          <option value="Anton">Anton</option>
+          <option value="Pacifico">Pacifico</option>
+        </select>
       </InputRow>
       <div className="grid grid-cols-2 gap-3">
         <InputRow label="Ukuran">
@@ -174,6 +246,53 @@ export default function PropertiesPanel({
       )}
     </Section>
   );
+
+  const renderOutlineControls = ({ defaultColor = "#d9b9ab", maxWidth = 24 } = {}) => {
+    const currentWidth = Number(selectedElement.data?.strokeWidth ?? 0);
+    const fallbackColor =
+      typeof selectedElement.data?.stroke === "string" && selectedElement.data.stroke.length > 0
+        ? selectedElement.data.stroke
+        : defaultColor;
+
+    return (
+      <Section title="Outline">
+        <InputRow label="Ketebalan">
+          <input
+            type="range"
+            min={0}
+            max={maxWidth}
+            value={currentWidth}
+            onChange={(event) => {
+              const nextWidth = Number(event.target.value);
+              if (!Number.isFinite(nextWidth)) {
+                return;
+              }
+              const updates = {
+                strokeWidth: Math.max(0, nextWidth),
+              };
+              if (nextWidth > 0 && !selectedElement.data?.stroke) {
+                updates.stroke = fallbackColor;
+              }
+              onUpdateElement(selectedElement.id, { data: updates });
+            }}
+          />
+          <div className="text-xs font-semibold text-slate-500">
+            {Math.round(currentWidth)}px
+          </div>
+        </InputRow>
+        <InputRow label="Warna Outline">
+          <ColorPicker
+            value={fallbackColor}
+            onChange={(nextColor) =>
+              onUpdateElement(selectedElement.id, {
+                data: { stroke: nextColor },
+              })
+            }
+          />
+        </InputRow>
+      </Section>
+    );
+  };
 
   const renderImageControls = () => (
     <Section title="Gambar">
@@ -345,15 +464,23 @@ export default function PropertiesPanel({
       {selectedElement.type === "text" && renderTextControls()}
 
       {selectedElement.type === "shape" &&
-        renderFillControls({ showBorderRadius: true })}
+        <>
+          {renderFillControls({ showBorderRadius: true })}
+          {renderOutlineControls({ defaultColor: "#d9b9ab", maxWidth: 32 })}
+        </>}
 
-      {selectedElement.type === "photo" &&
-        renderFillControls({ showBorderRadius: true })}
+      {selectedElement.type === "photo" && (
+        <>
+          {renderFillControls({ showBorderRadius: true })}
+          {renderOutlineControls({ defaultColor: "#f4f4f4", maxWidth: 24 })}
+        </>
+      )}
 
       {selectedElement.type === "upload" && (
         <>
           {renderImageControls()}
           {renderFillControls({ showBorderRadius: true })}
+          {renderOutlineControls({ defaultColor: "#f4f4f4", maxWidth: 24 })}
         </>
       )}
 

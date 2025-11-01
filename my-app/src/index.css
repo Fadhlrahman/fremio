@@ -1042,3 +1042,26 @@ code {
 html {
   scroll-behavior: smooth;
 }
+
+/* Hide react-rnd guidelines */
+.react-draggable-dragging::before,
+.react-draggable-dragging::after {
+  display: none !important;
+}
+
+/* Hide all alignment guidelines from react-rnd */
+.react-grid-item > .react-resizable-handle::after {
+  display: none !important;
+}
+
+.react-draggable > .react-grid-placeholder {
+  display: none !important;
+}
+
+/* Hide dashed lines / guidelines */
+svg[data-type="guideline"],
+line[stroke-dasharray] {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+}

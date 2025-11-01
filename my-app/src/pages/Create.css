@@ -65,87 +65,15 @@
 }
 
 .create-panel__title {
-  text-align: center;
-  font-size: 18px;
-  font-weight: 600;
-  color: #2d211f;
-  letter-spacing: 0.05em;
-}
-
-.create-tools__list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.create-tools__button {
-  width: 100%;
-  border-radius: 999px;
-  padding: 14px 20px;
-  border: 1px solid #cfb6ac;
-  background: rgba(246, 229, 223, 0.9);
-  color: #3f322f;
-  font-size: 15px;
-  font-weight: 600;
-  text-align: left;
-  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.create-tools__button:hover {
-  background: #ffffff;
-  color: #2c1f1d;
-  box-shadow: 0 12px 22px rgba(44, 31, 29, 0.12);
-}
-
-.create-tools__button--active {
-  background: #ffffff;
-  color: #2c1f1d;
-  box-shadow: 0 16px 28px rgba(44, 31, 29, 0.12);
-}
-
-.create-preview {
-  flex: 1;
-  background: #ffffff;
-  border-radius: 24px;
-  padding: 40px 48px;
-  box-shadow: 0 28px 48px rgba(0, 0, 0, 0.08);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 32px;
-}
-
-.create-preview__body {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  gap: 32px;
-}
-
-.create-preview__title {
-  font-size: 20px;
-  font-weight: 600;
-  color: #2c1f1d;
-}
-
-.create-ratio-selector {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-}
-
-.create-ratio-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: #4b3a37;
-}
-
-.create-ratio-dropdown {
+  .creator-element .react-rnd-handle {
+    position: absolute;
+    z-index: 5;
+    pointer-events: auto;
+    touch-action: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
   padding: 8px 16px;
   border-radius: 12px;
   border: 1.5px solid #e0b7a9;
@@ -223,6 +151,81 @@
 
 .create-preview__canvas-wrapper > #creator-canvas {
   pointer-events: auto;
+}
+
+.creator-element {
+  position: absolute !important;
+  border-radius: inherit;
+  overflow: visible !important;
+  transition: box-shadow 0.18s ease;
+}
+
+.creator-element--selected {
+  box-shadow: 0 0 0 3px rgba(244, 114, 182, 0.4);
+}
+
+.creator-element--type-background-photo.creator-element--selected {
+  box-shadow: 0 0 0 3px rgba(244, 114, 182, 0.22);
+}
+
+.creator-resize-wrapper {
+  overflow: visible !important;
+}
+
+.creator-element .react-rnd-handle {
+  position: absolute;
+  z-index: 9999;
+  opacity: 0;
+  pointer-events: none;
+  touch-action: pan-x pan-y;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.18s ease;
+}
+
+.creator-element .react-rnd-handle::after {
+  display: none;
+}
+
+.creator-element .react-rnd-handle::before {
+  display: none;
+}
+
+.creator-element .react-rnd-handle-top::after,
+.creator-element .react-rnd-handle-bottom::after {
+  display: none;
+}
+
+.creator-element .react-rnd-handle-left::after,
+.creator-element .react-rnd-handle-right::after {
+  display: none;
+}
+
+.creator-element--selected .react-rnd-handle {
+  opacity: 1;
+  pointer-events: auto;
+  touch-action: none;
+  will-change: transform;
+}
+
+.creator-element--selected .react-rnd-handle:hover,
+.creator-element--selected .react-rnd-handle:active {
+  opacity: 1;
+}
+
+@media (max-width: 768px) {
+  .create-preview__canvas-wrapper {
+    pointer-events: auto;
+  }
+
+  .create-preview__canvas-wrapper > #creator-canvas {
+    touch-action: none;
+  }
+
+  .creator-element {
+    touch-action: none;
+  }
 }
 
 .create-panel__body {
@@ -506,6 +509,17 @@
     accent-color: #e0b7a9;
   }
 
+  .create-mobile-property-panel__outline {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .create-mobile-property-panel__color-picker {
+    display: flex;
+    justify-content: center;
+  }
+
   .create-mobile-property-panel__value-label {
     min-width: 52px;
     padding: 6px 10px;
@@ -593,6 +607,13 @@
     font-size: 13px;
     font-weight: 600;
     text-align: center;
+  }
+
+  .create-mobile-property-panel__action--active {
+    border-color: #e0b7a9;
+    background: linear-gradient(135deg, #e0b7a9 0%, #d4a99a 100%);
+    color: white;
+    box-shadow: 0 4px 12px rgba(224, 183, 169, 0.3);
   }
 
   .create-mobile-property-panel__action--danger {

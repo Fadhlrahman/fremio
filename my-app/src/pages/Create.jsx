@@ -16,6 +16,12 @@ import {
   CornerDownRight,
   Settings2,
   X,
+  Square,
+  Layers,
+  ArrowUp,
+  ArrowDown,
+  ChevronsUp,
+  ChevronsDown,
 } from "lucide-react";
 import CanvasPreview from "../components/creator/CanvasPreview.jsx";
 import PropertiesPanel from "../components/creator/PropertiesPanel.jsx";
@@ -77,7 +83,12 @@ export default function Create() {
     selectElement,
     setCanvasBackground,
     removeElement,
+    duplicateElement,
+    toggleLock,
     bringToFront,
+    sendToBack,
+    bringForward,
+    sendBackward,
     clearSelection,
     fitBackgroundPhotoToCanvas,
   } = useCreatorStore(
@@ -92,7 +103,12 @@ export default function Create() {
       selectElement: state.selectElement,
       setCanvasBackground: state.setCanvasBackground,
       removeElement: state.removeElement,
+      duplicateElement: state.duplicateElement,
+      toggleLock: state.toggleLock,
       bringToFront: state.bringToFront,
+      sendToBack: state.sendToBack,
+      bringForward: state.bringForward,
+      sendBackward: state.sendBackward,
       clearSelection: state.clearSelection,
       fitBackgroundPhotoToCanvas: state.fitBackgroundPhotoToCanvas,
     }))
@@ -124,6 +140,31 @@ export default function Create() {
   const isMobilePropertyToolbar =
     isMobileView && (isBackgroundSelected || Boolean(selectedElementObject));
 
+  useEffect(() => {
+    if (!isMobileView) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event) => {
+      const canvasNode = previewFrameRef.current?.querySelector("#creator-canvas");
+      const toolbarNode = document.querySelector(".create-mobile-toolbar");
+      const propertyPanelNode = document.querySelector(".create-mobile-property-panel");
+
+      const target = event.target;
+      const isInsideCanvas = canvasNode?.contains(target);
+      const isInsideToolbar = toolbarNode?.contains(target);
+      const isInsidePanel = propertyPanelNode?.contains(target);
+
+      if (!isInsideCanvas && !isInsideToolbar && !isInsidePanel) {
+        clearSelection();
+        setActiveMobileProperty(null);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [isMobileView, clearSelection]);
+
   const mobilePropertyButtons = useMemo(() => {
     if (!isMobilePropertyToolbar) {
       return [];
@@ -148,23 +189,37 @@ export default function Create() {
       case "text":
         return [
           { id: "text-edit", label: "Edit", icon: TypeIcon },
+          { id: "text-font", label: "Font", icon: TypeIcon },
           { id: "text-color", label: "Warna", icon: Palette },
           { id: "text-size", label: "Ukuran", icon: Maximize2 },
           { id: "text-align", label: "Rata", icon: AlignCenter },
+          { id: "layer-order", label: "Lapisan", icon: Layers },
         ];
       case "shape":
         return [
           { id: "shape-color", label: "Warna", icon: Palette },
           { id: "shape-size", label: "Ukuran", icon: Maximize2 },
           { id: "shape-radius", label: "Sudut", icon: CornerDownRight },
+          { id: "shape-outline", label: "Outline", icon: Square },
+          { id: "layer-order", label: "Lapisan", icon: Layers },
         ];
       case "photo":
+        return [
+          { id: "photo-color", label: "Warna", icon: Palette },
+          { id: "photo-fit", label: "Gaya", icon: Settings2 },
+          { id: "photo-size", label: "Ukuran", icon: Maximize2 },
+          { id: "photo-radius", label: "Sudut", icon: CornerDownRight },
+          { id: "photo-outline", label: "Outline", icon: Square },
+          { id: "layer-order", label: "Lapisan", icon: Layers },
+        ];
       case "upload":
         return [
           { id: "photo-color", label: "Warna", icon: Palette },
           { id: "photo-fit", label: "Gaya", icon: Settings2 },
           { id: "photo-size", label: "Ukuran", icon: Maximize2 },
           { id: "photo-radius", label: "Sudut", icon: CornerDownRight },
+          { id: "upload-outline", label: "Outline", icon: Square },
+          { id: "layer-order", label: "Lapisan", icon: Layers },
         ];
       case "background-photo":
         return [
@@ -571,6 +626,8 @@ export default function Create() {
     switch (propertyId) {
       case "text-edit":
         return "Edit Teks";
+      case "text-font":
+        return "Pilih Font";
       case "text-color":
         return "Warna Teks";
       case "text-size":
@@ -591,6 +648,14 @@ export default function Create() {
         return "Ukuran";
       case "photo-radius":
         return "Sudut";
+      case "shape-outline":
+        return "Outline Bentuk";
+      case "photo-outline":
+        return "Outline Foto";
+      case "upload-outline":
+        return "Outline Unggahan";
+      case "layer-order":
+        return "Atur Lapisan";
       case "background-color":
         return "Warna Latar";
       case "background-photo":
@@ -680,6 +745,39 @@ export default function Create() {
             />
           );
           break;
+        case "text-font": {
+          const fonts = [
+            'Inter', 'Roboto', 'Lato', 'Open Sans', 'Montserrat', 
+            'Poppins', 'Nunito Sans', 'Rubik', 'Work Sans', 'Source Sans Pro',
+            'Merriweather', 'Playfair Display', 'Libre Baskerville', 
+            'Cormorant Garamond', 'Bitter', 'Raleway', 'Oswald', 
+            'Bebas Neue', 'Anton', 'Pacifico'
+          ];
+          content = (
+            <div className="create-mobile-property-panel__actions">
+              {fonts.map((font) => (
+                <button
+                  key={font}
+                  type="button"
+                  onClick={() => {
+                    updateElement(selectedElementObject.id, {
+                      data: { fontFamily: font },
+                    });
+                  }}
+                  className={`create-mobile-property-panel__action ${
+                    (data.fontFamily ?? 'Inter') === font
+                      ? 'create-mobile-property-panel__action--active'
+                      : ''
+                  }`.trim()}
+                  style={{ fontFamily: font }}
+                >
+                  {font}
+                </button>
+              ))}
+            </div>
+          );
+          break;
+        }
         case "text-color":
           content = (
             <ColorPicker
@@ -811,6 +909,59 @@ export default function Create() {
           );
           break;
         }
+        case "shape-outline":
+        case "photo-outline":
+        case "upload-outline": {
+          const elementType = selectedElementObject.type;
+          const outlineWidth = Number(data.strokeWidth ?? 0);
+          const defaultColor = elementType === "shape" ? "#d9b9ab" : "#f4f4f4";
+          const outlineColor =
+            typeof data.stroke === "string" && data.stroke.length > 0
+              ? data.stroke
+              : defaultColor;
+          const maxWidth = elementType === "shape" ? 32 : 24;
+          content = (
+            <div className="create-mobile-property-panel__outline">
+              <div className="create-mobile-property-panel__slider">
+                <input
+                  type="range"
+                  min={0}
+                  max={maxWidth}
+                  value={outlineWidth}
+                  onChange={(event) => {
+                    const nextWidth = Number(event.target.value);
+                    if (!Number.isFinite(nextWidth)) {
+                      return;
+                    }
+                    const updates = {
+                      strokeWidth: Math.max(0, nextWidth),
+                    };
+                    if (nextWidth > 0 && !data.stroke) {
+                      updates.stroke = outlineColor;
+                    }
+                    updateElement(selectedElementObject.id, {
+                      data: updates,
+                    });
+                  }}
+                />
+                <div className="create-mobile-property-panel__value-label">
+                  {Math.round(outlineWidth)}px
+                </div>
+              </div>
+              <div className="create-mobile-property-panel__color-picker">
+                <ColorPicker
+                  value={outlineColor}
+                  onChange={(nextColor) =>
+                    updateElement(selectedElementObject.id, {
+                      data: { stroke: nextColor },
+                    })
+                  }
+                />
+              </div>
+            </div>
+          );
+          break;
+        }
         case "photo-fit":
         case "bg-photo-fit":
           content = (
@@ -872,6 +1023,58 @@ export default function Create() {
               </button>
             </div>
           );
+          break;
+        case "layer-order":
+          if (selectedElementObject?.type !== 'background-photo') {
+            content = (
+              <div className="create-mobile-property-panel__actions" style={{ 
+                display: 'grid', 
+                gridTemplateColumns: '1fr 1fr', 
+                gap: '12px' 
+              }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    bringToFront(selectedElementObject.id);
+                  }}
+                  className="create-mobile-property-panel__action"
+                >
+                  <ChevronsUp size={18} style={{ marginRight: '8px' }} />
+                  Paling Depan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    bringForward(selectedElementObject.id);
+                  }}
+                  className="create-mobile-property-panel__action"
+                >
+                  <ArrowUp size={18} style={{ marginRight: '8px' }} />
+                  Kedepankan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sendToBack(selectedElementObject.id);
+                  }}
+                  className="create-mobile-property-panel__action"
+                >
+                  <ChevronsDown size={18} style={{ marginRight: '8px' }} />
+                  Paling Belakang
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sendBackward(selectedElementObject.id);
+                  }}
+                  className="create-mobile-property-panel__action"
+                >
+                  <ArrowDown size={18} style={{ marginRight: '8px' }} />
+                  Kebelakangkan
+                </button>
+              </div>
+            );
+          }
           break;
         default:
           break;
@@ -1006,6 +1209,9 @@ export default function Create() {
                 }}
                 onUpdate={updateElement}
                 onBringToFront={bringToFront}
+                onRemove={removeElement}
+                onDuplicate={duplicateElement}
+                onToggleLock={toggleLock}
               />
             </div>
           </div>
@@ -1076,6 +1282,10 @@ export default function Create() {
                 }}
                 onFitBackgroundPhoto={fitBackgroundPhotoToCanvas}
                 backgroundPhoto={backgroundPhotoElement}
+                onBringToFront={bringToFront}
+                onSendToBack={sendToBack}
+                onBringForward={bringForward}
+                onSendBackward={sendBackward}
               />
             </div>
           </Motion.aside>

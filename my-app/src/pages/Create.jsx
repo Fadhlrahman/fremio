@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, useEffect, useCallback, useLayoutEffect } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { motion as Motion } from "framer-motion";
 import html2canvas from "html2canvas";
 import {
@@ -29,9 +30,10 @@ import ColorPicker from "../components/creator/ColorPicker.jsx";
 import useCreatorStore from "../store/useCreatorStore.js";
 import { useShallow } from "zustand/react/shallow";
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from "../components/creator/canvasConstants.js";
+import draftStorage from "../utils/draftStorage.js";
+import { computeDraftSignature } from "../utils/draftHelpers.js";
+import safeStorage from "../utils/safeStorage.js";
 import "./Create.css";
-
-const TEMPLATE_STORAGE_KEY = "fremio-creator-templates";
 
 const panelMotion = {
   hidden: { opacity: 0, y: 16 },
@@ -39,8 +41,7 @@ const panelMotion = {
 };
 
 const TOAST_MESSAGES = {
-  saveSuccess: "Template tersimpan! 🎉",
-  saveError: "Gagal menyimpan template. Coba lagi.",
+  saveError: "Gagal menyimpan draft. Coba lagi.",
   pasteSuccess: "Gambar ditempel ke kanvas.",
   pasteError: "Gagal menempel gambar. Pastikan clipboard berisi gambar.",
   deleteSuccess: "Elemen dihapus dari kanvas.",
@@ -56,11 +57,15 @@ export default function Create() {
   const [isMobileView, setIsMobileView] = useState(false);
   const [activeMobileProperty, setActiveMobileProperty] = useState(null);
   const [canvasAspectRatio, setCanvasAspectRatio] = useState("9:16"); // Story Instagram default
+  const [activeDraftId, setActiveDraftId] = useState(null);
   const previewFrameRef = useRef(null);
   const [previewConstraints, setPreviewConstraints] = useState({
-    maxWidth: 320,
-    maxHeight: 440,
+    maxWidth: 360,
+    maxHeight: 640,
   });
+  const hasLoadedDraftRef = useRef(false);
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const showToast = useCallback((type, message, duration = 3200) => {
     if (toastTimeoutRef.current) {
@@ -93,6 +98,7 @@ export default function Create() {
     sendBackward,
     clearSelection,
     fitBackgroundPhotoToCanvas,
+    setElements,
   } = useCreatorStore(
     useShallow((state) => ({
       elements: state.elements,
@@ -114,6 +120,7 @@ export default function Create() {
       sendBackward: state.sendBackward,
       clearSelection: state.clearSelection,
       fitBackgroundPhotoToCanvas: state.fitBackgroundPhotoToCanvas,
+      setElements: state.setElements,
     }))
   );
 
@@ -275,18 +282,260 @@ export default function Create() {
 
   // Calculate canvas dimensions based on selected aspect ratio
   const getCanvasDimensions = useCallback((ratio) => {
-    const baseWidth = CANVAS_WIDTH; // 480
-    switch (ratio) {
-      case "9:16": // Instagram Story
-        return { width: baseWidth, height: 853 };
-      case "4:5": // Instagram Post
-        return { width: baseWidth, height: 600 };
-      case "2:3": // Pinterest
-        return { width: baseWidth, height: 720 };
-      default:
-        return { width: baseWidth, height: 853 };
+    const defaultDimensions = { width: CANVAS_WIDTH, height: CANVAS_HEIGHT };
+
+    console.log('🎯 [getCanvasDimensions] Input ratio:', ratio);
+
+    if (typeof ratio !== "string") {
+      console.log('  ❌ Not a string, returning default');
+      return defaultDimensions;
     }
+
+    const [rawWidth, rawHeight] = ratio.split(":").map(Number);
+    const ratioWidth = Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : null;
+    const ratioHeight = Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : null;
+
+    console.log('  Parsed:', { rawWidth, rawHeight, ratioWidth, ratioHeight });
+
+    if (!ratioWidth || !ratioHeight) {
+      console.log('  ❌ Invalid ratio parts, returning default');
+      return defaultDimensions;
+    }
+
+    if (ratioHeight >= ratioWidth) {
+      const result = {
+        width: CANVAS_WIDTH,
+        height: Math.round((CANVAS_WIDTH * ratioHeight) / ratioWidth),
+      };
+      console.log('  ✅ Portrait/Square mode (H>=W):', result);
+      return result;
+    }
+
+    const result = {
+      width: Math.round((CANVAS_HEIGHT * ratioWidth) / ratioHeight),
+      height: CANVAS_HEIGHT,
+    };
+    console.log('  ✅ Landscape mode (W>H):', result);
+    return result;
   }, []);
+
+  const deriveAspectRatioFromDraft = useCallback((draft) => {
+    if (!draft) {
+      return "9:16";
+    }
+
+    if (typeof draft.aspectRatio === "string" && draft.aspectRatio.includes(":")) {
+      return draft.aspectRatio;
+    }
+
+    const width = Number(draft.canvasWidth);
+    const height = Number(draft.canvasHeight);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return "9:16";
+    }
+
+    const normalize = (value) => Math.round(Number(value));
+    const gcd = (a, b) => {
+      let x = Math.abs(a);
+      let y = Math.abs(b);
+      while (y) {
+        const temp = y;
+        y = x % y;
+        x = temp;
+      }
+      return x || 1;
+    };
+
+    const normalizedWidth = Math.max(1, normalize(width));
+    const normalizedHeight = Math.max(1, normalize(height));
+    const divisor = gcd(normalizedWidth, normalizedHeight);
+    const ratioWidth = Math.max(1, Math.round(normalizedWidth / divisor));
+    const ratioHeight = Math.max(1, Math.round(normalizedHeight / divisor));
+    return `${ratioWidth}:${ratioHeight}`;
+  }, []);
+
+  const scaleDraftElements = useCallback((elements, fromWidth, fromHeight, toWidth, toHeight) => {
+    if (!Array.isArray(elements)) {
+      return [];
+    }
+
+    if (!Number.isFinite(fromWidth) || !Number.isFinite(fromHeight) || fromWidth <= 0 || fromHeight <= 0) {
+      return elements;
+    }
+
+    if (!Number.isFinite(toWidth) || !Number.isFinite(toHeight) || toWidth <= 0 || toHeight <= 0) {
+      return elements;
+    }
+
+    const scaleX = toWidth / fromWidth;
+    const scaleY = toHeight / fromHeight;
+
+    if (Math.abs(scaleX - 1) < 0.001 && Math.abs(scaleY - 1) < 0.001) {
+      return elements;
+    }
+
+    const averageScale = (scaleX + scaleY) / 2;
+
+    return elements.map((element) => {
+      if (!element || typeof element !== "object") {
+        return element;
+      }
+
+      const next = { ...element };
+
+      if (typeof next.x === "number") {
+        next.x = Math.round(next.x * scaleX);
+      }
+      if (typeof next.y === "number") {
+        next.y = Math.round(next.y * scaleY);
+      }
+      if (typeof next.width === "number") {
+        next.width = Math.round(next.width * scaleX);
+      }
+      if (typeof next.height === "number") {
+        next.height = Math.round(next.height * scaleY);
+      }
+
+      if (next?.data && typeof next.data === "object") {
+        const data = { ...next.data };
+
+        if (typeof data.borderRadius === "number") {
+          data.borderRadius = Math.max(0, Math.round(data.borderRadius * averageScale));
+        }
+
+        if (typeof data.strokeWidth === "number") {
+          data.strokeWidth = Math.max(0, Math.round(data.strokeWidth * averageScale));
+        }
+
+        if (typeof data.fontSize === "number") {
+          data.fontSize = Math.max(1, Math.round(data.fontSize * scaleY));
+        }
+
+        if (typeof data.lineHeight === "number") {
+          data.lineHeight = Math.max(0.1, data.lineHeight * scaleY);
+        }
+
+        if (typeof data.letterSpacing === "number") {
+          data.letterSpacing = data.letterSpacing * scaleX;
+        }
+
+        if (typeof data.outlineWidth === "number") {
+          data.outlineWidth = Math.max(0, Math.round(data.outlineWidth * averageScale));
+        }
+
+        next.data = data;
+      }
+
+      return next;
+    });
+  }, []);
+
+  const loadDraftIntoEditor = useCallback(
+    (draftId, { notify = true } = {}) => {
+      if (!draftId) {
+        return false;
+      }
+
+      const draft = draftStorage.getDraftById(draftId);
+      if (!draft) {
+        if (notify) {
+          showToast("error", "Draft tidak ditemukan.");
+        }
+        return false;
+      }
+
+      const clonedElements = Array.isArray(draft.elements)
+        ? typeof structuredClone === "function"
+          ? structuredClone(draft.elements)
+          : JSON.parse(JSON.stringify(draft.elements))
+        : [];
+
+  const targetAspectRatio = deriveAspectRatioFromDraft(draft);
+      const targetDimensions = getCanvasDimensions(targetAspectRatio);
+      const sourceWidth = Number(draft.canvasWidth) || targetDimensions.width;
+      const sourceHeight = Number(draft.canvasHeight) || targetDimensions.height;
+      const scaledElements = scaleDraftElements(
+        clonedElements,
+        sourceWidth,
+        sourceHeight,
+        targetDimensions.width,
+        targetDimensions.height
+      );
+
+      setCanvasAspectRatio(targetAspectRatio);
+      setElements(scaledElements);
+      if (draft.canvasBackground) {
+        setCanvasBackground(draft.canvasBackground);
+      }
+      setActiveDraftId(draft.id);
+      clearSelection();
+      setActiveMobileProperty(null);
+
+      const effectiveSignature =
+        draft.signature ||
+        computeDraftSignature(
+          scaledElements,
+          draft.canvasBackground,
+          targetAspectRatio
+        );
+
+      safeStorage.setItem("activeDraftId", draft.id);
+      if (effectiveSignature) {
+        safeStorage.setItem("activeDraftSignature", effectiveSignature);
+      }
+
+      hasLoadedDraftRef.current = true;
+
+      if (notify) {
+        showToast("success", "Draft dimuat. Lanjutkan edit sesuai kebutuhan.");
+      }
+
+      return true;
+    },
+    [
+      clearSelection,
+      deriveAspectRatioFromDraft,
+      getCanvasDimensions,
+      scaleDraftElements,
+      setActiveDraftId,
+      setActiveMobileProperty,
+      setCanvasAspectRatio,
+      setCanvasBackground,
+      setElements,
+      showToast,
+    ]
+  );
+
+  useEffect(() => {
+    const draftId = location.state?.draftId;
+    if (!draftId) {
+      return;
+    }
+
+    loadDraftIntoEditor(draftId, { notify: true });
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location, navigate, loadDraftIntoEditor]);
+
+  useEffect(() => {
+    if (hasLoadedDraftRef.current) {
+      return;
+    }
+
+    const storedDraftId = safeStorage.getItem("activeDraftId");
+    if (!storedDraftId) {
+      return;
+    }
+
+    const loaded = loadDraftIntoEditor(storedDraftId, { notify: false });
+    if (loaded) {
+      const storedSignature = safeStorage.getItem("activeDraftSignature");
+      const draft = draftStorage.getDraftById(storedDraftId);
+      if (storedSignature && draft?.signature && storedSignature !== draft.signature) {
+        // Signature mismatch - update storage to reflect current draft state
+        safeStorage.setItem("activeDraftSignature", draft.signature);
+      }
+    }
+  }, [loadDraftIntoEditor]);
 
   useEffect(() => {
     if (!backgroundPhotoElement) {
@@ -362,35 +611,115 @@ export default function Create() {
 
     setSaving(true);
     try {
-      const canvasBitmap = await html2canvas(canvasNode, {
+      const { width: canvasWidth, height: canvasHeight } = getCanvasDimensions(canvasAspectRatio);
+      
+      console.log('🔍 [SAVE DRAFT DEBUG]');
+      console.log('  canvasAspectRatio state:', canvasAspectRatio);
+      console.log('  Calculated dimensions:', { canvasWidth, canvasHeight });
+      console.log('  Calculated aspect ratio:', canvasWidth / canvasHeight);
+      console.log('  Expected for 9:16:', 9/16, '=', 1080/1920);
+
+      let captureTarget = canvasNode;
+      let cleanupCapture = () => {};
+
+      const captureScale = canvasWidth <= 720 ? 2 : 1;
+
+      const captureCanvas = await html2canvas(captureTarget, {
         backgroundColor: canvasBackground,
         useCORS: true,
-        scale: 2,
+        scale: captureScale,
+        onclone: (documentClone) => {
+          const clonedCanvas = documentClone.getElementById("creator-canvas");
+          if (!clonedCanvas) {
+            return;
+          }
+          clonedCanvas.style.position = "static";
+          clonedCanvas.style.margin = "0";
+          clonedCanvas.style.transform = "none";
+          clonedCanvas.style.transformOrigin = "top left";
+          clonedCanvas.style.boxShadow = "none";
+          clonedCanvas.style.width = `${canvasWidth}px`;
+          clonedCanvas.style.height = `${canvasHeight}px`;
+        },
       });
 
-      const previewDataUrl = canvasBitmap.toDataURL("image/png");
-      const template = {
-        id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
-        savedAt: new Date().toISOString(),
-        canvasBackground,
-        elements,
-      };
+      let exportCanvas = captureCanvas;
+      const maxPreviewWidth = 640;
+      if (exportCanvas.width > maxPreviewWidth) {
+        const previewScale = maxPreviewWidth / exportCanvas.width;
+        const scaledCanvas = document.createElement("canvas");
+        scaledCanvas.width = Math.max(1, Math.round(exportCanvas.width * previewScale));
+        scaledCanvas.height = Math.max(1, Math.round(exportCanvas.height * previewScale));
+        const ctx = scaledCanvas.getContext("2d");
+        if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(exportCanvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
+          exportCanvas = scaledCanvas;
+        }
+      }
 
-      const storedTemplates = JSON.parse(
-        localStorage.getItem(TEMPLATE_STORAGE_KEY) || "[]"
+      let previewDataUrl = "";
+      try {
+        previewDataUrl = exportCanvas.toDataURL("image/webp", 0.82);
+      } catch (err) {
+        console.warn("⚠️ WebP preview unsupported, falling back to JPEG", err);
+      }
+
+      if (!previewDataUrl || !previewDataUrl.startsWith("data:image")) {
+        previewDataUrl = exportCanvas.toDataURL("image/jpeg", 0.85);
+      }
+      const serializedElements =
+        typeof structuredClone === "function"
+          ? structuredClone(elements)
+          : JSON.parse(JSON.stringify(elements));
+
+      const signature = computeDraftSignature(
+        serializedElements,
+        canvasBackground,
+        canvasAspectRatio
       );
 
-      const payload = [
-        ...storedTemplates,
-        { ...template, preview: previewDataUrl },
-      ];
-      localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(payload));
+      console.log('💾 [SAVING DRAFT] Final data being saved:', {
+        canvasWidth,
+        canvasHeight,
+        aspectRatio: canvasAspectRatio,
+        'Calculated ratio': canvasWidth / canvasHeight,
+        'Expected 9:16': 9/16,
+        'Match?': Math.abs((canvasWidth / canvasHeight) - (9/16)) < 0.001
+      });
 
-      showToast("success", TOAST_MESSAGES.saveSuccess);
+      const savedDraft = draftStorage.saveDraft({
+        id: activeDraftId || undefined,
+        canvasBackground,
+        canvasWidth,
+        canvasHeight,
+        aspectRatio: canvasAspectRatio,
+        elements: serializedElements,
+        preview: previewDataUrl,
+        signature,
+      });
+
+      setActiveDraftId(savedDraft.id);
+
+      const successTitle = savedDraft.title || "Draft";
+      showToast(
+        "success",
+        `${successTitle} tersimpan! Lihat di Profile → Drafts.`
+      );
     } catch (error) {
-      console.error("Failed to save template", error);
-      showToast("error", TOAST_MESSAGES.saveError);
+      console.error("Failed to save draft", error);
+      const message =
+        error?.message && /quota|persist/i.test(error.message)
+          ? "Penyimpanan penuh. Hapus draft lama terlebih dahulu."
+          : TOAST_MESSAGES.saveError;
+      showToast("error", message);
     } finally {
+      try {
+        cleanupCapture();
+      } catch (err) {
+        console.warn("⚠️ Failed to clean up capture node", err);
+      }
       setSaving(false);
     }
   };

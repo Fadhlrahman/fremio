@@ -420,29 +420,27 @@ function CanvasPreviewComponent({
   );
 
   const canvasDimensions = useMemo(() => {
-    const baseWidth = 480;
-    let width = baseWidth;
-    let height;
+    const defaultDimensions = { width: CANVAS_WIDTH, height: CANVAS_HEIGHT };
 
-    switch (aspectRatio) {
-      case "9:16":
-        width = baseWidth;
-        height = Math.round(baseWidth * (16 / 9));
-        break;
-      case "4:5":
-        width = baseWidth;
-        height = Math.round(baseWidth * (5 / 4));
-        break;
-      case "2:3":
-        width = baseWidth;
-        height = Math.round(baseWidth * (3 / 2));
-        break;
-      default:
-        width = CANVAS_WIDTH;
-        height = CANVAS_HEIGHT;
+    if (typeof aspectRatio !== "string") {
+      return defaultDimensions;
     }
 
-    return { width, height };
+    const [rawWidth, rawHeight] = aspectRatio.split(":").map(Number);
+    const ratioWidth = Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : null;
+    const ratioHeight = Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : null;
+
+    if (!ratioWidth || !ratioHeight) {
+      return defaultDimensions;
+    }
+
+    if (ratioHeight >= ratioWidth) {
+      const height = Math.round((CANVAS_WIDTH * ratioHeight) / ratioWidth);
+      return { width: CANVAS_WIDTH, height };
+    }
+
+    const width = Math.round((CANVAS_HEIGHT * ratioWidth) / ratioHeight);
+    return { width, height: CANVAS_HEIGHT };
   }, [aspectRatio]);
 
   const { maxWidth, maxHeight } = useMemo(() => {

@@ -1,0 +1,28 @@
+.drafts-page {
+  padding: 48px 0;
+  background: #f9fafb;
+  min-height: 100vh;
+}
+
+.drafts-shell {
+  display: flex;
+  /* Drafts page styles are primarily handled via utility classes.
+     This file is kept for future overrides if needed. */
+
+  .drafts-header {
+    gap: 12px;
+  }
+
+  .drafts-header__actions {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .draft-frame-card__actions {
+    flex-direction: column;
+  }
+
+  .draft-frame-card__button {
+    width: 100%;
+  }
+}

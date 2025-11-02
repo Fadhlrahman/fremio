@@ -65,6 +65,9 @@ export default function Profile() {
               <Link className="nav-item" to="/settings">
                 Settings
               </Link>
+              <Link className="nav-item" to="/drafts">
+                Drafts
+              </Link>
             </nav>
             <button className="nav-logout" onClick={handleLogout}>
               Logout

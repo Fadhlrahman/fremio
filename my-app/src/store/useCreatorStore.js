@@ -8,6 +8,16 @@ import {
 
 const DEFAULT_BACKGROUND = '#f7f1ed';
 
+const REFERENCE_CANVAS_WIDTH = 480;
+const REFERENCE_CANVAS_HEIGHT = 853;
+const WIDTH_SCALE = CANVAS_WIDTH / REFERENCE_CANVAS_WIDTH;
+const HEIGHT_SCALE = CANVAS_HEIGHT / REFERENCE_CANVAS_HEIGHT;
+const AVERAGE_SCALE = (WIDTH_SCALE + HEIGHT_SCALE) / 2;
+
+const scaleWidthValue = (value) => Math.round(value * WIDTH_SCALE);
+const scaleHeightValue = (value) => Math.round(value * HEIGHT_SCALE);
+const scaleUniformValue = (value) => Math.round(value * AVERAGE_SCALE);
+
 const generateId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -18,10 +28,10 @@ const generateId = () => {
 const baseElement = (type, overrides = {}) => ({
   id: generateId(),
   type,
-  x: 80,
-  y: 80,
-  width: 160,
-  height: 160,
+  x: scaleWidthValue(80),
+  y: scaleHeightValue(80),
+  width: scaleWidthValue(160),
+  height: scaleHeightValue(160),
   rotation: 0,
   zIndex: 1,
   isLocked: false,
@@ -33,11 +43,11 @@ const defaultPropsByType = (type) => {
   switch (type) {
     case 'photo':
       return {
-        width: 220,
-        height: 280,
+        width: scaleWidthValue(220),
+        height: scaleHeightValue(280),
         data: {
           fill: '#d1e3f0',
-          borderRadius: 24,
+          borderRadius: scaleUniformValue(24),
           stroke: null,
           strokeWidth: 0,
           label: 'Foto'
@@ -45,11 +55,11 @@ const defaultPropsByType = (type) => {
       };
     case 'text':
       return {
-        width: 320,
-        height: 90,
+        width: scaleWidthValue(320),
+        height: scaleHeightValue(90),
         data: {
           text: 'Judul Baru',
-          fontSize: 28,
+          fontSize: scaleUniformValue(28),
           fontFamily: 'Inter',
           color: '#1f2933',
           align: 'center',
@@ -58,11 +68,11 @@ const defaultPropsByType = (type) => {
       };
     case 'shape':
       return {
-        width: 200,
-        height: 200,
+        width: scaleWidthValue(200),
+        height: scaleHeightValue(200),
         data: {
           fill: '#f4d3c2',
-          borderRadius: 32,
+          borderRadius: scaleUniformValue(32),
           stroke: null,
           strokeWidth: 0
         }
@@ -76,7 +86,7 @@ const defaultPropsByType = (type) => {
           objectFit: 'contain',
           label: 'Unggahan',
           fill: '#d1e3f0',
-          borderRadius: 24,
+          borderRadius: scaleUniformValue(24),
           stroke: null,
           strokeWidth: 0
         }

@@ -5,6 +5,8 @@ import { createSampleData, clearTestData } from '../utils/testData.js';
 import { reloadFrameConfig as reloadFrameConfigFromManager } from '../config/frameConfigManager.js';
 import { createFremioSeriesTestData } from '../utils/fremioTestData.js';
 import safeStorage from '../utils/safeStorage.js';
+import draftStorage from '../utils/draftStorage.js';
+import { buildFrameConfigFromDraft } from '../utils/draftHelpers.js';
 
 // FremioSeries Imports
 import FremioSeriesBlue2 from '../assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png';
@@ -76,6 +78,96 @@ export default function Editor() {
     return frameMap[frameName] || null;
   };
 
+  // Helper: Check if frame ID is a custom frame
+  const isCustomFrameId = (frameId) => {
+    return typeof frameId === 'string' && frameId.startsWith('custom-');
+  };
+
+  // Helper: Resolve frame ID from storage or fallback
+  const resolveStoredFrameId = () => {
+    const stored = safeStorage.getItem('selectedFrame');
+    if (stored) return stored;
+
+    const frameConfig = safeStorage.getJSON('frameConfig');
+    if (frameConfig?.id) return frameConfig.id;
+
+    const activeDraftId = safeStorage.getItem('activeDraftId');
+    if (activeDraftId) return `custom-${activeDraftId}`;
+
+    const providerConfig = frameProvider?.getCurrentConfig?.();
+    if (providerConfig?.id) return providerConfig.id;
+
+    return null;
+  };
+
+  // Helper: Resolve frame config from various sources
+  const resolveFrameConfig = (frameId) => {
+    // Try cached config first
+    const cachedConfig = safeStorage.getJSON('frameConfig');
+    if (cachedConfig?.id === frameId) {
+      console.log('✅ Using cached frameConfig for:', frameId);
+      return cachedConfig;
+    }
+
+    // Try frameProvider
+    const providerConfig = frameProvider?.getCurrentConfig?.();
+    if (providerConfig?.id === frameId) {
+      console.log('✅ Using frameProvider config for:', frameId);
+      return providerConfig;
+    }
+
+    // For custom frames, try rebuilding from draft
+    if (isCustomFrameId(frameId)) {
+      const draftId = frameId.replace('custom-', '');
+      const draft = draftStorage?.getDraftById?.(draftId);
+      if (draft) {
+        console.log('✅ Rebuilding config from draft:', draftId);
+        const rebuilt = buildFrameConfigFromDraft(draft);
+        if (rebuilt) {
+          safeStorage.setJSON('frameConfig', rebuilt);
+          return rebuilt;
+        }
+      }
+    }
+
+    return null;
+  };
+
+  // Helper: Get frame image source (for custom frames, use base64)
+  const resolveFrameImage = (frameId, frameConfig) => {
+    // Try built-in frame asset first
+    const builtInAsset = getFrameAsset(frameId);
+    if (builtInAsset) {
+      console.log('✅ Using built-in frame asset for:', frameId);
+      return builtInAsset;
+    }
+
+    // For custom frames, try multiple sources
+    if (isCustomFrameId(frameId)) {
+      if (frameConfig?.frameImage) {
+        console.log('✅ Using custom frame base64 from config.frameImage for:', frameId);
+        return frameConfig.frameImage;
+      }
+      
+      if (frameConfig?.preview) {
+        console.log('✅ Using custom frame base64 from config.preview for:', frameId);
+        return frameConfig.preview;
+      }
+      
+      // If not in config, try loading from draft directly
+      const draftId = frameId.replace('custom-', '');
+      const draft = draftStorage?.getDraftById?.(draftId);
+      if (draft?.preview) {
+        console.log('✅ Using custom frame base64 from draft.preview for:', frameId);
+        return draft.preview;
+      }
+      
+      console.error('❌ No frameImage found in config or draft for custom frame:', frameId);
+    }
+
+    return null;
+  };
+
   // Load photos and frame data from localStorage when component mounts
   useEffect(() => {
     console.log('🔄 Editor useEffect started - loading data...');
@@ -90,110 +182,82 @@ export default function Editor() {
       console.log('⚠️ No captured photos found in localStorage');
     }
 
-    // Get frame data from localStorage (new format with frameConfig)
-    const frameName = safeStorage.getItem('selectedFrame');
-    const frameConfigData = safeStorage.getJSON('frameConfig');
-    
-    console.log('🔍 Loading frame data:', { frameName, frameConfigData: !!frameConfigData });
-    
-    if (frameName && frameConfigData) {
-      try {
-        const frameConfig = frameConfigData;
-        
-        // Get the imported frame asset
-        const frameAsset = getFrameAsset(frameName);
-        
-        console.log('🔍 Frame loading results:', {
-          frameName,
-          frameAsset: !!frameAsset,
-          frameConfig: !!frameConfig,
-          slotsCount: frameConfig?.slots?.length
-        });
-        
-        if (frameAsset) {
-          setSelectedFrame(frameAsset);
-          setFrameSlots(frameConfig.slots); // Extract slots from frameConfig
-          setFrameId(frameName);
-          setDuplicatePhotos(!!frameConfig.duplicatePhotos);
-          // Initialize slotPhotos for duplicate-photo frames so each slot can be independently swapped
-                if (frameConfig.duplicatePhotos && Array.isArray(frameConfig.slots)) {
-                  const initial = {};
-                  frameConfig.slots.forEach((slot, idx) => {
-                    const pIdx = slot.photoIndex !== undefined ? slot.photoIndex : idx;
-                    initial[idx] = (Array.isArray(photos) && photos[pIdx]) ? photos[pIdx] : null;
-                  });
+    // Resolve frame ID from multiple sources
+    const frameId = resolveStoredFrameId();
+    console.log('🔍 Resolved frame ID:', frameId);
 
-                  const storageKey = getSlotPhotosStorageKey(frameName);
-                  let normalized = initial;
-                  if (storageKey) {
-                    const stored = safeStorage.getJSON(storageKey);
-                    if (stored) {
-                      const merged = {};
-                      frameConfig.slots.forEach((_, idx) => {
-                        if (stored && Object.prototype.hasOwnProperty.call(stored, idx)) {
-                          merged[idx] = stored[idx];
-                        } else {
-                          merged[idx] = initial[idx] || null;
-                        }
-                      });
-                      normalized = merged;
-                    }
-                  }
-                  setSlotPhotos(normalized);
-                  persistSlotPhotos(frameName, normalized);
-                }
-          
-          console.log('✅ Loaded frame (new format):', frameName);
-          console.log('✅ Frame asset:', frameAsset);
-          console.log('✅ Loaded slots:', frameConfig.slots);
-        } else {
-          console.error('❌ Frame asset not found for:', frameName);
-        }
-      } catch (error) {
-        console.error('❌ Error parsing frameConfig:', error);
-      }
-    } else {
-      // Fallback: try old format
-    const legacyFrameData = safeStorage.getItem('selectedFrame');
-    const legacySlotsData = safeStorage.getItem('frameSlots');
-      
-      // Try provider fallback first if available
-      if (frameProvider?.getCurrentConfig) {
-        const providerCfg = frameProvider.getCurrentConfig();
-        if (providerCfg?.id === frameName) {
-          const frameAsset = getFrameAsset(frameName);
-          if (frameAsset) {
-            setSelectedFrame(frameAsset);
-            setFrameSlots(providerCfg.slots);
-            setFrameId(frameName);
-            setDuplicatePhotos(!!providerCfg.duplicatePhotos);
-            console.log('✅ Loaded frame via frameProvider fallback:', frameName);
-            return;
-          }
-        }
-      }
-      
-      if (legacyFrameData && legacySlotsData) {
-        // Extract frame name from legacy path
-    const frameName = legacyFrameData.split('/').pop().replace('.png', '');
-    const frameAsset = getFrameAsset(frameName);
-        
-        if (frameAsset) {
-          setSelectedFrame(frameAsset);
-          try {
-            setFrameSlots(JSON.parse(legacySlotsData));
-          } catch (error) {
-            console.warn('⚠️ Failed to parse legacy slots data', error);
-          }
-          setFrameId(frameName);
-          console.log('✅ Loaded frame (legacy format):', frameName);
-          console.log('✅ Frame asset:', frameAsset);
-          console.log('✅ Loaded slots (legacy format):', legacySlotsData);
-        }
-      } else {
-        console.log('❌ No frame data found in localStorage (both formats)');
-      }
+    if (!frameId) {
+      console.error('❌ No frame ID could be resolved');
+      return;
     }
+
+    // Resolve frame config
+    const frameConfig = resolveFrameConfig(frameId);
+    console.log('🔍 Resolved frame config:', {
+      frameId,
+      hasConfig: !!frameConfig,
+      slotsCount: frameConfig?.slots?.length,
+      isCustom: isCustomFrameId(frameId)
+    });
+
+    if (!frameConfig) {
+      console.error('❌ No frame config could be resolved for:', frameId);
+      return;
+    }
+
+    // Resolve frame image
+    const frameImage = resolveFrameImage(frameId, frameConfig);
+    console.log('🔍 Resolved frame image:', {
+      frameId,
+      hasImage: !!frameImage,
+      imageType: frameImage?.startsWith('data:') ? 'base64' : 'imported'
+    });
+
+    if (!frameImage) {
+      console.error('❌ No frame image could be resolved for:', frameId);
+      return;
+    }
+
+    // Set all frame state
+    setSelectedFrame(frameImage);
+    setFrameSlots(frameConfig.slots);
+    setFrameId(frameId);
+    setDuplicatePhotos(!!frameConfig.duplicatePhotos);
+
+    // Initialize slotPhotos for duplicate-photo frames
+    if (frameConfig.duplicatePhotos && Array.isArray(frameConfig.slots)) {
+      const initial = {};
+      frameConfig.slots.forEach((slot, idx) => {
+        const pIdx = slot.photoIndex !== undefined ? slot.photoIndex : idx;
+        initial[idx] = (Array.isArray(capturedPhotos) && capturedPhotos[pIdx]) ? capturedPhotos[pIdx] : null;
+      });
+
+      const storageKey = getSlotPhotosStorageKey(frameId);
+      let normalized = initial;
+      if (storageKey) {
+        const stored = safeStorage.getJSON(storageKey);
+        if (stored) {
+          const merged = {};
+          frameConfig.slots.forEach((_, idx) => {
+            if (stored && Object.prototype.hasOwnProperty.call(stored, idx)) {
+              merged[idx] = stored[idx];
+            } else {
+              merged[idx] = initial[idx] || null;
+            }
+          });
+          normalized = merged;
+        }
+      }
+      setSlotPhotos(normalized);
+      persistSlotPhotos(frameId, normalized);
+    }
+
+    console.log('✅ Editor: Frame loaded successfully:', {
+      frameId,
+      slotsCount: frameConfig.slots?.length,
+      duplicatePhotos: frameConfig.duplicatePhotos,
+      isCustom: isCustomFrameId(frameId)
+    });
   }, []);
 
   // Ensure slotPhotos are initialized once photos and frameSlots are available (for duplicate-photo frames)

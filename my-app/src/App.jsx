@@ -17,6 +17,7 @@ import Register from "./pages/Register.jsx";
 import Profile from "./pages/Profile.jsx";
 import Settings from "./pages/Settings.jsx";
 import Wishlist from "./pages/Wishlist.jsx";
+import Drafts from "./pages/Drafts.jsx";
 import "./App.css";
 
 export default function App() {
@@ -54,6 +55,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Profile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="drafts"
+            element={
+              <ProtectedRoute>
+                <Drafts />
               </ProtectedRoute>
             }
           />

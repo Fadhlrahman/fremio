@@ -757,19 +757,39 @@ export default function TakeMoment() {
   useEffect(() => {
     clearCapturedMedia();
 
-    frameProvider
-      .loadFrameFromStorage()
-      .catch((error) => {
-        console.warn("⚠️ Failed to load frame from storage", error);
-      })
-      .finally(() => {
-        const frameConfig = frameProvider.getCurrentConfig();
-        if (frameConfig?.maxCaptures) {
-          setMaxCaptures(frameConfig.maxCaptures);
-        } else {
-          setMaxCaptures(4);
-        }
-      });
+    // CRITICAL: Check if frame is already loaded in memory (e.g., from Drafts activation)
+    const existingConfig = frameProvider.getCurrentConfig();
+    console.log('🔍 TakeMoment useEffect - checking existing frame:', {
+      hasExistingConfig: !!existingConfig,
+      existingFrameId: existingConfig?.id,
+      isCustom: existingConfig?.id?.startsWith('custom-')
+    });
+
+    if (existingConfig?.id) {
+      // Frame already set (e.g., from Drafts), don't reload
+      console.log('✅ Using existing frame config:', existingConfig.id);
+      if (existingConfig?.maxCaptures) {
+        setMaxCaptures(existingConfig.maxCaptures);
+      } else {
+        setMaxCaptures(4);
+      }
+    } else {
+      // No frame in memory, load from storage
+      console.log('📁 No frame in memory, loading from storage...');
+      frameProvider
+        .loadFrameFromStorage()
+        .catch((error) => {
+          console.warn("⚠️ Failed to load frame from storage", error);
+        })
+        .finally(() => {
+          const frameConfig = frameProvider.getCurrentConfig();
+          if (frameConfig?.maxCaptures) {
+            setMaxCaptures(frameConfig.maxCaptures);
+          } else {
+            setMaxCaptures(4);
+          }
+        });
+    }
   }, [clearCapturedMedia]);
 
   useEffect(() => {
@@ -2071,6 +2091,12 @@ export default function TakeMoment() {
     }
 
     const frameConfig = frameProvider.getCurrentConfig();
+    console.log("🎯 Frame config before editor navigation:", {
+      fromProvider: frameConfig?.id || "null",
+      fromStorage: safeStorage.getItem("selectedFrame"),
+      hasSlots: frameConfig?.slots?.length || 0,
+    });
+    
     const sanitizeVideoForPayload = (video, index) => {
       if (!video || !video.dataUrl) return null;
       return {
@@ -2143,10 +2169,18 @@ export default function TakeMoment() {
         safeStorage.setJSON("capturedVideos", basePayload.videos);
       }
 
-      if (frameConfig) {
+      // Save frame config - with fallback to stored config if frameProvider failed
+      let configToSave = frameConfig;
+      if (!configToSave || !configToSave.id) {
+        console.warn("⚠️ frameProvider config is empty, trying stored config...");
+        configToSave = safeStorage.getJSON("frameConfig");
+      }
+      
+      if (configToSave && configToSave.id) {
         try {
-          safeStorage.setItem("selectedFrame", frameConfig.id);
-          safeStorage.setJSON("frameConfig", frameConfig);
+          console.log("💾 Saving frame config before editor:", configToSave.id);
+          safeStorage.setItem("selectedFrame", configToSave.id);
+          safeStorage.setJSON("frameConfig", configToSave);
         } catch (error) {
           console.error(
             "❌ QuotaExceededError when saving frame config",
@@ -2156,6 +2190,8 @@ export default function TakeMoment() {
             "Warning: Could not save frame configuration due to storage limits."
           );
         }
+      } else {
+        console.error("❌ No valid frame config to save!");
       }
     } catch (error) {
       console.error("❌ Gagal menyimpan data sebelum masuk editor", error);
@@ -2173,6 +2209,25 @@ export default function TakeMoment() {
     } catch (error) {
       console.warn("⚠️ Failed to set editor auto-select flag", error);
     }
+    
+    // CRITICAL DEBUG: Log everything before navigating to editor
+    console.log('🎯 TAKEMOMENT: About to navigate to /edit-photo');
+    console.log('📊 Frame data verification:');
+    console.log('  - frameProvider.getCurrentFrameName():', frameProvider.getCurrentFrameName());
+    console.log('  - frameProvider.getCurrentConfig():', frameProvider.getCurrentConfig());
+    console.log('  - localStorage selectedFrame:', safeStorage.getItem('selectedFrame'));
+    console.log('  - localStorage frameConfig:', safeStorage.getJSON('frameConfig'));
+    console.log('  - localStorage activeDraftId:', safeStorage.getItem('activeDraftId'));
+    const storedConfig = safeStorage.getJSON('frameConfig');
+    if (storedConfig) {
+      console.log('  - Stored config details:');
+      console.log('    - ID:', storedConfig.id);
+      console.log('    - Slots:', storedConfig.slots?.length);
+      console.log('    - Max captures:', storedConfig.maxCaptures);
+      console.log('    - Has frameImage:', !!storedConfig.frameImage);
+      console.log('    - Is custom:', storedConfig.isCustom);
+    }
+    
     navigate("/edit-photo");
   }, [
     capturedPhotos,

@@ -11,6 +11,8 @@ import { getFrameConfig, FRAME_CONFIGS } from "../config/frameConfigs.js";
 import { reloadFrameConfig as reloadFrameConfigFromManager } from "../config/frameConfigManager.js";
 import frameProvider from "../utils/frameProvider.js";
 import safeStorage from "../utils/safeStorage.js";
+import draftStorage from "../utils/draftStorage.js";
+import { buildFrameConfigFromDraft } from "../utils/draftHelpers.js";
 import QRCode from "qrcode";
 import { convertBlobToMp4, ensureFfmpeg } from "../utils/videoTranscoder.js";
 import swapIcon from "../assets/swap.png";
@@ -1739,6 +1741,11 @@ export default function EditPhoto() {
 
   // Frame image mapping
   const getFrameImage = (frameId) => {
+    // Don't return fallback for custom frames - let resolveFrameImage handle it
+    if (frameId?.startsWith('custom-')) {
+      return null;
+    }
+    
     const frameMap = {
       "FremioSeries-blue-2": FremioSeriesBlue2,
       "FremioSeries-babyblue-3": FremioSeriesBabyblue3,
@@ -1761,8 +1768,174 @@ export default function EditPhoto() {
   "InspiredBy-MenariDenganBayangan": InspiredByMenariDenganBayangan,
   "InspiredBy-PSILOVEYOU": InspiredByPSILOVEYOU,
     };
-    return frameMap[frameId] || FremioSeriesBlue2;
+    
+    // Return null if not found (don't use fallback)
+    return frameMap[frameId] || null;
   };
+
+  const resolveFrameImage = useCallback((frameId, config) => {
+    console.log('🖼️ ========== RESOLVE FRAME IMAGE ==========');
+    console.log('  Input frameId:', frameId);
+    console.log('  Input config ID:', config?.id);
+    console.log('  Is custom frame:', frameId?.startsWith('custom-'));
+    
+    // Try built-in frame asset first
+    const builtInImage = getFrameImage(frameId);
+    if (builtInImage) {
+      console.log('✅ Using built-in frame image for:', frameId);
+      return builtInImage;
+    }
+    console.log('  Built-in frame not found');
+
+    // For custom frames, try frameImage from config
+    if (frameId?.startsWith('custom-')) {
+      console.log('  🔍 Checking config.frameImage:', !!config?.frameImage);
+      if (config?.frameImage) {
+        console.log('✅ Using custom frame base64 from config.frameImage');
+        console.log('  Image size:', config.frameImage.length, 'chars');
+        return config.frameImage;
+      }
+      
+      console.log('  🔍 Checking config.preview:', !!config?.preview);
+      if (config?.preview) {
+        console.log('✅ Using custom frame base64 from config.preview');
+        console.log('  Image size:', config.preview.length, 'chars');
+        return config.preview;
+      }
+      
+      // If not in config, try loading from draft directly
+      const draftId = frameId.replace('custom-', '');
+      console.log('  🔍 Loading draft:', draftId);
+      const draft = draftStorage?.getDraftById?.(draftId);
+      console.log('  Draft found:', !!draft);
+      console.log('  Draft.preview exists:', !!draft?.preview);
+      
+      if (draft?.preview) {
+        console.log('✅ Using custom frame base64 from draft.preview');
+        console.log('  Image size:', draft.preview.length, 'chars');
+        return draft.preview;
+      }
+      
+      console.error('❌ No frameImage found for custom frame:', frameId);
+      console.error('  Config keys:', config ? Object.keys(config) : 'null');
+      console.error('  Draft keys:', draft ? Object.keys(draft) : 'null');
+    }
+
+    // Fallback to other config properties
+    if (config?.imagePath) {
+      console.log('⚠️ Using config.imagePath as fallback');
+      return config.imagePath;
+    }
+
+    console.error('❌ ========== NO FRAME IMAGE FOUND ==========');
+    return null;
+  }, []);
+
+  const resolveStoredFrameId = useCallback(() => {
+    let frameId = safeStorage.getItem("selectedFrame");
+    if (frameId) {
+      return frameId;
+    }
+
+    const cachedConfig = safeStorage.getJSON("frameConfig");
+    if (cachedConfig?.id) {
+      return cachedConfig.id;
+    }
+
+    const draftId = safeStorage.getItem("activeDraftId");
+    if (draftId) {
+      return `custom-${draftId}`;
+    }
+
+    if (typeof frameProvider?.getCurrentConfig === "function") {
+      const providerConfig = frameProvider.getCurrentConfig();
+      if (providerConfig?.id) {
+        return providerConfig.id;
+      }
+    }
+
+    return "FremioSeries-blue-2";
+  }, []);
+
+  const resolveFrameConfig = useCallback(
+    (frameId) => {
+      console.log('⚙️ ========== RESOLVE FRAME CONFIG ==========');
+      console.log('  Input frameId:', frameId);
+      
+      if (!frameId) {
+        console.error('  ❌ No frameId provided');
+        return null;
+      }
+
+      let config = getFrameConfig(frameId);
+      console.log('  getFrameConfig result:', !!config);
+
+      if (!config) {
+        const storedConfig = safeStorage.getJSON("frameConfig");
+        console.log('  Checking stored config:', {
+          exists: !!storedConfig,
+          id: storedConfig?.id,
+          matchesFrameId: storedConfig?.id === frameId,
+          hasSlots: !!storedConfig?.slots?.length
+        });
+        
+        if (storedConfig?.id === frameId && storedConfig?.slots?.length) {
+          config = storedConfig;
+          console.log("✅ Using stored frameConfig from localStorage");
+        }
+      }
+
+      if (!config && frameProvider?.getCurrentConfig) {
+        const providerConfig = frameProvider.getCurrentConfig();
+        console.log('  Checking frameProvider config:', {
+          exists: !!providerConfig,
+          id: providerConfig?.id,
+          matchesFrameId: providerConfig?.id === frameId
+        });
+        
+        if (providerConfig?.id === frameId) {
+          config = providerConfig;
+          console.log("✅ Using frameProvider currentConfig");
+        }
+      }
+
+      if (!config && frameId.startsWith("custom-")) {
+        const storedDraftId = safeStorage.getItem("activeDraftId") || frameId.slice("custom-".length);
+        console.log('  Trying to rebuild from draft:', storedDraftId);
+        const draft = storedDraftId ? draftStorage.getDraftById(storedDraftId) : null;
+        console.log('  Draft found:', !!draft);
+        
+        if (draft) {
+          try {
+            const rebuilt = buildFrameConfigFromDraft(draft);
+            config = rebuilt;
+            safeStorage.setItem("selectedFrame", rebuilt.id);
+            safeStorage.setJSON("frameConfig", rebuilt);
+            console.log("✅ Rebuilt custom frame config from draft");
+            console.log('  Rebuilt config:', {
+              id: rebuilt.id,
+              slots: rebuilt.slots?.length,
+              hasFrameImage: !!rebuilt.frameImage,
+              hasPreview: !!rebuilt.preview
+            });
+          } catch (error) {
+            console.error("❌ Failed to rebuild frame config from draft", error);
+          }
+        }
+      }
+
+      console.log('⚙️ Final config result:', {
+        found: !!config,
+        id: config?.id,
+        slots: config?.slots?.length,
+        hasFrameImage: !!config?.frameImage,
+        hasPreview: !!config?.preview
+      });
+      
+      return config || null;
+    },
+    []
+  );
 
   // SMART ZOOM DEFAULT CALCULATION - SCALABLE FOR ALL PHOTO SIZES
   const calculateSmartDefaultScale = (photoImg, slotIndex, frameConfig) => {
@@ -1857,12 +2030,28 @@ export default function EditPhoto() {
 
   // Load photos and frame config on mount
   useEffect(() => {
+    console.log("🎯 ========== EDITPHOTO MOUNTING ==========");
+    console.log("📊 Initial storage state:");
+    console.log("  - selectedFrame:", safeStorage.getItem("selectedFrame"));
+    console.log("  - frameConfig:", safeStorage.getJSON("frameConfig"));
+    console.log("  - activeDraftId:", safeStorage.getItem("activeDraftId"));
+    console.log("  - frameProvider.getCurrentFrameName():", frameProvider.getCurrentFrameName());
+    console.log("  - frameProvider.getCurrentConfig():", frameProvider.getCurrentConfig());
+    
     console.log("🔄 EditPhoto component mounting...");
 
     // Load selected frame from localStorage first
-    const frameFromStorage =
-      safeStorage.getItem("selectedFrame") || "FremioSeries-blue-2";
+    const frameFromStorage = resolveStoredFrameId();
     console.log("🖼️ Frame from localStorage:", frameFromStorage);
+    console.log("  - Is custom frame:", frameFromStorage?.startsWith('custom-'));
+
+    const resolvedConfig = resolveFrameConfig(frameFromStorage);
+    console.log("📦 Resolved config:");
+    console.log("  - Config ID:", resolvedConfig?.id);
+    console.log("  - Slots count:", resolvedConfig?.slots?.length);
+    console.log("  - Max captures:", resolvedConfig?.maxCaptures);
+    console.log("  - Has frameImage:", !!resolvedConfig?.frameImage);
+    console.log("  - Is custom:", resolvedConfig?.isCustom);
 
     // Load photos from localStorage
     const savedPhotos = safeStorage.getItem("capturedPhotos");
@@ -1906,7 +2095,7 @@ export default function EditPhoto() {
         const transforms = {};
 
         // Get frame config to calculate proper default scales
-        const frameConfigForDefaults = getFrameConfig(frameFromStorage);
+    const frameConfigForDefaults = resolvedConfig;
 
         // For frames dengan duplicate photos, kita butuh transform untuk SEMUA slot
         if (
@@ -2011,41 +2200,28 @@ export default function EditPhoto() {
     }
 
     setSelectedFrame(frameFromStorage);
-    console.log("🖼️ Loading frame:", frameFromStorage);
+    console.log("🖼️ Setting selected frame:", frameFromStorage);
 
-    // Try primary config source
-    let config = getFrameConfig(frameFromStorage);
-    console.log("⚙️ Frame config result (primary):", config);
-
-    // Fallback 1: use stored frameConfig JSON
-    if (!config) {
-      const storedConfigJson = safeStorage.getItem("frameConfig");
-      if (storedConfigJson) {
-        try {
-          const parsed = JSON.parse(storedConfigJson);
-          if (parsed?.id === frameFromStorage && parsed?.slots?.length) {
-            config = parsed;
-            console.log("🧰 Using stored frameConfig from localStorage");
-          }
-        } catch (e) {
-          console.warn("⚠️ Could not parse stored frameConfig JSON", e);
-        }
-      }
-    }
-
-    // Fallback 2: ask frameProvider
-    if (!config && frameProvider?.getCurrentConfig) {
-      const providerCfg = frameProvider.getCurrentConfig();
-      if (providerCfg?.id === frameFromStorage) {
-        config = providerCfg;
-        console.log("🧠 Using frameProvider currentConfig");
-      }
-    }
+  const config = resolvedConfig;
 
     if (config) {
+      console.log("📦 Config found, resolving frame image...");
       setFrameConfig(config);
-      setFrameImage(getFrameImage(frameFromStorage));
-      console.log("✅ Frame config loaded (final):", config);
+      
+      const resolvedFrameImage = resolveFrameImage(frameFromStorage, config);
+      console.log("🎨 Resolved frame image:", {
+        exists: !!resolvedFrameImage,
+        type: resolvedFrameImage?.startsWith('data:') ? 'base64' : 'path',
+        length: resolvedFrameImage?.length
+      });
+      
+      setFrameImage(resolvedFrameImage);
+      console.log("✅ Frame image SET to state");
+      console.log("✅ Frame config loaded (final):", {
+        id: config.id,
+        slots: config.slots?.length,
+        maxCaptures: config.maxCaptures
+      });
 
       // Extra verification for Testframe3
       if (frameFromStorage === "Testframe3") {
@@ -2055,7 +2231,7 @@ export default function EditPhoto() {
         console.log("  - Config ID:", config.id);
         console.log("  - Max captures:", config.maxCaptures);
         console.log("  - Slots count:", config.slots?.length);
-        console.log("  - Frame image:", getFrameImage(frameFromStorage));
+        console.log("  - Frame image:", resolvedFrameImage);
       }
     } else {
       console.error(
@@ -2064,7 +2240,7 @@ export default function EditPhoto() {
       );
       console.error("  - Available configs:", Object.keys(FRAME_CONFIGS || {}));
     }
-  }, []);
+  }, [resolveFrameConfig, resolveFrameImage, resolveStoredFrameId]);
 
   useEffect(() => {
     if (!frameConfig?.slots) return;
@@ -2178,6 +2354,14 @@ export default function EditPhoto() {
       const currentFrameFromProvider = frameProvider.currentFrame;
       const currentFrameFromStorage = safeStorage.getItem("selectedFrame");
 
+      console.log('🔍 Frame change check (polling):', {
+        selectedFrame,
+        currentFrameFromProvider,
+        currentFrameFromStorage,
+        providerDifferent: currentFrameFromProvider !== selectedFrame,
+        storageDifferent: currentFrameFromStorage !== selectedFrame
+      });
+
       if (
         currentFrameFromProvider &&
         currentFrameFromProvider !== selectedFrame
@@ -2186,13 +2370,15 @@ export default function EditPhoto() {
           "🔄 Frame changed via frameProvider:",
           currentFrameFromProvider
         );
+        console.log("  Previous selectedFrame:", selectedFrame);
         setSelectedFrame(currentFrameFromProvider);
 
-        const config = getFrameConfig(currentFrameFromProvider);
+        const config = resolveFrameConfig(currentFrameFromProvider);
         if (config) {
           setFrameConfig(config);
-          setFrameImage(getFrameImage(currentFrameFromProvider));
-          console.log("✅ Updated frame config:", config);
+          const newFrameImage = resolveFrameImage(currentFrameFromProvider, config);
+          setFrameImage(newFrameImage);
+          console.log("✅ Updated frame config and image from frameProvider");
         }
       } else if (
         currentFrameFromStorage &&
@@ -2202,13 +2388,15 @@ export default function EditPhoto() {
           "🔄 Frame changed via localStorage:",
           currentFrameFromStorage
         );
+        console.log("  Previous selectedFrame:", selectedFrame);
         setSelectedFrame(currentFrameFromStorage);
 
-        const config = getFrameConfig(currentFrameFromStorage);
+        const config = resolveFrameConfig(currentFrameFromStorage);
         if (config) {
           setFrameConfig(config);
-          setFrameImage(getFrameImage(currentFrameFromStorage));
-          console.log("✅ Updated frame config:", config);
+          const newFrameImage = resolveFrameImage(currentFrameFromStorage, config);
+          setFrameImage(newFrameImage);
+          console.log("✅ Updated frame config and image from localStorage");
         }
       }
     };
@@ -2220,7 +2408,7 @@ export default function EditPhoto() {
     const interval = setInterval(checkFrameChange, 500);
 
     return () => clearInterval(interval);
-  }, [selectedFrame]);
+  }, [resolveFrameConfig, resolveFrameImage, selectedFrame]);
 
   const performSlotSwap = async (sourceSlotIndex, targetSlotIndex) => {
     if (sourceSlotIndex === targetSlotIndex) {
@@ -4440,12 +4628,12 @@ export default function EditPhoto() {
     setIsReloading(true);
 
     try {
-      const frameId = safeStorage.getItem("selectedFrame") || "Testframe1";
+  const frameId = resolveStoredFrameId();
       console.log("🔄 Attempting to reload config via manager for:", frameId);
       const newConfig = await reloadFrameConfigFromManager(frameId);
       if (newConfig) {
         setFrameConfig(newConfig);
-        safeStorage.setItem("frameConfig", JSON.stringify(newConfig));
+        safeStorage.setJSON("frameConfig", newConfig);
         setConfigReloadKey((prev) => prev + 1);
         console.log("✅ Frame config reloaded (manager):", newConfig);
         // Re-apply smart scale after config reload
@@ -4461,7 +4649,7 @@ export default function EditPhoto() {
         const fallback = getFrameConfig(frameId);
         if (fallback) {
           setFrameConfig(fallback);
-          safeStorage.setItem("frameConfig", JSON.stringify(fallback));
+          safeStorage.setJSON("frameConfig", fallback);
           setConfigReloadKey((prev) => prev + 1);
         }
       }

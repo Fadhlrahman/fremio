@@ -292,8 +292,14 @@ const ElementContent = forwardRef(({ element, isSelected, elements }, ref) => {
   }
 
   if (element.type === "upload") {
+    const isCapturedOverlay = element.data?.__capturedOverlay === true;
     return (
-      <div style={style}>
+      <div
+        style={style}
+        className={isCapturedOverlay ? 'captured-photo-overlay-content' : undefined}
+        data-captured-overlay={isCapturedOverlay ? 'true' : undefined}
+        data-export-allow={isCapturedOverlay ? 'photo-overlay' : undefined}
+      >
         {element.data?.image ? (
           <img
             src={element.data.image}
@@ -374,7 +380,7 @@ const ElementContent = forwardRef(({ element, isSelected, elements }, ref) => {
         {isSelected && (
           <div className="absolute inset-0 flex items-center justify-center border-2 border-blue-400 bg-blue-400/10 pointer-events-none">
             <div className="text-xs font-semibold uppercase tracking-wider text-blue-600 text-center px-3 py-1.5 bg-white/90 rounded-md shadow-sm">
-              Area Transparan
+              Area Foto
             </div>
           </div>
         )}
@@ -502,6 +508,18 @@ function CanvasPreviewComponent({
   const sortedElements = useMemo(
     () => [...elements].sort((a, b) => (a.zIndex ?? 1) - (b.zIndex ?? 1)),
     [elements]
+  );
+
+  const visibleElements = useMemo(
+    () =>
+      sortedElements.filter(
+        (element) =>
+          !(
+            element?.type === 'transparent-area' &&
+            element?.data?.__autoTransparentArea === true
+          )
+      ),
+    [sortedElements]
   );
 
   const canvasDimensions = useMemo(() => {
@@ -921,7 +939,7 @@ function CanvasPreviewComponent({
           event.preventDefault();
         }}
       >
-        {sortedElements.map((element) => {
+  {visibleElements.map((element) => {
           const isSelected = selectedElementId === element.id;
           const isBackgroundPhoto = element.type === "background-photo";
           const backgroundAspectRatio = isBackgroundPhoto
@@ -942,10 +960,14 @@ function CanvasPreviewComponent({
           const baseClassName = isBackgroundPhoto
             ? "transition-colors"
             : "border border-transparent transition-colors";
+
+          const isCapturedOverlayElement =
+            element.type === "upload" && element.data?.__capturedOverlay === true;
           const elementClassName = [
             baseClassName,
             "creator-element",
             `creator-element--type-${element.type}`,
+            isCapturedOverlayElement ? "creator-element--captured-overlay" : "",
             isSelected ? "creator-element--selected" : "",
           ]
             .filter(Boolean)
@@ -1020,8 +1042,14 @@ function CanvasPreviewComponent({
             meta.dragStartElementX = element.x;
             meta.dragStartElementY = element.y;
             
+            // Determine element semantics for auto-layering behavior
+            const isPhotoPlaceholder = element.type === 'photo';
+            const isCapturedOverlay = isCapturedOverlayElement;
+
             if (!isSelected) {
-              if (!isBackgroundPhoto) {
+              // Do NOT auto bring-to-front for photo placeholders or captured photo overlays
+              // This ensures foto layer can stay behind other elements when user has adjusted layers
+              if (!isBackgroundPhoto && !isPhotoPlaceholder && !isCapturedOverlay) {
                 onBringToFront(element.id);
               }
               onSelect(element.id, { interaction: "pointerdown" });
@@ -1034,7 +1062,8 @@ function CanvasPreviewComponent({
             }
             
             startHoldTimer(meta);
-            if (!isBackgroundPhoto) {
+            // Skip auto bring-to-front here as well for photo/overlay
+            if (!isBackgroundPhoto && !isPhotoPlaceholder && !isCapturedOverlay) {
               onBringToFront(element.id);
             }
           };

@@ -23,12 +23,15 @@ import {
   ArrowDown,
   ChevronsUp,
   ChevronsDown,
-  Box,
 } from "lucide-react";
 import CanvasPreview from "../components/creator/CanvasPreview.jsx";
 import PropertiesPanel from "../components/creator/PropertiesPanel.jsx";
 import ColorPicker from "../components/creator/ColorPicker.jsx";
 import useCreatorStore from "../store/useCreatorStore.js";
+import { 
+  CAPTURED_OVERLAY_MIN_Z,
+  TRANSPARENT_AREA_BASE_Z 
+} from "../constants/layers.js";
 import { useShallow } from "zustand/react/shallow";
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from "../components/creator/canvasConstants.js";
 import draftStorage from "../utils/draftStorage.js";
@@ -48,46 +51,260 @@ const TOAST_MESSAGES = {
   deleteSuccess: "Elemen dihapus dari kanvas.",
 };
 
+const parseNumericValue = (value, fallback = 0) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return fallback;
+};
+
+const addRoundedRectPath = (ctx, x, y, width, height, radius) => {
+  const effectiveRadius = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
+  if (effectiveRadius === 0) {
+    ctx.beginPath();
+    ctx.rect(x, y, width, height);
+    ctx.closePath();
+    return;
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(x + effectiveRadius, y);
+  ctx.lineTo(x + width - effectiveRadius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + effectiveRadius);
+  ctx.lineTo(x + width, y + height - effectiveRadius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - effectiveRadius, y + height);
+  ctx.lineTo(x + effectiveRadius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - effectiveRadius);
+  ctx.lineTo(x, y + effectiveRadius);
+  ctx.quadraticCurveTo(x, y, x + effectiveRadius, y);
+  ctx.closePath();
+};
+
+const loadImageAsync = (src) =>
+  new Promise((resolve, reject) => {
+    if (typeof src !== 'string' || !src.startsWith('data:')) {
+      reject(new Error('Invalid image source'));
+      return;
+    }
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = (error) => reject(error);
+    img.decoding = 'async';
+    img.src = src;
+  });
+
+const AUTO_TRANSPARENT_LABEL = 'Area Transparan Foto';
+
+const createAutoTransparentAreaId = (photoId) => `auto-transparent-${photoId}`;
+
+const syncPhotoTransparentAreas = (elements = []) => {
+  if (!Array.isArray(elements) || elements.length === 0) {
+    return elements;
+  }
+
+  const existingAutoAreas = new Map();
+  for (const element of elements) {
+    if (
+      element?.type === 'transparent-area' &&
+      element?.data?.__autoTransparentArea === true &&
+      element?.data?.__linkedPhotoId
+    ) {
+      existingAutoAreas.set(element.data.__linkedPhotoId, element);
+    }
+  }
+
+  let didMutate = false;
+  const usedAutoIds = new Set();
+  const nextElements = [];
+
+  for (const element of elements) {
+    if (
+      element?.type === 'transparent-area' &&
+      element?.data?.__autoTransparentArea === true
+    ) {
+      // Skip auto-generated transparent areas; they will be re-inserted alongside their photo
+      continue;
+    }
+
+    nextElements.push(element);
+
+    if (element?.type !== 'photo' || !element?.id) {
+      continue;
+    }
+
+    const linkedPhotoId = element.id;
+    const existing = existingAutoAreas.get(linkedPhotoId);
+    const baseId = existing?.id ?? createAutoTransparentAreaId(linkedPhotoId);
+    const targetBorderRadius = parseNumericValue(
+      element?.data?.borderRadius ?? existing?.data?.borderRadius ?? 0
+    );
+
+    let areaToUse = existing;
+    let areaChanged = false;
+
+    if (!existing) {
+      areaToUse = {
+        id: baseId,
+        type: 'transparent-area',
+        x: element.x ?? 0,
+        y: element.y ?? 0,
+        width: element.width ?? 0,
+        height: element.height ?? 0,
+        rotation: element.rotation ?? 0,
+        zIndex: element.zIndex ?? 1,
+        isLocked: true,
+        data: {
+          label: AUTO_TRANSPARENT_LABEL,
+          borderRadius: targetBorderRadius,
+          __linkedPhotoId: linkedPhotoId,
+          __autoTransparentArea: true,
+        },
+      };
+      areaChanged = true;
+    } else {
+      const existingBorderRadius = parseNumericValue(existing.data?.borderRadius ?? 0);
+      const needsGeometryUpdate =
+        (existing.x ?? 0) !== (element.x ?? 0) ||
+        (existing.y ?? 0) !== (element.y ?? 0) ||
+        (existing.width ?? 0) !== (element.width ?? 0) ||
+        (existing.height ?? 0) !== (element.height ?? 0) ||
+        (existing.rotation ?? 0) !== (element.rotation ?? 0) ||
+        (existing.zIndex ?? 0) !== (element.zIndex ?? 1) ||
+        existing.isLocked !== true;
+
+      const needsDataUpdate =
+        existingBorderRadius !== targetBorderRadius ||
+        existing.data?.__linkedPhotoId !== linkedPhotoId ||
+        existing.data?.__autoTransparentArea !== true ||
+        (existing.data?.label ?? AUTO_TRANSPARENT_LABEL) !== AUTO_TRANSPARENT_LABEL;
+
+      if (needsGeometryUpdate || needsDataUpdate) {
+        areaToUse = {
+          ...existing,
+          x: element.x ?? 0,
+          y: element.y ?? 0,
+          width: element.width ?? 0,
+          height: element.height ?? 0,
+          rotation: element.rotation ?? 0,
+          zIndex: element.zIndex ?? 1,
+          isLocked: true,
+          data: {
+            ...existing.data,
+            label: AUTO_TRANSPARENT_LABEL,
+            borderRadius: targetBorderRadius,
+            __linkedPhotoId: linkedPhotoId,
+            __autoTransparentArea: true,
+          },
+        };
+        areaChanged = true;
+      }
+    }
+
+    if (areaChanged) {
+      didMutate = true;
+    }
+
+    usedAutoIds.add(linkedPhotoId);
+    nextElements.push(areaToUse);
+  }
+
+  if (existingAutoAreas.size !== usedAutoIds.size) {
+    didMutate = true;
+  }
+
+  if (!didMutate && nextElements.length === elements.length) {
+    return elements;
+  }
+
+  return nextElements;
+};
+
 const prepareCanvasExportClone = (rootNode) => {
   if (!rootNode) {
     return;
   }
 
-  const ignoreNodes = rootNode.querySelectorAll('[data-export-ignore]');
-  ignoreNodes.forEach((node) => node.remove());
+  try {
+    rootNode.setAttribute('data-export-clone', 'true');
 
-  const resizeHandles = rootNode.querySelectorAll('.react-rnd-handle, .creator-resize-wrapper');
-  resizeHandles.forEach((node) => node.remove());
+    const ignoreNodes = rootNode.querySelectorAll('[data-export-ignore]');
+    ignoreNodes.forEach((node) => node.remove());
 
-  const photoSlots = rootNode.querySelectorAll('.creator-element--type-photo');
-  photoSlots.forEach((slot) => {
-    slot.style.background = 'transparent';
-    slot.style.backgroundColor = 'transparent';
-    slot.style.boxShadow = 'none';
-    slot.style.color = 'transparent';
-    slot.style.textShadow = 'none';
-    slot.style.fontSize = '0px';
-    slot.style.filter = 'none';
-    slot.style.mixBlendMode = 'normal';
-    const children = Array.from(slot.children || []);
-    children.forEach((child) => slot.removeChild(child));
-  });
+    const resizeHandles = rootNode.querySelectorAll('.react-rnd-handle, .creator-resize-wrapper');
+    resizeHandles.forEach((node) => node.remove());
 
-  // Handle transparent-area elements - make them completely transparent
-  const transparentAreaSlots = rootNode.querySelectorAll('.creator-element--type-transparent-area');
-  transparentAreaSlots.forEach((slot) => {
-    slot.style.background = 'transparent';
-    slot.style.backgroundColor = 'transparent';
-    slot.style.boxShadow = 'none';
-    slot.style.border = 'none';
-    slot.style.color = 'transparent';
-    slot.style.textShadow = 'none';
-    slot.style.fontSize = '0px';
-    slot.style.filter = 'none';
-    slot.style.mixBlendMode = 'normal';
-    const children = Array.from(slot.children || []);
-    children.forEach((child) => slot.removeChild(child));
-  });
+    const photoSlots = rootNode.querySelectorAll('.creator-element--type-photo');
+    photoSlots.forEach((slot) => {
+      slot.style.background = 'transparent';
+      slot.style.backgroundColor = 'transparent';
+      slot.style.boxShadow = 'none';
+      slot.style.color = 'transparent';
+      slot.style.textShadow = 'none';
+      slot.style.fontSize = '0px';
+      slot.style.filter = 'none';
+      slot.style.mixBlendMode = 'normal';
+      const children = Array.from(slot.children || []);
+      children.forEach((child) => slot.removeChild(child));
+    });
+
+    // Remove captured photo overlays so html2canvas doesn't capture actual photos
+    const capturedOverlays = rootNode.querySelectorAll('.creator-element--captured-overlay');
+    console.log('🗑️ [prepareCanvasExportClone] Found captured overlays to remove:', capturedOverlays.length);
+    capturedOverlays.forEach((overlay) => {
+      console.log('  - Removing overlay:', overlay.style.zIndex, overlay.className);
+      overlay.remove();
+    });
+
+    // Handle transparent-area elements - make them completely transparent
+    const transparentAreaSlots = rootNode.querySelectorAll('.creator-element--type-transparent-area');
+    transparentAreaSlots.forEach((slot) => {
+      slot.style.background = 'transparent';
+      slot.style.backgroundColor = 'transparent';
+      slot.style.boxShadow = 'none';
+      slot.style.border = 'none';
+      slot.style.color = 'transparent';
+      slot.style.textShadow = 'none';
+      slot.style.fontSize = '0px';
+      slot.style.filter = 'none';
+      slot.style.mixBlendMode = 'normal';
+      const children = Array.from(slot.children || []);
+      children.forEach((child) => slot.removeChild(child));
+    });
+
+    // Reorder creator elements by z-index so html2canvas respects stacking order
+  const rootParent = rootNode.querySelector(':scope > .creator-element')?.parentNode;
+  const candidateParent = rootParent && rootParent.hasAttribute('data-export-clone') ? rootParent : rootNode;
+    const creatorElements = Array.from(candidateParent.children || []).filter((child) =>
+      child.classList?.contains('creator-element')
+    );
+
+    if (creatorElements.length > 1) {
+      creatorElements.sort((a, b) => {
+        const aZ = Number.parseFloat(a.style.zIndex) || 0;
+        const bZ = Number.parseFloat(b.style.zIndex) || 0;
+        return aZ - bZ;
+      });
+
+      creatorElements.forEach((child) => {
+        candidateParent.appendChild(child);
+      });
+
+      console.log('🔄 [prepareCanvasExportClone] Reordered elements for export:',
+        creatorElements.map((el) => ({
+          type: el.className.match(/creator-element--type-(\w+)/)?.[1] || 'unknown',
+          zIndex: Number.parseFloat(el.style.zIndex) || 0,
+        }))
+      );
+    }
+  } catch (error) {
+    console.error('❌ [prepareCanvasExportClone] Error during clone preparation:', error);
+  }
 };
 
 const normalizePhotoLayering = (elements = []) => {
@@ -144,20 +361,20 @@ const normalizePhotoLayering = (elements = []) => {
       return { ...element, zIndex: normalizedZ };
     }
 
-    if (element.type === 'photo') {
-      const currentZ =
-        typeof element.zIndex === 'number' ? element.zIndex : undefined;
-      if (typeof currentZ === 'number' && currentZ > backgroundBaseZ) {
-        usedZ.add(currentZ);
-        return element;
-      }
-
-      const adjustedZ = ensureUniqueZ(Math.max(backgroundBaseZ + 1, 1));
-      return { ...element, zIndex: adjustedZ };
-    }
-
+    // Remove special handling for 'photo' type - let it use normal z-index
+    // This allows other elements to be placed above photo elements
     if (typeof element.zIndex === 'number') {
       usedZ.add(element.zIndex);
+    }
+    
+    // Debug logging for photo elements
+    if (element.type === 'photo') {
+      console.log('📸 [Photo Element zIndex]', {
+        id: element.id?.slice(0, 8),
+        type: element.type,
+        zIndex: element.zIndex,
+        backgroundBaseZ,
+      });
     }
 
     return element;
@@ -183,9 +400,7 @@ const createCapturedPhotoOverlay = (
   const overlayZIndex =
     typeof zIndexOverride === 'number'
       ? zIndexOverride
-      : typeof placeholder?.zIndex === 'number'
-      ? placeholder.zIndex
-      : 1;
+      : CAPTURED_OVERLAY_MIN_Z;
   return {
     id: overlayId,
     type: 'upload',
@@ -233,37 +448,67 @@ const injectCapturedPhotoOverlays = (elements = []) => {
   }
 
   const overlays = [];
-  const maxExistingZ = cleanedElements.reduce((max, element) => {
-    if (element && typeof element.zIndex === 'number') {
-      return Math.max(max, element.zIndex);
-    }
-    return max;
-  }, 0);
-  const overlayBaseZ = maxExistingZ + 10;
-  let nextOverlayZ = overlayBaseZ;
-
+  
+  // Force overlays to use minimum z-index so photos stay behind ALL other elements
+  // including background and shapes. This ensures captured photos never appear on top.
+  
   photoPlaceholders.forEach((placeholder, placeholderIndex) => {
     const photoIndex = placeholderIndex;
     const photoData = storedPhotos[photoIndex];
     if (typeof photoData !== 'string' || !photoData.startsWith('data:')) {
       return;
     }
+    console.log(`📸 [injectCapturedPhotoOverlays] Creating overlay ${photoIndex} with z-index:`, CAPTURED_OVERLAY_MIN_Z);
     overlays.push(
       createCapturedPhotoOverlay(
         placeholder,
         photoData,
         photoIndex,
-        nextOverlayZ
+        CAPTURED_OVERLAY_MIN_Z
       )
     );
-    nextOverlayZ += 1;
   });
 
   if (!overlays.length) {
     return cleanedElements;
   }
 
-  return [...cleanedElements, ...overlays];
+  // Build a map from placeholder id -> overlay so we can insert overlays
+  // next to their source placeholder. Appending overlays at the end
+  // causes DOM order to put overlays after placeholders with equal zIndex,
+  // which makes overlays render on top. Insert overlay before its
+  // placeholder so they remain associated and respect stacking rules.
+  const overlayBySource = new Map();
+  overlays.forEach((ov) => {
+    const src = ov?.data?.__sourcePlaceholderId;
+    if (src) overlayBySource.set(src, ov);
+  });
+
+  const result = [];
+  cleanedElements.forEach((el) => {
+    if (el?.type === 'photo' && el.id && overlayBySource.has(el.id)) {
+      // Insert overlay BEFORE the placeholder so placeholder remains later in DOM
+      // (same zIndex but stable sort keeps array order). This prevents overlays
+      // from being globally appended and accidentally appearing above unrelated
+      // elements with the same stacking value.
+      result.push(overlayBySource.get(el.id));
+      result.push(el);
+      overlayBySource.delete(el.id);
+    } else {
+      result.push(el);
+    }
+  });
+
+  // If any overlays remain (no matching placeholder), append them at end
+  overlayBySource.forEach((ov) => result.push(ov));
+
+  console.log('✅ [injectCapturedPhotoOverlays] Final result:', {
+    totalElements: result.length,
+    overlaysAdded: overlays.length,
+    zIndexes: result.map(el => ({ type: el.type, zIndex: el.zIndex, isOverlay: el?.data?.__capturedOverlay }))
+  });
+
+  return result;
 };
 
 export default function Create() {
@@ -370,6 +615,13 @@ export default function Create() {
   }, [elements, setElements]);
 
   useEffect(() => {
+    const synced = syncPhotoTransparentAreas(elements);
+    if (synced !== elements) {
+      setElements(synced);
+    }
+  }, [elements, setElements]);
+
+  useEffect(() => {
     if (!isMobileView) {
       setActiveMobileProperty(null);
       return;
@@ -460,11 +712,6 @@ export default function Create() {
           { id: "photo-size", label: "Ukuran", icon: Maximize2 },
           { id: "photo-radius", label: "Sudut", icon: CornerDownRight },
           { id: "photo-outline", label: "Outline", icon: Square },
-          { id: "layer-order", label: "Lapisan", icon: Layers },
-        ];
-      case "transparent-area":
-        return [
-          { id: "transparent-size", label: "Ukuran", icon: Maximize2 },
           { id: "layer-order", label: "Lapisan", icon: Layers },
         ];
       case "upload":
@@ -997,6 +1244,16 @@ export default function Create() {
 
       prepareCanvasExportClone(exportCanvasNode);
 
+      // DEBUG: Log all remaining elements after cleanup
+      const remainingElements = exportCanvasNode.querySelectorAll('.creator-element');
+      console.log('📋 [After prepareCanvasExportClone] Remaining elements:', remainingElements.length);
+      remainingElements.forEach((el, idx) => {
+        const type = el.className.match(/creator-element--type-(\w+)/)?.[1];
+        const isOverlay = el.classList.contains('creator-element--captured-overlay');
+        const zIndex = el.style.zIndex;
+        console.log(`  ${idx + 1}. ${type} - zIndex: ${zIndex}${isOverlay ? ' [OVERLAY - SHOULD BE REMOVED!]' : ''}`);
+      });
+
       cleanupCapture = () => {
         if (exportWrapper.parentNode) {
           exportWrapper.parentNode.removeChild(exportWrapper);
@@ -1014,6 +1271,28 @@ export default function Create() {
         scrollX: 0,
         scrollY: 0,
         allowTaint: true,
+        ignoreElements: (element) => {
+          if (!element) {
+            return false;
+          }
+
+          if (element.nodeType === Node.ELEMENT_NODE) {
+            if (element.classList?.contains('creator-element--captured-overlay')) {
+              return true;
+            }
+            if (element.classList?.contains('captured-photo-overlay-content')) {
+              return true;
+            }
+            if (element.getAttribute?.('data-export-ignore') === 'true') {
+              return true;
+            }
+            if (element.closest?.('[data-export-ignore="true"]')) {
+              return true;
+            }
+          }
+
+          return false;
+        },
       });
 
       console.log('📸 [html2canvas result]', {
@@ -1028,61 +1307,194 @@ export default function Create() {
       const finalCtx = finalCanvas.getContext('2d', { alpha: true });
       
       if (finalCtx) {
-        // First, draw background color (if there are NO transparent areas, or draw it with mask)
-        const transparentAreaElements = elements.filter(el => el.type === 'transparent-area');
-        const photoElements = elements.filter(el => el.type === 'photo');
-        
-        if (transparentAreaElements.length > 0 || photoElements.length > 0) {
-          // Draw background first
-          finalCtx.fillStyle = canvasBackground || '#ffffff';
-          finalCtx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
-          
-          // Draw the captured content on top
-          finalCtx.drawImage(captureCanvas, 0, 0);
-          
-          // Clear transparent areas to create holes
-          finalCtx.globalCompositeOperation = 'destination-out';
-          
-          transparentAreaElements.forEach(transparentEl => {
-            const x = (transparentEl.x || 0) * captureScale;
-            const y = (transparentEl.y || 0) * captureScale;
-            const width = (transparentEl.width || 200) * captureScale;
-            const height = (transparentEl.height || 200) * captureScale;
-            
-            // Fill with solid color to cut through all layers
-            finalCtx.fillStyle = 'rgba(0, 0, 0, 1)';
-            finalCtx.fillRect(x, y, width, height);
-            
-            console.log('🕳️ [Created transparent area in background]', {
-              x: Math.round(x),
-              y: Math.round(y),
-              width: Math.round(width),
-              height: Math.round(height),
+        const transparentAreaElements = elements.filter((el) => el.type === 'transparent-area');
+        const photoElements = elements.filter((el) => el.type === 'photo');
+        const photoSlotInfos = [];
+
+        photoElements.forEach((photoEl, placeholderIndex) => {
+          const rawX = Number(photoEl?.x) || 0;
+          const rawY = Number(photoEl?.y) || 0;
+          const rawWidth = Number(photoEl?.width) || 0;
+          const rawHeight = Number(photoEl?.height) || 0;
+          if (rawWidth <= 0 || rawHeight <= 0) {
+            console.log('⚠️ [Photo Export] Skipping slot with invalid size', {
+              id: photoEl?.id,
+              rawWidth,
+              rawHeight,
             });
+            return;
+          }
+
+          const candidateIndex = Number(photoEl?.data?.photoIndex);
+          const photoIndex = Number.isFinite(candidateIndex) ? candidateIndex : placeholderIndex;
+
+          photoSlotInfos.push({
+            elementId: photoEl?.id ?? null,
+            placeholderIndex,
+            photoIndex,
+            x: rawX * captureScale,
+            y: rawY * captureScale,
+            width: rawWidth * captureScale,
+            height: rawHeight * captureScale,
+            centerX: (rawX + rawWidth / 2) * captureScale,
+            centerY: (rawY + rawHeight / 2) * captureScale,
+            borderRadius: parseNumericValue(photoEl?.data?.borderRadius) * captureScale,
+            rotationRadians: ((Number(photoEl?.rotation) || 0) * Math.PI) / 180,
           });
-          
-          photoElements.forEach(photoEl => {
-            const x = (photoEl.x || 0) * captureScale;
-            const y = (photoEl.y || 0) * captureScale;
-            const width = (photoEl.width || 200) * captureScale;
-            const height = (photoEl.height || 200) * captureScale;
-            
-            // Fill with solid color to cut through all layers
-            finalCtx.fillStyle = 'rgba(0, 0, 0, 1)';
-            finalCtx.fillRect(x, y, width, height);
-            
-            console.log('🕳️ [Created transparent hole for photo]', {
-              x: Math.round(x),
-              y: Math.round(y),
-              width: Math.round(width),
-              height: Math.round(height),
+        });
+
+        let photoLayerCanvas = null;
+
+        if (photoSlotInfos.length > 0) {
+          const capturedPhotos = safeStorage.getJSON('capturedPhotos') || [];
+          const imageCache = new Map();
+
+          if (Array.isArray(capturedPhotos) && capturedPhotos.length > 0) {
+            photoLayerCanvas = document.createElement('canvas');
+            photoLayerCanvas.width = finalCanvas.width;
+            photoLayerCanvas.height = finalCanvas.height;
+            const photoCtx = photoLayerCanvas.getContext('2d', { alpha: true });
+
+            if (photoCtx) {
+              for (const slotInfo of photoSlotInfos) {
+                const photoData = capturedPhotos[slotInfo.photoIndex];
+                if (typeof photoData !== 'string' || !photoData.startsWith('data:')) {
+                  console.log('ℹ️ [Photo Export] Missing captured photo for slot', {
+                    elementId: slotInfo.elementId,
+                    placeholderIndex: slotInfo.placeholderIndex,
+                    photoIndex: slotInfo.photoIndex,
+                  });
+                  continue;
+                }
+
+                let image = imageCache.get(slotInfo.photoIndex);
+                if (!image) {
+                  try {
+                    image = await loadImageAsync(photoData);
+                    imageCache.set(slotInfo.photoIndex, image);
+                  } catch (error) {
+                    console.warn('⚠️ [Photo Export] Failed to load captured photo', {
+                      photoIndex: slotInfo.photoIndex,
+                      error,
+                    });
+                    continue;
+                  }
+                }
+
+                const imgWidth = image.naturalWidth || image.width || 1;
+                const imgHeight = image.naturalHeight || image.height || 1;
+                const slotRatio = slotInfo.width / slotInfo.height;
+                const imageRatio = imgWidth / imgHeight;
+                let drawWidth;
+                let drawHeight;
+
+                if (imageRatio > slotRatio) {
+                  drawHeight = slotInfo.height;
+                  drawWidth = drawHeight * imageRatio;
+                } else {
+                  drawWidth = slotInfo.width;
+                  drawHeight = drawWidth / imageRatio;
+                }
+
+                const drawX = -drawWidth / 2;
+                const drawY = -drawHeight / 2;
+
+                photoCtx.save();
+                photoCtx.translate(slotInfo.centerX, slotInfo.centerY);
+                if (slotInfo.rotationRadians) {
+                  photoCtx.rotate(slotInfo.rotationRadians);
+                }
+
+                addRoundedRectPath(
+                  photoCtx,
+                  -slotInfo.width / 2,
+                  -slotInfo.height / 2,
+                  slotInfo.width,
+                  slotInfo.height,
+                  slotInfo.borderRadius
+                );
+                photoCtx.clip();
+
+                photoCtx.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+                photoCtx.restore();
+              }
+
+              console.log('🖼️ [Photo Export] Rendered captured photos into photo layer', {
+                slots: photoSlotInfos.length,
+                availablePhotos: capturedPhotos.length,
+              });
+            }
+          } else {
+            console.log('ℹ️ [Photo Export] No captured photos available, skipping photo rendering');
+          }
+        }
+
+        // Step 1: Draw background layer with transparency holes
+        const backgroundCanvas = document.createElement('canvas');
+        backgroundCanvas.width = finalCanvas.width;
+        backgroundCanvas.height = finalCanvas.height;
+        const bgCtx = backgroundCanvas.getContext('2d', { alpha: true });
+
+        if (bgCtx) {
+          // Fill with solid background color first
+          bgCtx.fillStyle = canvasBackground || '#ffffff';
+          bgCtx.fillRect(0, 0, backgroundCanvas.width, backgroundCanvas.height);
+
+          // Cut transparent holes ONLY in background layer
+          if (transparentAreaElements.length > 0) {
+            bgCtx.globalCompositeOperation = 'destination-out';
+
+            transparentAreaElements.forEach((transparentEl) => {
+              const x = (transparentEl.x || 0) * captureScale;
+              const y = (transparentEl.y || 0) * captureScale;
+              const width = (transparentEl.width || 200) * captureScale;
+              const height = (transparentEl.height || 200) * captureScale;
+              const borderRadius = parseNumericValue(transparentEl?.data?.borderRadius) * captureScale;
+              const rotationRadians = ((Number(transparentEl.rotation) || 0) * Math.PI) / 180;
+
+              bgCtx.save();
+              bgCtx.translate(x + width / 2, y + height / 2);
+              if (rotationRadians) {
+                bgCtx.rotate(rotationRadians);
+              }
+
+              addRoundedRectPath(
+                bgCtx,
+                -width / 2,
+                -height / 2,
+                width,
+                height,
+                borderRadius
+              );
+
+              bgCtx.fillStyle = 'rgba(0, 0, 0, 1)';
+              bgCtx.fill();
+              bgCtx.restore();
+
+              console.log('🕳️ [Created transparent hole in background only]', {
+                x: Math.round(x),
+                y: Math.round(y),
+                width: Math.round(width),
+                height: Math.round(height),
+                borderRadius: Math.round(borderRadius),
+                rotation: transparentEl.rotation || 0,
+              });
             });
-          });
-          
-          // Reset composite operation
-          finalCtx.globalCompositeOperation = 'source-over';
-        } else {
-          // No transparent areas, just copy the captured canvas
+
+            bgCtx.globalCompositeOperation = 'source-over';
+          }
+
+          // Step 2: Composite all layers in correct order
+          // Draw background with holes
+          finalCtx.drawImage(backgroundCanvas, 0, 0);
+
+          // Draw captured photos layer
+          if (photoLayerCanvas) {
+            finalCtx.drawImage(photoLayerCanvas, 0, 0);
+          }
+
+          // Draw all other elements (text, shapes, uploads) on top
+          // These will NOT be affected by transparent areas
           finalCtx.drawImage(captureCanvas, 0, 0);
         }
       }
@@ -1132,6 +1544,15 @@ export default function Create() {
           ? structuredClone(elements)
           : JSON.parse(JSON.stringify(elements));
 
+      console.log('🔍 [SAVE DEBUG] serializedElements z-index info:', 
+        serializedElements.map(el => ({
+          type: el.type,
+          id: el.id?.slice(0, 8),
+          zIndex: el.zIndex,
+          isOverlay: el?.data?.__capturedOverlay,
+        }))
+      );
+
       const cleanElements = serializedElements.filter(
         (element) => !element?.data?.__capturedOverlay
       );
@@ -1139,7 +1560,7 @@ export default function Create() {
       console.log('💾 [SAVING DRAFT] Elements breakdown:', {
         total: serializedElements.length,
         cleaned: cleanElements.length,
-        types: cleanElements.map(el => ({ type: el.type, hasImage: !!el.data?.image })),
+        types: cleanElements.map(el => ({ type: el.type, zIndex: el.zIndex, hasImage: !!el.data?.image })),
       });
 
       // Compress upload element images before saving
@@ -1399,14 +1820,6 @@ export default function Create() {
         icon: ImageIcon,
         onClick: () => addToolElement("photo"),
         isActive: selectedElement?.type === "photo",
-      },
-      {
-        id: "transparent-area",
-        label: "Area Transparan",
-        mobileLabel: "Transparan",
-        icon: Box,
-        onClick: () => addToolElement("transparent-area"),
-        isActive: selectedElement?.type === "transparent-area",
       },
       {
         id: "text",

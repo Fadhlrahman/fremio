@@ -5,6 +5,13 @@ import {
   DEFAULT_UPLOAD_WIDTH,
   DEFAULT_UPLOAD_HEIGHT,
 } from '../components/creator/canvasConstants.js';
+import { 
+  CAPTURED_OVERLAY_MIN_Z,
+  PHOTO_AREA_BASE_Z,
+  BACKGROUND_PHOTO_Z,
+  TRANSPARENT_AREA_BASE_Z,
+  REGULAR_ELEMENTS_MIN_Z
+} from '../constants/layers.js';
 
 const DEFAULT_BACKGROUND = '#f7f1ed';
 
@@ -134,6 +141,78 @@ const centerWithinCanvas = (width, height) => ({
   y: Math.round((CANVAS_HEIGHT - height) / 2),
 });
 
+const isCapturedPhotoOverlay = (element) =>
+  Boolean(element?.data?.__capturedOverlay);
+
+const syncAllPhotoOverlays = (elements) => {
+  if (!Array.isArray(elements) || elements.length === 0) {
+    return elements;
+  }
+
+  let hasOverlay = false;
+  for (const element of elements) {
+    if (isCapturedPhotoOverlay(element)) {
+      hasOverlay = true;
+      break;
+    }
+  }
+
+  if (!hasOverlay) {
+    return elements;
+  }
+
+  const photoMap = new Map();
+  elements.forEach((element) => {
+    if (element?.type === 'photo') {
+      photoMap.set(element.id, element);
+    }
+  });
+
+  if (photoMap.size === 0) {
+    return elements;
+  }
+
+  let didMutate = false;
+  const nextElements = elements.map((element) => {
+    if (!isCapturedPhotoOverlay(element)) {
+      return element;
+    }
+
+    const sourceId = element?.data?.__sourcePlaceholderId;
+    if (!sourceId || !photoMap.has(sourceId)) {
+      return element;
+    }
+
+    const placeholder = photoMap.get(sourceId);
+    didMutate = true;
+    return {
+      ...element,
+      x: placeholder.x,
+      y: placeholder.y,
+      width: placeholder.width,
+      height: placeholder.height,
+      rotation: placeholder.rotation,
+      zIndex: CAPTURED_OVERLAY_MIN_Z,
+      data: {
+        ...element.data,
+        borderRadius: placeholder?.data?.borderRadius ?? element.data?.borderRadius ?? 0,
+      },
+    };
+  });
+
+  return didMutate ? nextElements : elements;
+};
+
+const removeCapturedOverlaysForPlaceholder = (elements, placeholderId) => {
+  if (!placeholderId) {
+    return elements;
+  }
+  return elements.filter(
+    (element) =>
+      !(isCapturedPhotoOverlay(element) && element?.data?.__sourcePlaceholderId === placeholderId)
+  );
+};
+
 console.log('[useCreatorStore] Store module loaded');
 
 export const useCreatorStore = create((set, get) => ({
@@ -253,11 +332,12 @@ export const useCreatorStore = create((set, get) => ({
     const processImage = () => {
       const aspectRatio = img.width / img.height;
       const canvasAspectRatio = canvasWidth / canvasHeight;
-      
+
       // Calculate size to COVER canvas (not contain)
       // Image must be >= canvas size on all sides
-      let width, height;
-      
+      let width;
+      let height;
+
       if (aspectRatio > canvasAspectRatio) {
         // Image is wider than canvas - match height, let width overflow
         height = canvasHeight;
@@ -267,7 +347,7 @@ export const useCreatorStore = create((set, get) => ({
         width = canvasWidth;
         height = width / aspectRatio;
       }
-      
+
       // Center the image so it covers canvas
       const x = Math.round((canvasWidth - width) / 2);
       const y = Math.round((canvasHeight - height) / 2);
@@ -276,63 +356,61 @@ export const useCreatorStore = create((set, get) => ({
         image: imageDataUrl,
         objectFit: 'cover',
         imageAspectRatio: aspectRatio,
-        label: 'Background'
+        label: 'Background',
       };
 
-      if (existing) {
-        set({
-          elements: state.elements.map((el) =>
-            el.id === existing.id
-              ? {
-                  ...el,
-                  zIndex: 0,
-                  data: {
-                    ...el.data,
-                    ...baseData
-                  },
-                  width: Math.round(width),
-                  height: Math.round(height),
-                  x,
-                  y
-                }
-              : {
-                  ...el,
-                  zIndex: el.zIndex === undefined ? 1 : Math.max(el.zIndex, 1)
-                }
-          ),
-          selectedElementId: existing.id
+      set((prev) => {
+        const background = prev.elements.find((el) => el.type === 'background-photo');
+        if (!background) {
+          return prev;
+        }
+
+        let didMutate = false;
+        const elements = prev.elements.map((el) => {
+          if (el.id === background.id) {
+            didMutate = true;
+            return {
+              ...el,
+              x,
+              y,
+              width: Math.round(width),
+              height: Math.round(height),
+              zIndex: 0,
+              data: {
+                ...el.data,
+                ...baseData,
+              },
+            };
+          }
+
+          if (el.type === 'background-photo') {
+            return el;
+          }
+
+          const targetZ = el.zIndex === undefined ? 1 : Math.max(el.zIndex, 1);
+          if (targetZ !== el.zIndex) {
+            didMutate = true;
+            return { ...el, zIndex: targetZ };
+          }
+
+          return el;
         });
-        return existing.id;
-      }
 
-      const id = get().addElement('background-photo', {
-        x,
-        y,
-        zIndex: 0,
-        data: baseData,
-        width: Math.round(width),
-        height: Math.round(height)
+        if (!didMutate) {
+          return prev;
+        }
+
+        return { elements };
       });
-
-      set((prev) => ({
-        elements: prev.elements.map((el) =>
-          el.id === id
-            ? { ...el, zIndex: 0 }
-            : { ...el, zIndex: (el.zIndex || 1) + 1 }
-        ),
-        lastZIndex: Math.max(prev.lastZIndex + 1, prev.elements.length + 1)
-      }));
-      
-      return id;
     };
 
     // If image already loaded, process immediately
     if (img.complete) {
-      return processImage();
+      processImage();
+    } else {
+      // Otherwise wait for load
+      img.onload = processImage;
     }
-    
-    // Otherwise wait for load
-    img.onload = processImage;
     
     // Return placeholder ID for existing, or create placeholder
     if (existing) {
@@ -438,17 +516,26 @@ export const useCreatorStore = create((set, get) => ({
     }));
   },
   updateElement: (id, changes) => {
-    set((state) => ({
-      elements: state.elements.map((el) =>
-        el.id === id
-          ? {
-              ...el,
-              ...changes,
-              data: changes.data ? { ...el.data, ...changes.data } : el.data
-            }
-          : el
-      )
-    }));
+    set((state) => {
+      let updatedElement = null;
+      const nextElements = state.elements.map((el) => {
+        if (el.id !== id) {
+          return el;
+        }
+
+        const mergedData = changes.data ? { ...el.data, ...changes.data } : el.data;
+        updatedElement = {
+          ...el,
+          ...changes,
+          data: mergedData,
+        };
+        return updatedElement;
+      });
+
+      return {
+        elements: syncAllPhotoOverlays(nextElements),
+      };
+    });
   },
   updateElementData: (id, data) => {
     set((state) => ({
@@ -502,11 +589,20 @@ export const useCreatorStore = create((set, get) => ({
     set({ selectedElementId: id });
   },
   removeElement: (id) => {
-    set((state) => ({
-      elements: state.elements.filter((el) => el.id !== id),
-      selectedElementId:
-        state.selectedElementId === id ? null : state.selectedElementId
-    }));
+    set((state) => {
+      const target = state.elements.find((el) => el.id === id);
+      let nextElements = state.elements.filter((el) => el.id !== id);
+
+      if (target?.type === 'photo') {
+        nextElements = removeCapturedOverlaysForPlaceholder(nextElements, id);
+      }
+
+      return {
+        elements: syncAllPhotoOverlays(nextElements),
+        selectedElementId:
+          state.selectedElementId === id ? null : state.selectedElementId,
+      };
+    });
   },
   duplicateElement: (id) => {
     const element = get().elements.find((el) => el.id === id);
@@ -540,37 +636,51 @@ export const useCreatorStore = create((set, get) => ({
       return;
     }
     const nextZ = get().lastZIndex + 1;
-    set((state) => ({
-      elements: state.elements.map((el) =>
+    set((state) => {
+      const elements = state.elements.map((el) =>
         el.id === id
           ? {
               ...el,
-              zIndex: nextZ
+              zIndex: nextZ,
             }
           : el
-      ),
-      lastZIndex: nextZ
-    }));
+      );
+
+      return {
+        elements: syncAllPhotoOverlays(elements),
+        lastZIndex: nextZ,
+      };
+    });
   },
   sendToBack: (id) => {
     const target = get().elements.find((el) => el.id === id);
-    if (target?.type === 'background-photo') {
+    if (!target || target.type === 'background-photo') {
       return;
     }
+
     const allElements = get().elements;
-    const minZ = Math.min(...allElements.filter(el => el.type !== 'background-photo').map(el => el.zIndex || 1));
+    const minZ = Math.min(
+      ...allElements
+        .filter((el) => el.type !== 'background-photo')
+        .map((el) => el.zIndex || 1)
+    );
     const nextZ = Math.max(1, minZ - 1);
-    
-    set((state) => ({
-      elements: state.elements.map((el) =>
+
+    set((state) => {
+      const elements = state.elements.map((el) =>
         el.id === id
           ? {
               ...el,
-              zIndex: nextZ
+              zIndex: nextZ,
             }
           : el
-      )
-    }));
+      );
+
+      return {
+        elements: syncAllPhotoOverlays(elements),
+        lastZIndex: Math.max(state.lastZIndex, nextZ),
+      };
+    });
   },
   bringForward: (id) => {
     const target = get().elements.find((el) => el.id === id);
@@ -591,8 +701,8 @@ export const useCreatorStore = create((set, get) => ({
     const currentZ = target.zIndex || 1;
     const nextZ = nextElement.zIndex || 1;
     
-    set((state) => ({
-      elements: state.elements.map((el) => {
+    set((state) => {
+      const elements = state.elements.map((el) => {
         if (el.id === id) {
           return { ...el, zIndex: nextZ };
         }
@@ -600,8 +710,12 @@ export const useCreatorStore = create((set, get) => ({
           return { ...el, zIndex: currentZ };
         }
         return el;
-      })
-    }));
+      });
+
+      return {
+        elements: syncAllPhotoOverlays(elements),
+      };
+    });
   },
   sendBackward: (id) => {
     const target = get().elements.find((el) => el.id === id);
@@ -622,8 +736,8 @@ export const useCreatorStore = create((set, get) => ({
     const currentZ = target.zIndex || 1;
     const prevZ = prevElement.zIndex || 1;
     
-    set((state) => ({
-      elements: state.elements.map((el) => {
+    set((state) => {
+      const elements = state.elements.map((el) => {
         if (el.id === id) {
           return { ...el, zIndex: prevZ };
         }
@@ -631,8 +745,12 @@ export const useCreatorStore = create((set, get) => ({
           return { ...el, zIndex: currentZ };
         }
         return el;
-      })
-    }));
+      });
+
+      return {
+        elements: syncAllPhotoOverlays(elements),
+      };
+    });
   },
   setCanvasBackground: (color) => {
     set({ canvasBackground: color, selectedElementId: 'background' });
@@ -642,7 +760,7 @@ export const useCreatorStore = create((set, get) => ({
       (max, el) => (el.zIndex && el.zIndex > max ? el.zIndex : max),
       1
     );
-    set({ elements, lastZIndex: maxZ });
+    set({ elements: syncAllPhotoOverlays(elements), lastZIndex: maxZ });
   },
   clearSelection: () => set({ selectedElementId: null }),
   reset: () => set({

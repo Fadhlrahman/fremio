@@ -23,6 +23,7 @@ import {
   ArrowDown,
   ChevronsUp,
   ChevronsDown,
+  Box,
 } from "lucide-react";
 import CanvasPreview from "../components/creator/CanvasPreview.jsx";
 import PropertiesPanel from "../components/creator/PropertiesPanel.jsx";
@@ -45,6 +46,224 @@ const TOAST_MESSAGES = {
   pasteSuccess: "Gambar ditempel ke kanvas.",
   pasteError: "Gagal menempel gambar. Pastikan clipboard berisi gambar.",
   deleteSuccess: "Elemen dihapus dari kanvas.",
+};
+
+const prepareCanvasExportClone = (rootNode) => {
+  if (!rootNode) {
+    return;
+  }
+
+  const ignoreNodes = rootNode.querySelectorAll('[data-export-ignore]');
+  ignoreNodes.forEach((node) => node.remove());
+
+  const resizeHandles = rootNode.querySelectorAll('.react-rnd-handle, .creator-resize-wrapper');
+  resizeHandles.forEach((node) => node.remove());
+
+  const photoSlots = rootNode.querySelectorAll('.creator-element--type-photo');
+  photoSlots.forEach((slot) => {
+    slot.style.background = 'transparent';
+    slot.style.backgroundColor = 'transparent';
+    slot.style.boxShadow = 'none';
+    slot.style.color = 'transparent';
+    slot.style.textShadow = 'none';
+    slot.style.fontSize = '0px';
+    slot.style.filter = 'none';
+    slot.style.mixBlendMode = 'normal';
+    const children = Array.from(slot.children || []);
+    children.forEach((child) => slot.removeChild(child));
+  });
+
+  // Handle transparent-area elements - make them completely transparent
+  const transparentAreaSlots = rootNode.querySelectorAll('.creator-element--type-transparent-area');
+  transparentAreaSlots.forEach((slot) => {
+    slot.style.background = 'transparent';
+    slot.style.backgroundColor = 'transparent';
+    slot.style.boxShadow = 'none';
+    slot.style.border = 'none';
+    slot.style.color = 'transparent';
+    slot.style.textShadow = 'none';
+    slot.style.fontSize = '0px';
+    slot.style.filter = 'none';
+    slot.style.mixBlendMode = 'normal';
+    const children = Array.from(slot.children || []);
+    children.forEach((child) => slot.removeChild(child));
+  });
+};
+
+const normalizePhotoLayering = (elements = []) => {
+  if (!Array.isArray(elements) || elements.length === 0) {
+    return elements;
+  }
+
+  const backgroundElements = elements.filter(
+    (element) => element?.type === 'background-photo'
+  );
+
+  const backgroundBaseZ = backgroundElements.length
+    ? Math.min(
+        ...backgroundElements.map((element) =>
+          typeof element?.zIndex === 'number' ? element.zIndex : 0
+        )
+      )
+    : 0;
+
+  const usedZ = new Set(
+    elements
+      .filter((element) => element && typeof element.zIndex === 'number')
+      .map((element) => element.zIndex)
+  );
+
+  const ensureUniqueZ = (start) => {
+    let candidate = start;
+    while (usedZ.has(candidate)) {
+      candidate += 1;
+    }
+    usedZ.add(candidate);
+    return candidate;
+  };
+
+  // Reserve background z-index values to keep them below photos.
+  backgroundElements.forEach((element) => {
+    const normalized =
+      typeof element?.zIndex === 'number' ? element.zIndex : backgroundBaseZ;
+    usedZ.add(normalized);
+  });
+
+  return elements.map((element) => {
+    if (!element || typeof element !== 'object') {
+      return element;
+    }
+
+    if (element.type === 'background-photo') {
+      const normalizedZ =
+        typeof element.zIndex === 'number' ? element.zIndex : backgroundBaseZ;
+      if (normalizedZ === element.zIndex) {
+        return element;
+      }
+      usedZ.add(normalizedZ);
+      return { ...element, zIndex: normalizedZ };
+    }
+
+    if (element.type === 'photo') {
+      const currentZ =
+        typeof element.zIndex === 'number' ? element.zIndex : undefined;
+      if (typeof currentZ === 'number' && currentZ > backgroundBaseZ) {
+        usedZ.add(currentZ);
+        return element;
+      }
+
+      const adjustedZ = ensureUniqueZ(Math.max(backgroundBaseZ + 1, 1));
+      return { ...element, zIndex: adjustedZ };
+    }
+
+    if (typeof element.zIndex === 'number') {
+      usedZ.add(element.zIndex);
+    }
+
+    return element;
+  });
+};
+
+const createOverlayId = (placeholderId, photoIndex) => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `captured-overlay-${placeholderId || 'slot'}-${photoIndex}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+};
+
+const createCapturedPhotoOverlay = (
+  placeholder,
+  photoData,
+  photoIndex,
+  zIndexOverride
+) => {
+  const overlayId = createOverlayId(placeholder?.id, photoIndex);
+  const overlayZIndex =
+    typeof zIndexOverride === 'number'
+      ? zIndexOverride
+      : typeof placeholder?.zIndex === 'number'
+      ? placeholder.zIndex
+      : 1;
+  return {
+    id: overlayId,
+    type: 'upload',
+    x: placeholder?.x ?? 0,
+    y: placeholder?.y ?? 0,
+    width: placeholder?.width ?? 0,
+    height: placeholder?.height ?? 0,
+    rotation: placeholder?.rotation ?? 0,
+    zIndex: overlayZIndex,
+    isLocked: true,
+    data: {
+      image: photoData,
+      objectFit: 'cover',
+      borderRadius: placeholder?.data?.borderRadius ?? 0,
+      stroke: null,
+      strokeWidth: 0,
+      label: `Foto ${photoIndex + 1}`,
+      __capturedOverlay: true,
+      __sourcePlaceholderId: placeholder?.id ?? null,
+      __photoIndex: photoIndex,
+    },
+  };
+};
+
+const injectCapturedPhotoOverlays = (elements = []) => {
+  if (!Array.isArray(elements) || elements.length === 0) {
+    return elements;
+  }
+
+  const storedPhotos = safeStorage.getJSON('capturedPhotos');
+  if (!Array.isArray(storedPhotos) || storedPhotos.length === 0) {
+    return elements.filter((element) => !element?.data?.__capturedOverlay);
+  }
+
+  const cleanedElements = elements.filter(
+    (element) => !element?.data?.__capturedOverlay
+  );
+
+  const photoPlaceholders = cleanedElements.filter(
+    (element) => element?.type === 'photo'
+  );
+
+  if (!photoPlaceholders.length) {
+    return cleanedElements;
+  }
+
+  const overlays = [];
+  const maxExistingZ = cleanedElements.reduce((max, element) => {
+    if (element && typeof element.zIndex === 'number') {
+      return Math.max(max, element.zIndex);
+    }
+    return max;
+  }, 0);
+  const overlayBaseZ = maxExistingZ + 10;
+  let nextOverlayZ = overlayBaseZ;
+
+  photoPlaceholders.forEach((placeholder, placeholderIndex) => {
+    const photoIndex = placeholderIndex;
+    const photoData = storedPhotos[photoIndex];
+    if (typeof photoData !== 'string' || !photoData.startsWith('data:')) {
+      return;
+    }
+    overlays.push(
+      createCapturedPhotoOverlay(
+        placeholder,
+        photoData,
+        photoIndex,
+        nextOverlayZ
+      )
+    );
+    nextOverlayZ += 1;
+  });
+
+  if (!overlays.length) {
+    return cleanedElements;
+  }
+
+  return [...cleanedElements, ...overlays];
 };
 
 export default function Create() {
@@ -128,6 +347,27 @@ export default function Create() {
     if (selectedElementId === "background") return "background";
     return elements.find((el) => el.id === selectedElementId) || null;
   }, [elements, selectedElementId]);
+
+  useEffect(() => {
+    const storedPhotos = safeStorage.getJSON('capturedPhotos');
+    const hasStoredPhotos = Array.isArray(storedPhotos) && storedPhotos.length > 0;
+    const hasOverlays = elements.some((element) => element?.data?.__capturedOverlay);
+
+    if (hasStoredPhotos && !hasOverlays) {
+      const augmented = injectCapturedPhotoOverlays(elements);
+      if (augmented.length !== elements.length) {
+        setElements(augmented);
+      }
+      return;
+    }
+
+    if (!hasStoredPhotos && hasOverlays) {
+      const cleaned = elements.filter((element) => !element?.data?.__capturedOverlay);
+      if (cleaned.length !== elements.length) {
+        setElements(cleaned);
+      }
+    }
+  }, [elements, setElements]);
 
   useEffect(() => {
     if (!isMobileView) {
@@ -220,6 +460,11 @@ export default function Create() {
           { id: "photo-size", label: "Ukuran", icon: Maximize2 },
           { id: "photo-radius", label: "Sudut", icon: CornerDownRight },
           { id: "photo-outline", label: "Outline", icon: Square },
+          { id: "layer-order", label: "Lapisan", icon: Layers },
+        ];
+      case "transparent-area":
+        return [
+          { id: "transparent-size", label: "Ukuran", icon: Maximize2 },
           { id: "layer-order", label: "Lapisan", icon: Layers },
         ];
       case "upload":
@@ -432,11 +677,22 @@ export default function Create() {
 
   const loadDraftIntoEditor = useCallback(
     (draftId, { notify = true } = {}) => {
+      console.log('🎬 [loadDraftIntoEditor] STARTED with draftId:', draftId);
+      
       if (!draftId) {
+        console.log('❌ [loadDraftIntoEditor] No draftId provided');
         return false;
       }
 
       const draft = draftStorage.getDraftById(draftId);
+      console.log('📦 [loadDraftIntoEditor] Draft from storage:', {
+        found: !!draft,
+        id: draft?.id,
+        elementsCount: draft?.elements?.length,
+        hasPreview: !!draft?.preview,
+        hasCapturedPhotos: draft?.capturedPhotos?.length || 0,
+      });
+      
       if (!draft) {
         if (notify) {
           showToast("error", "Draft tidak ditemukan.");
@@ -444,11 +700,63 @@ export default function Create() {
         return false;
       }
 
+      // Restore captured photos if they were saved with the draft
+      if (Array.isArray(draft.capturedPhotos) && draft.capturedPhotos.length > 0) {
+        console.log('📸 [loadDraftIntoEditor] Restoring captured photos:', draft.capturedPhotos.length);
+        safeStorage.setJSON("capturedPhotos", draft.capturedPhotos);
+      } else {
+        console.log('📸 [loadDraftIntoEditor] No captured photos to restore');
+        safeStorage.removeItem("capturedPhotos");
+      }
+
       const clonedElements = Array.isArray(draft.elements)
         ? typeof structuredClone === "function"
           ? structuredClone(draft.elements)
           : JSON.parse(JSON.stringify(draft.elements))
         : [];
+
+      console.log('📋 [loadDraftIntoEditor] Cloned elements:', clonedElements.length);
+
+      // Add frame artwork if it was saved with the draft
+      // OR use the preview as frame artwork if no explicit artwork was saved
+      const hasFrameArtwork = !!draft.frameArtwork;
+      const shouldUsePreviewAsArtwork = !hasFrameArtwork && draft.preview && draft.capturedPhotos?.length > 0;
+      
+      if (hasFrameArtwork || shouldUsePreviewAsArtwork) {
+        const artworkData = hasFrameArtwork ? draft.frameArtwork : {
+          image: draft.preview,
+          x: 0,
+          y: 0,
+          width: CANVAS_WIDTH,
+          height: CANVAS_HEIGHT,
+          zIndex: 1000,
+          rotation: 0,
+        };
+        
+        console.log('🖼️ [loadDraftIntoEditor] Adding frame artwork element', {
+          source: hasFrameArtwork ? 'saved' : 'preview',
+          hasPhotos: draft.capturedPhotos?.length || 0
+        });
+        
+        const artworkElement = {
+          id: `frame-artwork-${Date.now()}`,
+          type: 'upload',
+          x: artworkData.x || 0,
+          y: artworkData.y || 0,
+          width: artworkData.width || CANVAS_WIDTH,
+          height: artworkData.height || CANVAS_HEIGHT,
+          rotation: artworkData.rotation || 0,
+          zIndex: artworkData.zIndex || 1000,
+          isLocked: true,
+          data: {
+            image: artworkData.image,
+            objectFit: 'cover',
+            label: 'Frame Artwork',
+            __isFrameArtwork: true,
+          },
+        };
+        clonedElements.push(artworkElement);
+      }
 
   const targetAspectRatio = deriveAspectRatioFromDraft(draft);
       const targetDimensions = getCanvasDimensions(targetAspectRatio);
@@ -462,8 +770,17 @@ export default function Create() {
         targetDimensions.height
       );
 
-      setCanvasAspectRatio(targetAspectRatio);
-      setElements(scaledElements);
+  const normalizedElements = normalizePhotoLayering(scaledElements);
+  const runtimeElements = injectCapturedPhotoOverlays(normalizedElements);
+
+  console.log('✅ [loadDraftIntoEditor] Setting elements:', {
+    normalizedCount: normalizedElements.length,
+    runtimeCount: runtimeElements.length,
+    aspectRatio: targetAspectRatio,
+  });
+
+  setCanvasAspectRatio(targetAspectRatio);
+  setElements(runtimeElements);
       if (draft.canvasBackground) {
         setCanvasBackground(draft.canvasBackground);
       }
@@ -474,7 +791,7 @@ export default function Create() {
       const effectiveSignature =
         draft.signature ||
         computeDraftSignature(
-          scaledElements,
+          normalizedElements,
           draft.canvasBackground,
           targetAspectRatio
         );
@@ -508,13 +825,39 @@ export default function Create() {
 
   useEffect(() => {
     const draftId = location.state?.draftId;
-    if (!draftId) {
-      return;
+    const comeFromDraftsPage = !!draftId;
+    
+    console.log('🎯 [Create useEffect] Navigation detected:', {
+      hasDraftId: !!draftId,
+      draftId,
+      comeFromDraftsPage,
+      pathname: location.pathname,
+      state: location.state,
+    });
+    
+    if (comeFromDraftsPage) {
+      // User clicked "Lihat Frame" from Drafts page - load the draft
+      console.log('📂 [Create] Loading draft from Drafts page:', draftId);
+      hasLoadedDraftRef.current = false; // Reset before loading
+      const success = loadDraftIntoEditor(draftId, { notify: true });
+      console.log('📂 [Create] loadDraftIntoEditor result:', success);
+      navigate(location.pathname, { replace: true, state: null });
+    } else if (!hasLoadedDraftRef.current) {
+      // User entered Create page directly - reset ONLY on first mount
+      console.log('🔄 [Create] First time entry - resetting canvas');
+      setElements([]);
+      setCanvasBackground('#f7f1ed');
+      setCanvasAspectRatio('9:16');
+      setActiveDraftId(null);
+      clearSelection();
+      safeStorage.removeItem("activeDraftId");
+      safeStorage.removeItem("activeDraftSignature");
+      safeStorage.removeItem("capturedPhotos");
+      safeStorage.removeItem("draftFrameArtwork");
+      hasLoadedDraftRef.current = true; // Mark as initialized
     }
-
-    loadDraftIntoEditor(draftId, { notify: true });
-    navigate(location.pathname, { replace: true, state: null });
-  }, [location, navigate, loadDraftIntoEditor]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state?.draftId]); // Only re-run when draftId changes, not on every location change
 
   useEffect(() => {
     if (hasLoadedDraftRef.current) {
@@ -619,31 +962,132 @@ export default function Create() {
       console.log('  Calculated aspect ratio:', canvasWidth / canvasHeight);
       console.log('  Expected for 9:16:', 9/16, '=', 1080/1920);
 
-      let captureTarget = canvasNode;
+      const captureScale = canvasWidth <= 720 ? 2 : 1;
       let cleanupCapture = () => {};
 
-      const captureScale = canvasWidth <= 720 ? 2 : 1;
-
-      const captureCanvas = await html2canvas(captureTarget, {
-        backgroundColor: canvasBackground,
-        useCORS: true,
-        scale: captureScale,
-        onclone: (documentClone) => {
-          const clonedCanvas = documentClone.getElementById("creator-canvas");
-          if (!clonedCanvas) {
-            return;
-          }
-          clonedCanvas.style.position = "static";
-          clonedCanvas.style.margin = "0";
-          clonedCanvas.style.transform = "none";
-          clonedCanvas.style.transformOrigin = "top left";
-          clonedCanvas.style.boxShadow = "none";
-          clonedCanvas.style.width = `${canvasWidth}px`;
-          clonedCanvas.style.height = `${canvasHeight}px`;
-        },
+      const exportWrapper = document.createElement("div");
+      Object.assign(exportWrapper.style, {
+        position: "fixed",
+        top: "-10000px",
+        left: "-10000px",
+        width: `${canvasWidth}px`,
+        height: `${canvasHeight}px`,
+        overflow: "hidden",
+        pointerEvents: "none",
+        opacity: "0",
+        zIndex: "-1",
       });
 
-      let exportCanvas = captureCanvas;
+      const exportCanvasNode = canvasNode.cloneNode(true);
+      exportCanvasNode.id = "creator-canvas-export";
+      Object.assign(exportCanvasNode.style, {
+        transform: "none",
+        transformOrigin: "top left",
+        position: "relative",
+        top: "0",
+        left: "0",
+        width: `${canvasWidth}px`,
+        height: `${canvasHeight}px`,
+        margin: "0",
+        boxShadow: "none",
+      });
+
+      exportWrapper.appendChild(exportCanvasNode);
+      document.body.appendChild(exportWrapper);
+
+      prepareCanvasExportClone(exportCanvasNode);
+
+      cleanupCapture = () => {
+        if (exportWrapper.parentNode) {
+          exportWrapper.parentNode.removeChild(exportWrapper);
+        }
+      };
+
+      const captureCanvas = await html2canvas(exportCanvasNode, {
+        backgroundColor: null, // Use null to enable transparency
+        useCORS: true,
+        scale: captureScale,
+        width: canvasWidth,
+        height: canvasHeight,
+        windowWidth: canvasWidth,
+        windowHeight: canvasHeight,
+        scrollX: 0,
+        scrollY: 0,
+        allowTaint: true,
+      });
+
+      console.log('📸 [html2canvas result]', {
+        width: captureCanvas.width,
+        height: captureCanvas.height,
+      });
+
+      // Create a new canvas to properly handle transparency
+      const finalCanvas = document.createElement('canvas');
+      finalCanvas.width = captureCanvas.width;
+      finalCanvas.height = captureCanvas.height;
+      const finalCtx = finalCanvas.getContext('2d', { alpha: true });
+      
+      if (finalCtx) {
+        // First, draw background color (if there are NO transparent areas, or draw it with mask)
+        const transparentAreaElements = elements.filter(el => el.type === 'transparent-area');
+        const photoElements = elements.filter(el => el.type === 'photo');
+        
+        if (transparentAreaElements.length > 0 || photoElements.length > 0) {
+          // Draw background first
+          finalCtx.fillStyle = canvasBackground || '#ffffff';
+          finalCtx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+          
+          // Draw the captured content on top
+          finalCtx.drawImage(captureCanvas, 0, 0);
+          
+          // Clear transparent areas to create holes
+          finalCtx.globalCompositeOperation = 'destination-out';
+          
+          transparentAreaElements.forEach(transparentEl => {
+            const x = (transparentEl.x || 0) * captureScale;
+            const y = (transparentEl.y || 0) * captureScale;
+            const width = (transparentEl.width || 200) * captureScale;
+            const height = (transparentEl.height || 200) * captureScale;
+            
+            // Fill with solid color to cut through all layers
+            finalCtx.fillStyle = 'rgba(0, 0, 0, 1)';
+            finalCtx.fillRect(x, y, width, height);
+            
+            console.log('🕳️ [Created transparent area in background]', {
+              x: Math.round(x),
+              y: Math.round(y),
+              width: Math.round(width),
+              height: Math.round(height),
+            });
+          });
+          
+          photoElements.forEach(photoEl => {
+            const x = (photoEl.x || 0) * captureScale;
+            const y = (photoEl.y || 0) * captureScale;
+            const width = (photoEl.width || 200) * captureScale;
+            const height = (photoEl.height || 200) * captureScale;
+            
+            // Fill with solid color to cut through all layers
+            finalCtx.fillStyle = 'rgba(0, 0, 0, 1)';
+            finalCtx.fillRect(x, y, width, height);
+            
+            console.log('🕳️ [Created transparent hole for photo]', {
+              x: Math.round(x),
+              y: Math.round(y),
+              width: Math.round(width),
+              height: Math.round(height),
+            });
+          });
+          
+          // Reset composite operation
+          finalCtx.globalCompositeOperation = 'source-over';
+        } else {
+          // No transparent areas, just copy the captured canvas
+          finalCtx.drawImage(captureCanvas, 0, 0);
+        }
+      }
+
+      let exportCanvas = finalCanvas;
       const maxPreviewWidth = 640;
       if (exportCanvas.width > maxPreviewWidth) {
         const previewScale = maxPreviewWidth / exportCanvas.width;
@@ -659,23 +1103,99 @@ export default function Create() {
         }
       }
 
+
+      console.log('🖼️ [Preview canvas after scaling]', {
+        width: exportCanvas.width,
+        height: exportCanvas.height,
+      });
+      
+      // Use PNG format to preserve transparency in photo areas
       let previewDataUrl = "";
       try {
-        previewDataUrl = exportCanvas.toDataURL("image/webp", 0.82);
+        previewDataUrl = exportCanvas.toDataURL("image/png");
+        console.log('✅ [Using PNG format to preserve transparency]');
       } catch (err) {
-        console.warn("⚠️ WebP preview unsupported, falling back to JPEG", err);
+        console.warn("⚠️ PNG preview error, falling back to WebP", err);
+        try {
+          previewDataUrl = exportCanvas.toDataURL("image/webp", 0.82);
+        } catch (err2) {
+          console.warn("⚠️ WebP also failed, using JPEG (no transparency)", err2);
+          previewDataUrl = exportCanvas.toDataURL("image/jpeg", 0.85);
+        }
       }
 
       if (!previewDataUrl || !previewDataUrl.startsWith("data:image")) {
-        previewDataUrl = exportCanvas.toDataURL("image/jpeg", 0.85);
+        previewDataUrl = exportCanvas.toDataURL("image/png"); // Fallback to PNG for transparency
       }
       const serializedElements =
         typeof structuredClone === "function"
           ? structuredClone(elements)
           : JSON.parse(JSON.stringify(elements));
 
+      const cleanElements = serializedElements.filter(
+        (element) => !element?.data?.__capturedOverlay
+      );
+
+      console.log('💾 [SAVING DRAFT] Elements breakdown:', {
+        total: serializedElements.length,
+        cleaned: cleanElements.length,
+        types: cleanElements.map(el => ({ type: el.type, hasImage: !!el.data?.image })),
+      });
+
+      // Compress upload element images before saving
+      const compressedElements = await Promise.all(cleanElements.map(async (element) => {
+        if (element.type === 'upload' && element.data?.image) {
+          try {
+            // Create a smaller version of upload images to save storage
+            const img = new Image();
+            img.src = element.data.image;
+            await new Promise((resolve, reject) => {
+              img.onload = resolve;
+              img.onerror = reject;
+            });
+
+            // Compress to max 800px width while maintaining aspect ratio
+            const maxWidth = 800;
+            let targetWidth = img.width;
+            let targetHeight = img.height;
+            
+            if (targetWidth > maxWidth) {
+              const scale = maxWidth / targetWidth;
+              targetWidth = maxWidth;
+              targetHeight = Math.round(targetHeight * scale);
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = targetWidth;
+            canvas.height = targetHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+            
+            const compressedImage = canvas.toDataURL('image/jpeg', 0.85);
+            console.log('🗜️ Compressed upload image:', {
+              original: element.data.image.length,
+              compressed: compressedImage.length,
+              saved: element.data.image.length - compressedImage.length,
+            });
+
+            return {
+              ...element,
+              data: {
+                ...element.data,
+                image: compressedImage,
+                originalImage: undefined, // Remove original to save space
+              },
+            };
+          } catch (error) {
+            console.warn('⚠️ Failed to compress upload image, using original:', error);
+            return element;
+          }
+        }
+        return element;
+      }));
+
       const signature = computeDraftSignature(
-        serializedElements,
+        compressedElements,
         canvasBackground,
         canvasAspectRatio
       );
@@ -689,15 +1209,43 @@ export default function Create() {
         'Match?': Math.abs((canvasWidth / canvasHeight) - (9/16)) < 0.001
       });
 
+      // Save captured photos with the draft
+      const capturedPhotos = safeStorage.getJSON('capturedPhotos') || [];
+      console.log('💾 [SAVING DRAFT] Captured photos to save:', capturedPhotos.length);
+
+      // Check if there's a frame artwork element (upload element with very high z-index and locked)
+      const frameArtworkElement = serializedElements.find(
+        (el) => 
+          el?.type === 'upload' && 
+          el?.isLocked === true && 
+          el?.data?.__isFrameArtwork === true
+      );
+
+      let frameArtwork = null;
+      if (frameArtworkElement) {
+        frameArtwork = {
+          image: frameArtworkElement.data.image,
+          x: frameArtworkElement.x,
+          y: frameArtworkElement.y,
+          width: frameArtworkElement.width,
+          height: frameArtworkElement.height,
+          zIndex: frameArtworkElement.zIndex,
+          rotation: frameArtworkElement.rotation,
+        };
+        console.log('🖼️ [SAVING DRAFT] Frame artwork found and saved');
+      }
+
       const savedDraft = draftStorage.saveDraft({
         id: activeDraftId || undefined,
         canvasBackground,
         canvasWidth,
         canvasHeight,
         aspectRatio: canvasAspectRatio,
-        elements: serializedElements,
+        elements: compressedElements,
         preview: previewDataUrl,
         signature,
+        capturedPhotos: Array.isArray(capturedPhotos) && capturedPhotos.length > 0 ? capturedPhotos : undefined,
+        frameArtwork: frameArtwork || undefined,
       });
 
       setActiveDraftId(savedDraft.id);
@@ -716,7 +1264,9 @@ export default function Create() {
       showToast("error", message);
     } finally {
       try {
-        cleanupCapture();
+        if (typeof cleanupCapture === "function") {
+          cleanupCapture();
+        }
       } catch (err) {
         console.warn("⚠️ Failed to clean up capture node", err);
       }
@@ -849,6 +1399,14 @@ export default function Create() {
         icon: ImageIcon,
         onClick: () => addToolElement("photo"),
         isActive: selectedElement?.type === "photo",
+      },
+      {
+        id: "transparent-area",
+        label: "Area Transparan",
+        mobileLabel: "Transparan",
+        icon: Box,
+        onClick: () => addToolElement("transparent-area"),
+        isActive: selectedElement?.type === "transparent-area",
       },
       {
         id: "text",

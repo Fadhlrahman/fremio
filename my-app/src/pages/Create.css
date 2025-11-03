@@ -622,3 +622,34 @@
     color: #b91c1c;
   }
 }
+
+/* Transparent area / photo hole styling */
+.creator-transparent-area {
+  /* Make the area truly transparent - creates a "hole" effect */
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+/* When photo area is placed, it should cut through the background */
+.creator-element--type-photo {
+  background: transparent !important;
+  background-color: transparent !important;
+  /* Isolation to create proper transparency stacking */
+  isolation: isolate;
+}
+
+/* Transparent area tool - makes background transparent */
+.creator-element--type-transparent-area {
+  background: transparent !important;
+  background-color: transparent !important;
+  isolation: isolate;
+}
+
+/* Override any background when exporting */
+.creator-element--type-photo *,
+.creator-element--type-transparent-area * {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+}
+

@@ -785,23 +785,9 @@ export default function EditPhoto() {
 
   useEffect(() => {
     return () => {
-      try {
-        safeStorage.removeItem("capturedPhotos");
-        safeStorage.removeItem("capturedVideos");
-
-        const frameId = frameConfig?.id || frameProvider.getCurrentFrameName();
-        const slotPhotosKey = getSlotPhotosStorageKey(frameId);
-        const slotVideosKey = getSlotVideosStorageKey(frameId);
-
-        if (slotPhotosKey) {
-          safeStorage.removeItem(slotPhotosKey);
-        }
-        if (slotVideosKey) {
-          safeStorage.removeItem(slotVideosKey);
-        }
-      } catch (error) {
-        console.warn("⚠️ Failed to clear captured media on editor exit", error);
-      }
+      // Keep captured photos and videos in storage so other pages (e.g. Editor)
+      // can render them after leaving this view. Slot-specific caches are also
+      // preserved; explicit cleanup happens via clearCapturedMediaStorage.
     };
   }, [frameConfig?.id]);
 

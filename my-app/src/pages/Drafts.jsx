@@ -161,30 +161,35 @@ export default function Drafts() {
       displayRatio = `${ratioWidth}:${ratioHeight}`;
     }
 
-    // Build shared style objects
-    const BASE_HEIGHT = 500;
-    let previewHeight = BASE_HEIGHT;
-    let previewWidth = Math.round((previewHeight * ratioWidth) / ratioHeight);
-    const MAX_WIDTH = 380;
-
-    if (previewWidth > MAX_WIDTH) {
-      previewWidth = MAX_WIDTH;
-      previewHeight = Math.round((previewWidth * ratioHeight) / ratioWidth);
+    // Calculate preview size to match Create page save logic
+    // Create page saves with max width 640px, so we display with the same constraint
+    const MAX_PREVIEW_WIDTH = 640;
+    const savedCanvasWidth = Number(draft.canvasWidth) || 1080;
+    const savedCanvasHeight = Number(draft.canvasHeight) || 1920;
+    
+    let previewWidth = savedCanvasWidth;
+    let previewHeight = savedCanvasHeight;
+    
+    // Apply same scaling as Create page save
+    if (previewWidth > MAX_PREVIEW_WIDTH) {
+      const scale = MAX_PREVIEW_WIDTH / previewWidth;
+      previewWidth = Math.round(previewWidth * scale);
+      previewHeight = Math.round(previewHeight * scale);
+    }
+    
+    // Scale down further for 3-column grid layout (max 150px width per card)
+    const MAX_CARD_WIDTH = 150;
+    if (previewWidth > MAX_CARD_WIDTH) {
+      const cardScale = MAX_CARD_WIDTH / previewWidth;
+      previewWidth = Math.round(previewWidth * cardScale);
+      previewHeight = Math.round(previewHeight * cardScale);
     }
 
     const previewContainerStyle = {
       width: `${previewWidth}px`,
       height: `${previewHeight}px`,
-      background: draft.canvasBackground || "#f8fafc",
-      borderRadius: "16px",
-      overflow: "hidden",
       position: "relative",
-      boxShadow: "inset 0 0 0 1px rgba(17,24,39,0.06)",
-      transition: "transform 0.3s ease",
-      margin: "0 auto",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center"
+      overflow: "hidden"
     };
 
     console.log("🖼️ [Draft Card]", draft.id.slice(0, 8), {
@@ -196,22 +201,32 @@ export default function Drafts() {
       previewHeight,
     });
 
+    const cardContainerStyle = {
+      width: `${previewWidth}px`,
+      display: 'inline-block'
+    };
+
     return (
       <div
         key={draft.id}
-        className="group relative flex w-full max-w-[420px] flex-col gap-3 overflow-hidden rounded-lg border border-[#e0b7a9]/40 bg-white p-4 shadow-md transition-all duration-300 hover:-translate-y-1 hover:border-[#e0b7a9] hover:shadow-lg"
-        style={{ alignSelf: "stretch" }}
+        style={cardContainerStyle}
       >
-        <div
-          className="relative w-full"
-          style={previewContainerStyle}
-        >
+        <div className="flex flex-col gap-3 overflow-hidden rounded-lg border border-[#e0b7a9]/40 bg-white p-3 shadow-md transition-all duration-300 hover:-translate-y-1 hover:border-[#e0b7a9] hover:shadow-lg">
+          <div
+            className="relative"
+            style={previewContainerStyle}
+          >
           {draft.preview ? (
             <img
               src={draft.preview}
               alt={frameTitle}
               className="transition-transform duration-300 group-hover:scale-[1.02]"
-              style={{ height: "100%", width: "auto", maxWidth: "100%", objectFit: "contain" }}
+              style={{ 
+                width: "100%", 
+                height: "100%", 
+                objectFit: "cover",
+                display: "block"
+              }}
               onLoad={(event) => {
                 const { naturalWidth, naturalHeight } = event.currentTarget;
                 console.log("📷 Draft preview image loaded", draft.id.slice(0, 8), {
@@ -233,12 +248,12 @@ export default function Drafts() {
           </div>
         </div>
 
-        <div className="flex w-full flex-col items-center gap-2 text-center">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <button
             type="button"
             onClick={() => handleUseDraft(draft)}
             disabled={activatingId === draft.id || deletingId === draft.id}
-            className="inline-flex min-w-[140px] items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-black shadow-sm transition-all hover:border-slate-400 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-black shadow-sm transition-all hover:border-slate-400 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {activatingId === draft.id ? "Menyiapkan..." : "Gunakan Frame"}
           </button>
@@ -253,7 +268,7 @@ export default function Drafts() {
                 safeStorage.removeItem("activeDraftSignature");
               }
             }}
-            className="inline-flex min-w-[140px] items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-black shadow-sm transition-all hover:border-slate-400 hover:shadow-md active:scale-95"
+            className="block w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-center text-xs font-semibold text-black shadow-sm transition-all hover:border-slate-400 hover:shadow-md active:scale-95"
           >
             Lihat Frame
           </Link>
@@ -261,12 +276,13 @@ export default function Drafts() {
             type="button"
             onClick={() => handleDeleteDraft(draft.id)}
             disabled={deletingId === draft.id || activatingId === draft.id}
-            className="inline-flex min-w-[140px] items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-black shadow-sm transition-all hover:border-slate-400 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-black shadow-sm transition-all hover:border-slate-400 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {deletingId === draft.id ? "Menghapus..." : "Hapus"}
           </button>
         </div>
       </div>
+    </div>
     );
   };
 
@@ -323,9 +339,7 @@ export default function Drafts() {
             </Link>
           </div>
         ) : (
-          <div
-            className="mt-10 flex flex-wrap gap-8 px-2 justify-center"
-          >
+          <div className="mt-10 grid auto-rows-fr grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 justify-items-center">
             {sortedDrafts.map((draft) => renderDraftCard(draft))}
           </div>
         )}

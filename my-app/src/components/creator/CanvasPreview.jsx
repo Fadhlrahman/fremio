@@ -276,7 +276,7 @@ const resetRndPosition = (meta) => {
   }
 };
 
-const ElementContent = forwardRef(({ element, isSelected }, ref) => {
+const ElementContent = forwardRef(({ element, isSelected, elements }, ref) => {
   const style = {
     width: "100%",
     height: "100%",
@@ -340,11 +340,96 @@ const ElementContent = forwardRef(({ element, isSelected }, ref) => {
   }
 
   if (element.type === "photo") {
+    // Photo area creates a transparent "hole" in the canvas
+    // This area will be completely transparent, cutting through background
     return (
-      <div style={style} className="h-full w-full">
-        <div className="text-xs font-semibold uppercase tracking-widest text-slate-500">
-          {element.data?.label ?? "Foto Area"}
-        </div>
+      <div 
+        style={{
+          ...style,
+          background: 'transparent',
+          backgroundColor: 'transparent',
+          position: 'relative',
+          overflow: 'hidden',
+        }} 
+        className="h-full w-full creator-transparent-area"
+        data-transparent-hole="true"
+      >
+        {/* Checkerboard pattern to visualize transparency in edit mode */}
+        <div 
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `
+              linear-gradient(45deg, rgba(0, 0, 0, 0.05) 25%, transparent 25%),
+              linear-gradient(-45deg, rgba(0, 0, 0, 0.05) 25%, transparent 25%),
+              linear-gradient(45deg, transparent 75%, rgba(0, 0, 0, 0.05) 75%),
+              linear-gradient(-45deg, transparent 75%, rgba(0, 0, 0, 0.05) 75%)
+            `,
+            backgroundSize: '20px 20px',
+            backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+            pointerEvents: 'none',
+          }}
+        />
+        
+        {/* Visual indicator when selected */}
+        {isSelected && (
+          <div className="absolute inset-0 flex items-center justify-center border-2 border-blue-400 bg-blue-400/10 pointer-events-none">
+            <div className="text-xs font-semibold uppercase tracking-wider text-blue-600 text-center px-3 py-1.5 bg-white/90 rounded-md shadow-sm">
+              Area Transparan
+            </div>
+          </div>
+        )}
+        
+        {/* Subtle border when not selected */}
+        {!isSelected && (
+          <div className="absolute inset-0 border border-dashed border-slate-300/50 pointer-events-none" />
+        )}
+      </div>
+    );
+  }
+
+  if (element.type === "transparent-area") {
+    // Transparent area tool - makes background transparent in this area
+    return (
+      <div 
+        style={{
+          ...style,
+          background: 'transparent',
+          backgroundColor: 'transparent',
+          position: 'relative',
+          overflow: 'hidden',
+        }} 
+        className="h-full w-full creator-transparent-area"
+        data-transparent-area="true"
+      >
+        {/* Checkerboard pattern to visualize transparency in edit mode */}
+        <div 
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `
+              linear-gradient(45deg, rgba(120, 120, 120, 0.1) 25%, transparent 25%),
+              linear-gradient(-45deg, rgba(120, 120, 120, 0.1) 25%, transparent 25%),
+              linear-gradient(45deg, transparent 75%, rgba(120, 120, 120, 0.1) 75%),
+              linear-gradient(-45deg, transparent 75%, rgba(120, 120, 120, 0.1) 75%)
+            `,
+            backgroundSize: '16px 16px',
+            backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0px',
+            pointerEvents: 'none',
+          }}
+        />
+        
+        {/* Visual indicator when selected */}
+        {isSelected && (
+          <div className="absolute inset-0 flex items-center justify-center border-2 border-purple-500 bg-purple-500/10 pointer-events-none">
+            <div className="text-xs font-semibold uppercase tracking-wider text-purple-600 text-center px-3 py-1.5 bg-white/95 rounded-md shadow-sm">
+              Area Transparan
+            </div>
+          </div>
+        )}
+        
+        {/* Subtle border when not selected */}
+        {!isSelected && (
+          <div className="absolute inset-0 border border-dashed border-purple-300/60 pointer-events-none" />
+        )}
       </div>
     );
   }
@@ -1312,6 +1397,7 @@ function CanvasPreviewComponent({
               {isSelected && !isBackgroundPhoto && (
                 <>
                   <div
+                    data-export-ignore="true"
                     style={{
                       position: "absolute",
                       top: 0,
@@ -1325,6 +1411,7 @@ function CanvasPreviewComponent({
                     }}
                   />
                   <div
+                    data-export-ignore="true"
                     style={{
                       position: "absolute",
                       top: -60,
@@ -1414,6 +1501,7 @@ function CanvasPreviewComponent({
               )}
               {isSelected && isBackgroundPhoto && (
                 <div
+                  data-export-ignore="true"
                   style={{
                     position: "absolute",
                     top: 0,
@@ -1430,6 +1518,7 @@ function CanvasPreviewComponent({
               <ElementContent
                 element={element}
                 isSelected={isSelected}
+                elements={elements}
                 ref={isBackgroundPhoto ? backgroundTouchRef : null}
               />
             </Rnd>

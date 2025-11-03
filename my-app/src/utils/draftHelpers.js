@@ -176,6 +176,24 @@ export const activateDraftFrame = (draft) => {
   } else {
     safeStorage.removeItem("activeDraftSignature");
   }
+  
+  // Restore captured photos if they were saved with the draft
+  if (Array.isArray(draft.capturedPhotos) && draft.capturedPhotos.length > 0) {
+    console.log('📸 [activateDraftFrame] Restoring captured photos:', draft.capturedPhotos.length);
+    safeStorage.setJSON("capturedPhotos", draft.capturedPhotos);
+  } else {
+    console.log('📸 [activateDraftFrame] No captured photos to restore');
+    safeStorage.removeItem("capturedPhotos");
+  }
+  
+  // Store frame artwork info if available (for editor to load)
+  if (draft.frameArtwork) {
+    console.log('🖼️ [activateDraftFrame] Storing frame artwork info');
+    safeStorage.setJSON("draftFrameArtwork", draft.frameArtwork);
+  } else {
+    safeStorage.removeItem("draftFrameArtwork");
+  }
+  
   return frameConfig;
 };
 

@@ -28,15 +28,19 @@ import CanvasPreview from "../components/creator/CanvasPreview.jsx";
 import PropertiesPanel from "../components/creator/PropertiesPanel.jsx";
 import ColorPicker from "../components/creator/ColorPicker.jsx";
 import useCreatorStore from "../store/useCreatorStore.js";
-import { 
+import {
   CAPTURED_OVERLAY_MIN_Z,
-  TRANSPARENT_AREA_BASE_Z 
+  BACKGROUND_PHOTO_Z,
 } from "../constants/layers.js";
 import { useShallow } from "zustand/react/shallow";
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from "../components/creator/canvasConstants.js";
 import draftStorage from "../utils/draftStorage.js";
 import { computeDraftSignature } from "../utils/draftHelpers.js";
 import safeStorage from "../utils/safeStorage.js";
+import {
+  syncAutoTransparentAreas,
+  isAutoTransparentAreaActive,
+} from "../utils/transparentAreaManager.js";
 import "./Create.css";
 
 const panelMotion = {
@@ -99,131 +103,6 @@ const loadImageAsync = (src) =>
     img.src = src;
   });
 
-const AUTO_TRANSPARENT_LABEL = 'Area Transparan Foto';
-
-const createAutoTransparentAreaId = (photoId) => `auto-transparent-${photoId}`;
-
-const syncPhotoTransparentAreas = (elements = []) => {
-  if (!Array.isArray(elements) || elements.length === 0) {
-    return elements;
-  }
-
-  const existingAutoAreas = new Map();
-  for (const element of elements) {
-    if (
-      element?.type === 'transparent-area' &&
-      element?.data?.__autoTransparentArea === true &&
-      element?.data?.__linkedPhotoId
-    ) {
-      existingAutoAreas.set(element.data.__linkedPhotoId, element);
-    }
-  }
-
-  let didMutate = false;
-  const usedAutoIds = new Set();
-  const nextElements = [];
-
-  for (const element of elements) {
-    if (
-      element?.type === 'transparent-area' &&
-      element?.data?.__autoTransparentArea === true
-    ) {
-      // Skip auto-generated transparent areas; they will be re-inserted alongside their photo
-      continue;
-    }
-
-    nextElements.push(element);
-
-    if (element?.type !== 'photo' || !element?.id) {
-      continue;
-    }
-
-    const linkedPhotoId = element.id;
-    const existing = existingAutoAreas.get(linkedPhotoId);
-    const baseId = existing?.id ?? createAutoTransparentAreaId(linkedPhotoId);
-    const targetBorderRadius = parseNumericValue(
-      element?.data?.borderRadius ?? existing?.data?.borderRadius ?? 0
-    );
-
-    let areaToUse = existing;
-    let areaChanged = false;
-
-    if (!existing) {
-      areaToUse = {
-        id: baseId,
-        type: 'transparent-area',
-        x: element.x ?? 0,
-        y: element.y ?? 0,
-        width: element.width ?? 0,
-        height: element.height ?? 0,
-        rotation: element.rotation ?? 0,
-        zIndex: element.zIndex ?? 1,
-        isLocked: true,
-        data: {
-          label: AUTO_TRANSPARENT_LABEL,
-          borderRadius: targetBorderRadius,
-          __linkedPhotoId: linkedPhotoId,
-          __autoTransparentArea: true,
-        },
-      };
-      areaChanged = true;
-    } else {
-      const existingBorderRadius = parseNumericValue(existing.data?.borderRadius ?? 0);
-      const needsGeometryUpdate =
-        (existing.x ?? 0) !== (element.x ?? 0) ||
-        (existing.y ?? 0) !== (element.y ?? 0) ||
-        (existing.width ?? 0) !== (element.width ?? 0) ||
-        (existing.height ?? 0) !== (element.height ?? 0) ||
-        (existing.rotation ?? 0) !== (element.rotation ?? 0) ||
-        (existing.zIndex ?? 0) !== (element.zIndex ?? 1) ||
-        existing.isLocked !== true;
-
-      const needsDataUpdate =
-        existingBorderRadius !== targetBorderRadius ||
-        existing.data?.__linkedPhotoId !== linkedPhotoId ||
-        existing.data?.__autoTransparentArea !== true ||
-        (existing.data?.label ?? AUTO_TRANSPARENT_LABEL) !== AUTO_TRANSPARENT_LABEL;
-
-      if (needsGeometryUpdate || needsDataUpdate) {
-        areaToUse = {
-          ...existing,
-          x: element.x ?? 0,
-          y: element.y ?? 0,
-          width: element.width ?? 0,
-          height: element.height ?? 0,
-          rotation: element.rotation ?? 0,
-          zIndex: element.zIndex ?? 1,
-          isLocked: true,
-          data: {
-            ...existing.data,
-            label: AUTO_TRANSPARENT_LABEL,
-            borderRadius: targetBorderRadius,
-            __linkedPhotoId: linkedPhotoId,
-            __autoTransparentArea: true,
-          },
-        };
-        areaChanged = true;
-      }
-    }
-
-    if (areaChanged) {
-      didMutate = true;
-    }
-
-    usedAutoIds.add(linkedPhotoId);
-    nextElements.push(areaToUse);
-  }
-
-  if (existingAutoAreas.size !== usedAutoIds.size) {
-    didMutate = true;
-  }
-
-  if (!didMutate && nextElements.length === elements.length) {
-    return elements;
-  }
-
-  return nextElements;
-};
 
 const prepareCanvasExportClone = (rootNode) => {
   if (!rootNode) {
@@ -593,6 +472,93 @@ export default function Create() {
     return elements.find((el) => el.id === selectedElementId) || null;
   }, [elements, selectedElementId]);
 
+  const autoTransparentState = useMemo(() => {
+    if (!Array.isArray(elements) || elements.length === 0) {
+      return {
+        shouldShow: false,
+        active: false,
+        areaId: null,
+        linkedPhotoId: null,
+      };
+    }
+
+    const photoElements = elements.filter((element) => element?.type === "photo");
+    if (photoElements.length === 0) {
+      return {
+        shouldShow: false,
+        active: false,
+        areaId: null,
+        linkedPhotoId: null,
+      };
+    }
+
+    const backgroundElement =
+      elements.find((element) => element?.type === "background-photo") || null;
+
+    const baseBackgroundZ = Number.isFinite(backgroundElement?.zIndex)
+      ? backgroundElement.zIndex
+      : Number.isFinite(BACKGROUND_PHOTO_Z)
+      ? BACKGROUND_PHOTO_Z
+      : 0;
+
+    const autoAreas = elements.filter(
+      (element) =>
+        element?.type === "transparent-area" &&
+        element?.data?.__autoTransparentArea === true
+    );
+
+    if (autoAreas.length === 0) {
+      return {
+        shouldShow: true,
+        active: false,
+        areaId: null,
+        linkedPhotoId: null,
+      };
+    }
+
+    let activeAreaId = null;
+    let linkedPhotoId = null;
+
+    const isActive = autoAreas.some((area) => {
+      const photoId = area?.data?.__linkedPhotoId;
+      if (!photoId) {
+        return false;
+      }
+
+      const linkedPhoto = photoElements.find((photo) => photo.id === photoId);
+      if (!linkedPhoto) {
+        return false;
+      }
+
+      const active = isAutoTransparentAreaActive(area, linkedPhoto, baseBackgroundZ);
+      if (active && !activeAreaId) {
+        activeAreaId = area.id;
+        linkedPhotoId = linkedPhoto.id;
+      }
+      return active;
+    });
+
+    if (!activeAreaId) {
+      const fallback = autoAreas[0];
+      activeAreaId = fallback?.id ?? null;
+      linkedPhotoId = fallback?.data?.__linkedPhotoId ?? null;
+    }
+
+    return {
+      shouldShow: true,
+      active: isActive,
+      areaId: activeAreaId,
+      linkedPhotoId,
+    };
+  }, [elements]);
+
+  const {
+    shouldShow: shouldShowAutoTransparent,
+    active: autoTransparentActive,
+    areaId: autoTransparentAreaId,
+    linkedPhotoId: autoTransparentLinkedPhotoId,
+  } = autoTransparentState;
+
   useEffect(() => {
     const storedPhotos = safeStorage.getJSON('capturedPhotos');
     const hasStoredPhotos = Array.isArray(storedPhotos) && storedPhotos.length > 0;
@@ -615,11 +581,43 @@ export default function Create() {
   }, [elements, setElements]);
 
   useEffect(() => {
-    const synced = syncPhotoTransparentAreas(elements);
+    const synced = syncAutoTransparentAreas(elements);
     if (synced !== elements) {
       setElements(synced);
     }
   }, [elements, setElements]);
+
+  const handleAutoTransparentSync = useCallback(() => {
+    const synced = syncAutoTransparentAreas(elements);
+    if (synced !== elements) {
+      setElements(synced);
+      showToast("success", "Area transparan otomatis diperbarui.");
+      return;
+    }
+
+    if (autoTransparentActive) {
+      if (autoTransparentAreaId) {
+        selectElement(autoTransparentAreaId);
+      } else if (autoTransparentLinkedPhotoId) {
+        selectElement(autoTransparentLinkedPhotoId);
+      }
+      showToast("success", "Area transparan otomatis sudah aktif.");
+      return;
+    }
+
+    showToast(
+      "error",
+      "Tambahkan area foto ukuran penuh untuk mengaktifkan transparan otomatis."
+    );
+  }, [
+    elements,
+    setElements,
+    showToast,
+    autoTransparentActive,
+    autoTransparentAreaId,
+    autoTransparentLinkedPhotoId,
+    selectElement,
+  ]);
 
   useEffect(() => {
     if (!isMobileView) {
@@ -1796,8 +1794,8 @@ export default function Create() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedElementId, removeElement, showToast]);
 
-  const toolButtons = useMemo(
-    () => [
+  const toolButtons = useMemo(() => {
+    const buttons = [
       {
         id: "background",
         label: "Background",
@@ -1845,17 +1843,32 @@ export default function Create() {
         onClick: () => addToolElement("upload"),
         isActive: selectedElement?.type === "upload",
       },
-    ],
-    [
-      addToolElement,
-      selectElement,
-      selectedElement?.type,
-      selectedElementId,
-      backgroundPhotoElement,
-      triggerBackgroundUpload,
-      isMobileView,
-    ]
-  );
+    ];
+
+    if (shouldShowAutoTransparent) {
+      buttons.push({
+        id: "auto-transparent",
+        label: "Transparan Otomatis",
+        mobileLabel: "Transparan",
+        icon: Layers,
+        onClick: handleAutoTransparentSync,
+        isActive: autoTransparentActive,
+      });
+    }
+
+    return buttons;
+  }, [
+    addToolElement,
+    selectElement,
+    selectedElement?.type,
+    selectedElementId,
+    backgroundPhotoElement,
+    triggerBackgroundUpload,
+    isMobileView,
+    shouldShowAutoTransparent,
+    handleAutoTransparentSync,
+    autoTransparentActive,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") {

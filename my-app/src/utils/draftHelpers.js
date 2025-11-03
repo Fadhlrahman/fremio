@@ -1,5 +1,6 @@
 import safeStorage from "./safeStorage.js";
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from "../components/creator/canvasConstants.js";
+import { sanitizeFrameConfigForStorage } from "./frameConfigSanitizer.js";
 
 const toAspectRatioString = (width, height) => {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
@@ -164,8 +165,28 @@ export const buildFrameConfigFromDraft = (draft) => {
 
 export const activateDraftFrame = (draft) => {
   const frameConfig = buildFrameConfigFromDraft(draft);
-  safeStorage.setJSON("frameConfig", frameConfig);
-  safeStorage.setItem("selectedFrame", frameConfig.id);
+  const sanitizedConfig = sanitizeFrameConfigForStorage(frameConfig);
+
+  let configPersisted = false;
+  if (sanitizedConfig) {
+    configPersisted = safeStorage.setJSON("frameConfig", sanitizedConfig);
+  }
+
+  if (!configPersisted) {
+    console.warn("⚠️ [activateDraftFrame] Failed to persist sanitized frame config, attempting minimal fallback");
+    const fallbackConfig = sanitizedConfig ? { ...sanitizedConfig } : null;
+    if (fallbackConfig) {
+      delete fallbackConfig.imagePath;
+      configPersisted = safeStorage.setJSON("frameConfig", fallbackConfig);
+    }
+  }
+
+  const idPersisted = safeStorage.setItem("selectedFrame", frameConfig.id);
+
+  if (!configPersisted || !idPersisted) {
+    throw new Error("Frame config not properly saved to storage");
+  }
+
   if (draft?.id) {
     safeStorage.setItem("activeDraftId", draft.id);
   } else {

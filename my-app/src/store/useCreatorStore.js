@@ -9,9 +9,9 @@ import {
   CAPTURED_OVERLAY_MIN_Z,
   PHOTO_AREA_BASE_Z,
   BACKGROUND_PHOTO_Z,
-  TRANSPARENT_AREA_BASE_Z,
-  REGULAR_ELEMENTS_MIN_Z
+  TRANSPARENT_AREA_BASE_Z
 } from '../constants/layers.js';
+import syncAutoTransparentAreas from '../utils/transparentAreaManager.js';
 
 const DEFAULT_BACKGROUND = '#f7f1ed';
 
@@ -117,6 +117,31 @@ const defaultPropsByType = (type) => {
   }
 };
 
+const resolveDefaultZIndex = (type, defaults, lastZIndex) => {
+  if (type === 'photo') {
+    return PHOTO_AREA_BASE_Z;
+  }
+
+  if (type === 'background-photo') {
+    if (typeof defaults?.zIndex === 'number') {
+      return defaults.zIndex;
+    }
+    if (typeof BACKGROUND_PHOTO_Z === 'number') {
+      return BACKGROUND_PHOTO_Z;
+    }
+    return 0;
+  }
+
+  if (type === 'transparent-area') {
+    if (typeof TRANSPARENT_AREA_BASE_Z === 'number') {
+      return TRANSPARENT_AREA_BASE_Z;
+    }
+    return lastZIndex + 1;
+  }
+
+  return lastZIndex + 1;
+};
+
 const computeContainedSize = (aspectRatio, maxWidth = CANVAS_WIDTH, maxHeight = CANVAS_HEIGHT) => {
   if (!Number.isFinite(aspectRatio) || aspectRatio <= 0) {
     return { width: maxWidth, height: maxHeight };
@@ -213,6 +238,9 @@ const removeCapturedOverlaysForPlaceholder = (elements, placeholderId) => {
   );
 };
 
+const syncCreatorElements = (elements) =>
+  syncAutoTransparentAreas(syncAllPhotoOverlays(elements));
+
 console.log('[useCreatorStore] Store module loaded');
 
 export const useCreatorStore = create((set, get) => ({
@@ -226,19 +254,24 @@ export const useCreatorStore = create((set, get) => ({
       ...(defaults.data || {}),
       ...(extra.data || {})
     };
-    const nextZ = get().lastZIndex + 1;
-    const desiredZ = typeof extra.zIndex === 'number' ? extra.zIndex : nextZ;
+    const currentLastZ = get().lastZIndex;
+    const defaultZ = resolveDefaultZIndex(type, defaults, currentLastZ);
+    const desiredZ = typeof extra.zIndex === 'number' ? extra.zIndex : defaultZ;
     const element = baseElement(type, {
       ...defaults,
       ...extra,
       data: mergedData,
       zIndex: desiredZ
     });
-    set((state) => ({
-      elements: [...state.elements, element],
-      selectedElementId: element.id,
-      lastZIndex: desiredZ > state.lastZIndex ? desiredZ : state.lastZIndex
-    }));
+    set((state) => {
+      const nextElements = syncCreatorElements([...state.elements, element]);
+      const nextLastZ = desiredZ > state.lastZIndex ? desiredZ : state.lastZIndex;
+      return {
+        elements: nextElements,
+        selectedElementId: element.id,
+        lastZIndex: nextLastZ
+      };
+    });
     return element.id;
   },
   addUploadElement: (imageDataUrl) => {
@@ -280,14 +313,15 @@ export const useCreatorStore = create((set, get) => ({
       
       if (uploadElement) {
         // Center the element on canvas
+        const uploadElementId = uploadElement.id;
         const x = Math.round((CANVAS_WIDTH - width) / 2);
         const y = Math.round((CANVAS_HEIGHT - height) / 2);
-        
-        set({
-          elements: elements.map(el => 
-            el.id === uploadElement.id 
-              ? { 
-                  ...el, 
+
+        set((prev) => {
+          const mapped = prev.elements.map((el) =>
+            el.id === uploadElementId
+              ? {
+                  ...el,
                   width: Math.round(width),
                   height: Math.round(height),
                   x,
@@ -301,7 +335,10 @@ export const useCreatorStore = create((set, get) => ({
                   }
                 }
               : el
-          )
+          );
+          return {
+            elements: syncCreatorElements(mapped)
+          };
         });
       }
     };
@@ -366,7 +403,7 @@ export const useCreatorStore = create((set, get) => ({
         }
 
         let didMutate = false;
-        const elements = prev.elements.map((el) => {
+        const mapped = prev.elements.map((el) => {
           if (el.id === background.id) {
             didMutate = true;
             return {
@@ -400,7 +437,7 @@ export const useCreatorStore = create((set, get) => ({
           return prev;
         }
 
-        return { elements };
+        return { elements: syncCreatorElements(mapped) };
       });
     };
 
@@ -414,9 +451,10 @@ export const useCreatorStore = create((set, get) => ({
     
     // Return placeholder ID for existing, or create placeholder
     if (existing) {
-      set({
-        elements: state.elements.map((el) =>
-          el.id === existing.id
+      const existingId = existing.id;
+      set((prev) => {
+        const updated = prev.elements.map((el) =>
+          el.id === existingId
             ? {
                 ...el,
                 data: {
@@ -426,9 +464,10 @@ export const useCreatorStore = create((set, get) => ({
                 }
               }
             : el
-        )
+        );
+        return { elements: syncCreatorElements(updated) };
       });
-      return existing.id;
+      return existingId;
     }
 
     // Create placeholder with temp dimensions
@@ -450,14 +489,17 @@ export const useCreatorStore = create((set, get) => ({
       height: size.height
     });
 
-    set((prev) => ({
-      elements: prev.elements.map((el) =>
+    set((prev) => {
+      const remapped = prev.elements.map((el) =>
         el.id === id
           ? { ...el, zIndex: 0 }
           : { ...el, zIndex: (el.zIndex || 1) + 1 }
-      ),
-      lastZIndex: Math.max(prev.lastZIndex + 1, prev.elements.length + 1)
-    }));
+      );
+      return {
+        elements: syncCreatorElements(remapped),
+        lastZIndex: Math.max(prev.lastZIndex + 1, prev.elements.length + 1)
+      };
+    });
     
     return id;
   },
@@ -497,8 +539,8 @@ export const useCreatorStore = create((set, get) => ({
       y: Math.round((canvasHeight - height) / 2)
     };
     
-    set((prev) => ({
-      elements: prev.elements.map((el) =>
+    set((prev) => {
+      const remapped = prev.elements.map((el) =>
         el.id === background.id
           ? {
               ...el,
@@ -511,9 +553,12 @@ export const useCreatorStore = create((set, get) => ({
               }
             }
           : el
-      ),
-      selectedElementId: background.id
-    }));
+      );
+      return {
+        elements: syncCreatorElements(remapped),
+        selectedElementId: background.id
+      };
+    });
   },
   updateElement: (id, changes) => {
     set((state) => {
@@ -533,13 +578,13 @@ export const useCreatorStore = create((set, get) => ({
       });
 
       return {
-        elements: syncAllPhotoOverlays(nextElements),
+        elements: syncCreatorElements(nextElements),
       };
     });
   },
   updateElementData: (id, data) => {
-    set((state) => ({
-      elements: state.elements.map((el) =>
+    set((state) => {
+      const mapped = state.elements.map((el) =>
         el.id === id
           ? {
               ...el,
@@ -549,8 +594,11 @@ export const useCreatorStore = create((set, get) => ({
               }
             }
           : el
-      )
-    }));
+      );
+      return {
+        elements: syncCreatorElements(mapped)
+      };
+    });
   },
   resizeUploadImage: (id, newWidth, newHeight) => {
     const element = get().elements.find((el) => el.id === id);
@@ -598,7 +646,7 @@ export const useCreatorStore = create((set, get) => ({
       }
 
       return {
-        elements: syncAllPhotoOverlays(nextElements),
+        elements: syncCreatorElements(nextElements),
         selectedElementId:
           state.selectedElementId === id ? null : state.selectedElementId,
       };
@@ -616,18 +664,24 @@ export const useCreatorStore = create((set, get) => ({
       zIndex: get().lastZIndex + 1,
     };
     
-    set((state) => ({
-      elements: [...state.elements, duplicate],
-      lastZIndex: state.lastZIndex + 1,
-      selectedElementId: duplicate.id,
-    }));
+    set((state) => {
+      const nextElements = syncCreatorElements([...state.elements, duplicate]);
+      return {
+        elements: nextElements,
+        lastZIndex: state.lastZIndex + 1,
+        selectedElementId: duplicate.id,
+      };
+    });
   },
   toggleLock: (id) => {
-    set((state) => ({
-      elements: state.elements.map((el) =>
+    set((state) => {
+      const mapped = state.elements.map((el) =>
         el.id === id ? { ...el, isLocked: !el.isLocked } : el
-      ),
-    }));
+      );
+      return {
+        elements: syncCreatorElements(mapped),
+      };
+    });
   },
   bringToFront: (id) => {
     const target = get().elements.find((el) => el.id === id);
@@ -647,7 +701,7 @@ export const useCreatorStore = create((set, get) => ({
       );
 
       return {
-        elements: syncAllPhotoOverlays(elements),
+        elements: syncCreatorElements(elements),
         lastZIndex: nextZ,
       };
     });
@@ -677,7 +731,7 @@ export const useCreatorStore = create((set, get) => ({
       );
 
       return {
-        elements: syncAllPhotoOverlays(elements),
+        elements: syncCreatorElements(elements),
         lastZIndex: Math.max(state.lastZIndex, nextZ),
       };
     });
@@ -713,7 +767,7 @@ export const useCreatorStore = create((set, get) => ({
       });
 
       return {
-        elements: syncAllPhotoOverlays(elements),
+        elements: syncCreatorElements(elements),
       };
     });
   },
@@ -748,7 +802,7 @@ export const useCreatorStore = create((set, get) => ({
       });
 
       return {
-        elements: syncAllPhotoOverlays(elements),
+        elements: syncCreatorElements(elements),
       };
     });
   },
@@ -760,7 +814,7 @@ export const useCreatorStore = create((set, get) => ({
       (max, el) => (el.zIndex && el.zIndex > max ? el.zIndex : max),
       1
     );
-    set({ elements: syncAllPhotoOverlays(elements), lastZIndex: maxZ });
+    set({ elements: syncCreatorElements(elements), lastZIndex: maxZ });
   },
   clearSelection: () => set({ selectedElementId: null }),
   reset: () => set({

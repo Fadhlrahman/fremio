@@ -65,33 +65,45 @@ const prepareJsonForStorage = (val) => {
 };
 
 const withStorage = (op) => {
-  if (!storageAvailable) return null;
+  if (!storageAvailable) return { ok: false };
   try {
     return op(window.localStorage);
   } catch (e) {
     console.warn("⚠️ LocalStorage op failed", e);
-    return null;
+    return { ok: false, error: e };
   }
 };
 
 const safeStorage = {
   getItem(key, defaultValue = null) {
-    const raw = withStorage((s) => s.getItem(key));
+    const result = withStorage((s) => ({ ok: true, value: s.getItem(key) }));
+    if (!result?.ok) return defaultValue;
+    const raw = result.value;
     if (raw === null || raw === undefined) return defaultValue;
     const dec = decompressValueIfNeeded(raw);
     return dec !== undefined && dec !== null ? dec : defaultValue;
   },
 
   setItem(key, value) {
-    return withStorage((s) => s.setItem(key, value));
+    const result = withStorage((s) => {
+      s.setItem(key, value);
+      return { ok: true };
+    });
+    return Boolean(result?.ok);
   },
 
   removeItem(key) {
-    return withStorage((s) => s.removeItem(key));
+    const result = withStorage((s) => {
+      s.removeItem(key);
+      return { ok: true };
+    });
+    return Boolean(result?.ok);
   },
 
   getJSON(key, defaultValue = null) {
-    const raw = withStorage((s) => s.getItem(key));
+    const result = withStorage((s) => ({ ok: true, value: s.getItem(key) }));
+    if (!result?.ok) return defaultValue;
+    const raw = result.value;
     if (raw === null || raw === undefined) return defaultValue;
     const dec = decompressValueIfNeeded(raw);
     if (typeof dec !== "string") return defaultValue;
@@ -104,7 +116,7 @@ const safeStorage = {
 
   setJSON(key, value) {
     const prepared = prepareJsonForStorage(value);
-    if (!prepared.storageString) return null;
+    if (!prepared.storageString) return false;
     return this.setItem(key, prepared.storageString);
   },
 

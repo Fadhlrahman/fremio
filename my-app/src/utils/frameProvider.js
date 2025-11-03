@@ -7,6 +7,7 @@ import {
   preloadFrameConfigs
 } from '../config/frameConfigManager.js';
 import safeStorage from './safeStorage.js';
+import { sanitizeFrameConfigForStorage } from './frameConfigSanitizer.js';
 
 const CUSTOM_FRAME_PREFIX = 'custom-';
 
@@ -256,27 +257,24 @@ export class FrameDataProvider {
 
   persistFrameSelection(frameName, config) {
     try {
-      safeStorage.setItem('selectedFrame', frameName);
-      
-      // For custom frames, try to save config without the large base64 image first
-      if (isCustomFrameId(frameName) && config?.frameImage) {
-        // Try saving without frameImage first (to save space)
-        const configWithoutImage = { ...config };
-        delete configWithoutImage.frameImage;
-        delete configWithoutImage.preview;
-        
-        const saved = safeStorage.setJSON('frameConfig', configWithoutImage);
-        
-        if (!saved) {
-          console.warn('⚠️ Failed to save config without image, trying full config...');
-          // If that fails, try with the full config
-          safeStorage.setJSON('frameConfig', config);
-        } else {
-          console.log('✅ Saved custom frame config without base64 image (space optimization)');
-        }
-      } else {
-        // For built-in frames, save normally
-        safeStorage.setJSON('frameConfig', config);
+      const frameIdSaved = safeStorage.setItem('selectedFrame', frameName);
+
+      const sanitizedConfig = sanitizeFrameConfigForStorage(config);
+      let configSaved = false;
+
+      if (sanitizedConfig) {
+        configSaved = safeStorage.setJSON('frameConfig', sanitizedConfig);
+      }
+
+      if (!configSaved && sanitizedConfig) {
+        console.warn('⚠️ Failed to store sanitized frame config, attempting fallback without image data');
+        const fallbackConfig = { ...sanitizedConfig };
+        delete fallbackConfig.imagePath;
+        configSaved = safeStorage.setJSON('frameConfig', fallbackConfig);
+      }
+
+      if (!frameIdSaved || !configSaved) {
+        throw new Error('Failed to persist frame selection');
       }
 
       if (config?.metadata?.draftId) {

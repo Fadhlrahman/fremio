@@ -7,6 +7,8 @@ import { createFremioSeriesTestData } from '../utils/fremioTestData.js';
 import safeStorage from '../utils/safeStorage.js';
 import draftStorage from '../utils/draftStorage.js';
 import { buildFrameConfigFromDraft } from '../utils/draftHelpers.js';
+import { deriveFrameLayerPlan } from '../utils/frameLayerPlan.js';
+import { BACKGROUND_PHOTO_Z } from '../constants/layers.js';
 
 // FremioSeries Imports
 import FremioSeriesBlue2 from '../assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png';
@@ -30,16 +32,22 @@ import InspiredByMenariDenganBayangan from '../assets/frames/InspiredBy/Menari d
 import InspiredByPSILOVEYOU from '../assets/frames/InspiredBy/PS. I LOVE YOU.png';
 
 export default function Editor() {
+  console.log('🚀 EDITOR COMPONENT RENDERING...');
+  
   const navigate = useNavigate();
   const [photos, setPhotos] = useState([]);
   const [selectedFrame, setSelectedFrame] = useState(null);
   const [frameSlots, setFrameSlots] = useState(null);
+  const [frameLayerPlan, setFrameLayerPlan] = useState(null);
   const [frameId, setFrameId] = useState(null);
   const [isReloading, setIsReloading] = useState(false);
   const [duplicatePhotos, setDuplicatePhotos] = useState(false);
   const [slotPhotos, setSlotPhotos] = useState({}); // individual photos per slot (for duplicate-photo frames)
   const [draggedPhoto, setDraggedPhoto] = useState(null);
   const [dragOverSlot, setDragOverSlot] = useState(null);
+  const [designerElements, setDesignerElements] = useState([]); // elements from custom frame designer
+  const [backgroundPhotoElement, setBackgroundPhotoElement] = useState(null); // background photo from custom frame
+  const [frameConfig, setFrameConfig] = useState(null); // store full frame config for rendering
 
   const getSlotPhotosStorageKey = (id) => (id ? `slotPhotos:${id}` : null);
   const persistSlotPhotos = (id, data) => {
@@ -171,93 +179,183 @@ export default function Editor() {
   // Load photos and frame data from localStorage when component mounts
   useEffect(() => {
     console.log('🔄 Editor useEffect started - loading data...');
+    console.log('🔍 Checking localStorage keys:', Object.keys(localStorage));
     
-    // Get captured photos from localStorage
-    const capturedPhotos = safeStorage.getJSON('capturedPhotos');
-    if (capturedPhotos) {
-      const parsedPhotos = Array.isArray(capturedPhotos) ? capturedPhotos : [];
-      setPhotos(parsedPhotos);
-      console.log('✅ Loaded photos:', parsedPhotos.length);
-    } else {
-      console.log('⚠️ No captured photos found in localStorage');
-    }
+    try {
+      // Get captured photos from localStorage
+      const capturedPhotos = safeStorage.getJSON('capturedPhotos');
+      console.log('📦 Raw capturedPhotos from localStorage:', capturedPhotos);
+      console.log('📦 Type:', typeof capturedPhotos, 'IsArray:', Array.isArray(capturedPhotos));
+      
+      if (capturedPhotos) {
+        const parsedPhotos = Array.isArray(capturedPhotos) ? capturedPhotos : [];
+        setPhotos(parsedPhotos);
+        console.log('✅ Loaded photos:', parsedPhotos.length, 'photos');
+        if (parsedPhotos.length > 0) {
+          parsedPhotos.forEach((photo, idx) => {
+            console.log(`📷 Photo ${idx}:`, photo ? `${photo.substring(0, 50)}... (length: ${photo.length})` : 'null/undefined');
+          });
+        }
+      } else {
+        console.log('⚠️ No captured photos found in localStorage');
+        console.log('🔍 All localStorage contents:');
+        Object.keys(localStorage).forEach(key => {
+          console.log(`  - ${key}:`, localStorage.getItem(key)?.substring(0, 100));
+        });
+        setPhotos([]); // Explicitly set empty array
+      }
 
-    // Resolve frame ID from multiple sources
-    const frameId = resolveStoredFrameId();
-    console.log('🔍 Resolved frame ID:', frameId);
+      // Resolve frame ID from multiple sources
+      const frameId = resolveStoredFrameId();
+      console.log('🔍 Resolved frame ID:', frameId);
 
-    if (!frameId) {
-      console.error('❌ No frame ID could be resolved');
-      return;
-    }
+      if (!frameId) {
+        console.error('❌ No frame ID could be resolved');
+        return;
+      }
 
-    // Resolve frame config
-    const frameConfig = resolveFrameConfig(frameId);
-    console.log('🔍 Resolved frame config:', {
-      frameId,
-      hasConfig: !!frameConfig,
-      slotsCount: frameConfig?.slots?.length,
-      isCustom: isCustomFrameId(frameId)
-    });
-
-    if (!frameConfig) {
-      console.error('❌ No frame config could be resolved for:', frameId);
-      return;
-    }
-
-    // Resolve frame image
-    const frameImage = resolveFrameImage(frameId, frameConfig);
-    console.log('🔍 Resolved frame image:', {
-      frameId,
-      hasImage: !!frameImage,
-      imageType: frameImage?.startsWith('data:') ? 'base64' : 'imported'
-    });
-
-    if (!frameImage) {
-      console.error('❌ No frame image could be resolved for:', frameId);
-      return;
-    }
-
-    // Set all frame state
-    setSelectedFrame(frameImage);
-    setFrameSlots(frameConfig.slots);
-    setFrameId(frameId);
-    setDuplicatePhotos(!!frameConfig.duplicatePhotos);
-
-    // Initialize slotPhotos for duplicate-photo frames
-    if (frameConfig.duplicatePhotos && Array.isArray(frameConfig.slots)) {
-      const initial = {};
-      frameConfig.slots.forEach((slot, idx) => {
-        const pIdx = slot.photoIndex !== undefined ? slot.photoIndex : idx;
-        initial[idx] = (Array.isArray(capturedPhotos) && capturedPhotos[pIdx]) ? capturedPhotos[pIdx] : null;
+      // Resolve frame config
+      const frameConfig = resolveFrameConfig(frameId);
+      console.log('🔍 Resolved frame config:', {
+        frameId,
+        hasConfig: !!frameConfig,
+        slotsCount: frameConfig?.slots?.length,
+        isCustom: isCustomFrameId(frameId)
       });
 
-      const storageKey = getSlotPhotosStorageKey(frameId);
-      let normalized = initial;
-      if (storageKey) {
-        const stored = safeStorage.getJSON(storageKey);
-        if (stored) {
-          const merged = {};
-          frameConfig.slots.forEach((_, idx) => {
-            if (stored && Object.prototype.hasOwnProperty.call(stored, idx)) {
-              merged[idx] = stored[idx];
-            } else {
-              merged[idx] = initial[idx] || null;
-            }
-          });
-          normalized = merged;
+      if (!frameConfig) {
+        console.error('❌ No frame config could be resolved for:', frameId);
+        return;
+      }
+
+      // Store frame config to state for rendering
+      setFrameConfig(frameConfig);
+
+      // Resolve frame image
+      const frameImage = resolveFrameImage(frameId, frameConfig);
+      console.log('🔍 Resolved frame image:', {
+        frameId,
+        hasImage: !!frameImage,
+        imageType: frameImage?.startsWith('data:') ? 'base64' : 'imported'
+      });
+
+      if (!frameImage) {
+        console.error('❌ No frame image could be resolved for:', frameId);
+        return;
+      }
+
+      // Set all frame state
+      setSelectedFrame(frameImage);
+      setFrameSlots(frameConfig.slots);
+      setFrameId(frameId);
+      setDuplicatePhotos(!!frameConfig.duplicatePhotos);
+
+      // Load designer elements for custom frames (elements like text, shapes that should render on top)
+      const designerElems = Array.isArray(frameConfig?.designer?.elements) 
+        ? frameConfig.designer.elements.filter(el => 
+            el && 
+            el.type !== 'photo' && 
+            el.type !== 'background-photo' &&
+            !el?.data?.__capturedOverlay
+          )
+        : [];
+      setDesignerElements(designerElems);
+      console.log('🎨 Loaded designer elements:', designerElems.length);
+      console.log('🎨 Designer elements detail:', designerElems.map(el => ({
+        type: el.type,
+        id: el.id?.slice(0, 8),
+        zIndex: el.zIndex,
+        hasData: !!el.data,
+        text: el.data?.text,
+        fill: el.data?.fill,
+        image: el.data?.image ? 'has image' : 'no image'
+      })));
+
+      // Load background photo element for custom frames
+      const backgroundPhoto = Array.isArray(frameConfig?.designer?.elements)
+        ? frameConfig.designer.elements.find(el => el?.type === 'background-photo')
+        : null;
+      setBackgroundPhotoElement(backgroundPhoto);
+      if (backgroundPhoto) {
+        console.log('🖼️ Loaded background photo:', {
+          id: backgroundPhoto.id?.slice(0, 8),
+          zIndex: backgroundPhoto.zIndex,
+          hasImage: !!backgroundPhoto.data?.image,
+          width: backgroundPhoto.width,
+          height: backgroundPhoto.height
+        });
+      }
+
+      // Derive layering plan for slots so downstream renders respect creator ordering
+      let layerPlan = null;
+      try {
+        const storedPlan = safeStorage.getJSON('frameLayerPlan');
+        if (
+          storedPlan &&
+          storedPlan.version === 1 &&
+          storedPlan.sourceFrameId === frameConfig.id &&
+          storedPlan.slotCount === frameConfig.slots.length &&
+          (!storedPlan.sourceSignature || storedPlan.sourceSignature === frameConfig?.metadata?.signature)
+        ) {
+          layerPlan = storedPlan;
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to load stored frame layer plan', error);
+      }
+
+      if (!layerPlan) {
+        layerPlan = deriveFrameLayerPlan(frameConfig);
+        if (layerPlan) {
+          try {
+            safeStorage.setJSON('frameLayerPlan', layerPlan);
+          } catch (error) {
+            console.warn('⚠️ Failed to persist frame layer plan', error);
+          }
+        } else {
+          safeStorage.removeItem('frameLayerPlan');
         }
       }
-      setSlotPhotos(normalized);
-      persistSlotPhotos(frameId, normalized);
-    }
 
-    console.log('✅ Editor: Frame loaded successfully:', {
-      frameId,
-      slotsCount: frameConfig.slots?.length,
-      duplicatePhotos: frameConfig.duplicatePhotos,
-      isCustom: isCustomFrameId(frameId)
-    });
+      setFrameLayerPlan(layerPlan);
+
+      // Initialize slotPhotos for duplicate-photo frames
+      if (frameConfig.duplicatePhotos && Array.isArray(frameConfig.slots)) {
+        const initial = {};
+        frameConfig.slots.forEach((slot, idx) => {
+          const pIdx = slot.photoIndex !== undefined ? slot.photoIndex : idx;
+          initial[idx] = (Array.isArray(capturedPhotos) && capturedPhotos[pIdx]) ? capturedPhotos[pIdx] : null;
+        });
+
+        const storageKey = getSlotPhotosStorageKey(frameId);
+        let normalized = initial;
+        if (storageKey) {
+          const stored = safeStorage.getJSON(storageKey);
+          if (stored) {
+            const merged = {};
+            frameConfig.slots.forEach((_, idx) => {
+              if (stored && Object.prototype.hasOwnProperty.call(stored, idx)) {
+                merged[idx] = stored[idx];
+              } else {
+                merged[idx] = initial[idx] || null;
+              }
+            });
+            normalized = merged;
+          }
+        }
+        setSlotPhotos(normalized);
+        persistSlotPhotos(frameId, normalized);
+      }
+
+      console.log('✅ Editor: Frame loaded successfully:', {
+        frameId,
+        slotsCount: frameConfig.slots?.length,
+        duplicatePhotos: frameConfig.duplicatePhotos,
+        isCustom: isCustomFrameId(frameId)
+      });
+    } catch (error) {
+      console.error('❌ FATAL ERROR in Editor useEffect:', error);
+      console.error('Error stack:', error.stack);
+    }
   }, []);
 
   // Ensure slotPhotos are initialized once photos and frameSlots are available (for duplicate-photo frames)
@@ -388,6 +486,15 @@ export default function Editor() {
   };
 
   // Tools removed on this page per request; keeping only the preview
+  console.log('🎨 EDITOR RENDER:', {
+    hasPhotos: !!photos,
+    photosLength: photos?.length,
+    hasFrameSlots: !!frameSlots,
+    frameSlotsLength: frameSlots?.length,
+    hasSelectedFrame: !!selectedFrame,
+    frameId
+  });
+  
   return (
     <div style={{
       minHeight: '100vh',
@@ -507,6 +614,87 @@ export default function Editor() {
         </button>
       </div>
       
+      {/* DEBUG INFO PANEL */}
+      <div style={{
+        position: 'fixed',
+        left: '10px',
+        top: '60px',
+        background: 'rgba(0, 0, 0, 0.8)',
+        color: 'white',
+        padding: '12px',
+        borderRadius: '8px',
+        fontSize: '11px',
+        fontFamily: 'monospace',
+        zIndex: 9999,
+        maxWidth: '300px',
+        maxHeight: '80vh',
+        overflow: 'auto'
+      }}>
+        <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#fbbf24' }}>🔍 DEBUG INFO</div>
+        
+        <div style={{ marginBottom: '6px' }}>
+          <strong>Photos:</strong> {photos ? `${photos.length} items` : 'NULL'}
+        </div>
+        {photos && photos.length > 0 && (
+          <div style={{ marginBottom: '6px', fontSize: '10px' }}>
+            {photos.map((p, i) => (
+              <div key={i}>
+                Photo {i}: {p ? `${p.substring(0, 30)}... (${p.length} chars)` : 'NULL'}
+              </div>
+            ))}
+          </div>
+        )}
+        
+        <div style={{ marginBottom: '6px' }}>
+          <strong>FrameSlots:</strong> {frameSlots ? `${frameSlots.length} slots` : 'NULL'}
+        </div>
+        {frameSlots && frameSlots.length > 0 && (
+          <div style={{ marginBottom: '6px', fontSize: '10px' }}>
+            {frameSlots.map((slot, i) => (
+              <div key={i}>
+                Slot {i}: zIndex={slot.zIndex}, photoIndex={slot.photoIndex}
+              </div>
+            ))}
+          </div>
+        )}
+        
+        <div style={{ marginBottom: '6px' }}>
+          <strong>FrameId:</strong> {frameId || 'NULL'}
+        </div>
+        
+        <div style={{ marginBottom: '6px' }}>
+          <strong>SelectedFrame:</strong> {selectedFrame ? 'YES' : 'NO'}
+        </div>
+        
+        <div style={{ marginBottom: '6px' }}>
+          <strong>DuplicatePhotos:</strong> {duplicatePhotos ? 'YES' : 'NO'}
+        </div>
+        
+        <div style={{ marginBottom: '6px' }}>
+          <strong>DesignerElements:</strong> {designerElements?.length || 0}
+        </div>
+        
+        <div style={{ marginBottom: '6px' }}>
+          <strong>BackgroundPhoto:</strong> {backgroundPhotoElement ? 'YES' : 'NO'}
+        </div>
+        
+        <div style={{ marginBottom: '6px', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #444' }}>
+          <strong style={{ color: '#fbbf24' }}>Rendering Condition:</strong>
+        </div>
+        <div style={{ marginBottom: '4px' }}>
+          frameSlots: <span style={{ color: frameSlots ? '#10b981' : '#ef4444' }}>{frameSlots ? '✓' : '✗'}</span>
+        </div>
+        <div style={{ marginBottom: '4px' }}>
+          photos: <span style={{ color: photos ? '#10b981' : '#ef4444' }}>{photos ? '✓' : '✗'}</span>
+        </div>
+        <div style={{ marginBottom: '4px' }}>
+          photos.length &gt; 0: <span style={{ color: (photos && photos.length > 0) ? '#10b981' : '#ef4444' }}>{(photos && photos.length > 0) ? '✓' : '✗'}</span>
+        </div>
+        <div style={{ marginBottom: '4px', fontWeight: 'bold', color: (frameSlots && photos && photos.length > 0) ? '#10b981' : '#ef4444' }}>
+          SHOULD RENDER: {(frameSlots && photos && photos.length > 0) ? 'YES ✓' : 'NO ✗'}
+        </div>
+      </div>
+
       {/* Main Content: Preview centered (toggle tools removed) */}
       <div style={{
         flex: 1,
@@ -529,8 +717,27 @@ export default function Editor() {
                 if (!activeFrameId) return;
                 const fresh = await reloadFrameConfigFromManager(activeFrameId);
                 if (fresh?.slots) {
+                  setFrameConfig(fresh);
                   setFrameSlots(fresh.slots);
                   setDuplicatePhotos(!!fresh.duplicatePhotos);
+                  
+                  // Reload designer elements for custom frames
+                  const designerElems = Array.isArray(fresh?.designer?.elements) 
+                    ? fresh.designer.elements.filter(el => 
+                        el && 
+                        el.type !== 'photo' && 
+                        el.type !== 'background-photo' &&
+                        !el?.data?.__capturedOverlay
+                      )
+                    : [];
+                  setDesignerElements(designerElems);
+                  
+                  // Reload background photo for custom frames
+                  const backgroundPhoto = Array.isArray(fresh?.designer?.elements)
+                    ? fresh.designer.elements.find(el => el?.type === 'background-photo')
+                    : null;
+                  setBackgroundPhotoElement(backgroundPhoto);
+                  
                   // Rebuild slotPhotos mapping for duplicate-photo frames from current photos
                   if (fresh.duplicatePhotos) {
                     const initial = {};
@@ -544,6 +751,19 @@ export default function Editor() {
                     setSlotPhotos({});
                   }
                   safeStorage.setJSON('frameConfig', fresh);
+
+                  const updatedPlan = deriveFrameLayerPlan(fresh);
+                  if (updatedPlan) {
+                    setFrameLayerPlan(updatedPlan);
+                    try {
+                      safeStorage.setJSON('frameLayerPlan', updatedPlan);
+                    } catch (error) {
+                      console.warn('⚠️ Failed to persist reloaded frame layer plan', error);
+                    }
+                  } else {
+                    setFrameLayerPlan(null);
+                    safeStorage.removeItem('frameLayerPlan');
+                  }
                   console.log('✅ Editor: reloaded frame slots');
                 }
               } finally {
@@ -597,20 +817,115 @@ export default function Editor() {
               position: 'relative',
               width: '188px',
               height: '282px',
-              background: '#fff',
+              background: isCustomFrameId(frameId) 
+                ? (frameConfig?.layout?.backgroundColor || frameConfig?.designer?.canvasBackground || '#fff')
+                : '#fff',
               borderRadius: '10px',
               boxShadow: '0 3px 10px rgba(15,23,42,0.12)',
               border: '1px solid #e2e8f0',
               overflow: 'hidden'
             }}>
-              {/* Photos placed into slots */}
-              {frameSlots.map((slot, idx) => {
-                const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : idx;
-                const src = duplicatePhotos ? (slotPhotos[idx] || photos[photoIndex]) : photos[photoIndex];
-                if (!src) return null;
+              {/* LAYER 1: Background photo (uses original z-index from element) */}
+              {backgroundPhotoElement && backgroundPhotoElement.data?.image && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    width: '100%',
+                    height: '100%',
+                    zIndex: Number.isFinite(backgroundPhotoElement.zIndex) 
+                      ? backgroundPhotoElement.zIndex 
+                      : BACKGROUND_PHOTO_Z, // Fallback to -4000
+                    overflow: 'hidden',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  <img
+                    src={backgroundPhotoElement.data.image}
+                    alt="Background"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      pointerEvents: 'none',
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* LAYER 2: Photo slots (uses original z-index from slot object) */}
+              {(() => {
+                console.log('🎬 PHOTO RENDERING BLOCK:', {
+                  hasFrameSlots: !!frameSlots,
+                  frameSlotsLength: frameSlots?.length,
+                  hasPhotos: !!photos,
+                  photosLength: photos?.length,
+                  photosIsArray: Array.isArray(photos),
+                  condition: frameSlots && photos && photos.length > 0,
+                  willRender: !!(frameSlots && photos && photos.length > 0)
+                });
+
+                if (!frameSlots || !photos || photos.length === 0) {
+                  console.error('❌ PHOTO RENDERING BLOCKED:', {
+                    frameSlots: !!frameSlots,
+                    photos: !!photos,
+                    photosLength: photos?.length
+                  });
+                  return <div style={{
+                    position: 'absolute',
+                    inset: '10px',
+                    background: 'rgba(255, 0, 0, 0.2)',
+                    border: '3px dashed red',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '12px',
+                    color: 'red',
+                    fontWeight: 600,
+                    textAlign: 'center',
+                    zIndex: 9999
+                  }}>
+                    ❌ NO PHOTOS<br/>
+                    frameSlots: {frameSlots ? 'YES' : 'NO'}<br/>
+                    photos: {photos ? 'YES' : 'NO'}<br/>
+                    photos.length: {photos?.length || 0}
+                  </div>;
+                }
+
+                return frameSlots.map((slot, slotIndex) => {
+                const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : slotIndex;
+                const source = duplicatePhotos
+                  ? slotPhotos?.[slotIndex] || photos[photoIndex]
+                  : photos[photoIndex];
+
+                if (!source) {
+                  console.warn(`⚠️ No photo for slot ${slotIndex}`);
+                  return null;
+                }
+
+                const isDragged = draggedPhoto?.slotIndex === slotIndex;
+                const isDragOver = dragOverSlot === slotIndex;
+                
+                // ✅ USE ORIGINAL Z-INDEX from slot (same as designer elements)
+                // Fallback to safe default if not present
+                const photoZIndex = Number.isFinite(slot.zIndex) && slot.zIndex >= 0
+                  ? slot.zIndex
+                  : 100 + slotIndex;
+
+                console.log(`✅ Rendering photo slot ${slotIndex}:`, {
+                  slotId: slot.id,
+                  slotZIndex: slot.zIndex,
+                  finalZIndex: photoZIndex,
+                  usedOriginal: Number.isFinite(slot.zIndex),
+                  zIndex: photoZIndex,
+                  hasSource: !!source,
+                  position: { left: slot.left, top: slot.top, width: slot.width, height: slot.height }
+                });
+
                 return (
                   <div
-                    key={`slot-${slot.id || idx}`}
+                    key={`photo-slot-${slotIndex}`}
                     style={{
                       position: 'absolute',
                       left: `${(slot.left || 0) * 100}%`,
@@ -619,52 +934,168 @@ export default function Editor() {
                       height: `${(slot.height || 0) * 100}%`,
                       overflow: 'hidden',
                       borderRadius: '6px',
-                      background: '#ddd',
-                      outline: dragOverSlot === idx ? '3px solid #4f46e5' : 'none',
-                      transition: 'outline 120ms ease',
-                      cursor: draggedPhoto?.slotIndex === idx ? 'grabbing' : 'grab',
-                      opacity: draggedPhoto?.slotIndex === idx ? 0.85 : 1,
-                      boxShadow: dragOverSlot === idx ? '0 4px 12px rgba(79, 70, 229, 0.3)' : 'none'
+                      background: '#f0f0f0',
+                      outline: isDragOver ? '3px solid #4f46e5' : 'none',
+                      cursor: isDragged ? 'grabbing' : 'grab',
+                      opacity: isDragged ? 0.85 : 1,
+                      boxShadow: isDragOver ? '0 4px 12px rgba(79, 70, 229, 0.3)' : 'none',
+                      zIndex: photoZIndex,
                     }}
                     draggable
-                    onDragStart={(e) => handleDragStart(e, idx)}
+                    onDragStart={(e) => handleDragStart(e, slotIndex)}
                     onDragEnd={() => setDraggedPhoto(null)}
-                    onDragOver={(e) => handleDragOver(e, idx)}
-                    onDragEnter={(e) => handleDragEnter(e, idx)}
+                    onDragOver={(e) => handleDragOver(e, slotIndex)}
+                    onDragEnter={(e) => handleDragEnter(e, slotIndex)}
                     onDragLeave={handleDragLeave}
-                    onDrop={(e) => handleDrop(e, idx)}
+                    onDrop={(e) => handleDrop(e, slotIndex)}
                   >
                     <img
-                      src={src}
-                      alt={`Photo ${idx + 1}`}
-                      style={{ 
-                        width: '100%', 
-                        height: '100%', 
-                        objectFit: 'cover', 
-                        cursor: draggedPhoto?.slotIndex === idx ? 'grabbing' : 'grab',
-                        opacity: draggedPhoto?.slotIndex === idx ? 0.7 : 1,
-                        transform: draggedPhoto?.slotIndex === idx ? 'scale(0.95)' : 'scale(1)',
-                        transition: 'all 0.2s ease',
-                        pointerEvents: 'none'
+                      src={source}
+                      alt={`Photo ${slotIndex + 1}`}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        pointerEvents: 'none',
                       }}
                     />
                   </div>
                 );
+                });
+              })()}
+
+              {/* LAYER 3: Designer elements - text, shapes, uploads (uses original z-index) */}
+              {designerElements && designerElements.length > 0 && designerElements.map((element, idx) => {
+                if (!element || !element.type) return null;
+
+                // ✅ USE ORIGINAL Z-INDEX from element (same as photo slots)
+                // Fallback to safe default if not present
+                const elemZIndex = Number.isFinite(element.zIndex)
+                  ? element.zIndex
+                  : 200 + idx;
+                
+                // Calculate scaled positions
+                const previewWidth = 188;
+                const previewHeight = 282;
+                const canvasWidth = frameConfig?.layout?.canvasWidth || 1080;
+                const canvasHeight = frameConfig?.layout?.canvasHeight || 1920;
+                
+                const scaleX = previewWidth / canvasWidth;
+                const scaleY = previewHeight / canvasHeight;
+                
+                const scaledLeft = (element.x || 0) * scaleX;
+                const scaledTop = (element.y || 0) * scaleY;
+                const scaledWidth = (element.width || 100) * scaleX;
+                const scaledHeight = (element.height || 100) * scaleY;
+
+                console.log(`✅ Rendering designer element ${idx}:`, {
+                  type: element.type,
+                  id: element.id?.slice(0, 8),
+                  elementZIndex: element.zIndex,
+                  finalZIndex: elemZIndex,
+                  usedOriginal: Number.isFinite(element.zIndex),
+                });
+
+                // Render text
+                if (element.type === 'text') {
+                  const fontSize = (element.data?.fontSize || 24) * scaleX;
+                  return (
+                    <div
+                      key={`designer-${element.id || idx}`}
+                      style={{
+                        position: 'absolute',
+                        left: `${scaledLeft}px`,
+                        top: `${scaledTop}px`,
+                        width: `${scaledWidth}px`,
+                        height: `${scaledHeight}px`,
+                        zIndex: elemZIndex,
+                        pointerEvents: 'none',
+                        fontFamily: element.data?.fontFamily || 'Inter',
+                        fontSize: `${fontSize}px`,
+                        color: element.data?.color || '#111827',
+                        fontWeight: element.data?.fontWeight || 500,
+                        textAlign: element.data?.align || 'left',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: element.data?.align === 'center' ? 'center' : element.data?.align === 'right' ? 'flex-end' : 'flex-start',
+                        whiteSpace: 'pre-wrap',
+                        lineHeight: 1.25,
+                      }}
+                    >
+                      {element.data?.text || 'Text'}
+                    </div>
+                  );
+                }
+
+                // Render shape
+                if (element.type === 'shape') {
+                  return (
+                    <div
+                      key={`designer-${element.id || idx}`}
+                      style={{
+                        position: 'absolute',
+                        left: `${scaledLeft}px`,
+                        top: `${scaledTop}px`,
+                        width: `${scaledWidth}px`,
+                        height: `${scaledHeight}px`,
+                        zIndex: elemZIndex,
+                        pointerEvents: 'none',
+                        background: element.data?.fill || '#f4d3c2',
+                        borderRadius: `${(element.data?.borderRadius || 24) * scaleX}px`,
+                      }}
+                    />
+                  );
+                }
+
+                // Render upload
+                if (element.type === 'upload' && element.data?.image) {
+                  return (
+                    <div
+                      key={`designer-${element.id || idx}`}
+                      style={{
+                        position: 'absolute',
+                        left: `${scaledLeft}px`,
+                        top: `${scaledTop}px`,
+                        width: `${scaledWidth}px`,
+                        height: `${scaledHeight}px`,
+                        zIndex: elemZIndex,
+                        pointerEvents: 'none',
+                        borderRadius: `${(element.data?.borderRadius || 24) * scaleX}px`,
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <img
+                        src={element.data.image}
+                        alt="Element"
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: element.data?.objectFit || 'cover',
+                        }}
+                      />
+                    </div>
+                  );
+                }
+
+                return null;
               })}
 
-              {/* Frame overlay */}
-              <img
-                src={selectedFrame}
-                alt="Frame"
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'contain',
-                  pointerEvents: 'none'
-                }}
-              />
+              {/* LAYER 4: Frame overlay - only for non-custom frames (z-index = 1000, paling depan) */}
+              {!isCustomFrameId(frameId) && selectedFrame && (
+                <img
+                  src={selectedFrame}
+                  alt="Frame"
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'contain',
+                    pointerEvents: 'none',
+                    zIndex: 1000,
+                  }}
+                />
+              )}
             </div>
           ) : (
             <div style={{

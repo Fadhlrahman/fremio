@@ -5,13 +5,11 @@ import {
   DEFAULT_UPLOAD_WIDTH,
   DEFAULT_UPLOAD_HEIGHT,
 } from '../components/creator/canvasConstants.js';
-import { 
-  CAPTURED_OVERLAY_MIN_Z,
-  PHOTO_AREA_BASE_Z,
+import {
   BACKGROUND_PHOTO_Z,
-  TRANSPARENT_AREA_BASE_Z
+  NORMAL_ELEMENTS_MIN_Z,
+  CAPTURED_OVERLAY_Z_OFFSET,
 } from '../constants/layers.js';
-import syncAutoTransparentAreas from '../utils/transparentAreaManager.js';
 
 const DEFAULT_BACKGROUND = '#f7f1ed';
 
@@ -104,7 +102,7 @@ const defaultPropsByType = (type) => {
         y: 0,
         width: CANVAS_WIDTH,
         height: CANVAS_HEIGHT,
-        zIndex: 0,
+        zIndex: BACKGROUND_PHOTO_Z,
         data: {
           image: null,
           objectFit: 'contain',
@@ -118,10 +116,6 @@ const defaultPropsByType = (type) => {
 };
 
 const resolveDefaultZIndex = (type, defaults, lastZIndex) => {
-  if (type === 'photo') {
-    return PHOTO_AREA_BASE_Z;
-  }
-
   if (type === 'background-photo') {
     if (typeof defaults?.zIndex === 'number') {
       return defaults.zIndex;
@@ -129,17 +123,25 @@ const resolveDefaultZIndex = (type, defaults, lastZIndex) => {
     if (typeof BACKGROUND_PHOTO_Z === 'number') {
       return BACKGROUND_PHOTO_Z;
     }
-    return 0;
+    return -1000;
   }
 
-  if (type === 'transparent-area') {
-    if (typeof TRANSPARENT_AREA_BASE_Z === 'number') {
-      return TRANSPARENT_AREA_BASE_Z;
+  // Photo slots should default to PHOTO_SLOT_MIN_Z (above background, below normal elements)
+  if (type === 'photo') {
+    if (typeof defaults?.zIndex === 'number') {
+      return defaults.zIndex;
     }
-    return lastZIndex + 1;
+    // Use imported PHOTO_SLOT_MIN_Z constant
+    const PHOTO_SLOT_MIN_Z = 0;
+    return PHOTO_SLOT_MIN_Z;
   }
 
-  return lastZIndex + 1;
+  if (typeof defaults?.zIndex === 'number') {
+    return defaults.zIndex;
+  }
+
+  const safeLast = Number.isFinite(lastZIndex) ? lastZIndex : NORMAL_ELEMENTS_MIN_Z;
+  return Math.max(safeLast + 1, NORMAL_ELEMENTS_MIN_Z);
 };
 
 const computeContainedSize = (aspectRatio, maxWidth = CANVAS_WIDTH, maxHeight = CANVAS_HEIGHT) => {
@@ -166,80 +168,299 @@ const centerWithinCanvas = (width, height) => ({
   y: Math.round((CANVAS_HEIGHT - height) / 2),
 });
 
-const isCapturedPhotoOverlay = (element) =>
-  Boolean(element?.data?.__capturedOverlay);
+const isCapturedPhotoOverlay = (element) => Boolean(element?.data?.__capturedOverlay);
 
-const syncAllPhotoOverlays = (elements) => {
+const deriveOverlayZIndex = (placeholder) => {
+  const baseZ = Number.isFinite(placeholder?.zIndex)
+    ? placeholder.zIndex
+    : NORMAL_ELEMENTS_MIN_Z;
+  return baseZ + CAPTURED_OVERLAY_Z_OFFSET;
+};
+
+const syncCapturedOverlayWithPlaceholder = (overlay, placeholder) => {
+  if (!overlay || !placeholder) {
+    return null;
+  }
+
+  const placeholderX = Number.isFinite(placeholder?.x) ? placeholder.x : 0;
+  const placeholderY = Number.isFinite(placeholder?.y) ? placeholder.y : 0;
+  const placeholderWidth = Number.isFinite(placeholder?.width) ? placeholder.width : 0;
+  const placeholderHeight = Number.isFinite(placeholder?.height) ? placeholder.height : 0;
+  const desiredZIndex = deriveOverlayZIndex(placeholder);
+  const data = overlay.data || {};
+  const desiredBorderRadius = Number.isFinite(placeholder?.data?.borderRadius)
+    ? placeholder.data.borderRadius
+    : data.borderRadius ?? 0;
+  const desiredSourceId = placeholder.id || null;
+  const desiredRotation = Number.isFinite(placeholder?.rotation)
+    ? placeholder.rotation
+    : 0;
+
+  const needsSync =
+    (Number.isFinite(overlay.x) ? overlay.x : 0) !== placeholderX ||
+    (Number.isFinite(overlay.y) ? overlay.y : 0) !== placeholderY ||
+    (Number.isFinite(overlay.width) ? overlay.width : 0) !== placeholderWidth ||
+    (Number.isFinite(overlay.height) ? overlay.height : 0) !== placeholderHeight ||
+    (Number.isFinite(overlay.rotation) ? overlay.rotation : 0) !== desiredRotation ||
+    overlay.zIndex !== desiredZIndex ||
+    overlay.isLocked !== true ||
+    data.borderRadius !== desiredBorderRadius ||
+    data.__sourcePlaceholderId !== desiredSourceId;
+
+  if (!needsSync) {
+    return overlay;
+  }
+
+  return {
+    ...overlay,
+    x: placeholderX,
+    y: placeholderY,
+    width: placeholderWidth,
+    height: placeholderHeight,
+    rotation: desiredRotation,
+    zIndex: desiredZIndex,
+    isLocked: true,
+    data: {
+      ...data,
+      borderRadius: desiredBorderRadius,
+      __sourcePlaceholderId: desiredSourceId,
+    },
+  };
+};
+
+const removeCapturedOverlaysForPlaceholder = (elements = [], placeholderId) => {
+  if (!placeholderId || !Array.isArray(elements)) {
+    return elements;
+  }
+
+  return elements.filter((element) => {
+    if (!isCapturedPhotoOverlay(element)) {
+      return true;
+    }
+    return element?.data?.__sourcePlaceholderId !== placeholderId;
+  });
+};
+
+const syncAllPhotoOverlays = (elements = []) => {
   if (!Array.isArray(elements) || elements.length === 0) {
     return elements;
   }
 
-  let hasOverlay = false;
-  for (const element of elements) {
-    if (isCapturedPhotoOverlay(element)) {
-      hasOverlay = true;
-      break;
-    }
-  }
+  const overlayBySourceId = new Map();
+  const result = [];
+  let didMutate = false;
 
-  if (!hasOverlay) {
-    return elements;
-  }
-
-  const photoMap = new Map();
   elements.forEach((element) => {
-    if (element?.type === 'photo') {
-      photoMap.set(element.id, element);
+    if (isCapturedPhotoOverlay(element)) {
+      const sourceId = element?.data?.__sourcePlaceholderId;
+      if (sourceId) {
+        overlayBySourceId.set(sourceId, element);
+      }
     }
   });
 
-  if (photoMap.size === 0) {
+  if (overlayBySourceId.size === 0) {
+    return elements;
+  }
+
+  elements.forEach((element) => {
+    if (isCapturedPhotoOverlay(element)) {
+      // Overlays are re-inserted alongside their placeholders later.
+      return;
+    }
+
+    if (element?.type === 'photo' && element.id) {
+      const overlay = overlayBySourceId.get(element.id);
+      if (overlay) {
+        const syncedOverlay = syncCapturedOverlayWithPlaceholder(overlay, element);
+        if (syncedOverlay !== overlay) {
+          didMutate = true;
+        }
+        result.push(syncedOverlay);
+        overlayBySourceId.delete(element.id);
+      }
+    }
+
+    result.push(element);
+  });
+
+  if (overlayBySourceId.size > 0) {
+    // Drop overlays that no longer have matching placeholders.
+    didMutate = true;
+  }
+
+  return didMutate ? result : elements;
+};
+
+const getNormalizedZIndex = (element) => {
+  if (!element || typeof element !== 'object') {
+    return NORMAL_ELEMENTS_MIN_Z;
+  }
+
+  if (element.type === 'background-photo') {
+    return Number.isFinite(element?.zIndex) ? element.zIndex : BACKGROUND_PHOTO_Z;
+  }
+
+  const zIndex = Number.isFinite(element?.zIndex) ? element.zIndex : null;
+  if (zIndex !== null) {
+    return zIndex;
+  }
+
+  return NORMAL_ELEMENTS_MIN_Z;
+};
+
+const enforcePhotoPlaceholderLayering = (elements = []) => {
+  if (!Array.isArray(elements) || elements.length === 0) {
+    return elements;
+  }
+
+  const entries = elements.map((element, index) => ({
+    element,
+    index,
+    key: element?.id ?? `__index_${index}`,
+    originalZ: getNormalizedZIndex(element),
+  }));
+
+  const photoEntries = [];
+  const otherEntries = [];
+
+  entries.forEach((entry) => {
+    const { element } = entry;
+    if (!element || typeof element !== 'object') {
+      return;
+    }
+
+    if (element.type === 'background-photo' || isCapturedPhotoOverlay(element)) {
+      return;
+    }
+
+    if (element.type === 'photo') {
+      photoEntries.push(entry);
+    } else {
+      otherEntries.push(entry);
+    }
+  });
+
+  if (photoEntries.length === 0) {
+    return elements;
+  }
+
+  const sortEntries = (arr) =>
+    arr.slice().sort((a, b) => {
+      if (a.originalZ === b.originalZ) {
+        return a.index - b.index;
+      }
+      return a.originalZ - b.originalZ;
+    });
+
+  const assignments = new Map();
+
+  let currentZ = NORMAL_ELEMENTS_MIN_Z;
+
+  sortEntries(photoEntries).forEach((entry) => {
+    assignments.set(entry.key, currentZ);
+    currentZ += 1;
+  });
+
+  let nextZ = Math.max(currentZ, NORMAL_ELEMENTS_MIN_Z + photoEntries.length);
+
+  sortEntries(otherEntries).forEach((entry) => {
+    const original = entry.originalZ;
+    const desired = original >= nextZ ? original : nextZ;
+    assignments.set(entry.key, desired);
+    nextZ = desired + 1;
+  });
+
+  if (assignments.size === 0) {
     return elements;
   }
 
   let didMutate = false;
-  const nextElements = elements.map((element) => {
-    if (!isCapturedPhotoOverlay(element)) {
+
+  const remapped = elements.map((element, index) => {
+    if (!element || typeof element !== 'object') {
       return element;
     }
 
-    const sourceId = element?.data?.__sourcePlaceholderId;
-    if (!sourceId || !photoMap.has(sourceId)) {
+    if (element.type === 'background-photo' || isCapturedPhotoOverlay(element)) {
       return element;
     }
 
-    const placeholder = photoMap.get(sourceId);
+    const key = element.id ?? `__index_${index}`;
+    const desiredZ = assignments.get(key);
+
+    if (!Number.isFinite(desiredZ) || element.zIndex === desiredZ) {
+      return element;
+    }
+
     didMutate = true;
     return {
       ...element,
-      x: placeholder.x,
-      y: placeholder.y,
-      width: placeholder.width,
-      height: placeholder.height,
-      rotation: placeholder.rotation,
-      zIndex: CAPTURED_OVERLAY_MIN_Z,
-      data: {
-        ...element.data,
-        borderRadius: placeholder?.data?.borderRadius ?? element.data?.borderRadius ?? 0,
-      },
+      zIndex: desiredZ,
     };
   });
 
-  return didMutate ? nextElements : elements;
+  return didMutate ? remapped : elements;
 };
 
-const removeCapturedOverlaysForPlaceholder = (elements, placeholderId) => {
-  if (!placeholderId) {
+const normalizeElementZOrder = (elements) => {
+  if (!Array.isArray(elements) || elements.length === 0) {
     return elements;
   }
-  return elements.filter(
-    (element) =>
-      !(isCapturedPhotoOverlay(element) && element?.data?.__sourcePlaceholderId === placeholderId)
-  );
+
+  const baseMax = elements.reduce((max, element) => {
+    if (!element || element.type === 'background-photo') {
+      return max;
+    }
+    const currentZ = Number.isFinite(element.zIndex) ? element.zIndex : null;
+    if (currentZ !== null && currentZ >= NORMAL_ELEMENTS_MIN_Z) {
+      return currentZ > max ? currentZ : max;
+    }
+    return max;
+  }, NORMAL_ELEMENTS_MIN_Z - 1);
+
+  let runningMax = baseMax;
+  let didMutate = false;
+
+  const normalized = elements.map((element) => {
+    if (!element) {
+      return element;
+    }
+
+    if (element.type === 'background-photo') {
+      const desiredZ = Number.isFinite(BACKGROUND_PHOTO_Z)
+        ? BACKGROUND_PHOTO_Z
+        : Number.isFinite(element.zIndex)
+        ? element.zIndex
+        : -1000;
+      if (element.zIndex !== desiredZ) {
+        didMutate = true;
+        return { ...element, zIndex: desiredZ };
+      }
+      return element;
+    }
+
+    const currentZ = Number.isFinite(element.zIndex) ? element.zIndex : null;
+    if (currentZ !== null && currentZ >= NORMAL_ELEMENTS_MIN_Z) {
+      runningMax = currentZ > runningMax ? currentZ : runningMax;
+      return element;
+    }
+
+    const nextZ = runningMax + 1;
+    runningMax = nextZ;
+    didMutate = true;
+    return { ...element, zIndex: nextZ };
+  });
+
+  return didMutate ? normalized : elements;
 };
 
-const syncCreatorElements = (elements) =>
-  syncAutoTransparentAreas(syncAllPhotoOverlays(elements));
+const syncCreatorElements = (elements) => {
+  const withSyncedOverlays = syncAllPhotoOverlays(elements);
+  const withPhotoHierarchy = enforcePhotoPlaceholderLayering(withSyncedOverlays);
+  const normalized = normalizeElementZOrder(withPhotoHierarchy);
+  return syncAllPhotoOverlays(normalized);
+};
 
 console.log('[useCreatorStore] Store module loaded');
 
@@ -412,7 +633,7 @@ export const useCreatorStore = create((set, get) => ({
               y,
               width: Math.round(width),
               height: Math.round(height),
-              zIndex: 0,
+              zIndex: BACKGROUND_PHOTO_Z,
               data: {
                 ...el.data,
                 ...baseData,
@@ -479,7 +700,7 @@ export const useCreatorStore = create((set, get) => ({
 
     const id = get().addElement('background-photo', {
       ...position,
-      zIndex: 0,
+      zIndex: BACKGROUND_PHOTO_Z,
       data: {
         image: imageDataUrl,
         objectFit: 'cover',
@@ -491,13 +712,24 @@ export const useCreatorStore = create((set, get) => ({
 
     set((prev) => {
       const remapped = prev.elements.map((el) =>
-        el.id === id
-          ? { ...el, zIndex: 0 }
-          : { ...el, zIndex: (el.zIndex || 1) + 1 }
+        el.id === id ? { ...el, zIndex: BACKGROUND_PHOTO_Z } : el
       );
+
+      const normalizedElements = syncCreatorElements(remapped);
+
+      const computedMaxZ = normalizedElements.reduce((max, el) => {
+        if (el.type === 'background-photo') {
+          return max;
+        }
+        const currentZ = Number.isFinite(el.zIndex) ? el.zIndex : max;
+        return currentZ > max ? currentZ : max;
+      }, prev.lastZIndex);
+
+      const nextLastZ = Math.max(computedMaxZ, prev.lastZIndex, NORMAL_ELEMENTS_MIN_Z);
+
       return {
-        elements: syncCreatorElements(remapped),
-        lastZIndex: Math.max(prev.lastZIndex + 1, prev.elements.length + 1)
+        elements: normalizedElements,
+        lastZIndex: nextLastZ
       };
     });
     
@@ -713,12 +945,15 @@ export const useCreatorStore = create((set, get) => ({
     }
 
     const allElements = get().elements;
-    const minZ = Math.min(
-      ...allElements
-        .filter((el) => el.type !== 'background-photo')
-        .map((el) => el.zIndex || 1)
-    );
-    const nextZ = Math.max(1, minZ - 1);
+    const candidates = allElements
+      .filter((el) => el.type !== 'background-photo' && !isCapturedPhotoOverlay(el))
+      .map((el) => (Number.isFinite(el?.zIndex) ? el.zIndex : NORMAL_ELEMENTS_MIN_Z));
+    const minZ = candidates.length > 0 ? Math.min(...candidates) : NORMAL_ELEMENTS_MIN_Z;
+    
+    // Allow photo elements to go lower than NORMAL_ELEMENTS_MIN_Z
+    // Photo elements can go down to BACKGROUND_PHOTO_Z + 1 (just above background)
+    const absoluteMin = BACKGROUND_PHOTO_Z + 1;
+    const nextZ = Math.max(absoluteMin, minZ - 1);
 
     set((state) => {
       const elements = state.elements.map((el) =>
@@ -743,7 +978,7 @@ export const useCreatorStore = create((set, get) => ({
     }
     const allElements = get().elements;
     const sorted = allElements
-      .filter(el => el.type !== 'background-photo')
+      .filter(el => el.type !== 'background-photo' && !isCapturedPhotoOverlay(el))
       .sort((a, b) => (a.zIndex || 1) - (b.zIndex || 1));
     
     const currentIndex = sorted.findIndex(el => el.id === id);
@@ -778,7 +1013,7 @@ export const useCreatorStore = create((set, get) => ({
     }
     const allElements = get().elements;
     const sorted = allElements
-      .filter(el => el.type !== 'background-photo')
+      .filter(el => el.type !== 'background-photo' && !isCapturedPhotoOverlay(el))
       .sort((a, b) => (a.zIndex || 1) - (b.zIndex || 1));
     
     const currentIndex = sorted.findIndex(el => el.id === id);
@@ -810,11 +1045,15 @@ export const useCreatorStore = create((set, get) => ({
     set({ canvasBackground: color, selectedElementId: 'background' });
   },
   setElements: (elements) => {
-    const maxZ = elements.reduce(
-      (max, el) => (el.zIndex && el.zIndex > max ? el.zIndex : max),
-      1
-    );
-    set({ elements: syncCreatorElements(elements), lastZIndex: maxZ });
+    const normalized = syncCreatorElements(elements);
+    const maxZ = normalized.reduce((max, el) => {
+      if (!el || el.type === 'background-photo') {
+        return max;
+      }
+      const currentZ = Number.isFinite(el?.zIndex) ? el.zIndex : max;
+      return currentZ > max ? currentZ : max;
+    }, NORMAL_ELEMENTS_MIN_Z);
+    set({ elements: normalized, lastZIndex: maxZ });
   },
   clearSelection: () => set({ selectedElementId: null }),
   reset: () => set({

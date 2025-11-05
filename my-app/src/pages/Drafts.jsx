@@ -43,60 +43,17 @@ export default function Drafts() {
   const handleUseDraft = async (draft) => {
     if (!draft) return;
     setErrorMessage("");
-    setActivatingId(draft.id);
-    try {
-      console.log('🎯 DRAFTS: handleUseDraft started');
-      console.log('  - Draft ID:', draft.id);
-      console.log('  - Draft title:', draft.title);
-      
-      const frameConfig = activateDraftFrame(draft);
-      
-      if (!frameConfig) {
-        throw new Error('Failed to build frame config from draft');
-      }
-      
-      console.log('🎯 DRAFTS: activateDraftFrame returned:');
-      console.log('  - Frame ID:', frameConfig.id);
-      console.log('  - Slots count:', frameConfig.slots?.length);
-      console.log('  - Max captures:', frameConfig.maxCaptures);
-      console.log('  - Has frameImage:', !!frameConfig.frameImage);
-      
-      const setFrameSuccess = await frameProvider.setFrame(frameConfig.id, {
-        config: frameConfig,
-        isCustom: true,
-      });
-      
-      if (!setFrameSuccess) {
-        throw new Error('frameProvider.setFrame returned false');
-      }
-      
-      console.log('🎯 DRAFTS: frameProvider.setFrame completed');
-      console.log('  - Current frame:', frameProvider.getCurrentFrameName());
-      console.log('  - Current config:', frameProvider.getCurrentConfig());
-      
-      // Verify storage
-      const storedFrameId = safeStorage.getItem('selectedFrame');
-      const storedConfig = safeStorage.getJSON('frameConfig');
-      console.log('🎯 DRAFTS: Storage verification:');
-      console.log('  - selectedFrame in storage:', storedFrameId);
-      console.log('  - frameConfig in storage:', storedConfig?.id);
-      
-      if (!storedFrameId || !storedConfig) {
-        throw new Error('Frame config not properly saved to storage');
-      }
-      
-      console.log('🎯 DRAFTS: Navigating to /take-moment...');
-      navigate("/take-moment");
-    } catch (error) {
-      console.error("❌ DRAFTS: Failed to activate draft", error);
-      console.error("❌ Error details:", {
-        message: error.message,
-        stack: error.stack,
-        draft: draft?.id
-      });
-      setErrorMessage(`Tidak bisa mengaktifkan draft: ${error.message}`);
-    } finally {
-      setActivatingId(null);
+    
+    // Navigate to Create page with draft ID
+    // User will see the frame and can click "Gunakan Frame Ini" button there
+    navigate("/create", { state: { draftId: draft.id } });
+    
+    // Set active draft in storage for Create page to load
+    safeStorage.setItem("activeDraftId", draft.id);
+    if (draft.signature) {
+      safeStorage.setItem("activeDraftSignature", draft.signature);
+    } else {
+      safeStorage.removeItem("activeDraftSignature");
     }
   };
 
@@ -252,31 +209,15 @@ export default function Drafts() {
           <button
             type="button"
             onClick={() => handleUseDraft(draft)}
-            disabled={activatingId === draft.id || deletingId === draft.id}
-            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-black shadow-sm transition-all hover:border-slate-400 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-md border border-[#a2665a] bg-[#a2665a] px-2 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-[#8f564d] hover:border-[#8f564d] active:scale-95"
           >
-            {activatingId === draft.id ? "Menyiapkan..." : "Gunakan Frame"}
+            Gunakan Frame
           </button>
-          <Link
-            to="/create"
-            state={{ draftId: draft.id }}
-            onClick={() => {
-              safeStorage.setItem("activeDraftId", draft.id);
-              if (draft.signature) {
-                safeStorage.setItem("activeDraftSignature", draft.signature);
-              } else {
-                safeStorage.removeItem("activeDraftSignature");
-              }
-            }}
-            className="block w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-center text-xs font-semibold text-black shadow-sm transition-all hover:border-slate-400 hover:shadow-md active:scale-95"
-          >
-            Lihat Frame
-          </Link>
           <button
             type="button"
             onClick={() => handleDeleteDraft(draft.id)}
-            disabled={deletingId === draft.id || activatingId === draft.id}
-            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-black shadow-sm transition-all hover:border-slate-400 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={deletingId === draft.id}
+            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-red-600 shadow-sm transition-all hover:bg-red-50 hover:border-red-300 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {deletingId === draft.id ? "Menghapus..." : "Hapus"}
           </button>

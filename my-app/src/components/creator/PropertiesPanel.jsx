@@ -61,6 +61,21 @@ export default function PropertiesPanel({
     <>
       {selectedElement?.type !== 'background-photo' && (
         <Section title="Lapisan">
+          {/* Z-Index Display */}
+          <div className="mb-4 flex items-center justify-between rounded-xl bg-gradient-to-r from-[#e0b7a9]/10 to-[#c89585]/10 px-4 py-3 border border-[#e0b7a9]/20">
+            <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
+              Posisi Layer
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-[#e0b7a9]">
+                z-index:
+              </span>
+              <span className="rounded-lg bg-white px-3 py-1 text-sm font-bold text-slate-700 shadow-sm border border-[#e0b7a9]/20">
+                {selectedElement?.zIndex || 0}
+              </span>
+            </div>
+          </div>
+          
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={() => onBringToFront?.(selectedElement.id)}
@@ -471,6 +486,34 @@ export default function PropertiesPanel({
 
       {selectedElement.type === "photo" && (
         <>
+          {/* Photo Layer Tips */}
+          <Section title="💡 Tips Lapisan Foto">
+            <div className="space-y-3 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50/50 p-4 border border-blue-200/30">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex-shrink-0">
+                  <div className="rounded-full bg-blue-500 p-1">
+                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                </div>
+                <div className="flex-1 text-xs text-slate-600 leading-relaxed">
+                  <p className="font-semibold text-slate-700 mb-1">Area Foto untuk Kamera</p>
+                  <p>Gunakan kontrol lapisan di atas untuk mengatur apakah foto berada di <strong>depan</strong> atau <strong>belakang</strong> elemen lain (teks, shape).</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 font-semibold text-blue-600 shadow-sm border border-blue-200/50">
+                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                    <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                  </svg>
+                  Foto akan muncul di sini saat diambil
+                </span>
+              </div>
+            </div>
+          </Section>
+          
           {renderFillControls({ showBorderRadius: true })}
           {renderOutlineControls({ defaultColor: "#f4f4f4", maxWidth: 24 })}
         </>

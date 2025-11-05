@@ -7,6 +7,7 @@ import Frames from "./pages/Frames.jsx";
 import TakeMoment from "./pages/TakeMoment.jsx";
 import Editor from "./pages/Editor.jsx";
 import EditPhoto from "./pages/EditPhoto.jsx";
+import EditPhotoTest from "./pages/EditPhotoTest.jsx";
 import TabletPrinter from "./pages/TabletPrinter.jsx";
 import FrameDebugSimple from "./pages/FrameDebugSimple.jsx";
 import FrameBuilder from "./pages/FrameBuilder.jsx";
@@ -92,19 +93,11 @@ export default function App() {
           />
           <Route
             path="editor"
-            element={
-              <ProtectedRoute>
-                <Editor />
-              </ProtectedRoute>
-            }
+            element={<Editor />}
           />
           <Route
             path="edit-photo"
-            element={
-              <ProtectedRoute>
-                <EditPhoto />
-              </ProtectedRoute>
-            }
+            element={<EditPhoto />}
           />
           <Route
             path="frame-debug"

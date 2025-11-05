@@ -29,18 +29,16 @@ import PropertiesPanel from "../components/creator/PropertiesPanel.jsx";
 import ColorPicker from "../components/creator/ColorPicker.jsx";
 import useCreatorStore from "../store/useCreatorStore.js";
 import {
-  CAPTURED_OVERLAY_MIN_Z,
+  CAPTURED_OVERLAY_Z_OFFSET,
+  NORMAL_ELEMENTS_MIN_Z,
   BACKGROUND_PHOTO_Z,
+  PHOTO_SLOT_MIN_Z,
 } from "../constants/layers.js";
 import { useShallow } from "zustand/react/shallow";
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from "../components/creator/canvasConstants.js";
 import draftStorage from "../utils/draftStorage.js";
 import { computeDraftSignature } from "../utils/draftHelpers.js";
 import safeStorage from "../utils/safeStorage.js";
-import {
-  syncAutoTransparentAreas,
-  isAutoTransparentAreaActive,
-} from "../utils/transparentAreaManager.js";
 import "./Create.css";
 
 const panelMotion = {
@@ -92,11 +90,25 @@ const addRoundedRectPath = (ctx, x, y, width, height, radius) => {
 
 const loadImageAsync = (src) =>
   new Promise((resolve, reject) => {
-    if (typeof src !== 'string' || !src.startsWith('data:')) {
+    if (typeof src !== 'string' || src.length === 0) {
       reject(new Error('Invalid image source'));
       return;
     }
+
+    const isDataUrl = src.startsWith('data:');
+    const isBlobUrl = src.startsWith('blob:');
+    const isHttpUrl = /^https?:/i.test(src);
+    const isRelativeUrl = src.startsWith('/') || src.startsWith('./') || src.startsWith('../');
+
+    if (!isDataUrl && !isBlobUrl && !isHttpUrl && !isRelativeUrl) {
+      reject(new Error(`Unsupported image source format: ${src.slice(0, 32)}...`));
+      return;
+    }
+
     const img = new Image();
+    if (isHttpUrl || isRelativeUrl) {
+      img.crossOrigin = 'anonymous';
+    }
     img.onload = () => resolve(img);
     img.onerror = (error) => reject(error);
     img.decoding = 'async';
@@ -112,12 +124,14 @@ const prepareCanvasExportClone = (rootNode) => {
   try {
     rootNode.setAttribute('data-export-clone', 'true');
 
+    // Remove UI elements that shouldn't be in export
     const ignoreNodes = rootNode.querySelectorAll('[data-export-ignore]');
     ignoreNodes.forEach((node) => node.remove());
 
     const resizeHandles = rootNode.querySelectorAll('.react-rnd-handle, .creator-resize-wrapper');
     resizeHandles.forEach((node) => node.remove());
 
+    // Make photo slots transparent (they will be filled with actual photos later)
     const photoSlots = rootNode.querySelectorAll('.creator-element--type-photo');
     photoSlots.forEach((slot) => {
       slot.style.background = 'transparent';
@@ -132,58 +146,106 @@ const prepareCanvasExportClone = (rootNode) => {
       children.forEach((child) => slot.removeChild(child));
     });
 
-    // Remove captured photo overlays so html2canvas doesn't capture actual photos
-    const capturedOverlays = rootNode.querySelectorAll('.creator-element--captured-overlay');
-    console.log('🗑️ [prepareCanvasExportClone] Found captured overlays to remove:', capturedOverlays.length);
-    capturedOverlays.forEach((overlay) => {
-      console.log('  - Removing overlay:', overlay.style.zIndex, overlay.className);
-      overlay.remove();
-    });
-
-    // Handle transparent-area elements - make them completely transparent
-    const transparentAreaSlots = rootNode.querySelectorAll('.creator-element--type-transparent-area');
-    transparentAreaSlots.forEach((slot) => {
-      slot.style.background = 'transparent';
-      slot.style.backgroundColor = 'transparent';
-      slot.style.boxShadow = 'none';
-      slot.style.border = 'none';
-      slot.style.color = 'transparent';
-      slot.style.textShadow = 'none';
-      slot.style.fontSize = '0px';
-      slot.style.filter = 'none';
-      slot.style.mixBlendMode = 'normal';
-      const children = Array.from(slot.children || []);
-      children.forEach((child) => slot.removeChild(child));
-    });
-
-    // Reorder creator elements by z-index so html2canvas respects stacking order
-  const rootParent = rootNode.querySelector(':scope > .creator-element')?.parentNode;
-  const candidateParent = rootParent && rootParent.hasAttribute('data-export-clone') ? rootParent : rootNode;
-    const creatorElements = Array.from(candidateParent.children || []).filter((child) =>
-      child.classList?.contains('creator-element')
-    );
-
-    if (creatorElements.length > 1) {
-      creatorElements.sort((a, b) => {
-        const aZ = Number.parseFloat(a.style.zIndex) || 0;
-        const bZ = Number.parseFloat(b.style.zIndex) || 0;
+    // ✅ CRITICAL FIX: Physically reorder DOM elements by z-index
+    // html2canvas renders based on DOM order when position:absolute is used
+    const creatorElements = Array.from(rootNode.querySelectorAll('.creator-element'));
+    
+    if (creatorElements.length > 0) {
+      // Get parent container
+      const parent = creatorElements[0].parentNode;
+      
+      // Sort elements by z-index (low to high)
+      const sorted = creatorElements.sort((a, b) => {
+        const aZ = Number.parseFloat(a.getAttribute('data-element-zindex')) || 
+                   Number.parseFloat(a.style.zIndex) || 0;
+        const bZ = Number.parseFloat(b.getAttribute('data-element-zindex')) || 
+                   Number.parseFloat(b.style.zIndex) || 0;
         return aZ - bZ;
       });
 
-      creatorElements.forEach((child) => {
-        candidateParent.appendChild(child);
+      // Remove all elements from DOM
+      sorted.forEach(el => el.remove());
+      
+      // Re-append in sorted order (low z-index first, high z-index last)
+      sorted.forEach(el => {
+        // Sync CSS z-index to match data attribute
+        const dataZ = el.getAttribute('data-element-zindex');
+        if (dataZ && Number.isFinite(Number.parseFloat(dataZ))) {
+          el.style.zIndex = dataZ;
+        }
+        parent.appendChild(el);
       });
 
-      console.log('🔄 [prepareCanvasExportClone] Reordered elements for export:',
-        creatorElements.map((el) => ({
-          type: el.className.match(/creator-element--type-(\w+)/)?.[1] || 'unknown',
-          zIndex: Number.parseFloat(el.style.zIndex) || 0,
+      console.log('✅ [prepareCanvasExportClone] DOM reordered by z-index:', 
+        sorted.map(el => ({
+          type: el.className.match(/creator-element--type-(\w+)/)?.[1],
+          zIndex: el.style.zIndex,
+          dataZIndex: el.getAttribute('data-element-zindex'),
         }))
       );
     }
+
   } catch (error) {
     console.error('❌ [prepareCanvasExportClone] Error during clone preparation:', error);
   }
+};
+
+const getSafeZIndex = (element) => {
+  if (!element || typeof element !== 'object') {
+    return NORMAL_ELEMENTS_MIN_Z;
+  }
+  const parsed = Number(element.zIndex);
+  if (Number.isFinite(parsed)) {
+    return parsed;
+  }
+  if (element.type === 'background-photo') {
+    return BACKGROUND_PHOTO_Z;
+  }
+  return NORMAL_ELEMENTS_MIN_Z;
+};
+
+const collectOverlayElementIds = (elements = []) => {
+  if (!Array.isArray(elements) || elements.length === 0) {
+    return new Set();
+  }
+
+  const photoElements = elements.filter(
+    (element) =>
+      element &&
+      element.type === 'photo' &&
+      element.data?.__capturedOverlay !== true
+  );
+
+  if (photoElements.length === 0) {
+    return new Set();
+  }
+
+  const overlayIds = new Set();
+  const photoZValues = photoElements.map((photo) => getSafeZIndex(photo));
+
+  elements.forEach((candidate) => {
+    if (!candidate || overlayIds.has(candidate.id)) {
+      return;
+    }
+
+    if (
+      candidate.type === 'photo' ||
+      candidate.type === 'background-photo' ||
+      candidate.type === 'transparent-area' ||
+      candidate.data?.__capturedOverlay === true
+    ) {
+      return;
+    }
+
+    const candidateZ = getSafeZIndex(candidate);
+
+    const shouldOverlay = photoZValues.some((photoZ) => candidateZ > photoZ);
+    if (shouldOverlay && candidate?.id) {
+      overlayIds.add(candidate.id);
+    }
+  });
+
+  return overlayIds;
 };
 
 const normalizePhotoLayering = (elements = []) => {
@@ -191,73 +253,53 @@ const normalizePhotoLayering = (elements = []) => {
     return elements;
   }
 
-  const backgroundElements = elements.filter(
-    (element) => element?.type === 'background-photo'
-  );
+  const usedZ = new Set();
+  let didMutate = false;
 
-  const backgroundBaseZ = backgroundElements.length
-    ? Math.min(
-        ...backgroundElements.map((element) =>
-          typeof element?.zIndex === 'number' ? element.zIndex : 0
-        )
-      )
-    : 0;
-
-  const usedZ = new Set(
-    elements
-      .filter((element) => element && typeof element.zIndex === 'number')
-      .map((element) => element.zIndex)
-  );
-
-  const ensureUniqueZ = (start) => {
-    let candidate = start;
-    while (usedZ.has(candidate)) {
-      candidate += 1;
-    }
-    usedZ.add(candidate);
-    return candidate;
-  };
-
-  // Reserve background z-index values to keep them below photos.
-  backgroundElements.forEach((element) => {
-    const normalized =
-      typeof element?.zIndex === 'number' ? element.zIndex : backgroundBaseZ;
-    usedZ.add(normalized);
-  });
-
-  return elements.map((element) => {
+  const normalizedElements = elements.map((element) => {
     if (!element || typeof element !== 'object') {
       return element;
     }
 
     if (element.type === 'background-photo') {
-      const normalizedZ =
-        typeof element.zIndex === 'number' ? element.zIndex : backgroundBaseZ;
-      if (normalizedZ === element.zIndex) {
-        return element;
+      if (Number.isFinite(element.zIndex)) {
+        usedZ.add(element.zIndex);
       }
-      usedZ.add(normalizedZ);
-      return { ...element, zIndex: normalizedZ };
+      return element;
     }
 
-    // Remove special handling for 'photo' type - let it use normal z-index
-    // This allows other elements to be placed above photo elements
-    if (typeof element.zIndex === 'number') {
-      usedZ.add(element.zIndex);
+    const currentZ = Number.isFinite(element.zIndex) ? element.zIndex : null;
+    
+    // Photo elements can have lower z-index than normal elements
+    // Allow them to go as low as BACKGROUND_PHOTO_Z + 1
+    const absoluteMin = BACKGROUND_PHOTO_Z + 1;
+    let defaultMin = NORMAL_ELEMENTS_MIN_Z;
+    
+    // Photo and upload elements can start lower
+    if (element.type === 'photo' || element.type === 'upload') {
+      defaultMin = PHOTO_SLOT_MIN_Z;
     }
     
-    // Debug logging for photo elements
-    if (element.type === 'photo') {
-      console.log('📸 [Photo Element zIndex]', {
-        id: element.id?.slice(0, 8),
-        type: element.type,
-        zIndex: element.zIndex,
-        backgroundBaseZ,
-      });
+    let desiredZ = currentZ ?? defaultMin;
+    if (desiredZ < absoluteMin) {
+      desiredZ = absoluteMin;
+    }
+
+    while (usedZ.has(desiredZ)) {
+      desiredZ += 1;
+    }
+
+    usedZ.add(desiredZ);
+
+    if (desiredZ !== currentZ) {
+      didMutate = true;
+      return { ...element, zIndex: desiredZ };
     }
 
     return element;
   });
+
+  return didMutate ? normalizedElements : elements;
 };
 
 const createOverlayId = (placeholderId, photoIndex) => {
@@ -269,17 +311,20 @@ const createOverlayId = (placeholderId, photoIndex) => {
     .slice(2, 8)}`;
 };
 
+const deriveOverlayZIndex = (placeholder) => {
+  const baseZ = Number.isFinite(placeholder?.zIndex)
+    ? placeholder.zIndex
+    : NORMAL_ELEMENTS_MIN_Z;
+  return baseZ + CAPTURED_OVERLAY_Z_OFFSET;
+};
+
 const createCapturedPhotoOverlay = (
   placeholder,
   photoData,
-  photoIndex,
-  zIndexOverride
+  photoIndex
 ) => {
   const overlayId = createOverlayId(placeholder?.id, photoIndex);
-  const overlayZIndex =
-    typeof zIndexOverride === 'number'
-      ? zIndexOverride
-      : CAPTURED_OVERLAY_MIN_Z;
+  const overlayZIndex = deriveOverlayZIndex(placeholder);
   return {
     id: overlayId,
     type: 'upload',
@@ -337,15 +382,13 @@ const injectCapturedPhotoOverlays = (elements = []) => {
     if (typeof photoData !== 'string' || !photoData.startsWith('data:')) {
       return;
     }
-    console.log(`📸 [injectCapturedPhotoOverlays] Creating overlay ${photoIndex} with z-index:`, CAPTURED_OVERLAY_MIN_Z);
-    overlays.push(
-      createCapturedPhotoOverlay(
-        placeholder,
-        photoData,
-        photoIndex,
-        CAPTURED_OVERLAY_MIN_Z
-      )
+    const overlay = createCapturedPhotoOverlay(
+      placeholder,
+      photoData,
+      photoIndex
     );
+    console.log(`📸 [injectCapturedPhotoOverlays] Creating overlay ${photoIndex} with z-index:`, overlay.zIndex);
+    overlays.push(overlay);
   });
 
   if (!overlays.length) {
@@ -401,6 +444,7 @@ export default function Create() {
   const [activeMobileProperty, setActiveMobileProperty] = useState(null);
   const [canvasAspectRatio, setCanvasAspectRatio] = useState("9:16"); // Story Instagram default
   const [activeDraftId, setActiveDraftId] = useState(null);
+  const [justSavedDraft, setJustSavedDraft] = useState(false); // Track if draft was just saved
   const previewFrameRef = useRef(null);
   const [previewConstraints, setPreviewConstraints] = useState({
     maxWidth: 360,
@@ -472,93 +516,6 @@ export default function Create() {
     return elements.find((el) => el.id === selectedElementId) || null;
   }, [elements, selectedElementId]);
 
-  const autoTransparentState = useMemo(() => {
-    if (!Array.isArray(elements) || elements.length === 0) {
-      return {
-        shouldShow: false,
-        active: false,
-        areaId: null,
-        linkedPhotoId: null,
-      };
-    }
-
-    const photoElements = elements.filter((element) => element?.type === "photo");
-    if (photoElements.length === 0) {
-      return {
-        shouldShow: false,
-        active: false,
-        areaId: null,
-        linkedPhotoId: null,
-      };
-    }
-
-    const backgroundElement =
-      elements.find((element) => element?.type === "background-photo") || null;
-
-    const baseBackgroundZ = Number.isFinite(backgroundElement?.zIndex)
-      ? backgroundElement.zIndex
-      : Number.isFinite(BACKGROUND_PHOTO_Z)
-      ? BACKGROUND_PHOTO_Z
-      : 0;
-
-    const autoAreas = elements.filter(
-      (element) =>
-        element?.type === "transparent-area" &&
-        element?.data?.__autoTransparentArea === true
-    );
-
-    if (autoAreas.length === 0) {
-      return {
-        shouldShow: true,
-        active: false,
-        areaId: null,
-        linkedPhotoId: null,
-      };
-    }
-
-    let activeAreaId = null;
-    let linkedPhotoId = null;
-
-    const isActive = autoAreas.some((area) => {
-      const photoId = area?.data?.__linkedPhotoId;
-      if (!photoId) {
-        return false;
-      }
-
-      const linkedPhoto = photoElements.find((photo) => photo.id === photoId);
-      if (!linkedPhoto) {
-        return false;
-      }
-
-      const active = isAutoTransparentAreaActive(area, linkedPhoto, baseBackgroundZ);
-      if (active && !activeAreaId) {
-        activeAreaId = area.id;
-        linkedPhotoId = linkedPhoto.id;
-      }
-      return active;
-    });
-
-    if (!activeAreaId) {
-      const fallback = autoAreas[0];
-      activeAreaId = fallback?.id ?? null;
-      linkedPhotoId = fallback?.data?.__linkedPhotoId ?? null;
-    }
-
-    return {
-      shouldShow: true,
-      active: isActive,
-      areaId: activeAreaId,
-      linkedPhotoId,
-    };
-  }, [elements]);
-
-  const {
-    shouldShow: shouldShowAutoTransparent,
-    active: autoTransparentActive,
-    areaId: autoTransparentAreaId,
-    linkedPhotoId: autoTransparentLinkedPhotoId,
-  } = autoTransparentState;
-
   useEffect(() => {
     const storedPhotos = safeStorage.getJSON('capturedPhotos');
     const hasStoredPhotos = Array.isArray(storedPhotos) && storedPhotos.length > 0;
@@ -579,45 +536,6 @@ export default function Create() {
       }
     }
   }, [elements, setElements]);
-
-  useEffect(() => {
-    const synced = syncAutoTransparentAreas(elements);
-    if (synced !== elements) {
-      setElements(synced);
-    }
-  }, [elements, setElements]);
-
-  const handleAutoTransparentSync = useCallback(() => {
-    const synced = syncAutoTransparentAreas(elements);
-    if (synced !== elements) {
-      setElements(synced);
-      showToast("success", "Area transparan otomatis diperbarui.");
-      return;
-    }
-
-    if (autoTransparentActive) {
-      if (autoTransparentAreaId) {
-        selectElement(autoTransparentAreaId);
-      } else if (autoTransparentLinkedPhotoId) {
-        selectElement(autoTransparentLinkedPhotoId);
-      }
-      showToast("success", "Area transparan otomatis sudah aktif.");
-      return;
-    }
-
-    showToast(
-      "error",
-      "Tambahkan area foto ukuran penuh untuk mengaktifkan transparan otomatis."
-    );
-  }, [
-    elements,
-    setElements,
-    showToast,
-    autoTransparentActive,
-    autoTransparentAreaId,
-    autoTransparentLinkedPhotoId,
-    selectElement,
-  ]);
 
   useEffect(() => {
     if (!isMobileView) {
@@ -1015,7 +933,10 @@ export default function Create() {
         targetDimensions.height
       );
 
-  const normalizedElements = normalizePhotoLayering(scaledElements);
+  const withoutTransparentAreas = Array.isArray(scaledElements)
+    ? scaledElements.filter((element) => element?.type !== 'transparent-area')
+    : [];
+  const normalizedElements = normalizePhotoLayering(withoutTransparentAreas);
   const runtimeElements = injectCapturedPhotoOverlays(normalizedElements);
 
   console.log('✅ [loadDraftIntoEditor] Setting elements:', {
@@ -1240,17 +1161,8 @@ export default function Create() {
       exportWrapper.appendChild(exportCanvasNode);
       document.body.appendChild(exportWrapper);
 
+      // ✅ SIMPLIFIED: No overlay logic, just sync z-index
       prepareCanvasExportClone(exportCanvasNode);
-
-      // DEBUG: Log all remaining elements after cleanup
-      const remainingElements = exportCanvasNode.querySelectorAll('.creator-element');
-      console.log('📋 [After prepareCanvasExportClone] Remaining elements:', remainingElements.length);
-      remainingElements.forEach((el, idx) => {
-        const type = el.className.match(/creator-element--type-(\w+)/)?.[1];
-        const isOverlay = el.classList.contains('creator-element--captured-overlay');
-        const zIndex = el.style.zIndex;
-        console.log(`  ${idx + 1}. ${type} - zIndex: ${zIndex}${isOverlay ? ' [OVERLAY - SHOULD BE REMOVED!]' : ''}`);
-      });
 
       cleanupCapture = () => {
         if (exportWrapper.parentNode) {
@@ -1258,8 +1170,9 @@ export default function Create() {
         }
       };
 
+      // ✅ SINGLE CAPTURE: html2canvas will respect CSS z-index ordering
       const captureCanvas = await html2canvas(exportCanvasNode, {
-        backgroundColor: null, // Use null to enable transparency
+        backgroundColor: null, // Transparent background
         useCORS: true,
         scale: captureScale,
         width: canvasWidth,
@@ -1270,25 +1183,13 @@ export default function Create() {
         scrollY: 0,
         allowTaint: true,
         ignoreElements: (element) => {
-          if (!element) {
-            return false;
-          }
-
+          if (!element) return false;
           if (element.nodeType === Node.ELEMENT_NODE) {
-            if (element.classList?.contains('creator-element--captured-overlay')) {
-              return true;
-            }
-            if (element.classList?.contains('captured-photo-overlay-content')) {
-              return true;
-            }
-            if (element.getAttribute?.('data-export-ignore') === 'true') {
-              return true;
-            }
-            if (element.closest?.('[data-export-ignore="true"]')) {
-              return true;
-            }
+            // Only ignore UI elements, NOT design elements
+            if (element.classList?.contains('creator-element--captured-overlay')) return true;
+            if (element.getAttribute?.('data-export-ignore') === 'true') return true;
+            if (element.closest?.('[data-export-ignore="true"]')) return true;
           }
-
           return false;
         },
       });
@@ -1298,14 +1199,16 @@ export default function Create() {
         height: captureCanvas.height,
       });
 
-      // Create a new canvas to properly handle transparency
+      // ✅ SIMPLIFIED PREVIEW GENERATION
+      // Just use captureCanvas directly - it already has correct z-index layering
+      // We only need to carve holes for photo slots
+      
       const finalCanvas = document.createElement('canvas');
       finalCanvas.width = captureCanvas.width;
       finalCanvas.height = captureCanvas.height;
       const finalCtx = finalCanvas.getContext('2d', { alpha: true });
       
       if (finalCtx) {
-        const transparentAreaElements = elements.filter((el) => el.type === 'transparent-area');
         const photoElements = elements.filter((el) => el.type === 'photo');
         const photoSlotInfos = [];
 
@@ -1315,11 +1218,6 @@ export default function Create() {
           const rawWidth = Number(photoEl?.width) || 0;
           const rawHeight = Number(photoEl?.height) || 0;
           if (rawWidth <= 0 || rawHeight <= 0) {
-            console.log('⚠️ [Photo Export] Skipping slot with invalid size', {
-              id: photoEl?.id,
-              rawWidth,
-              rawHeight,
-            });
             return;
           }
 
@@ -1341,160 +1239,21 @@ export default function Create() {
           });
         });
 
-        let photoLayerCanvas = null;
+        // Draw background
+        finalCtx.fillStyle = canvasBackground || '#ffffff';
+        finalCtx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
 
-        if (photoSlotInfos.length > 0) {
-          const capturedPhotos = safeStorage.getJSON('capturedPhotos') || [];
-          const imageCache = new Map();
+        // Draw captured elements (already in correct z-index order)
+        finalCtx.drawImage(captureCanvas, 0, 0);
 
-          if (Array.isArray(capturedPhotos) && capturedPhotos.length > 0) {
-            photoLayerCanvas = document.createElement('canvas');
-            photoLayerCanvas.width = finalCanvas.width;
-            photoLayerCanvas.height = finalCanvas.height;
-            const photoCtx = photoLayerCanvas.getContext('2d', { alpha: true });
-
-            if (photoCtx) {
-              for (const slotInfo of photoSlotInfos) {
-                const photoData = capturedPhotos[slotInfo.photoIndex];
-                if (typeof photoData !== 'string' || !photoData.startsWith('data:')) {
-                  console.log('ℹ️ [Photo Export] Missing captured photo for slot', {
-                    elementId: slotInfo.elementId,
-                    placeholderIndex: slotInfo.placeholderIndex,
-                    photoIndex: slotInfo.photoIndex,
-                  });
-                  continue;
-                }
-
-                let image = imageCache.get(slotInfo.photoIndex);
-                if (!image) {
-                  try {
-                    image = await loadImageAsync(photoData);
-                    imageCache.set(slotInfo.photoIndex, image);
-                  } catch (error) {
-                    console.warn('⚠️ [Photo Export] Failed to load captured photo', {
-                      photoIndex: slotInfo.photoIndex,
-                      error,
-                    });
-                    continue;
-                  }
-                }
-
-                const imgWidth = image.naturalWidth || image.width || 1;
-                const imgHeight = image.naturalHeight || image.height || 1;
-                const slotRatio = slotInfo.width / slotInfo.height;
-                const imageRatio = imgWidth / imgHeight;
-                let drawWidth;
-                let drawHeight;
-
-                if (imageRatio > slotRatio) {
-                  drawHeight = slotInfo.height;
-                  drawWidth = drawHeight * imageRatio;
-                } else {
-                  drawWidth = slotInfo.width;
-                  drawHeight = drawWidth / imageRatio;
-                }
-
-                const drawX = -drawWidth / 2;
-                const drawY = -drawHeight / 2;
-
-                photoCtx.save();
-                photoCtx.translate(slotInfo.centerX, slotInfo.centerY);
-                if (slotInfo.rotationRadians) {
-                  photoCtx.rotate(slotInfo.rotationRadians);
-                }
-
-                addRoundedRectPath(
-                  photoCtx,
-                  -slotInfo.width / 2,
-                  -slotInfo.height / 2,
-                  slotInfo.width,
-                  slotInfo.height,
-                  slotInfo.borderRadius
-                );
-                photoCtx.clip();
-
-                photoCtx.drawImage(image, drawX, drawY, drawWidth, drawHeight);
-                photoCtx.restore();
-              }
-
-              console.log('🖼️ [Photo Export] Rendered captured photos into photo layer', {
-                slots: photoSlotInfos.length,
-                availablePhotos: capturedPhotos.length,
-              });
-            }
-          } else {
-            console.log('ℹ️ [Photo Export] No captured photos available, skipping photo rendering');
-          }
-        }
-
-        // Step 1: Draw background layer with transparency holes
-        const backgroundCanvas = document.createElement('canvas');
-        backgroundCanvas.width = finalCanvas.width;
-        backgroundCanvas.height = finalCanvas.height;
-        const bgCtx = backgroundCanvas.getContext('2d', { alpha: true });
-
-        if (bgCtx) {
-          // Fill with solid background color first
-          bgCtx.fillStyle = canvasBackground || '#ffffff';
-          bgCtx.fillRect(0, 0, backgroundCanvas.width, backgroundCanvas.height);
-
-          // Cut transparent holes ONLY in background layer
-          if (transparentAreaElements.length > 0) {
-            bgCtx.globalCompositeOperation = 'destination-out';
-
-            transparentAreaElements.forEach((transparentEl) => {
-              const x = (transparentEl.x || 0) * captureScale;
-              const y = (transparentEl.y || 0) * captureScale;
-              const width = (transparentEl.width || 200) * captureScale;
-              const height = (transparentEl.height || 200) * captureScale;
-              const borderRadius = parseNumericValue(transparentEl?.data?.borderRadius) * captureScale;
-              const rotationRadians = ((Number(transparentEl.rotation) || 0) * Math.PI) / 180;
-
-              bgCtx.save();
-              bgCtx.translate(x + width / 2, y + height / 2);
-              if (rotationRadians) {
-                bgCtx.rotate(rotationRadians);
-              }
-
-              addRoundedRectPath(
-                bgCtx,
-                -width / 2,
-                -height / 2,
-                width,
-                height,
-                borderRadius
-              );
-
-              bgCtx.fillStyle = 'rgba(0, 0, 0, 1)';
-              bgCtx.fill();
-              bgCtx.restore();
-
-              console.log('🕳️ [Created transparent hole in background only]', {
-                x: Math.round(x),
-                y: Math.round(y),
-                width: Math.round(width),
-                height: Math.round(height),
-                borderRadius: Math.round(borderRadius),
-                rotation: transparentEl.rotation || 0,
-              });
-            });
-
-            bgCtx.globalCompositeOperation = 'source-over';
-          }
-
-          // Step 2: Composite all layers in correct order
-          // Draw background with holes
-          finalCtx.drawImage(backgroundCanvas, 0, 0);
-
-          // Draw captured photos layer
-          if (photoLayerCanvas) {
-            finalCtx.drawImage(photoLayerCanvas, 0, 0);
-          }
-
-          // Draw all other elements (text, shapes, uploads) on top
-          // These will NOT be affected by transparent areas
-          finalCtx.drawImage(captureCanvas, 0, 0);
-        }
+        // ✅ IMPORTANT: Do NOT carve holes for custom frames!
+        // For custom frames:
+        // - Preview image is just a thumbnail, not used as overlay in Editor
+        // - Photo slots are already transparent in captureCanvas
+        // - Editor renders photo slots + designer elements separately
+        // - Carving would destroy text/shapes that are above photo slots!
+        
+        console.log('✅ [Preview] Generated without carving (preserves layering for custom frames)');
       }
 
       let exportCanvas = finalCanvas;
@@ -1552,7 +1311,9 @@ export default function Create() {
       );
 
       const cleanElements = serializedElements.filter(
-        (element) => !element?.data?.__capturedOverlay
+        (element) =>
+          element?.type !== 'transparent-area' &&
+          !element?.data?.__capturedOverlay
       );
 
       console.log('💾 [SAVING DRAFT] Elements breakdown:', {
@@ -1561,8 +1322,65 @@ export default function Create() {
         types: cleanElements.map(el => ({ type: el.type, zIndex: el.zIndex, hasImage: !!el.data?.image })),
       });
 
+      const layeredElements = cleanElements.map((element) => {
+        if (!element || typeof element !== 'object') {
+          return element;
+        }
+
+        // ✅ Photo slots: Ensure minimum z-index (above background)
+        // But preserve user's z-index if already set higher
+        if (element.type === 'photo') {
+          if (!Number.isFinite(element.zIndex)) {
+            return {
+              ...element,
+              zIndex: PHOTO_SLOT_MIN_Z,
+            };
+          }
+          // If user set z-index lower than minimum, enforce minimum
+          if (element.zIndex < PHOTO_SLOT_MIN_Z) {
+            console.warn(`⚠️ Photo slot z-index ${element.zIndex} is below minimum, setting to ${PHOTO_SLOT_MIN_Z}`);
+            return {
+              ...element,
+              zIndex: PHOTO_SLOT_MIN_Z,
+            };
+          }
+          // Keep user's z-index
+          return element;
+        }
+
+        // ✅ Background photo: Always at the back
+        if (element.type === 'background-photo') {
+          const desiredBackgroundZ = Number.isFinite(BACKGROUND_PHOTO_Z)
+            ? BACKGROUND_PHOTO_Z
+            : (Number.isFinite(element.zIndex) ? element.zIndex : BACKGROUND_PHOTO_Z);
+
+          if (element.zIndex === desiredBackgroundZ) {
+            return element;
+          }
+
+          return {
+            ...element,
+            zIndex: desiredBackgroundZ,
+          };
+        }
+
+        return element;
+      });
+
+      // ✅ DO NOT re-assign z-index for foreground elements!
+      // The z-index from Create page should be preserved as-is.
+      // Users have already arranged the layering in the canvas.
+
+      console.log('🔍 [SAVE DEBUG] Final layeredElements z-index info:', 
+        layeredElements.map(el => ({
+          type: el.type,
+          id: el.id?.slice(0, 8),
+          zIndex: el.zIndex,
+        }))
+      );
+
       // Compress upload element images before saving
-      const compressedElements = await Promise.all(cleanElements.map(async (element) => {
+      const compressedElements = await Promise.all(layeredElements.map(async (element) => {
         if (element.type === 'upload' && element.data?.image) {
           try {
             // Create a smaller version of upload images to save storage
@@ -1667,7 +1485,33 @@ export default function Create() {
         frameArtwork: frameArtwork || undefined,
       });
 
+      console.log('✅ [DRAFT SAVED] Elements with preserved z-index:', 
+        compressedElements.map(el => ({
+          type: el.type,
+          id: el.id?.slice(0, 8),
+          zIndex: el.zIndex,
+        }))
+      );
+
+      // IMPORTANT: Verify the draft is actually saved with correct z-index
+      console.log('🔍 [VERIFICATION] Reading draft from storage...');
+      const verifyDraft = draftStorage.getDraftById(savedDraft.id);
+      if (verifyDraft) {
+        console.log('✅ [VERIFICATION] Draft loaded from storage:', {
+          id: verifyDraft.id,
+          elementsCount: verifyDraft.elements?.length,
+          elementsZIndex: verifyDraft.elements?.map(el => ({
+            type: el.type,
+            id: el.id?.slice(0, 8),
+            zIndex: el.zIndex,
+          })),
+        });
+      } else {
+        console.error('❌ [VERIFICATION] Failed to load draft from storage!');
+      }
+
       setActiveDraftId(savedDraft.id);
+      setJustSavedDraft(true); // Show "Gunakan Frame Ini" button
 
       const successTitle = savedDraft.title || "Draft";
       showToast(
@@ -1705,6 +1549,37 @@ export default function Create() {
     const newElementId = addElement(type);
     if (newElementId) {
       selectElement(newElementId);
+    }
+  };
+
+  const handleUseThisFrame = async () => {
+    if (!activeDraftId) {
+      showToast("error", "Tidak ada draft aktif untuk digunakan.");
+      return;
+    }
+
+    try {
+      // Load the draft
+      const draft = draftStorage.getDraftById(activeDraftId);
+      if (!draft) {
+        throw new Error("Draft tidak ditemukan");
+      }
+
+      // Activate the frame
+      const { activateDraftFrame } = await import("../utils/draftHelpers.js");
+      const frameConfig = activateDraftFrame(draft);
+      
+      if (!frameConfig) {
+        throw new Error("Gagal membuat konfigurasi frame dari draft");
+      }
+
+      console.log('✅ [CREATE] Frame activated:', frameConfig.id);
+      
+      // Navigate to TakeMoment
+      navigate("/take-moment");
+    } catch (error) {
+      console.error("❌ Failed to activate frame:", error);
+      showToast("error", `Gagal menggunakan frame: ${error.message}`);
     }
   };
 
@@ -1845,17 +1720,6 @@ export default function Create() {
       },
     ];
 
-    if (shouldShowAutoTransparent) {
-      buttons.push({
-        id: "auto-transparent",
-        label: "Transparan Otomatis",
-        mobileLabel: "Transparan",
-        icon: Layers,
-        onClick: handleAutoTransparentSync,
-        isActive: autoTransparentActive,
-      });
-    }
-
     return buttons;
   }, [
     addToolElement,
@@ -1865,9 +1729,6 @@ export default function Create() {
     backgroundPhotoElement,
     triggerBackgroundUpload,
     isMobileView,
-    shouldShowAutoTransparent,
-    handleAutoTransparentSync,
-    autoTransparentActive,
   ]);
 
   useEffect(() => {
@@ -2594,6 +2455,43 @@ export default function Create() {
               </>
             )}
           </Motion.button>
+
+          {/* Show "Gunakan Frame Ini" button after save */}
+          {justSavedDraft && activeDraftId && (
+            <Motion.button
+              type="button"
+              onClick={handleUseThisFrame}
+              className="create-save"
+              style={{
+                marginTop: '12px',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              }}
+              whileTap={{ scale: 0.97 }}
+              whileHover={{ y: -3 }}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+            >
+              <>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  <circle cx="8.5" cy="8.5" r="1.5"/>
+                  <polyline points="21 15 16 10 5 21"/>
+                </svg>
+                Gunakan Frame Ini
+              </>
+            </Motion.button>
+          )}
   </Motion.section>
 
         {!isMobileView && (

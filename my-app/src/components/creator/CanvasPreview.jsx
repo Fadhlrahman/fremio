@@ -22,6 +22,19 @@ const formatRadius = (value, fallback) => {
   return `${fallback}px`;
 };
 
+const parseNumeric = (value, fallback = 0) => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return fallback;
+};
+
 const getElementBorderRadius = (element) => {
   switch (element.type) {
     case "shape":
@@ -276,12 +289,26 @@ const resetRndPosition = (meta) => {
   }
 };
 
-const ElementContent = forwardRef(({ element, isSelected, elements }, ref) => {
-  const style = {
-    width: "100%",
-    height: "100%",
-    ...getElementStyle(element, isSelected),
-  };
+const ElementContent = forwardRef(({ element, isSelected }, ref) => {
+  // For photo slots, use custom styling (don't override with getElementStyle background)
+  const shouldUseCustomPhotoStyle = element.type === "photo";
+  
+  const style = shouldUseCustomPhotoStyle 
+    ? {
+        width: "100%",
+        height: "100%",
+        overflow: "hidden",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        // Border radius from element data if exists
+        borderRadius: `${element.data?.borderRadius ?? 24}px`,
+      }
+    : {
+        width: "100%",
+        height: "100%",
+        ...getElementStyle(element, isSelected),
+      };
 
   if (element.type === "text") {
     return <div style={style}>{element.data?.text ?? "Teks"}</div>;
@@ -322,15 +349,15 @@ const ElementContent = forwardRef(({ element, isSelected, elements }, ref) => {
 
   if (element.type === "background-photo") {
     return (
-      <div style={style} ref={ref}>
+      <div style={{ ...style, position: "relative" }} ref={ref}>
         {element.data?.image ? (
           <img
             src={element.data.image}
             alt="Background"
-            style={{ 
+            style={{
               width: "100%",
               height: "100%",
-              objectFit: "fill", // Fill to preserve entire image without cropping
+              objectFit: "fill",
               pointerEvents: "none",
               display: "block",
             }}
@@ -346,95 +373,93 @@ const ElementContent = forwardRef(({ element, isSelected, elements }, ref) => {
   }
 
   if (element.type === "photo") {
-    // Photo area creates a transparent "hole" in the canvas
-    // This area will be completely transparent, cutting through background
+    // Photo slot: Dummy placeholder that shows position & size for real photos later
+    // This is the "recipe" that Editor will use to place real captured photos
+    const slotNumber = element.data?.slotNumber || element.data?.label || 'Area Foto';
+    
+    console.log('📷 Rendering photo slot:', {
+      id: element.id,
+      label: slotNumber,
+      position: { x: element.x, y: element.y },
+      size: { width: element.width, height: element.height },
+      zIndex: element.zIndex,
+      hasCustomStyle: shouldUseCustomPhotoStyle,
+    });
+    
     return (
       <div 
         style={{
           ...style,
-          background: 'transparent',
-          backgroundColor: 'transparent',
+          // Override: Set gradient background directly (not from getElementStyle)
+          background: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)',
           position: 'relative',
-          overflow: 'hidden',
         }} 
-        className="h-full w-full creator-transparent-area"
-        data-transparent-hole="true"
+        className="h-full w-full creator-photo-placeholder"
+        data-photo-placeholder="true"
       >
-        {/* Checkerboard pattern to visualize transparency in edit mode */}
+        {/* Dashed border to indicate placeholder */}
         <div 
-          className="absolute inset-0"
           style={{
-            backgroundImage: `
-              linear-gradient(45deg, rgba(0, 0, 0, 0.05) 25%, transparent 25%),
-              linear-gradient(-45deg, rgba(0, 0, 0, 0.05) 25%, transparent 25%),
-              linear-gradient(45deg, transparent 75%, rgba(0, 0, 0, 0.05) 75%),
-              linear-gradient(-45deg, transparent 75%, rgba(0, 0, 0, 0.05) 75%)
-            `,
-            backgroundSize: '20px 20px',
-            backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+            position: 'absolute',
+            inset: 0,
+            border: '2px dashed rgb(129 140 248 / 0.7)',
+            borderRadius: 'inherit',
             pointerEvents: 'none',
           }}
+          aria-hidden="true"
         />
         
-        {/* Visual indicator when selected */}
-        {isSelected && (
-          <div className="absolute inset-0 flex items-center justify-center border-2 border-blue-400 bg-blue-400/10 pointer-events-none">
-            <div className="text-xs font-semibold uppercase tracking-wider text-blue-600 text-center px-3 py-1.5 bg-white/90 rounded-md shadow-sm">
-              Area Foto
-            </div>
-          </div>
-        )}
-        
-        {/* Subtle border when not selected */}
-        {!isSelected && (
-          <div className="absolute inset-0 border border-dashed border-slate-300/50 pointer-events-none" />
-        )}
-      </div>
-    );
-  }
-
-  if (element.type === "transparent-area") {
-    // Transparent area tool - makes background transparent in this area
-    return (
-      <div 
-        style={{
-          ...style,
-          background: 'transparent',
-          backgroundColor: 'transparent',
-          position: 'relative',
-          overflow: 'hidden',
-        }} 
-        className="h-full w-full creator-transparent-area"
-        data-transparent-area="true"
-      >
-        {/* Checkerboard pattern to visualize transparency in edit mode */}
-        <div 
-          className="absolute inset-0"
+        {/* Camera icon placeholder */}
+        <svg 
           style={{
-            backgroundImage: `
-              linear-gradient(45deg, rgba(120, 120, 120, 0.1) 25%, transparent 25%),
-              linear-gradient(-45deg, rgba(120, 120, 120, 0.1) 25%, transparent 25%),
-              linear-gradient(45deg, transparent 75%, rgba(120, 120, 120, 0.1) 75%),
-              linear-gradient(-45deg, transparent 75%, rgba(120, 120, 120, 0.1) 75%)
-            `,
-            backgroundSize: '16px 16px',
-            backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0px',
+            position: 'absolute',
+            inset: 0,
+            margin: 'auto',
+            color: 'rgb(165 180 252 / 0.4)',
             pointerEvents: 'none',
+            width: '40%',
+            height: '40%',
           }}
-        />
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+          <circle cx="12" cy="13" r="4"/>
+        </svg>
         
-        {/* Visual indicator when selected */}
+        {/* Label */}
+        <div style={{
+          position: 'relative',
+          zIndex: 1,
+          borderRadius: '8px',
+          background: 'rgba(255, 255, 255, 0.9)',
+          backdropFilter: 'blur(4px)',
+          padding: '6px 12px',
+          fontSize: '11px',
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: '0.1em',
+          color: 'rgb(79 70 229)',
+          boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)',
+          pointerEvents: 'none',
+          border: '1px solid rgb(199 210 254)',
+        }}>
+          📷 {slotNumber}
+        </div>
+        
+        {/* Selection indicator */}
         {isSelected && (
-          <div className="absolute inset-0 flex items-center justify-center border-2 border-purple-500 bg-purple-500/10 pointer-events-none">
-            <div className="text-xs font-semibold uppercase tracking-wider text-purple-600 text-center px-3 py-1.5 bg-white/95 rounded-md shadow-sm">
-              Area Transparan
-            </div>
-          </div>
-        )}
-        
-        {/* Subtle border when not selected */}
-        {!isSelected && (
-          <div className="absolute inset-0 border border-dashed border-purple-300/60 pointer-events-none" />
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            border: '2px solid rgb(99 102 241)',
+            borderRadius: 'inherit',
+            pointerEvents: 'none',
+          }} />
         )}
       </div>
     );
@@ -508,18 +533,6 @@ function CanvasPreviewComponent({
   const sortedElements = useMemo(
     () => [...elements].sort((a, b) => (a.zIndex ?? 1) - (b.zIndex ?? 1)),
     [elements]
-  );
-
-  const visibleElements = useMemo(
-    () =>
-      sortedElements.filter(
-        (element) =>
-          !(
-            element?.type === 'transparent-area' &&
-            element?.data?.__autoTransparentArea === true
-          )
-      ),
-    [sortedElements]
   );
 
   const canvasDimensions = useMemo(() => {
@@ -939,7 +952,7 @@ function CanvasPreviewComponent({
           event.preventDefault();
         }}
       >
-  {visibleElements.map((element) => {
+  {sortedElements.map((element) => {
           const isSelected = selectedElementId === element.id;
           const isBackgroundPhoto = element.type === "background-photo";
           const backgroundAspectRatio = isBackgroundPhoto
@@ -1254,6 +1267,8 @@ function CanvasPreviewComponent({
           return (
             <Rnd
               key={element.id}
+              data-element-id={element.id}
+              data-element-zindex={Number.isFinite(element.zIndex) ? element.zIndex : undefined}
               size={{ width: element.width, height: element.height }}
               position={{ x: element.x, y: element.y }}
               bounds="parent"
@@ -1407,6 +1422,7 @@ function CanvasPreviewComponent({
                 borderRadius: elementBorderRadius,
                 backgroundColor: "transparent",
                 touchAction: isBackgroundPhoto ? "none" : "auto",
+                pointerEvents: isCapturedOverlayElement ? "none" : "auto",
               }}
               className={elementClassName}
               ref={(instance) => {
@@ -1502,6 +1518,39 @@ function CanvasPreviewComponent({
                     >
                       <img src={duplicateIcon} alt="Duplicate" style={{ width: "28px", height: "28px" }} />
                     </button>
+                    
+                    {/* Layer Z-Index Indicator - Only for photo and upload elements */}
+                    {(element.type === 'photo' || element.type === 'upload') && (
+                      <div
+                        data-export-ignore="true"
+                        style={{
+                          height: "52px",
+                          padding: "0 16px",
+                          borderRadius: "12px",
+                          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                          border: "2px solid #667eea",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          boxShadow: "0 4px 12px rgba(102, 126, 234, 0.4)",
+                          pointerEvents: "none",
+                          gap: "8px"
+                        }}
+                      >
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style={{ flexShrink: 0 }}>
+                          <path d="M3 4h14v2H3V4zm2 5h10v2H5V9zm2 5h6v2H7v-2z" fill="white"/>
+                        </svg>
+                        <span style={{
+                          color: "white",
+                          fontWeight: "700",
+                          fontSize: "14px",
+                          whiteSpace: "nowrap"
+                        }}>
+                          Layer: {element.zIndex || 0}
+                        </span>
+                      </div>
+                    )}
+                    
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1547,7 +1596,6 @@ function CanvasPreviewComponent({
               <ElementContent
                 element={element}
                 isSelected={isSelected}
-                elements={elements}
                 ref={isBackgroundPhoto ? backgroundTouchRef : null}
               />
             </Rnd>

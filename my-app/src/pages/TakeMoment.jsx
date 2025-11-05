@@ -8,6 +8,7 @@ import React, {
 import { useNavigate } from "react-router-dom";
 import frameProvider from "../utils/frameProvider.js";
 import safeStorage from "../utils/safeStorage.js";
+import { deriveFrameLayerPlan } from "../utils/frameLayerPlan.js";
 import flipIcon from "../assets/flip.png";
 import fremioLogo from "../assets/logo.svg";
 
@@ -731,6 +732,25 @@ export default function TakeMoment() {
     }
   }, [maxCaptures]);
 
+  const persistLayerPlan = useCallback((config) => {
+    try {
+      if (!config || typeof config !== "object") {
+        safeStorage.removeItem("frameLayerPlan");
+        return;
+      }
+
+      const plan = deriveFrameLayerPlan(config);
+      if (!plan) {
+        safeStorage.removeItem("frameLayerPlan");
+        return;
+      }
+
+      safeStorage.setJSON("frameLayerPlan", plan);
+    } catch (error) {
+      console.warn("⚠️ Failed to persist frame layer plan", error);
+    }
+  }, []);
+
   const stopCamera = useCallback(() => {
     if (activeRecordingRef.current) {
       try {
@@ -773,6 +793,7 @@ export default function TakeMoment() {
       } else {
         setMaxCaptures(4);
       }
+      persistLayerPlan(existingConfig);
     } else {
       // No frame in memory, load from storage
       console.log('📁 No frame in memory, loading from storage...');
@@ -788,9 +809,10 @@ export default function TakeMoment() {
           } else {
             setMaxCaptures(4);
           }
+          persistLayerPlan(frameConfig);
         });
     }
-  }, [clearCapturedMedia]);
+  }, [clearCapturedMedia, persistLayerPlan]);
 
   useEffect(() => {
     if (!capturedPhotos.length) return;

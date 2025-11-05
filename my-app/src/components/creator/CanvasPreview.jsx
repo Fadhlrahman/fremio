@@ -1055,16 +1055,11 @@ function CanvasPreviewComponent({
             meta.dragStartElementX = element.x;
             meta.dragStartElementY = element.y;
             
-            // Determine element semantics for auto-layering behavior
-            const isPhotoPlaceholder = element.type === 'photo';
-            const isCapturedOverlay = isCapturedOverlayElement;
-
+            // DISABLED: Auto bring-to-front on click
+            // User must explicitly use layer control buttons to change z-index
+            // This gives users full control over layering
+            
             if (!isSelected) {
-              // Do NOT auto bring-to-front for photo placeholders or captured photo overlays
-              // This ensures foto layer can stay behind other elements when user has adjusted layers
-              if (!isBackgroundPhoto && !isPhotoPlaceholder && !isCapturedOverlay) {
-                onBringToFront(element.id);
-              }
               onSelect(element.id, { interaction: "pointerdown" });
               // Don't stop pointer tracking for background photo - allow drag immediately
               if (!isBackgroundPhoto) {
@@ -1075,10 +1070,6 @@ function CanvasPreviewComponent({
             }
             
             startHoldTimer(meta);
-            // Skip auto bring-to-front here as well for photo/overlay
-            if (!isBackgroundPhoto && !isPhotoPlaceholder && !isCapturedOverlay) {
-              onBringToFront(element.id);
-            }
           };
           
           const handlePointerMove = (event) => {

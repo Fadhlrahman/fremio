@@ -310,6 +310,12 @@ const getNormalizedZIndex = (element) => {
 };
 
 const enforcePhotoPlaceholderLayering = (elements = []) => {
+  // DISABLED: This function was forcing separated z-index systems
+  // Photos and other elements should share the same z-index space
+  // Just return elements as-is, let user control layering freely
+  return elements;
+  
+  /* ORIGINAL CODE - DISABLED FOR UNIFIED Z-INDEX SYSTEM
   if (!Array.isArray(elements) || elements.length === 0) {
     return elements;
   }
@@ -401,6 +407,7 @@ const enforcePhotoPlaceholderLayering = (elements = []) => {
   });
 
   return didMutate ? remapped : elements;
+  */
 };
 
 const normalizeElementZOrder = (elements) => {
@@ -408,8 +415,10 @@ const normalizeElementZOrder = (elements) => {
     return elements;
   }
 
+  // Calculate baseMax from NON-photo elements only
+  // Photos can have z-index 0 or even negative, so don't include them
   const baseMax = elements.reduce((max, element) => {
-    if (!element || element.type === 'background-photo') {
+    if (!element || element.type === 'background-photo' || element.type === 'photo') {
       return max;
     }
     const currentZ = Number.isFinite(element.zIndex) ? element.zIndex : null;
@@ -440,13 +449,31 @@ const normalizeElementZOrder = (elements) => {
       return element;
     }
 
-    const currentZ = Number.isFinite(element.zIndex) ? element.zIndex : null;
-    if (currentZ !== null && currentZ >= NORMAL_ELEMENTS_MIN_Z) {
-      runningMax = currentZ > runningMax ? currentZ : runningMax;
+    // Photo and upload elements can have z-index 0 or negative
+    // Don't force them to have minimum z-index
+    // IMPORTANT: Keep their current z-index if it's already set!
+    if (element.type === 'photo' || element.type === 'upload') {
+      // If element already has a valid z-index, KEEP IT!
+      if (Number.isFinite(element.zIndex)) {
+        return element;
+      }
+      
+      // Only set default if no z-index exists
+      const currentZ = PHOTO_SLOT_MIN_Z;
+      didMutate = true;
+      return { ...element, zIndex: currentZ };
+    }
+
+    // For text/shapes, keep existing z-index if it's already set
+    // Only assign new z-index if element doesn't have one
+    if (Number.isFinite(element.zIndex)) {
+      // Element already has a z-index, KEEP IT!
+      runningMax = element.zIndex > runningMax ? element.zIndex : runningMax;
       return element;
     }
 
-    const nextZ = runningMax + 1;
+    // Only assign new z-index for elements without one
+    const nextZ = Math.max(runningMax + 1, NORMAL_ELEMENTS_MIN_Z);
     runningMax = nextZ;
     didMutate = true;
     return { ...element, zIndex: nextZ };
@@ -486,7 +513,11 @@ export const useCreatorStore = create((set, get) => ({
     });
     set((state) => {
       const nextElements = syncCreatorElements([...state.elements, element]);
-      const nextLastZ = desiredZ > state.lastZIndex ? desiredZ : state.lastZIndex;
+      // Only update lastZIndex for non-photo elements (text, shape, upload)
+      // Photo elements have their own z-index system (default 0)
+      const nextLastZ = (type === 'photo' || type === 'background-photo') 
+        ? state.lastZIndex 
+        : (desiredZ > state.lastZIndex ? desiredZ : state.lastZIndex);
       return {
         elements: nextElements,
         selectedElementId: element.id,
@@ -645,7 +676,18 @@ export const useCreatorStore = create((set, get) => ({
             return el;
           }
 
-          const targetZ = el.zIndex === undefined ? 1 : Math.max(el.zIndex, 1);
+          // Allow photo elements to have z-index 0 or even negative
+          // Only enforce minimum for non-photo elements
+          let targetZ;
+          if (el.type === 'photo' || el.type === 'upload') {
+            // Photos and uploads can have any z-index >= BACKGROUND_PHOTO_Z + 1
+            const absoluteMin = BACKGROUND_PHOTO_Z + 1; // -3999
+            targetZ = el.zIndex === undefined ? PHOTO_SLOT_MIN_Z : Math.max(el.zIndex, absoluteMin);
+          } else {
+            // Text, shapes - minimum is NORMAL_ELEMENTS_MIN_Z (1)
+            targetZ = el.zIndex === undefined ? NORMAL_ELEMENTS_MIN_Z : Math.max(el.zIndex, NORMAL_ELEMENTS_MIN_Z);
+          }
+          
           if (targetZ !== el.zIndex) {
             didMutate = true;
             return { ...el, zIndex: targetZ };
@@ -717,8 +759,10 @@ export const useCreatorStore = create((set, get) => ({
 
       const normalizedElements = syncCreatorElements(remapped);
 
+      // Only compute lastZIndex from non-photo elements (text, shape, upload)
+      // Photo elements have their own z-index system (default 0)
       const computedMaxZ = normalizedElements.reduce((max, el) => {
-        if (el.type === 'background-photo') {
+        if (el.type === 'background-photo' || el.type === 'photo') {
           return max;
         }
         const currentZ = Number.isFinite(el.zIndex) ? el.zIndex : max;
@@ -888,19 +932,29 @@ export const useCreatorStore = create((set, get) => ({
     const element = get().elements.find((el) => el.id === id);
     if (!element) return;
     
+    // For photo elements, keep them in photo z-index range
+    // For other elements (text, shape, upload), use lastZIndex + 1
+    const newZIndex = element.type === 'photo' 
+      ? (element.zIndex ?? 0) 
+      : get().lastZIndex + 1;
+    
     const duplicate = {
       ...element,
       id: generateId(),
       x: element.x + 20,
       y: element.y + 20,
-      zIndex: get().lastZIndex + 1,
+      zIndex: newZIndex,
     };
     
     set((state) => {
       const nextElements = syncCreatorElements([...state.elements, duplicate]);
+      // Only update lastZIndex for non-photo elements
+      const nextLastZ = element.type === 'photo' 
+        ? state.lastZIndex 
+        : state.lastZIndex + 1;
       return {
         elements: nextElements,
-        lastZIndex: state.lastZIndex + 1,
+        lastZIndex: nextLastZ,
         selectedElementId: duplicate.id,
       };
     });
@@ -979,7 +1033,11 @@ export const useCreatorStore = create((set, get) => ({
     const allElements = get().elements;
     const sorted = allElements
       .filter(el => el.type !== 'background-photo' && !isCapturedPhotoOverlay(el))
-      .sort((a, b) => (a.zIndex || 1) - (b.zIndex || 1));
+      .sort((a, b) => {
+        const aZ = Number.isFinite(a.zIndex) ? a.zIndex : NORMAL_ELEMENTS_MIN_Z;
+        const bZ = Number.isFinite(b.zIndex) ? b.zIndex : NORMAL_ELEMENTS_MIN_Z;
+        return aZ - bZ;
+      });
     
     const currentIndex = sorted.findIndex(el => el.id === id);
     if (currentIndex === -1 || currentIndex === sorted.length - 1) {
@@ -987,8 +1045,8 @@ export const useCreatorStore = create((set, get) => ({
     }
     
     const nextElement = sorted[currentIndex + 1];
-    const currentZ = target.zIndex || 1;
-    const nextZ = nextElement.zIndex || 1;
+    const currentZ = Number.isFinite(target.zIndex) ? target.zIndex : NORMAL_ELEMENTS_MIN_Z;
+    const nextZ = Number.isFinite(nextElement.zIndex) ? nextElement.zIndex : NORMAL_ELEMENTS_MIN_Z;
     
     set((state) => {
       const elements = state.elements.map((el) => {
@@ -1014,7 +1072,11 @@ export const useCreatorStore = create((set, get) => ({
     const allElements = get().elements;
     const sorted = allElements
       .filter(el => el.type !== 'background-photo' && !isCapturedPhotoOverlay(el))
-      .sort((a, b) => (a.zIndex || 1) - (b.zIndex || 1));
+      .sort((a, b) => {
+        const aZ = Number.isFinite(a.zIndex) ? a.zIndex : NORMAL_ELEMENTS_MIN_Z;
+        const bZ = Number.isFinite(b.zIndex) ? b.zIndex : NORMAL_ELEMENTS_MIN_Z;
+        return aZ - bZ;
+      });
     
     const currentIndex = sorted.findIndex(el => el.id === id);
     if (currentIndex === -1 || currentIndex === 0) {
@@ -1022,8 +1084,8 @@ export const useCreatorStore = create((set, get) => ({
     }
     
     const prevElement = sorted[currentIndex - 1];
-    const currentZ = target.zIndex || 1;
-    const prevZ = prevElement.zIndex || 1;
+    const currentZ = Number.isFinite(target.zIndex) ? target.zIndex : NORMAL_ELEMENTS_MIN_Z;
+    const prevZ = Number.isFinite(prevElement.zIndex) ? prevElement.zIndex : NORMAL_ELEMENTS_MIN_Z;
     
     set((state) => {
       const elements = state.elements.map((el) => {
@@ -1046,8 +1108,10 @@ export const useCreatorStore = create((set, get) => ({
   },
   setElements: (elements) => {
     const normalized = syncCreatorElements(elements);
+    // Only compute lastZIndex from non-photo elements (text, shape, upload)
+    // Photo elements have their own z-index system (default 0)
     const maxZ = normalized.reduce((max, el) => {
-      if (!el || el.type === 'background-photo') {
+      if (!el || el.type === 'background-photo' || el.type === 'photo') {
         return max;
       }
       const currentZ = Number.isFinite(el?.zIndex) ? el.zIndex : max;

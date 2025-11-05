@@ -3,6 +3,9 @@
 ## Overview
 Panduan lengkap untuk mengatur layer/z-index elemen foto di halaman Create (FrameBuilder).
 
+> **UPDATED:** November 5, 2025 - **Unified Z-Index System**  
+> Foto dan elemen lain (text/shapes) sekarang dalam **satu sistem z-index yang sama**!
+
 ---
 
 ## ✨ Features Implemented
@@ -286,51 +289,68 @@ sendBackward: (id) => {
 
 ## 📊 Z-Index Hierarchy
 
-### Updated Z-Index Values (FIXED - No Restrictions!):
+### Updated Z-Index Values (UNIFIED SYSTEM!):
 
 ```javascript
 BACKGROUND_PHOTO_Z = -4000      // Background photo (paling belakang)
 PHOTO_SLOT_MIN_Z = 0            // Photo slots DEFAULT start here
 NORMAL_ELEMENTS_MIN_Z = 1       // Text, shapes DEFAULT start here
 
-// BUT: Photos can now go ANYWHERE between background and infinity!
+// All elements can go ANYWHERE between background and infinity!
 // Min: BACKGROUND_PHOTO_Z + 1 = -3999 (just above background)
 // Max: No limit! Can be 1000, 5000, or any value
 ```
 
-### ✅ FIXED: Photos Can Now Be Layered Freely!
+### ✅ FIXED: Unified Z-Index System (Nov 5, 2025)
 
-**Before (BROKEN):**
+**Before (SEPARATED SYSTEMS):**
 ```
-❌ Photo max z-index: 2 (HARD LIMIT)
-❌ Other elements min z-index: 3
-❌ Photos could NEVER be above text/shapes
+❌ Photo System: 0, 1, 2 (max = number of photos)
+❌ Text/Shape System: 3, 4, 5... (min = max photo + 1)
+❌ Photos and text lived in SEPARATE ranges
+❌ Couldn't layer photos above text or vice versa
 ```
 
-**After (FIXED):**
+**After (UNIFIED SYSTEM):**
 ```
-✅ Photo min z-index: -3999 (above background)
-✅ Photo max z-index: No limit!
+✅ All elements: -3999 to Infinity (same range!)
+✅ Photos default to 0, text to 1+
+✅ But ALL can be adjusted to ANY z-index
 ✅ Photos CAN be above text/shapes
-✅ Photos CAN be below text/shapes
-✅ Full flexibility!
+✅ Text/Shapes CAN be above photos
+✅ Full mixing and matching!
 ```
 
-### Typical Layer Order (Flexible):
+### Key Fix Details:
+
+**Problem Found:**
+- `lastZIndex` was tracking ALL elements including photos
+- When 2 photos existed (z-index 0, 1), `lastZIndex` = 1
+- Next text got z-index = 2, then 3, etc.
+- This created separated systems!
+
+**Solution:**
+- `lastZIndex` now tracks ONLY text/shape/upload
+- Photos don't affect `lastZIndex`
+- New text always starts at `lastZIndex + 1` (min 1)
+- Photos can float freely in any z-index range
+
+### Typical Layer Order (Now Fully Flexible):
 
 ```
-+5000 ← Photos can go HERE too! ✅
-+1000 ← Or here! ✅
- +500 ← Text overlays (front-most by default)
- +400
- +300 ← Decorative shapes
- +200 ← NORMAL_ELEMENTS_MIN_Z
- +100 ← Photos can be here ✅
-  +50 ← Or here ✅
-   +0 ← PHOTO_SLOT_MIN_Z (default for photos)
-  -10 ← Photos can even go here! ✅
--3999 ← Photo minimum (just above background)
--4000 ← BACKGROUND_PHOTO_Z (back-most)
++5000 ← Any element can be here! ✅
++1000 ← Photo/Text/Shape - all mixed! ✅
+ +500 ← Upload Image
+ +400 ← Text Element
+ +300 ← Photo Element (no longer stuck below!)
+ +200 ← Shape Element
+ +100 ← Photo Element
+  +50 ← Text Element
+   +1 ← NORMAL_ELEMENTS_MIN_Z (text/shapes default)
+    0 ← PHOTO_SLOT_MIN_Z (photos default)
+  -10 ← Photo Element (can go below default!)
+-3999 ← Absolute minimum (above background)
+-4000 ← BACKGROUND_PHOTO_Z (fixed at bottom)
 ```
 
 ---

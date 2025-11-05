@@ -253,7 +253,6 @@ const normalizePhotoLayering = (elements = []) => {
     return elements;
   }
 
-  const usedZ = new Set();
   let didMutate = false;
 
   const normalizedElements = elements.map((element) => {
@@ -262,41 +261,31 @@ const normalizePhotoLayering = (elements = []) => {
     }
 
     if (element.type === 'background-photo') {
-      if (Number.isFinite(element.zIndex)) {
-        usedZ.add(element.zIndex);
-      }
       return element;
     }
 
-    const currentZ = Number.isFinite(element.zIndex) ? element.zIndex : null;
+    // If element already has a valid z-index, KEEP IT!
+    // Don't auto-increment or change existing z-index values
+    if (Number.isFinite(element.zIndex)) {
+      return element;
+    }
     
-    // Photo elements can have lower z-index than normal elements
-    // Allow them to go as low as BACKGROUND_PHOTO_Z + 1
+    // Only set default z-index for elements that don't have one
     const absoluteMin = BACKGROUND_PHOTO_Z + 1;
-    let defaultMin = NORMAL_ELEMENTS_MIN_Z;
+    let defaultZ = NORMAL_ELEMENTS_MIN_Z;
     
     // Photo and upload elements can start lower
     if (element.type === 'photo' || element.type === 'upload') {
-      defaultMin = PHOTO_SLOT_MIN_Z;
+      defaultZ = PHOTO_SLOT_MIN_Z;
     }
     
-    let desiredZ = currentZ ?? defaultMin;
+    let desiredZ = defaultZ;
     if (desiredZ < absoluteMin) {
       desiredZ = absoluteMin;
     }
 
-    while (usedZ.has(desiredZ)) {
-      desiredZ += 1;
-    }
-
-    usedZ.add(desiredZ);
-
-    if (desiredZ !== currentZ) {
-      didMutate = true;
-      return { ...element, zIndex: desiredZ };
-    }
-
-    return element;
+    didMutate = true;
+    return { ...element, zIndex: desiredZ };
   });
 
   return didMutate ? normalizedElements : elements;

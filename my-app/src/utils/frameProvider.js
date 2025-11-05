@@ -297,7 +297,14 @@ export class FrameDataProvider {
     try {
       const frameIdSaved = safeStorage.setItem('selectedFrame', frameName);
 
-      const sanitizedConfig = sanitizeFrameConfigForStorage(config);
+      // Add timestamp to detect stale frameConfig
+      const configWithTimestamp = {
+        ...config,
+        __timestamp: Date.now(),
+        __selectedAt: new Date().toISOString()
+      };
+
+      const sanitizedConfig = sanitizeFrameConfigForStorage(configWithTimestamp);
       let configSaved = false;
 
       if (sanitizedConfig) {
@@ -315,6 +322,9 @@ export class FrameDataProvider {
         throw new Error('Failed to persist frame selection');
       }
 
+      // Save timestamp for validation
+      safeStorage.setItem('frameConfigTimestamp', String(configWithTimestamp.__timestamp));
+
       if (config?.metadata?.draftId) {
         safeStorage.setItem('activeDraftId', config.metadata.draftId);
       } else {
@@ -326,6 +336,8 @@ export class FrameDataProvider {
       } else {
         safeStorage.removeItem('activeDraftSignature');
       }
+      
+      console.log('✅ Frame selection persisted with timestamp:', configWithTimestamp.__timestamp);
     } catch (error) {
       console.error('❌ Error persisting frame selection:', error);
       throw error; // Re-throw so setFrame can catch it

@@ -102,7 +102,7 @@ const defaultPropsByType = (type) => {
         y: 0,
         width: CANVAS_WIDTH,
         height: CANVAS_HEIGHT,
-        zIndex: BACKGROUND_PHOTO_Z,
+        zIndex: 0, // Always z-index 0 for background, cannot be changed
         data: {
           image: null,
           objectFit: 'contain',
@@ -117,13 +117,8 @@ const defaultPropsByType = (type) => {
 
 const resolveDefaultZIndex = (type, defaults, lastZIndex) => {
   if (type === 'background-photo') {
-    if (typeof defaults?.zIndex === 'number') {
-      return defaults.zIndex;
-    }
-    if (typeof BACKGROUND_PHOTO_Z === 'number') {
-      return BACKGROUND_PHOTO_Z;
-    }
-    return -1000;
+    // Background photo is ALWAYS z-index 0, cannot be changed
+    return 0;
   }
 
   // Photo slots should default to PHOTO_SLOT_MIN_Z (above background, below normal elements)
@@ -668,7 +663,7 @@ export const useCreatorStore = create((set, get) => ({
               y,
               width: Math.round(width),
               height: Math.round(height),
-              zIndex: BACKGROUND_PHOTO_Z,
+              zIndex: 0, // Always z-index 0 for background, cannot be changed
               data: {
                 ...el.data,
                 ...baseData,
@@ -856,10 +851,17 @@ export const useCreatorStore = create((set, get) => ({
           return el;
         }
 
-        const mergedData = changes.data ? { ...el.data, ...changes.data } : el.data;
+        // Prevent changing z-index for background-photo (always 0)
+        const sanitizedChanges = { ...changes };
+        if (el.type === 'background-photo') {
+          delete sanitizedChanges.zIndex; // Remove zIndex from changes
+          sanitizedChanges.zIndex = 0; // Force zIndex to 0
+        }
+
+        const mergedData = sanitizedChanges.data ? { ...el.data, ...sanitizedChanges.data } : el.data;
         updatedElement = {
           ...el,
-          ...changes,
+          ...sanitizedChanges,
           data: mergedData,
         };
         return updatedElement;

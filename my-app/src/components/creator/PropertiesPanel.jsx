@@ -344,6 +344,13 @@ export default function PropertiesPanel({
 
   const renderBackgroundPhotoControls = () => (
     <Section title="Foto Background">
+      {/* Info: Background always at z-index 0 */}
+      <div className="mb-4 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 px-4 py-3 border border-blue-200/50">
+        <p className="text-xs font-semibold text-blue-700">
+          ℹ️ Background foto selalu berada di layer paling bawah (z-index: 0)
+        </p>
+      </div>
+      
       <InputRow label="Mode Isi">
         <select
           className="rounded-xl border border-rose-100/70 bg-white px-3 py-2 text-sm text-slate-600 focus:border-rose-300 focus:outline-none"

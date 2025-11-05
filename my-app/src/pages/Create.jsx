@@ -869,6 +869,14 @@ export default function Create() {
 
       console.log('📋 [loadDraftIntoEditor] Cloned elements:', clonedElements.length);
 
+      // Ensure background-photo always has z-index 0
+      clonedElements = clonedElements.map(el => {
+        if (el?.type === 'background-photo') {
+          return { ...el, zIndex: 0 };
+        }
+        return el;
+      });
+
       // Add frame artwork if it was saved with the draft
       // OR use the preview as frame artwork if no explicit artwork was saved
       const hasFrameArtwork = !!draft.frameArtwork;

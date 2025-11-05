@@ -19,26 +19,81 @@ export default function EditPhoto() {
   useEffect(() => {
     console.log('📦 Loading data from localStorage...');
     
-    try {
-      // Load photos
-      const capturedPhotos = safeStorage.getJSON('capturedPhotos');
-      if (capturedPhotos && Array.isArray(capturedPhotos)) {
-        setPhotos(capturedPhotos);
-        console.log('✅ Loaded photos:', capturedPhotos.length);
-      }
+    const loadFrameData = async () => {
+      try {
+        // Load photos
+        const capturedPhotos = safeStorage.getJSON('capturedPhotos');
+        if (capturedPhotos && Array.isArray(capturedPhotos)) {
+          setPhotos(capturedPhotos);
+          console.log('✅ Loaded photos:', capturedPhotos.length);
+        }
 
-      // Load frame config
-      const config = safeStorage.getJSON('frameConfig');
-      if (config) {
+        // Load frame config
+        let config = safeStorage.getJSON('frameConfig');
+        
+        // Validate frameConfig timestamp to prevent stale cache
+        if (config) {
+          const storedTimestamp = safeStorage.getItem('frameConfigTimestamp');
+          const configTimestamp = config.__timestamp;
+          
+          console.log('🕐 Timestamp validation:', {
+            storedTimestamp,
+            configTimestamp,
+            match: storedTimestamp === String(configTimestamp)
+          });
+          
+          // If timestamps don't match, frameConfig is stale
+          if (storedTimestamp && configTimestamp && storedTimestamp !== String(configTimestamp)) {
+            console.warn('⚠️ FrameConfig timestamp mismatch, clearing stale data');
+            safeStorage.removeItem('frameConfig');
+            safeStorage.removeItem('frameConfigTimestamp');
+            config = null;
+          }
+        }
+        
+        // If frameConfig is incomplete (no background photo image), try to load from draft
+        if (config && config.isCustom) {
+          const backgroundPhoto = config.designer?.elements?.find(el => el?.type === 'background-photo');
+          if (backgroundPhoto && !backgroundPhoto.data?.image) {
+            console.log('⚠️ Background photo found but no image, loading from draft...');
+            
+            const activeDraftId = safeStorage.getItem('activeDraftId');
+            if (activeDraftId) {
+              try {
+                const { default: draftStorage } = await import('../utils/draftStorage.js');
+                const draft = await draftStorage.getDraftById(activeDraftId);
+                
+                if (draft && draft.elements) {
+                  const draftBackgroundPhoto = draft.elements.find(el => el?.type === 'background-photo');
+                  if (draftBackgroundPhoto && draftBackgroundPhoto.data?.image) {
+                    console.log('✅ Found background photo image in draft, restoring...');
+                    
+                    // Rebuild frameConfig from draft to get complete data
+                    const { buildFrameConfigFromDraft } = await import('../utils/draftHelpers.js');
+                    config = buildFrameConfigFromDraft(draft);
+                    
+                    // Save complete frameConfig back to localStorage
+                    safeStorage.setJSON('frameConfig', config);
+                  }
+                }
+              } catch (error) {
+                console.error('❌ Failed to load from draft:', error);
+              }
+            }
+          }
+        }
+        
+        // Validasi: frameConfig harus ada dan punya id
+        if (!config || !config.id) {
+          alert('Frame belum dipilih atau data frame tidak valid. Silakan pilih frame terlebih dahulu.');
+          navigate('/frames');
+          return;
+        }
+
         setFrameConfig(config);
+        // Log detail frameConfig untuk debug
         console.log('✅ Loaded frame config:', config.id);
-        console.log('📋 Frame details:', {
-          id: config.id,
-          name: config.name,
-          isCustom: config.isCustom,
-          maxCaptures: config.maxCaptures,
-          hasDesigner: !!config.designer
-        });
+        console.log('📋 Frame details:', config);
 
         // Load designer elements (unified layering system)
         if (config.isCustom && Array.isArray(config.designer?.elements)) {
@@ -71,17 +126,31 @@ export default function EditPhoto() {
           const backgroundPhoto = config.designer.elements.find(el => el?.type === 'background-photo');
           if (backgroundPhoto) {
             setBackgroundPhotoElement(backgroundPhoto);
-            console.log('✅ Loaded background photo');
+            console.log('✅ Loaded background photo:', {
+              id: backgroundPhoto.id,
+              hasImage: !!backgroundPhoto.data?.image,
+              imageLength: backgroundPhoto.data?.image?.length,
+              imagePreview: backgroundPhoto.data?.image?.substring(0, 50),
+              zIndex: backgroundPhoto.zIndex,
+              x: backgroundPhoto.x,
+              y: backgroundPhoto.y,
+              width: backgroundPhoto.width,
+              height: backgroundPhoto.height
+            });
+          } else {
+            console.log('⚠️ No background photo found in frameConfig');
           }
         }
-      }
 
-      setLoading(false);
-    } catch (error) {
-      console.error('❌ Error loading data:', error);
-      setLoading(false);
-    }
-  }, []);
+        setLoading(false);
+      } catch (error) {
+        console.error('❌ Error loading data:', error);
+        setLoading(false);
+      }
+    };
+    
+    loadFrameData();
+  }, [navigate]);
 
   // Fill photo elements with real captured photos
   useEffect(() => {
@@ -126,7 +195,10 @@ export default function EditPhoto() {
         scale: 2,
         backgroundColor: frameConfig.designer?.canvasBackground || '#ffffff',
         logging: false,
-        useCORS: true
+        useCORS: true,
+        allowTaint: true,
+        foreignObjectRendering: false,
+        imageTimeout: 0
       });
 
       const imageData = canvas.toDataURL('image/png');
@@ -277,9 +349,7 @@ export default function EditPhoto() {
                     top: 0,
                     width: '100%',
                     height: '100%',
-                    zIndex: Number.isFinite(backgroundPhotoElement.zIndex) 
-                      ? backgroundPhotoElement.zIndex 
-                      : BACKGROUND_PHOTO_Z,
+                    zIndex: 0, // Background photo always has z-index 0
                     overflow: 'hidden'
                   }}
                 >

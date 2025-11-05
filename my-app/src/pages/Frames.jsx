@@ -20,7 +20,9 @@ import InspiredByMenariDenganBayangan from "../assets/frames/InspiredBy/Menari d
 import InspiredByPSILOVEYOU from "../assets/frames/InspiredBy/PS. I LOVE YOU.png";
 
 import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
 import frameProvider from "../utils/frameProvider.js";
+import safeStorage from "../utils/safeStorage.js";
 
 const frames = [
   // FremioSeries Frames
@@ -133,6 +135,14 @@ const frames = [
 
 export default function Frames() {
   const navigate = useNavigate();
+
+  // Clear old frameConfig when entering Frames page
+  // This ensures user always gets fresh frame selection
+  useEffect(() => {
+    console.log('🗑️ [Frames] Clearing old frameConfig to prevent cache issues');
+    safeStorage.removeItem('frameConfig');
+    safeStorage.removeItem('capturedPhotos');
+  }, []);
 
   // Mock data untuk creator frames - nanti bisa diganti dengan data real
   const creatorFrames = [

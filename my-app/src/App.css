@@ -63,7 +63,7 @@ body {
 .site-header {
   position: sticky;
   top: 0;
-  z-index: 30;
+  z-index: 10000;
   background: #fff;
   border-bottom: 1px solid #eee;
   transition: box-shadow 0.2s ease;

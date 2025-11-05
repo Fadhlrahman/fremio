@@ -15,6 +15,18 @@ export default function EditPhoto() {
   const [backgroundPhotoElement, setBackgroundPhotoElement] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+  
+  // Filter states
+  const [filters, setFilters] = useState({
+    brightness: 100,
+    contrast: 100,
+    saturate: 100,
+    grayscale: 0,
+    sepia: 0,
+    blur: 0,
+    hueRotate: 0
+  });
+  const [activeFilter, setActiveFilter] = useState(null);
 
   useEffect(() => {
     console.log('📦 Loading data from localStorage...');
@@ -96,7 +108,8 @@ export default function EditPhoto() {
         console.log('📋 Frame details:', config);
 
         // Load designer elements (unified layering system)
-        if (config.isCustom && Array.isArray(config.designer?.elements)) {
+        // Support both custom frames and regular frames (converted from slots)
+        if (Array.isArray(config.designer?.elements)) {
           // Extract photo elements and convert to uploads
           const photoElements = config.designer.elements.filter(el => el?.type === 'photo');
           const photoAsUploadElements = photoElements.map((photoEl, idx) => ({
@@ -140,6 +153,9 @@ export default function EditPhoto() {
           } else {
             console.log('⚠️ No background photo found in frameConfig');
           }
+        } else {
+          console.warn('⚠️ No designer.elements found in frameConfig');
+          console.log('📋 Available properties:', Object.keys(config));
         }
 
         setLoading(false);
@@ -173,6 +189,43 @@ export default function EditPhoto() {
 
     setDesignerElements(updatedElements);
   }, [photos]);
+
+  // Filter presets (9 filters - no Cool Tone, no blur)
+  const filterPresets = [
+    { name: 'Original', icon: '📷', filters: { brightness: 100, contrast: 100, saturate: 100, grayscale: 0, sepia: 0, blur: 0, hueRotate: 0 } },
+    { name: 'Black & White', icon: '⚫', filters: { brightness: 100, contrast: 115, saturate: 0, grayscale: 100, sepia: 0, blur: 0, hueRotate: 0 } },
+    { name: 'Sepia', icon: '🟤', filters: { brightness: 110, contrast: 90, saturate: 80, grayscale: 0, sepia: 70, blur: 0, hueRotate: 0 } },
+    { name: 'Warm Tone', icon: '🌅', filters: { brightness: 108, contrast: 98, saturate: 115, grayscale: 0, sepia: 15, blur: 0, hueRotate: 15 } },
+    { name: 'High Contrast', icon: '⚡', filters: { brightness: 105, contrast: 140, saturate: 120, grayscale: 0, sepia: 0, blur: 0, hueRotate: 0 } },
+    { name: 'Soft Light', icon: '☁️', filters: { brightness: 110, contrast: 85, saturate: 90, grayscale: 0, sepia: 0, blur: 0, hueRotate: 0 } },
+    { name: 'Vivid', icon: '🌈', filters: { brightness: 110, contrast: 125, saturate: 160, grayscale: 0, sepia: 0, blur: 0, hueRotate: 0 } },
+    { name: 'Fade', icon: '🌫️', filters: { brightness: 108, contrast: 75, saturate: 85, grayscale: 0, sepia: 0, blur: 0, hueRotate: 0 } },
+    { name: 'Grayscale', icon: '⬜', filters: { brightness: 105, contrast: 100, saturate: 0, grayscale: 100, sepia: 0, blur: 0, hueRotate: 0 } }
+  ];
+
+  const applyFilterPreset = (preset) => {
+    setFilters(preset.filters);
+    setActiveFilter(preset.name);
+  };
+
+  const resetFilters = () => {
+    setFilters({ brightness: 100, contrast: 100, saturate: 100, grayscale: 0, sepia: 0, blur: 0, hueRotate: 0 });
+    setActiveFilter(null);
+  };
+
+  const getFilterStyle = () => {
+    return {
+      filter: `
+        brightness(${filters.brightness}%)
+        contrast(${filters.contrast}%)
+        saturate(${filters.saturate}%)
+        grayscale(${filters.grayscale}%)
+        sepia(${filters.sepia}%)
+        blur(${filters.blur}px)
+        hue-rotate(${filters.hueRotate}deg)
+      `.trim()
+    };
+  };
 
   // Save function
   const handleSave = async () => {
@@ -255,43 +308,20 @@ export default function EditPhoto() {
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      padding: '2rem 1rem'
+      padding: '1rem',
+      paddingTop: '0.5rem'
     }}>
       {/* Preview Title */}
       <h1 style={{
-        fontSize: '1.5rem',
-        fontWeight: '400',
-        color: '#9CA3AF',
-        marginBottom: '0.5rem',
-        marginTop: '1rem'
+        fontSize: '1.2rem',
+        fontWeight: '700',
+        color: '#000000',
+        marginBottom: '0.75rem',
+        marginTop: '0.5rem',
+        fontFamily: 'Poppins, sans-serif'
       }}>
         Preview
       </h1>
-
-      {/* Frame Name Info */}
-      {frameConfig && (
-        <p style={{
-          fontSize: '0.9rem',
-          color: '#6B7280',
-          marginBottom: '2rem',
-          fontWeight: '500'
-        }}>
-          {frameConfig.name || frameConfig.id}
-          {frameConfig.isCustom && (
-            <span style={{
-              marginLeft: '0.5rem',
-              padding: '0.25rem 0.5rem',
-              background: '#E0E7FF',
-              color: '#4F46E5',
-              borderRadius: '4px',
-              fontSize: '0.75rem',
-              fontWeight: '600'
-            }}>
-              Custom
-            </span>
-          )}
-        </p>
-      )}
 
       {/* Save Message */}
       {saveMessage && (
@@ -317,12 +347,14 @@ export default function EditPhoto() {
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: '2rem'
+          gap: '1rem',
+          width: '100%',
+          maxWidth: '900px'
         }}>
           {/* Frame Canvas Container */}
           <div style={{
             background: 'white',
-            padding: '2rem',
+            padding: '1rem',
             borderRadius: '16px',
             boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
           }}>
@@ -331,8 +363,8 @@ export default function EditPhoto() {
               id="frame-preview-canvas"
               style={{
                 position: 'relative',
-                width: '280px',
-                height: '498px',
+                width: '240px',
+                height: '426px',
                 margin: '0 auto',
                 background: frameConfig.designer?.canvasBackground || '#fff',
                 borderRadius: '12px',
@@ -359,7 +391,8 @@ export default function EditPhoto() {
                     style={{
                       width: '100%',
                       height: '100%',
-                      objectFit: 'cover'
+                      objectFit: 'cover',
+                      ...getFilterStyle()
                     }}
                   />
                 </div>
@@ -372,8 +405,8 @@ export default function EditPhoto() {
                 const elemZIndex = Number.isFinite(element.zIndex) ? element.zIndex : 200 + idx;
                 
                 // Calculate scaled positions
-                const previewWidth = 280;
-                const previewHeight = 498;
+                const previewWidth = 240;
+                const previewHeight = 426;
                 const canvasWidth = frameConfig?.layout?.canvasWidth || 1080;
                 const canvasHeight = frameConfig?.layout?.canvasHeight || 1920;
                 
@@ -461,7 +494,8 @@ export default function EditPhoto() {
                         style={{
                           width: '100%',
                           height: '100%',
-                          objectFit: element.data?.objectFit || 'cover'
+                          objectFit: element.data?.objectFit || 'cover',
+                          ...getFilterStyle()
                         }}
                       />
                     </div>
@@ -470,75 +504,146 @@ export default function EditPhoto() {
 
                 return null;
               })}
+
+              {/* LAYER 4: Frame Overlay (frameImage) - Always on top */}
+              {frameConfig && !frameConfig.isCustom && frameConfig.frameImage && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    width: '100%',
+                    height: '100%',
+                    zIndex: 9999, // Frame overlay always on top
+                    pointerEvents: 'none'
+                  }}
+                >
+                  <img
+                    src={frameConfig.frameImage}
+                    alt="Frame Overlay"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'contain'
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Filter Panel */}
+          <div style={{
+            width: '100%',
+            maxWidth: '600px',
+            background: 'white',
+            borderRadius: '12px',
+            padding: '1rem',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
+          }}>
+            <h3 style={{
+              fontSize: '0.95rem',
+              fontWeight: '600',
+              color: '#333',
+              marginBottom: '0.75rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem'
+            }}>
+              🎨 Filter Foto
+            </h3>
+
+            {/* Filter Presets - Horizontal Scrollable */}
+            <div style={{
+              display: 'flex',
+              gap: '0.5rem',
+              overflowX: 'auto',
+              overflowY: 'hidden',
+              paddingBottom: '0.5rem',
+              scrollbarWidth: 'thin',
+              scrollbarColor: '#D1D5DB #F3F4F6',
+              WebkitOverflowScrolling: 'touch'
+            }}>
+              {filterPresets.map((preset) => (
+                <button
+                  key={preset.name}
+                  onClick={() => applyFilterPreset(preset)}
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    background: activeFilter === preset.name ? '#4F46E5' : 'white',
+                    color: activeFilter === preset.name ? 'white' : '#333',
+                    border: `2px solid ${activeFilter === preset.name ? '#4F46E5' : '#E5E7EB'}`,
+                    borderRadius: '10px',
+                    fontSize: '0.75rem',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '0.2rem',
+                    minWidth: '75px',
+                    flexShrink: 0,
+                    whiteSpace: 'nowrap'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (activeFilter !== preset.name) {
+                      e.target.style.borderColor = '#D1D5DB';
+                      e.target.style.background = '#F9FAFB';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (activeFilter !== preset.name) {
+                      e.target.style.borderColor = '#E5E7EB';
+                      e.target.style.background = 'white';
+                    }
+                  }}
+                >
+                  <span style={{ fontSize: '1.3rem' }}>{preset.icon}</span>
+                  <span style={{ fontSize: '0.7rem' }}>{preset.name}</span>
+                </button>
+              ))}
             </div>
           </div>
 
           {/* Action Buttons */}
           <div style={{
             display: 'flex',
-            gap: '1rem',
+            gap: '0.75rem',
             width: '100%',
-            maxWidth: '400px'
+            maxWidth: '400px',
+            marginTop: '1rem',
+            justifyContent: 'center'
           }}>
-            {/* Back to Frames Button */}
             <button
-              onClick={() => navigate('/frames')}
-              style={{
-                flex: 1,
-                padding: '1rem 2rem',
-                background: 'white',
-                color: '#6B7280',
-                border: '2px solid #E5E7EB',
-                borderRadius: '50px',
-                fontSize: '1rem',
-                fontWeight: '500',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.background = '#F9FAFB';
-                e.target.style.borderColor = '#D1D5DB';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = 'white';
-                e.target.style.borderColor = '#E5E7EB';
+              onClick={() => {
+                const previewCanvas = document.getElementById('frame-preview-canvas');
+                if (!previewCanvas) {
+                  alert('Preview element tidak ditemukan!');
+                  console.warn('Preview element dengan id frame-preview-canvas tidak ditemukan di DOM.');
+                  return;
+                }
+                html2canvas(previewCanvas, {
+                  scale: 3,
+                  useCORS: true,
+                  backgroundColor: frameConfig?.designer?.canvasBackground || '#fff',
+                  imageTimeout: 0
+                }).then((canvas) => {
+                  const link = document.createElement('a');
+                  link.download = 'fremio-photo.png';
+                  link.href = canvas.toDataURL('image/png');
+                  link.click();
+                });
               }}
             >
-              ← Frames
+              Download Photo
             </button>
-
-            {/* Save Template Button */}
             <button
-              onClick={handleSave}
-              disabled={isSaving || !frameConfig}
-              style={{
-                flex: 1,
-                padding: '1rem 2rem',
-                background: 'white',
-                color: '#333',
-                border: '2px solid #ddd',
-                borderRadius: '50px',
-                fontSize: '1.1rem',
-                fontWeight: '500',
-                cursor: isSaving || !frameConfig ? 'not-allowed' : 'pointer',
-                transition: 'all 0.3s ease',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-              }}
-              onMouseEnter={(e) => {
-                if (!isSaving && frameConfig) {
-                  e.target.style.background = '#f8f8f8';
-                  e.target.style.borderColor = '#999';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isSaving && frameConfig) {
-                  e.target.style.background = 'white';
-                  e.target.style.borderColor = '#ddd';
-                }
+              onClick={() => {
+                alert('Fitur Download Video belum tersedia.');
               }}
             >
-              {isSaving ? 'Saving...' : 'Save Template'}
+              Download Video
             </button>
           </div>
         </div>

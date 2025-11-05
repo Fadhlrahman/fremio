@@ -1,6 +1,27 @@
 // Dynamic Frame Configuration Manager
 // This file handles lazy loading of frame configurations for scalability
 
+// Import all frame images using Vite's glob import
+const frameImages = import.meta.glob('../assets/frames/**/*.png', { eager: true, import: 'default' });
+
+// Helper function to resolve frame image path to actual URL
+const resolveFrameImage = (imagePath) => {
+  if (!imagePath) return null;
+  
+  // Convert /src/assets/... to ../assets/...
+  const normalizedPath = imagePath.replace('/src/', '../');
+  
+  // Find matching image in glob imports
+  const matchingImage = frameImages[normalizedPath];
+  
+  if (matchingImage) {
+    return matchingImage;
+  }
+  
+  console.warn(`⚠️ Frame image not found: ${imagePath}`);
+  return null;
+};
+
 // Frame registry for available frames
 export const FRAME_REGISTRY = [
   // FremioSeries frames
@@ -218,6 +239,50 @@ export const FRAME_METADATA = {
 const frameConfigCache = new Map();
 
 /**
+ * Convert legacy slots format to designer.elements format
+ * @param {Array} slots - Array of slot objects with relative coordinates
+ * @param {Object} layout - Layout configuration with canvas dimensions
+ * @returns {Array} Array of photo elements in designer format
+ */
+const convertSlotsToDesignerElements = (slots, layout) => {
+  if (!Array.isArray(slots) || slots.length === 0) {
+    return [];
+  }
+
+  // Default canvas dimensions (9:16 portrait)
+  const canvasWidth = layout?.canvasWidth || 1080;
+  const canvasHeight = layout?.canvasHeight || 1920;
+
+  return slots.map((slot, index) => {
+    // Convert relative coordinates (0-1) to absolute pixels
+    const x = Math.round(slot.left * canvasWidth);
+    const y = Math.round(slot.top * canvasHeight);
+    const width = Math.round(slot.width * canvasWidth);
+    const height = Math.round(slot.height * canvasHeight);
+
+    return {
+      id: slot.id || `photo-slot-${index}`,
+      type: 'photo',
+      x,
+      y,
+      width,
+      height,
+      rotation: 0,
+      zIndex: slot.zIndex || 100,
+      isLocked: false,
+      data: {
+        fill: '#d1e3f0',
+        borderRadius: 24,
+        stroke: null,
+        strokeWidth: 0,
+        label: `Foto ${slot.photoIndex + 1}`,
+        photoIndex: slot.photoIndex !== undefined ? slot.photoIndex : index
+      }
+    };
+  });
+};
+
+/**
  * Dynamically load frame configuration
  * @param {string} frameName - Name of the frame to load
  * @returns {Promise<Object>} Frame configuration object
@@ -246,6 +311,34 @@ export const getFrameConfig = async (frameName) => {
     // Dynamic import via Vite glob (HMR-aware)
     const configModule = await loader();
     const config = configModule.frameConfig || configModule.default;
+    
+    // Resolve frame image path to actual URL
+    if (config && config.imagePath) {
+      const resolvedImageUrl = resolveFrameImage(config.imagePath);
+      if (resolvedImageUrl) {
+        config.frameImage = resolvedImageUrl; // Add resolved URL
+      }
+    }
+    
+    // Convert legacy slots to designer.elements if needed
+    if (config && config.slots && !config.designer?.elements) {
+      const canvasWidth = config.layout?.canvasWidth || 1080;
+      const canvasHeight = config.layout?.canvasHeight || 1920;
+      const canvasBackground = config.layout?.backgroundColor || '#ffffff';
+      const aspectRatio = config.layout?.aspectRatio || '9:16';
+      
+      const photoElements = convertSlotsToDesignerElements(config.slots, config.layout);
+      
+      config.designer = {
+        elements: photoElements,
+        canvasBackground,
+        canvasWidth,
+        canvasHeight,
+        aspectRatio
+      };
+      
+      console.log(`✅ Converted ${photoElements.length} slots to designer elements for ${frameName}`);
+    }
     
     // Cache the loaded configuration
     frameConfigCache.set(frameName, config);

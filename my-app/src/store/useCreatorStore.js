@@ -650,7 +650,11 @@ export const useCreatorStore = create((set, get) => ({
 
       set((prev) => {
         const background = prev.elements.find((el) => el.type === 'background-photo');
+        
+        // If no background photo element exists yet, skip this update
+        // The background will be created below in the synchronous path
         if (!background) {
+          console.log('[addBackgroundPhoto] No background element found, will be created in sync path');
           return prev;
         }
 
@@ -704,14 +708,6 @@ export const useCreatorStore = create((set, get) => ({
       });
     };
 
-    // If image already loaded, process immediately
-    if (img.complete) {
-      processImage();
-    } else {
-      // Otherwise wait for load
-      img.onload = processImage;
-    }
-    
     // Return placeholder ID for existing, or create placeholder
     if (existing) {
       const existingId = existing.id;
@@ -730,6 +726,14 @@ export const useCreatorStore = create((set, get) => ({
         );
         return { elements: syncCreatorElements(updated) };
       });
+      
+      // Process image to update dimensions after updating data
+      if (img.complete) {
+        processImage();
+      } else {
+        img.onload = processImage;
+      }
+      
       return existingId;
     }
 
@@ -751,6 +755,14 @@ export const useCreatorStore = create((set, get) => ({
       width: size.width,
       height: size.height
     });
+
+    // After creating the background element, process the image to set correct dimensions
+    // This handles the case where image loads after element creation
+    if (img.complete) {
+      processImage();
+    } else {
+      img.onload = processImage;
+    }
 
     set((prev) => {
       const remapped = prev.elements.map((el) =>

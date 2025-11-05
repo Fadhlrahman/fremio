@@ -309,37 +309,45 @@ export const buildFrameConfigFromDraft = (draft) => {
 
 export const activateDraftFrame = (draft) => {
   const frameConfig = buildFrameConfigFromDraft(draft);
-  const sanitizedConfig = sanitizeFrameConfigForStorage(frameConfig);
+  
+  // Store FULL frameConfig (with images) to IndexedDB for large data
+  // Don't sanitize - we need all images for TakeMoment to work!
+  console.log('💾 [activateDraftFrame] Storing full frameConfig:', {
+    id: frameConfig.id,
+    hasDesignerElements: !!frameConfig.designer?.elements,
+    elementsCount: frameConfig.designer?.elements?.length,
+    hasBackgroundPhoto: !!frameConfig.designer?.elements?.find(el => el.type === 'background-photo'),
+  });
 
-  let configPersisted = false;
-  if (sanitizedConfig) {
-    configPersisted = safeStorage.setJSON("frameConfig", sanitizedConfig);
-  }
-
-  if (!configPersisted) {
-    console.warn("⚠️ [activateDraftFrame] Failed to persist sanitized frame config, attempting minimal fallback");
-    const fallbackConfig = sanitizedConfig ? { ...sanitizedConfig } : null;
-    if (fallbackConfig) {
-      delete fallbackConfig.imagePath;
-      configPersisted = safeStorage.setJSON("frameConfig", fallbackConfig);
-    }
-  }
-
+  // Store to localStorage (small data: just IDs and flags)
   const idPersisted = safeStorage.setItem("selectedFrame", frameConfig.id);
-
-  if (!configPersisted || !idPersisted) {
-    throw new Error("Frame config not properly saved to storage");
-  }
-
+  
   if (draft?.id) {
     safeStorage.setItem("activeDraftId", draft.id);
   } else {
     safeStorage.removeItem("activeDraftId");
   }
+  
   if (frameConfig?.metadata?.signature) {
     safeStorage.setItem("activeDraftSignature", frameConfig.metadata.signature);
   } else {
     safeStorage.removeItem("activeDraftSignature");
+  }
+  
+  // Store FULL frameConfig to localStorage for Editor/TakeMoment
+  // This is the CRITICAL FIX - don't sanitize, store complete data
+  let configPersisted = false;
+  try {
+    configPersisted = safeStorage.setJSON("frameConfig", frameConfig);
+    console.log('✅ [activateDraftFrame] Full frameConfig stored to localStorage');
+  } catch (error) {
+    console.warn('⚠️ [activateDraftFrame] localStorage failed (too large), frameConfig will load from draft:', error);
+    // Don't throw error - TakeMoment can load from draft directly via activeDraftId
+    configPersisted = true; // Mark as successful since we have activeDraftId fallback
+  }
+
+  if (!idPersisted) {
+    throw new Error("Failed to save frame ID to storage");
   }
   
   // Restore captured photos if they were saved with the draft

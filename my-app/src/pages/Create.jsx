@@ -1267,23 +1267,42 @@ export default function Create() {
         height: exportCanvas.height,
       });
       
-      // Use PNG format to preserve transparency in photo areas
+      // IMPORTANT: Use JPEG with low quality for preview to save localStorage space
+      // Preview is only used as thumbnail, doesn't need high quality or transparency
+      // PNG format is 5-10x larger than JPEG and can cause quota exceeded errors!
       let previewDataUrl = "";
       try {
-        previewDataUrl = exportCanvas.toDataURL("image/png");
-        console.log('✅ [Using PNG format to preserve transparency]');
+        // Use JPEG with 0.6 quality - good enough for thumbnails, much smaller
+        previewDataUrl = exportCanvas.toDataURL("image/jpeg", 0.6);
+        const previewSizeKB = Math.round(previewDataUrl.length / 1024);
+        console.log('🖼️ [Preview compressed]', {
+          format: 'JPEG',
+          quality: 0.6,
+          sizeKB: previewSizeKB,
+          purpose: 'thumbnail only',
+        });
       } catch (err) {
-        console.warn("⚠️ PNG preview error, falling back to WebP", err);
+        console.warn("⚠️ JPEG preview error, trying lower quality", err);
         try {
-          previewDataUrl = exportCanvas.toDataURL("image/webp", 0.82);
+          // Try even lower quality if needed
+          previewDataUrl = exportCanvas.toDataURL("image/jpeg", 0.5);
         } catch (err2) {
-          console.warn("⚠️ WebP also failed, using JPEG (no transparency)", err2);
-          previewDataUrl = exportCanvas.toDataURL("image/jpeg", 0.85);
+          console.error("❌ Failed to generate preview:", err2);
+          // Use tiny 1x1 placeholder if preview fails
+          const tinyCanvas = document.createElement('canvas');
+          tinyCanvas.width = 1;
+          tinyCanvas.height = 1;
+          previewDataUrl = tinyCanvas.toDataURL("image/jpeg", 0.5);
         }
       }
 
       if (!previewDataUrl || !previewDataUrl.startsWith("data:image")) {
-        previewDataUrl = exportCanvas.toDataURL("image/png"); // Fallback to PNG for transparency
+        // Emergency fallback: tiny 1x1 image
+        const tinyCanvas = document.createElement('canvas');
+        tinyCanvas.width = 1;
+        tinyCanvas.height = 1;
+        previewDataUrl = tinyCanvas.toDataURL("image/jpeg", 0.5);
+        console.warn('⚠️ Using emergency 1x1 preview fallback');
       }
       const serializedElements =
         typeof structuredClone === "function"
@@ -1368,8 +1387,59 @@ export default function Create() {
         }))
       );
 
-      // Compress upload element images before saving
+      // Compress upload and background-photo element images before saving
       const compressedElements = await Promise.all(layeredElements.map(async (element) => {
+        // Compress background-photo images (CRITICAL for storage!)
+        if (element.type === 'background-photo' && element.data?.image) {
+          try {
+            const img = new Image();
+            img.src = element.data.image;
+            await new Promise((resolve, reject) => {
+              img.onload = resolve;
+              img.onerror = reject;
+            });
+
+            // Compress background photo more aggressively to save localStorage
+            // Max 1080px width (good quality, smaller size)
+            const maxWidth = 1080;
+            let targetWidth = img.width;
+            let targetHeight = img.height;
+            
+            if (targetWidth > maxWidth) {
+              const scale = maxWidth / targetWidth;
+              targetWidth = maxWidth;
+              targetHeight = Math.round(targetHeight * scale);
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = targetWidth;
+            canvas.height = targetHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+            
+            // Use JPEG with 0.75 quality (good balance between size and quality)
+            const compressedImage = canvas.toDataURL('image/jpeg', 0.75);
+            console.log('🗜️ Compressed background photo:', {
+              original: element.data.image.length,
+              compressed: compressedImage.length,
+              saved: element.data.image.length - compressedImage.length,
+              percentage: Math.round((1 - compressedImage.length / element.data.image.length) * 100) + '%',
+            });
+
+            return {
+              ...element,
+              data: {
+                ...element.data,
+                image: compressedImage,
+              },
+            };
+          } catch (error) {
+            console.warn('⚠️ Failed to compress background photo, using original:', error);
+            return element;
+          }
+        }
+        
+        // Compress upload element images
         if (element.type === 'upload' && element.data?.image) {
           try {
             // Create a smaller version of upload images to save storage
@@ -1461,7 +1531,8 @@ export default function Create() {
         console.log('🖼️ [SAVING DRAFT] Frame artwork found and saved');
       }
 
-      const savedDraft = draftStorage.saveDraft({
+      // Calculate total size before saving
+      const draftDataToSave = {
         id: activeDraftId || undefined,
         canvasBackground,
         canvasWidth,
@@ -1472,8 +1543,38 @@ export default function Create() {
         signature,
         capturedPhotos: Array.isArray(capturedPhotos) && capturedPhotos.length > 0 ? capturedPhotos : undefined,
         frameArtwork: frameArtwork || undefined,
+      };
+
+      const draftString = JSON.stringify(draftDataToSave);
+      const draftSizeKB = Math.round(draftString.length / 1024);
+      const draftSizeMB = (draftString.length / 1024 / 1024).toFixed(2);
+
+      console.log('📏 [SAVE SIZE] Draft size before save:', {
+        bytes: draftString.length,
+        kilobytes: draftSizeKB + ' KB',
+        megabytes: draftSizeMB + ' MB',
+        elementsCount: compressedElements.length,
+        backgroundPhotoCount: compressedElements.filter(el => el.type === 'background-photo').length,
+        uploadCount: compressedElements.filter(el => el.type === 'upload').length,
       });
 
+      // Check storage usage (IndexedDB provides much larger capacity)
+      try {
+        const { default: indexedDBStorage } = await import('../utils/indexedDBStorage.js');
+        const storageEstimate = await indexedDBStorage.getStorageEstimate();
+        console.log('💾 [STORAGE] IndexedDB usage:', {
+          usageMB: (storageEstimate.usage / 1024 / 1024).toFixed(2) + ' MB',
+          quotaMB: (storageEstimate.quota / 1024 / 1024).toFixed(2) + ' MB',
+          percentage: storageEstimate.percentage + '%',
+          newDraftSizeMB: draftSizeMB + ' MB',
+        });
+      } catch (e) {
+        console.warn('⚠️ Could not check storage usage:', e);
+      }
+
+      const savedDraft = await draftStorage.saveDraft(draftDataToSave);
+
+      console.log('✅ [DRAFT SAVED] Success! Draft ID:', savedDraft.id);
       console.log('✅ [DRAFT SAVED] Elements with preserved z-index:', 
         compressedElements.map(el => ({
           type: el.type,
@@ -1484,7 +1585,7 @@ export default function Create() {
 
       // IMPORTANT: Verify the draft is actually saved with correct z-index
       console.log('🔍 [VERIFICATION] Reading draft from storage...');
-      const verifyDraft = draftStorage.getDraftById(savedDraft.id);
+      const verifyDraft = await draftStorage.getDraftById(savedDraft.id);
       if (verifyDraft) {
         console.log('✅ [VERIFICATION] Draft loaded from storage:', {
           id: verifyDraft.id,
@@ -1548,11 +1649,58 @@ export default function Create() {
     }
 
     try {
+      console.log('🔍 [handleUseThisFrame] Looking for draft:', activeDraftId);
+      
+      // Check all drafts first
+      const allDrafts = await draftStorage.loadDrafts();
+      console.log('🔍 [handleUseThisFrame] All drafts in storage:', 
+        allDrafts.map(d => ({ id: d.id, title: d.title, hasElements: !!d.elements }))
+      );
+      
       // Load the draft
-      const draft = draftStorage.getDraftById(activeDraftId);
+      let draft = await draftStorage.getDraftById(activeDraftId);
       if (!draft) {
-        throw new Error("Draft tidak ditemukan");
+        console.error('❌ [handleUseThisFrame] Draft not found!', {
+          searchedId: activeDraftId,
+          availableIds: allDrafts.map(d => d.id),
+        });
+        
+        // Try to re-save the current canvas as a new draft
+        console.log('🔄 [handleUseThisFrame] Attempting to save current canvas...');
+        showToast("info", "Draft hilang, menyimpan ulang...");
+        
+        try {
+          // Trigger save again and WAIT for it to complete
+          await handleSaveTemplate();
+          
+          console.log('🔍 [handleUseThisFrame] After re-save, checking for draft:', activeDraftId);
+          
+          // Try to load again
+          const retryDraft = await draftStorage.getDraftById(activeDraftId);
+          
+          if (!retryDraft) {
+            console.error('❌ [handleUseThisFrame] Draft STILL not found after re-save!', {
+              activeDraftId,
+              allDraftsAfterSave: (await draftStorage.loadDrafts()).map(d => ({ id: d.id, title: d.title })),
+            });
+            throw new Error("Draft tidak ditemukan setelah save ulang. Mungkin masalah storage.");
+          }
+          
+          console.log('✅ [handleUseThisFrame] Draft successfully saved and loaded!');
+          draft = retryDraft;
+          
+        } catch (saveError) {
+          console.error('❌ [handleUseThisFrame] Save failed:', saveError);
+          throw new Error(`Gagal menyimpan draft: ${saveError.message}`);
+        }
       }
+
+      console.log('✅ [handleUseThisFrame] Draft loaded:', {
+        id: draft.id,
+        title: draft.title,
+        hasElements: !!draft.elements,
+        elementsCount: draft.elements?.length,
+      });
 
       // Activate the frame
       const { activateDraftFrame } = await import("../utils/draftHelpers.js");

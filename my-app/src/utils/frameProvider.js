@@ -93,7 +93,7 @@ export class FrameDataProvider {
     }
   }
 
-  // Load frame dari localStorage (now async)
+  // Load frame dari localStorage (now async with IndexedDB fallback)
   async loadFrameFromStorage() {
     const storedFrame = safeStorage.getItem('selectedFrame');
     const storedConfig = safeStorage.getJSON('frameConfig');
@@ -104,7 +104,8 @@ export class FrameDataProvider {
     console.log('  - Stored config ID:', storedConfig?.id);
     console.log('  - Is custom frame:', storedFrame?.startsWith('custom-'));
 
-    if (storedConfig?.id) {
+    // If we have a complete config in localStorage, use it
+    if (storedConfig?.id && storedConfig?.designer?.elements) {
       try {
         const frameId = storedConfig.id;
         this.currentFrame = frameId;
@@ -113,7 +114,44 @@ export class FrameDataProvider {
         console.log(`📁 Frame "${frameId}" loaded from cached config`);
         return true;
       } catch (error) {
-        console.warn('⚠️ Cached config tidak valid, mencoba ulang lewat manager...', error);
+        console.warn('⚠️ Cached config tidak valid, mencoba ulang...', error);
+      }
+    }
+
+    // If custom frame but no config, try to load from IndexedDB draft
+    if (storedFrame?.startsWith('custom-')) {
+      const activeDraftId = safeStorage.getItem('activeDraftId');
+      
+      if (activeDraftId) {
+        console.log('🔄 Custom frame without config, loading from IndexedDB draft:', activeDraftId);
+        
+        try {
+          const { default: draftStorage } = await import('./draftStorage.js');
+          const draft = await draftStorage.getDraftById(activeDraftId);
+          
+          if (draft) {
+            console.log('✅ Draft found in IndexedDB, rebuilding frameConfig...');
+            
+            const { buildFrameConfigFromDraft } = await import('./draftHelpers.js');
+            const frameConfig = buildFrameConfigFromDraft(draft);
+            
+            this.currentFrame = frameConfig.id;
+            this.currentConfig = frameConfig;
+            this.persistFrameSelection(frameConfig.id, frameConfig);
+            
+            console.log('✅ Frame config rebuilt from IndexedDB draft:', {
+              id: frameConfig.id,
+              hasDesignerElements: !!frameConfig.designer?.elements,
+              elementsCount: frameConfig.designer?.elements?.length,
+            });
+            
+            return true;
+          } else {
+            console.warn('⚠️ Draft not found in IndexedDB:', activeDraftId);
+          }
+        } catch (error) {
+          console.error('❌ Failed to load draft from IndexedDB:', error);
+        }
       }
     }
 

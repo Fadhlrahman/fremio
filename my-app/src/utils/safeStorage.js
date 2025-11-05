@@ -116,8 +116,34 @@ const safeStorage = {
 
   setJSON(key, value) {
     const prepared = prepareJsonForStorage(value);
-    if (!prepared.storageString) return false;
-    return this.setItem(key, prepared.storageString);
+    
+    console.log('💾 [setJSON] Prepared data:', {
+      key,
+      bytes: prepared.bytes,
+      kb: Math.round(prepared.bytes / 1024),
+      compressed: prepared.compressed,
+      hasString: Boolean(prepared.storageString),
+      stringLength: prepared.storageString?.length,
+    });
+
+    if (!prepared.storageString) {
+      console.error('❌ [setJSON] No storage string prepared');
+      return false;
+    }
+
+    try {
+      const result = this.setItem(key, prepared.storageString);
+      console.log('✅ [setJSON] setItem result:', result);
+      return result;
+    } catch (error) {
+      console.error('❌ [setJSON] Exception during save:', {
+        message: error.message,
+        name: error.name,
+        isQuotaExceeded: error.name === 'QuotaExceededError' || 
+                         /quota|storage/i.test(error.message),
+      });
+      throw error; // Re-throw so caller knows it failed
+    }
   },
 
   isAvailable() {

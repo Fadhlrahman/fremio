@@ -39,6 +39,7 @@ import { CANVAS_WIDTH, CANVAS_HEIGHT } from "../components/creator/canvasConstan
 import draftStorage from "../utils/draftStorage.js";
 import { computeDraftSignature } from "../utils/draftHelpers.js";
 import safeStorage from "../utils/safeStorage.js";
+import { clearStaleFrameCache } from "../utils/frameCacheCleaner.js";
 import "./Create.css";
 
 const panelMotion = {
@@ -506,6 +507,9 @@ export default function Create() {
   }, [elements, selectedElementId]);
 
   useEffect(() => {
+    // Clear stale cache (older than 24 hours)
+    clearStaleFrameCache();
+    
     const storedPhotos = safeStorage.getJSON('capturedPhotos');
     const hasStoredPhotos = Array.isArray(storedPhotos) && storedPhotos.length > 0;
     const hasOverlays = elements.some((element) => element?.data?.__capturedOverlay);
@@ -1823,7 +1827,10 @@ export default function Create() {
         icon: Palette,
         onClick: () => {
           selectElement("background");
-          if (!backgroundPhotoElement && !isMobileView) {
+          // Desktop: hanya select background, tidak auto-upload
+          // Upload dilakukan dari properties panel
+          // Mobile: tetap auto-upload untuk UX lebih baik
+          if (!backgroundPhotoElement && isMobileView) {
             triggerBackgroundUpload();
           }
         },
@@ -2489,16 +2496,20 @@ export default function Create() {
           >
             <h2 className="create-panel__title">Tools</h2>
             <div className="create-tools__list">
-              {toolButtons.map((button) => (
-                <button
-                  key={button.id}
-                  type="button"
-                  onClick={() => handleToolButtonPress(button)}
-                  className={`create-tools__button ${button.isActive ? "create-tools__button--active" : ""}`.trim()}
-                >
-                  {button.label}
-                </button>
-              ))}
+              {toolButtons.map((button) => {
+                const IconComponent = button.icon;
+                return (
+                  <button
+                    key={button.id}
+                    type="button"
+                    onClick={() => handleToolButtonPress(button)}
+                    className={`create-tools__button ${button.isActive ? "create-tools__button--active" : ""}`.trim()}
+                  >
+                    <IconComponent size={20} strokeWidth={2} />
+                    <span>{button.label}</span>
+                  </button>
+                );
+              })}
             </div>
           </Motion.aside>
         )}

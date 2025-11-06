@@ -304,18 +304,39 @@ export class FrameDataProvider {
         __selectedAt: new Date().toISOString()
       };
 
-      const sanitizedConfig = sanitizeFrameConfigForStorage(configWithTimestamp);
+      const isCustomFrame = config.isCustom || frameName?.startsWith('custom-');
+      
+      // For custom frames, try to save WITHOUT sanitizing first (to preserve all data)
       let configSaved = false;
-
-      if (sanitizedConfig) {
-        configSaved = safeStorage.setJSON('frameConfig', sanitizedConfig);
+      
+      if (isCustomFrame) {
+        console.log('💾 [persistFrameSelection] Attempting to save FULL custom frame config...');
+        try {
+          configSaved = safeStorage.setJSON('frameConfig', configWithTimestamp);
+          if (configSaved) {
+            console.log('✅ [persistFrameSelection] Full custom frame config saved successfully');
+          }
+        } catch (error) {
+          console.warn('⚠️ [persistFrameSelection] Full config too large for localStorage:', error.message);
+          // Will try sanitized version below
+        }
       }
+      
+      // If not saved yet (not custom OR custom but too large), try sanitized version
+      if (!configSaved) {
+        console.log('💾 [persistFrameSelection] Saving sanitized frame config...');
+        const sanitizedConfig = sanitizeFrameConfigForStorage(configWithTimestamp);
+        
+        if (sanitizedConfig) {
+          configSaved = safeStorage.setJSON('frameConfig', sanitizedConfig);
+        }
 
-      if (!configSaved && sanitizedConfig) {
-        console.warn('⚠️ Failed to store sanitized frame config, attempting fallback without image data');
-        const fallbackConfig = { ...sanitizedConfig };
-        delete fallbackConfig.imagePath;
-        configSaved = safeStorage.setJSON('frameConfig', fallbackConfig);
+        if (!configSaved && sanitizedConfig) {
+          console.warn('⚠️ Failed to store sanitized frame config, attempting fallback without image data');
+          const fallbackConfig = { ...sanitizedConfig };
+          delete fallbackConfig.imagePath;
+          configSaved = safeStorage.setJSON('frameConfig', fallbackConfig);
+        }
       }
 
       if (!frameIdSaved || !configSaved) {

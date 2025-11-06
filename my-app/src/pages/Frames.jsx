@@ -139,9 +139,21 @@ export default function Frames() {
   // Clear old frameConfig when entering Frames page
   // This ensures user always gets fresh frame selection
   useEffect(() => {
-    console.log('🗑️ [Frames] Clearing old frameConfig to prevent cache issues');
+    console.log('🗑️ [Frames] Clearing old frame session to start fresh');
+    
+    // Clear frame-related data
     safeStorage.removeItem('frameConfig');
+    safeStorage.removeItem('frameConfigTimestamp');
+    safeStorage.removeItem('selectedFrame');
+    
+    // Clear captured media from previous session
     safeStorage.removeItem('capturedPhotos');
+    safeStorage.removeItem('capturedVideos');
+    
+    // Don't clear activeDraftId - user might want to continue editing draft
+    // Only clear frame-related data for fresh frame selection
+    
+    console.log('✅ [Frames] Old session cleared, ready for fresh frame selection');
   }, []);
 
   // Mock data untuk creator frames - nanti bisa diganti dengan data real

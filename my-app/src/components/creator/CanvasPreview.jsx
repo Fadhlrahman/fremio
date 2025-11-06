@@ -1,4 +1,4 @@
-import { forwardRef, memo, useEffect, useMemo, useRef } from "react";
+import { forwardRef, memo, useEffect, useMemo, useRef, useState } from "react";
 import { Rnd } from "react-rnd";
 import { motion as Motion } from "framer-motion";
 import trashIcon from "../../assets/create-icon/create-trash.png";
@@ -289,7 +289,7 @@ const resetRndPosition = (meta) => {
   }
 };
 
-const ElementContent = forwardRef(({ element, isSelected }, ref) => {
+const ElementContent = forwardRef(({ element, isSelected, isEditing, editingValue, onTextChange, onTextBlur, textInputRef }, ref) => {
   // For photo slots, use custom styling (don't override with getElementStyle background)
   const shouldUseCustomPhotoStyle = element.type === "photo";
   
@@ -311,6 +311,28 @@ const ElementContent = forwardRef(({ element, isSelected }, ref) => {
       };
 
   if (element.type === "text") {
+    if (isEditing) {
+      return (
+        <textarea
+          ref={textInputRef}
+          value={editingValue}
+          onChange={(e) => onTextChange(e.target.value)}
+          onBlur={onTextBlur}
+          autoFocus
+          style={{
+            ...style,
+            resize: 'none',
+            border: 'none',
+            outline: 'none',
+            background: 'rgba(255,255,255,0.95)',
+            cursor: 'text',
+            overflow: 'hidden',
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        />
+      );
+    }
     return <div style={style}>{element.data?.text ?? "Teks"}</div>;
   }
 
@@ -482,9 +504,52 @@ function CanvasPreviewComponent({
   onToggleLock,
   onResizeUpload,
 }) {
+  // State for text editing mode
+  const [editingTextId, setEditingTextId] = useState(null);
+  const [editingTextValue, setEditingTextValue] = useState("");
+  const textInputRef = useRef(null);
   const backgroundTouchRef = useRef(null);
   const interactionMetaRef = useRef(new Map());
   const backgroundInteractionRef = useRef(createInteractionState());
+  
+  // Handler untuk memulai edit teks (double-click)
+  const handleDoubleClickText = (element) => {
+    if (element.type === 'text') {
+      setEditingTextId(element.id);
+      setEditingTextValue(element.data?.text ?? "");
+      // Focus textarea after state update
+      setTimeout(() => {
+        if (textInputRef.current) {
+          textInputRef.current.focus();
+          textInputRef.current.select();
+        }
+      }, 10);
+    }
+  };
+  
+  // Handler untuk mengubah teks
+  const handleTextChange = (value) => {
+    setEditingTextValue(value);
+  };
+  
+  // Handler untuk selesai edit (blur)
+  const handleTextBlur = () => {
+    if (editingTextId) {
+      onUpdate(editingTextId, {
+        data: { text: editingTextValue }
+      });
+      setEditingTextId(null);
+      setEditingTextValue("");
+    }
+  };
+  
+  // Reset editing saat element berubah
+  useEffect(() => {
+    if (selectedElementId !== editingTextId) {
+      setEditingTextId(null);
+      setEditingTextValue("");
+    }
+  }, [selectedElementId, editingTextId]);
 
   const clearHoldTimer = (meta) => {
     if (meta?.holdTimer) {
@@ -1428,6 +1493,10 @@ function CanvasPreviewComponent({
               onPointerCancel={isBackgroundPhoto ? undefined : handlePointerCancel}
               onTouchCancel={isBackgroundPhoto ? undefined : handlePointerCancel}
               onClick={isBackgroundPhoto ? undefined : handleClick}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                handleDoubleClickText(element);
+              }}
               onWheel={handleWheel}
             >
               {isSelected && !isBackgroundPhoto && (
@@ -1450,7 +1519,7 @@ function CanvasPreviewComponent({
                     data-export-ignore="true"
                     style={{
                       position: "absolute",
-                      top: -60,
+                      top: -76,
                       left: "50%",
                       transform: "translateX(-50%)",
                       display: "flex",
@@ -1465,9 +1534,9 @@ function CanvasPreviewComponent({
                         onToggleLock?.(element.id);
                       }}
                       style={{
-                        width: "52px",
-                        height: "52px",
-                        borderRadius: "12px",
+                        width: "64px",
+                        height: "64px",
+                        borderRadius: "14px",
                         background: element.isLocked ? "linear-gradient(135deg, #f7a998 0%, #e89985 100%)" : "#ffffff",
                         border: element.isLocked ? "2px solid #f7a998" : "2px solid #f7a998",
                         cursor: "pointer",
@@ -1483,7 +1552,7 @@ function CanvasPreviewComponent({
                       <img 
                         src={element.isLocked ? lockIcon : unlockIcon} 
                         alt={element.isLocked ? "Locked" : "Unlocked"} 
-                        style={{ width: "28px", height: "28px" }} 
+                        style={{ width: "36px", height: "36px" }} 
                       />
                     </button>
                     <button
@@ -1492,9 +1561,9 @@ function CanvasPreviewComponent({
                         onDuplicate?.(element.id);
                       }}
                       style={{
-                        width: "52px",
-                        height: "52px",
-                        borderRadius: "12px",
+                        width: "64px",
+                        height: "64px",
+                        borderRadius: "14px",
                         background: "#ffffff",
                         border: "2px solid #f7a998",
                         cursor: "pointer",
@@ -1507,40 +1576,8 @@ function CanvasPreviewComponent({
                       onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1)"}
                       onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
                     >
-                      <img src={duplicateIcon} alt="Duplicate" style={{ width: "28px", height: "28px" }} />
+                      <img src={duplicateIcon} alt="Duplicate" style={{ width: "36px", height: "36px" }} />
                     </button>
-                    
-                    {/* Layer Z-Index Indicator - Only for photo and upload elements */}
-                    {(element.type === 'photo' || element.type === 'upload') && (
-                      <div
-                        data-export-ignore="true"
-                        style={{
-                          height: "52px",
-                          padding: "0 16px",
-                          borderRadius: "12px",
-                          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                          border: "2px solid #667eea",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          boxShadow: "0 4px 12px rgba(102, 126, 234, 0.4)",
-                          pointerEvents: "none",
-                          gap: "8px"
-                        }}
-                      >
-                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style={{ flexShrink: 0 }}>
-                          <path d="M3 4h14v2H3V4zm2 5h10v2H5V9zm2 5h6v2H7v-2z" fill="white"/>
-                        </svg>
-                        <span style={{
-                          color: "white",
-                          fontWeight: "700",
-                          fontSize: "14px",
-                          whiteSpace: "nowrap"
-                        }}>
-                          Layer: {element.zIndex || 0}
-                        </span>
-                      </div>
-                    )}
                     
                     <button
                       onClick={(e) => {
@@ -1548,9 +1585,9 @@ function CanvasPreviewComponent({
                         onRemove?.(element.id);
                       }}
                       style={{
-                        width: "52px",
-                        height: "52px",
-                        borderRadius: "12px",
+                        width: "64px",
+                        height: "64px",
+                        borderRadius: "14px",
                         background: "#ffffff",
                         border: "2px solid #f7a998",
                         cursor: "pointer",
@@ -1563,7 +1600,7 @@ function CanvasPreviewComponent({
                       onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1)"}
                       onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
                     >
-                      <img src={trashIcon} alt="Delete" style={{ width: "28px", height: "28px" }} />
+                      <img src={trashIcon} alt="Delete" style={{ width: "36px", height: "36px" }} />
                     </button>
                   </div>
                 </>
@@ -1587,6 +1624,11 @@ function CanvasPreviewComponent({
               <ElementContent
                 element={element}
                 isSelected={isSelected}
+                isEditing={editingTextId === element.id}
+                editingValue={editingTextValue}
+                onTextChange={handleTextChange}
+                onTextBlur={handleTextBlur}
+                textInputRef={textInputRef}
                 ref={isBackgroundPhoto ? backgroundTouchRef : null}
               />
             </Rnd>

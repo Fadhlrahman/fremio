@@ -1,0 +1,79 @@
+/* Ensure all form elements take full width */
+select,
+input[type="text"],
+input[type="number"],
+textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Ensure containers are full width */
+.flex.flex-col,
+.space-y-4,
+.space-y-5 {
+  width: 100%;
+}
+
+/* Force CollapsibleSection and all direct children to be full width */
+.flex.flex-col > div,
+.flex.flex-col > * {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 100% !important;
+  display: block !important;
+  box-sizing: border-box !important;
+}
+
+/* Ensure rounded containers take full width */
+div[class*="rounded-"] {
+  display: block;
+  box-sizing: border-box;
+}
+
+/* Override any inline or flex-start that might constrain width */
+.flex.flex-col {
+  align-items: stretch !important;
+}
+
+/* Custom styling for select dropdown options */
+select option {
+  padding: 10px 14px;
+  background: #ffffff;
+  color: #4a302b;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+select option:hover,
+select option:focus,
+select option:checked {
+  background: linear-gradient(135deg, #f7e3da, #f1cfc0);
+  color: #4a302b;
+  font-weight: 600;
+}
+
+/* Enhance select dropdown appearance */
+select::-ms-expand {
+  display: none;
+}
+
+/* Custom scrollbar for dropdown */
+select::-webkit-scrollbar {
+  width: 8px;
+}
+
+select::-webkit-scrollbar-track {
+  background: #fdf7f4;
+  border-radius: 10px;
+}
+
+select::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #e0b7a9, #d4a99a);
+  border-radius: 10px;
+  border: 2px solid #fdf7f4;
+}
+
+select::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #d4a99a, #c89585);
+}

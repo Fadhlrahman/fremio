@@ -12,7 +12,7 @@ export default function ColorPicker({ value = "#FFFFFF", onChange }) {
     }
     return value.startsWith("#") ? value.toUpperCase() : `#${value.toUpperCase()}`;
   }, [value]);
-
+  
   const [hexInput, setHexInput] = useState(normalizedValue);
 
   useEffect(() => {
@@ -42,19 +42,6 @@ export default function ColorPicker({ value = "#FFFFFF", onChange }) {
 
   return (
     <div className="color-picker">
-      <div className="color-picker__tabs">
-        <button
-          type="button"
-          className="color-picker__tab color-picker__tab--active"
-          aria-pressed
-        >
-          Warna solid
-        </button>
-        <button type="button" className="color-picker__tab" disabled>
-          Gradasi
-        </button>
-      </div>
-
       <div className="color-picker__preview">
         <HexColorPicker color={displayColor} onChange={handlePickerChange} />
       </div>

@@ -42,48 +42,195 @@
   display: flex;
   gap: 28px;
   align-items: stretch;
+  height: calc(100vh - 120px);
 }
 
-.create-panel {
-  background: rgba(240, 220, 212, 0.92);
-  border-radius: 32px;
-  padding: 28px;
-  box-shadow: 0 24px 55px rgba(240, 204, 194, 0.35);
+.create-preview {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  flex: 1;
+  background: linear-gradient(135deg, rgba(255, 250, 246, 0.98), rgba(248, 237, 230, 0.95));
+  border-radius: 32px;
+  padding: 28px;
+  box-shadow: 0 24px 55px rgba(240, 204, 194, 0.35);
+  border: 1px solid rgba(224, 183, 169, 0.2);
+  backdrop-filter: blur(10px);
+  align-items: center;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(224, 183, 169, 0.4) transparent;
+}
+
+.create-preview::-webkit-scrollbar {
+  width: 8px;
+}
+
+.create-preview::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 8px 0;
+}
+
+.create-preview::-webkit-scrollbar-thumb {
+  background: rgba(224, 183, 169, 0.4);
+  border-radius: 20px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.create-preview::-webkit-scrollbar-thumb:hover {
+  background: rgba(224, 183, 169, 0.6);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.create-preview__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #2c1f1d;
+  margin: 0;
+  letter-spacing: -0.02em;
 }
 
 .create-panel--tools {
-  width: 240px;
+  width: 200px;
   flex-shrink: 0;
+  background: linear-gradient(135deg, rgba(255, 250, 246, 0.98), rgba(248, 237, 230, 0.95));
+  border: 1px solid rgba(224, 183, 169, 0.2);
+  backdrop-filter: blur(10px);
+  border-radius: 32px;
+  box-shadow: 0 24px 55px rgba(240, 204, 194, 0.35);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 120px);
+  overflow: hidden;
 }
 
 .create-panel--properties {
   width: 260px;
   flex-shrink: 0;
+  background: linear-gradient(135deg, rgba(255, 250, 246, 0.98), rgba(248, 237, 230, 0.95));
+  border: 1px solid rgba(224, 183, 169, 0.2);
+  backdrop-filter: blur(10px);
+  border-radius: 32px;
+  box-shadow: 0 24px 55px rgba(240, 204, 194, 0.35);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 120px);
+  overflow: hidden;
 }
 
 .create-panel__title {
-  .creator-element .react-rnd-handle {
-    position: absolute;
-    z-index: 5;
-    pointer-events: auto;
-    touch-action: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  padding: 8px 16px;
-  border-radius: 12px;
-  border: 1.5px solid #e0b7a9;
-  background: #ffffff;
+  font-size: 18px;
+  font-weight: 700;
+  color: #2c1f1d;
+  margin: 0;
+  padding: 28px 28px 20px 28px;
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, rgba(255, 250, 246, 0.98), rgba(248, 237, 230, 0.95));
+  border-radius: 32px 32px 0 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.create-tools__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 28px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(224, 183, 169, 0.4) transparent;
+}
+
+.create-tools__list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.create-tools__list::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 8px 0;
+}
+
+.create-tools__list::-webkit-scrollbar-thumb {
+  background: rgba(224, 183, 169, 0.4);
+  border-radius: 20px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.create-tools__list::-webkit-scrollbar-thumb:hover {
+  background: rgba(224, 183, 169, 0.6);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.create-tools__button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border: 1.5px solid transparent;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.6);
   color: #4b3a37;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
-  min-width: 180px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  text-align: left;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.create-tools__button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(180deg, #e0b7a9, #d4a99a);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.create-tools__button:hover {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(224, 183, 169, 0.3);
+  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(224, 183, 169, 0.15);
+}
+
+.create-tools__button--active {
+  background: linear-gradient(135deg, rgba(240, 220, 212, 0.95), rgba(224, 183, 169, 0.85));
+  border-color: rgba(224, 183, 169, 0.6);
+  color: #2c1f1d;
+  box-shadow: 0 8px 20px rgba(224, 183, 169, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transform: translateX(4px);
+}
+
+.create-tools__button--active::before {
+  opacity: 1;
+}
+
+.create-tools__button svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  opacity: 0.75;
+  transition: opacity 0.2s ease;
+}
+
+.create-tools__button:hover svg,
+.create-tools__button--active svg {
+  opacity: 1;
 }
 
 .create-ratio-dropdown:hover {
@@ -230,10 +377,37 @@
 
 .create-panel__body {
   flex: 1;
-  background: rgba(255, 255, 255, 0.82);
-  border-radius: 26px;
-  padding: 20px;
-  overflow: auto;
+  background: transparent;
+  padding: 0 28px 28px 28px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(224, 183, 169, 0.4) transparent;
+}
+
+.create-panel__body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.create-panel__body::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 8px 0;
+}
+
+.create-panel__body::-webkit-scrollbar-thumb {
+  background: rgba(224, 183, 169, 0.4);
+  border-radius: 20px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.create-panel__body::-webkit-scrollbar-thumb:hover {
+  background: rgba(224, 183, 169, 0.6);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 .create-mobile-toolbar {

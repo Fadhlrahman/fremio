@@ -1,6 +1,8 @@
-import { motion } from "framer-motion";
-import { X, Trash2, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown } from "lucide-react";
+import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { X, Trash2, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown, ChevronDown, ChevronUp } from "lucide-react";
 import ColorPicker from "./ColorPicker.jsx";
+import "./PropertiesPanel.css";
 
 const panelVariant = {
   hidden: { opacity: 0, y: 16 },
@@ -16,8 +18,58 @@ const Section = ({ title, children }) => (
   </div>
 );
 
+const CollapsibleSection = ({ title, children, isOpen, onToggle }) => {
+  return (
+    <div 
+      style={{
+        width: '100%',
+        display: 'block',
+        boxSizing: 'border-box'
+      }}
+      className="rounded-2xl border-2 border-[#e0b7a9]/30 bg-gradient-to-br from-white to-[#fdf7f4]/60 shadow-[0_6px_20px_rgba(224,183,169,0.2)] backdrop-blur-sm overflow-hidden transition-all duration-300 hover:shadow-[0_8px_28px_rgba(224,183,169,0.3)] hover:border-[#e0b7a9]/50"
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        style={{
+          width: '100%',
+          boxSizing: 'border-box'
+        }}
+        className="flex items-center justify-between px-6 py-4 transition-all duration-300 hover:bg-gradient-to-r hover:from-[#f7e3da]/40 hover:to-[#f1cfc0]/30 active:scale-[0.99] group"
+      >
+        <h4 className="text-base font-bold tracking-wide text-[#4a302b] transition-colors group-hover:text-[#e0b7a9]">
+          {title}
+        </h4>
+        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-[#e0b7a9]/10 transition-all duration-300 group-hover:bg-[#e0b7a9]/20 group-hover:scale-110">
+          {isOpen ? (
+            <ChevronUp size={18} className="text-[#e0b7a9] flex-shrink-0 transition-transform duration-300" strokeWidth={2.5} />
+          ) : (
+            <ChevronDown size={18} className="text-[#e0b7a9] flex-shrink-0 transition-transform duration-300" strokeWidth={2.5} />
+          )}
+        </div>
+      </button>
+      
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="w-full overflow-hidden"
+          >
+            <div className="w-full px-6 pb-6 space-y-4 text-sm text-slate-600">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 const InputRow = ({ label, children }) => (
-  <label className="flex flex-col gap-3 text-xs font-bold text-slate-500">
+  <label className="flex w-full flex-col gap-3 text-xs font-bold text-slate-500">
     <span className="uppercase tracking-[0.2em] text-[#e0b7a9]">{label}</span>
     {children}
   </label>
@@ -38,6 +90,59 @@ export default function PropertiesPanel({
   onBringForward,
   onSendBackward,
 }) {
+  // Local state for dimension inputs
+  const [localWidth, setLocalWidth] = useState("");
+  const [localHeight, setLocalHeight] = useState("");
+  
+  // State to control which dropdown is open (only one at a time)
+  const [openDropdown, setOpenDropdown] = useState(null);
+
+  // Update local state when selectedElement changes
+  useEffect(() => {
+    if (selectedElement) {
+      setLocalWidth(Math.round(selectedElement.width ?? 0).toString());
+      setLocalHeight(Math.round(selectedElement.height ?? 0).toString());
+    }
+  }, [selectedElement?.id, selectedElement?.width, selectedElement?.height]);
+  
+  // Reset to first dropdown when element changes
+  useEffect(() => {
+    if (selectedElement?.type === 'background-photo') {
+      setOpenDropdown('foto-background');
+    } else if (selectedElement) {
+      setOpenDropdown('dimensi');
+    } else {
+      setOpenDropdown('upload-background');
+    }
+  }, [selectedElement?.id]);
+
+  const applyDimension = (dimension, value) => {
+    if (!selectedElement) return;
+    
+    const numericValue = parseFloat(value);
+    if (isNaN(numericValue) || numericValue <= 0) {
+      // Reset to current value if invalid
+      if (dimension === "width") {
+        setLocalWidth(Math.round(selectedElement.width ?? 60).toString());
+      } else {
+        setLocalHeight(Math.round(selectedElement.height ?? 60).toString());
+      }
+      return;
+    }
+
+    const finalValue = Math.max(60, Math.round(numericValue));
+    onUpdateElement(selectedElement.id, {
+      [dimension]: finalValue,
+    });
+    
+    // Update local state with final value
+    if (dimension === "width") {
+      setLocalWidth(finalValue.toString());
+    } else {
+      setLocalHeight(finalValue.toString());
+    }
+  };
+
   const handleDimensionInput = (dimension, rawValue) => {
     if (!selectedElement || typeof rawValue === "undefined") {
       return;
@@ -59,82 +164,53 @@ export default function PropertiesPanel({
 
   const renderSharedControls = () => (
     <>
-      {selectedElement?.type !== 'background-photo' && (
-        <Section title="Lapisan">
-          {/* Z-Index Display */}
-          <div className="mb-4 flex items-center justify-between rounded-xl bg-gradient-to-r from-[#e0b7a9]/10 to-[#c89585]/10 px-4 py-3 border border-[#e0b7a9]/20">
-            <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
-              Posisi Layer
-            </span>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-[#e0b7a9]">
-                z-index:
-              </span>
-              <span className="rounded-lg bg-white px-3 py-1 text-sm font-bold text-slate-700 shadow-sm border border-[#e0b7a9]/20">
-                {selectedElement?.zIndex || 0}
-              </span>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => onBringToFront?.(selectedElement.id)}
-              className="flex items-center justify-center gap-2 rounded-xl border-2 border-[#e0b7a9]/20 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:border-[#e0b7a9]/40 hover:bg-[#fdf7f4] hover:shadow-md active:scale-95"
-            >
-              <ChevronsUp size={18} className="text-[#e0b7a9]" />
-              Paling Depan
-            </button>
-            <button
-              onClick={() => onSendToBack?.(selectedElement.id)}
-              className="flex items-center justify-center gap-2 rounded-xl border-2 border-[#e0b7a9]/20 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:border-[#e0b7a9]/40 hover:bg-[#fdf7f4] hover:shadow-md active:scale-95"
-            >
-              <ChevronsDown size={18} className="text-[#e0b7a9]" />
-              Paling Belakang
-            </button>
-            <button
-              onClick={() => onBringForward?.(selectedElement.id)}
-              className="flex items-center justify-center gap-2 rounded-xl border-2 border-[#e0b7a9]/20 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:border-[#e0b7a9]/40 hover:bg-[#fdf7f4] hover:shadow-md active:scale-95"
-            >
-              <ArrowUp size={18} className="text-[#e0b7a9]" />
-              Kedepankan
-            </button>
-            <button
-              onClick={() => onSendBackward?.(selectedElement.id)}
-              className="flex items-center justify-center gap-2 rounded-xl border-2 border-[#e0b7a9]/20 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:border-[#e0b7a9]/40 hover:bg-[#fdf7f4] hover:shadow-md active:scale-95"
-            >
-              <ArrowDown size={18} className="text-[#e0b7a9]" />
-              Kebelakangkan
-            </button>
-          </div>
-        </Section>
-      )}
-      <Section title="Dimensi">
+      <CollapsibleSection 
+        title="Dimensi" 
+        isOpen={openDropdown === 'dimensi'}
+        onToggle={() => setOpenDropdown(openDropdown === 'dimensi' ? null : 'dimensi')}
+      >
         <div className="grid grid-cols-2 gap-3">
           <InputRow label="Lebar">
             <input
               type="number"
-              min={60}
               className="rounded-2xl border-2 border-[#e0b7a9]/20 bg-white px-4 py-3 text-slate-700 shadow-[0_2px_8px_rgba(224,183,169,0.08)] transition-all focus:border-[#e0b7a9]/50 focus:shadow-[0_4px_12px_rgba(224,183,169,0.15)] focus:outline-none"
-              value={Math.round(selectedElement?.width ?? 0)}
-              onChange={(event) => handleDimensionInput("width", event.target.value)}
+              value={localWidth}
+              onChange={(e) => setLocalWidth(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  applyDimension("width", localWidth);
+                  e.target.blur();
+                }
+              }}
+              onBlur={() => applyDimension("width", localWidth)}
             />
           </InputRow>
           <InputRow label="Tinggi">
             <input
               type="number"
-              min={60}
               className="rounded-2xl border-2 border-[#e0b7a9]/20 bg-white px-4 py-3 text-slate-700 shadow-[0_2px_8px_rgba(224,183,169,0.08)] transition-all focus:border-[#e0b7a9]/50 focus:shadow-[0_4px_12px_rgba(224,183,169,0.15)] focus:outline-none"
-              value={Math.round(selectedElement?.height ?? 0)}
-              onChange={(event) => handleDimensionInput("height", event.target.value)}
+              value={localHeight}
+              onChange={(e) => setLocalHeight(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  applyDimension("height", localHeight);
+                  e.target.blur();
+                }
+              }}
+              onBlur={() => applyDimension("height", localHeight)}
             />
           </InputRow>
         </div>
-      </Section>
+      </CollapsibleSection>
     </>
   );
 
   const renderTextControls = () => (
-    <Section title="Pengaturan Teks">
+    <CollapsibleSection 
+      title="Pengaturan Teks" 
+      isOpen={openDropdown === 'pengaturan-teks'}
+      onToggle={() => setOpenDropdown(openDropdown === 'pengaturan-teks' ? null : 'pengaturan-teks')}
+    >
       <InputRow label="Isi Teks">
         <textarea
           rows={3}
@@ -149,7 +225,7 @@ export default function PropertiesPanel({
       </InputRow>
       <InputRow label="Font">
         <select
-          className="rounded-xl border-2 border-[#e0b7a9]/20 bg-white px-3 py-2 text-sm text-slate-600 shadow-[0_2px_8px_rgba(224,183,169,0.08)] transition-all focus:border-[#e0b7a9]/50 focus:shadow-[0_4px_12px_rgba(224,183,169,0.15)] focus:outline-none"
+          className="w-full rounded-2xl border-2 border-[#e0b7a9]/35 bg-gradient-to-br from-white to-[#fdf7f4]/50 px-4 py-3 text-sm font-semibold text-[#4a302b] shadow-[0_4px_12px_rgba(224,183,169,0.15)] transition-all hover:border-[#d4a99a] hover:shadow-[0_6px_16px_rgba(224,183,169,0.25)] focus:border-[#d4a99a] focus:shadow-[0_6px_20px_rgba(224,183,169,0.3)] focus:outline-none cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=UTF-8,%3csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23e0b7a9%22 stroke-width=%222%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3e%3cpolyline points=%226 9 12 15 18 9%22%3e%3c/polyline%3e%3c/svg%3e')] bg-[length:20px] bg-[right_12px_center] bg-no-repeat pr-12"
           value={selectedElement.data?.fontFamily ?? 'Inter'}
           onChange={(event) =>
             onUpdateElement(selectedElement.id, {
@@ -229,11 +305,15 @@ export default function PropertiesPanel({
           ))}
         </div>
       </InputRow>
-    </Section>
+    </CollapsibleSection>
   );
 
   const renderFillControls = ({ showBorderRadius = true } = {}) => (
-    <Section title="Warna & Bentuk">
+    <CollapsibleSection 
+      title="Warna & Bentuk" 
+      isOpen={openDropdown === 'warna-bentuk'}
+      onToggle={() => setOpenDropdown(openDropdown === 'warna-bentuk' ? null : 'warna-bentuk')}
+    >
       <InputRow label="Warna Isi">
         <ColorPicker
           value={selectedElement.data?.fill ?? "#F4D3C2"}
@@ -259,7 +339,7 @@ export default function PropertiesPanel({
           />
         </InputRow>
       )}
-    </Section>
+    </CollapsibleSection>
   );
 
   const renderOutlineControls = ({ defaultColor = "#d9b9ab", maxWidth = 24 } = {}) => {
@@ -270,7 +350,11 @@ export default function PropertiesPanel({
         : defaultColor;
 
     return (
-      <Section title="Outline">
+      <CollapsibleSection 
+        title="Outline" 
+        isOpen={openDropdown === 'outline'}
+        onToggle={() => setOpenDropdown(openDropdown === 'outline' ? null : 'outline')}
+      >
         <InputRow label="Ketebalan">
           <input
             type="range"
@@ -305,15 +389,19 @@ export default function PropertiesPanel({
             }
           />
         </InputRow>
-      </Section>
+      </CollapsibleSection>
     );
   };
 
   const renderImageControls = () => (
-    <Section title="Gambar">
+    <CollapsibleSection 
+      title="Gambar" 
+      isOpen={openDropdown === 'gambar'}
+      onToggle={() => setOpenDropdown(openDropdown === 'gambar' ? null : 'gambar')}
+    >
       <InputRow label="Objek Fit">
         <select
-          className="rounded-xl border border-rose-100/70 bg-white px-3 py-2 text-sm text-slate-600 focus:border-rose-300 focus:outline-none"
+          className="w-full rounded-2xl border-2 border-[#e0b7a9]/35 bg-gradient-to-br from-white to-[#fdf7f4]/50 px-4 py-3 text-sm font-semibold text-[#4a302b] shadow-[0_4px_12px_rgba(224,183,169,0.15)] transition-all hover:border-[#d4a99a] hover:shadow-[0_6px_16px_rgba(224,183,169,0.25)] focus:border-[#d4a99a] focus:shadow-[0_6px_20px_rgba(224,183,169,0.3)] focus:outline-none cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=UTF-8,%3csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23e0b7a9%22 stroke-width=%222%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3e%3cpolyline points=%226 9 12 15 18 9%22%3e%3c/polyline%3e%3c/svg%3e')] bg-[length:20px] bg-[right_12px_center] bg-no-repeat pr-12"
           value={selectedElement.data?.objectFit ?? "contain"}
           onChange={(event) =>
             onUpdateElement(selectedElement.id, {
@@ -339,21 +427,18 @@ export default function PropertiesPanel({
           <X size={14} /> Hapus gambar
         </button>
       )}
-    </Section>
+    </CollapsibleSection>
   );
 
   const renderBackgroundPhotoControls = () => (
-    <Section title="Foto Background">
-      {/* Info: Background always at z-index 0 */}
-      <div className="mb-4 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 px-4 py-3 border border-blue-200/50">
-        <p className="text-xs font-semibold text-blue-700">
-          ℹ️ Background foto selalu berada di layer paling bawah (z-index: 0)
-        </p>
-      </div>
-      
+    <CollapsibleSection 
+      title="Foto Background" 
+      isOpen={openDropdown === 'foto-background'}
+      onToggle={() => setOpenDropdown(openDropdown === 'foto-background' ? null : 'foto-background')}
+    >
       <InputRow label="Mode Isi">
         <select
-          className="rounded-xl border border-rose-100/70 bg-white px-3 py-2 text-sm text-slate-600 focus:border-rose-300 focus:outline-none"
+          className="w-full rounded-2xl border-2 border-[#e0b7a9]/35 bg-gradient-to-br from-white to-[#fdf7f4]/50 px-4 py-3 text-sm font-semibold text-[#4a302b] shadow-[0_4px_12px_rgba(224,183,169,0.15)] transition-all hover:border-[#d4a99a] hover:shadow-[0_6px_16px_rgba(224,183,169,0.25)] focus:border-[#d4a99a] focus:shadow-[0_6px_20px_rgba(224,183,169,0.3)] focus:outline-none cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=UTF-8,%3csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23e0b7a9%22 stroke-width=%222%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3e%3cpolyline points=%226 9 12 15 18 9%22%3e%3c/polyline%3e%3c/svg%3e')] bg-[length:20px] bg-[right_12px_center] bg-no-repeat pr-12"
           value={selectedElement.data?.objectFit ?? "contain"}
           onChange={(event) =>
             onUpdateElement(selectedElement.id, {
@@ -401,7 +486,7 @@ export default function PropertiesPanel({
           </button>
         )}
       </div>
-    </Section>
+    </CollapsibleSection>
   );
 
   const renderEmptyState = () => (
@@ -426,46 +511,107 @@ export default function PropertiesPanel({
         variants={panelVariant}
         initial="hidden"
         animate="visible"
-        className="flex h-full flex-col gap-4"
+        className="flex h-full w-full flex-col gap-4"
       >
-        <Section title="Warna Latar">
-          <InputRow label="Background">
+        {/* Upload Background - Collapsible */}
+        <CollapsibleSection 
+          title="Upload Background" 
+          isOpen={openDropdown === 'upload-background'}
+          onToggle={() => setOpenDropdown(openDropdown === 'upload-background' ? null : 'upload-background')}
+        >
+          <div className="flex flex-col items-center gap-4" style={{ margin: '16px 0' }}>
+            <button
+              type="button"
+              id="upload-bg-btn-v4-final"
+              data-version="4.0"
+              data-timestamp={Date.now()}
+              onClick={() => {
+                if (selectedElement !== "background") return;
+                if (typeof window !== "undefined") {
+                  const uploadEvent = new CustomEvent(
+                    "creator:request-background-upload"
+                  );
+                  window.dispatchEvent(uploadEvent);
+                }
+              }}
+              style={{
+                padding: '8px 14px',
+                fontSize: '13px',
+                minHeight: '38px',
+                height: '38px',
+                maxHeight: '38px',
+                fontWeight: '600',
+                background: 'linear-gradient(135deg, #f5e5df 0%, #ecddd5 50%, #e8d4c9 100%)',
+                color: '#4a302b',
+                border: '2px solid #f5e5df',
+                borderRadius: '12px',
+                boxShadow: '0 3px 12px rgba(245, 229, 223, 0.4)',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: '10px',
+                marginBottom: '10px'
+              }}
+              className="group relative overflow-hidden upload-bg-v4"
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'scale(1.02)';
+                e.currentTarget.style.boxShadow = '0 5px 16px rgba(245, 229, 223, 0.5)';
+                e.currentTarget.style.background = 'linear-gradient(135deg, #ecddd5 0%, #e8d4c9 50%, #e0c5b8 100%)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
+                e.currentTarget.style.boxShadow = '0 3px 12px rgba(245, 229, 223, 0.4)';
+                e.currentTarget.style.background = 'linear-gradient(135deg, #f5e5df 0%, #ecddd5 50%, #e8d4c9 100%)';
+              }}
+            >
+              {/* Shine effect */}
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 pointer-events-none" />
+              
+              <span className="relative z-10">Unggah Foto Background</span>
+            </button>
+            
+            {backgroundPhoto && (
+              <div className="w-full flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={() => onSelectBackgroundPhoto?.()}
+                  style={{
+                    padding: '14px 20px',
+                    fontSize: '15px'
+                  }}
+                  className="w-full flex items-center justify-center rounded-xl border-2 border-[#e0b7a9]/40 bg-white text-[#4a302b] font-medium shadow-sm transition-all duration-200 hover:bg-[#fdf7f4] hover:border-[#e0b7a9]/60 hover:shadow-md"
+                >
+                  Edit foto background
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onFitBackgroundPhoto?.()}
+                  style={{
+                    padding: '14px 20px',
+                    fontSize: '15px'
+                  }}
+                  className="w-full flex items-center justify-center rounded-xl border-2 border-[#e0b7a9]/40 bg-white text-[#4a302b] font-medium shadow-sm transition-all duration-200 hover:bg-[#fdf7f4] hover:border-[#e0b7a9]/60 hover:shadow-md"
+                >
+                  Sesuaikan ke kanvas
+                </button>
+              </div>
+            )}
+          </div>
+        </CollapsibleSection>
+
+        {/* Warna Latar - Collapsible */}
+        <CollapsibleSection 
+          title="Warna Latar" 
+          isOpen={openDropdown === 'warna-latar'}
+          onToggle={() => setOpenDropdown(openDropdown === 'warna-latar' ? null : 'warna-latar')}
+        >
+          <div className="flex flex-col items-center gap-3">
             <ColorPicker value={canvasBackground} onChange={onBackgroundChange} />
-          </InputRow>
-          {backgroundPhoto ? (
-            <div className="flex flex-col gap-3">
-              <button
-                type="button"
-                onClick={() => onSelectBackgroundPhoto?.()}
-                className="flex items-center justify-center gap-3 rounded-2xl border-2 border-[#e0b7a9]/40 bg-white px-5 py-3 text-sm font-semibold text-[#4a302b] shadow-[0_4px_12px_rgba(224,183,169,0.18)] transition-all hover:translate-y-[-2px] hover:shadow-[0_10px_24px_rgba(224,183,169,0.24)]"
-              >
-                Edit foto background
-              </button>
-              <button
-                type="button"
-                onClick={() => onFitBackgroundPhoto?.()}
-                className="flex items-center justify-center gap-3 rounded-2xl border-2 border-[#e0b7a9]/40 bg-gradient-to-r from-[#f7e3da] to-[#f1cfc0] px-5 py-3 text-sm font-semibold text-[#4a302b] shadow-[0_6px_16px_rgba(224,183,169,0.25)] transition-all hover:translate-y-[-2px] hover:shadow-[0_12px_26px_rgba(224,183,169,0.35)]"
-              >
-                Sesuaikan ke kanvas
-              </button>
-            </div>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => {
-              if (selectedElement !== "background") return;
-              if (typeof window !== "undefined") {
-                const uploadEvent = new CustomEvent(
-                  "creator:request-background-upload"
-                );
-                window.dispatchEvent(uploadEvent);
-              }
-            }}
-            className="flex items-center justify-center gap-3 rounded-2xl border-2 border-[#e0b7a9]/40 bg-gradient-to-r from-[#f7e3da] to-[#f1cfc0] px-5 py-3 text-sm font-semibold text-[#4a302b] shadow-[0_6px_16px_rgba(224,183,169,0.25)] transition-all hover:translate-y-[-2px] hover:shadow-[0_12px_26px_rgba(224,183,169,0.35)]"
-          >
-            Unggah foto background
-          </button>
-        </Section>
+          </div>
+        </CollapsibleSection>
       </motion.div>
     );
   }
@@ -493,34 +639,6 @@ export default function PropertiesPanel({
 
       {selectedElement.type === "photo" && (
         <>
-          {/* Photo Layer Tips */}
-          <Section title="💡 Tips Lapisan Foto">
-            <div className="space-y-3 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50/50 p-4 border border-blue-200/30">
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex-shrink-0">
-                  <div className="rounded-full bg-blue-500 p-1">
-                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                </div>
-                <div className="flex-1 text-xs text-slate-600 leading-relaxed">
-                  <p className="font-semibold text-slate-700 mb-1">Area Foto untuk Kamera</p>
-                  <p>Gunakan kontrol lapisan di atas untuk mengatur apakah foto berada di <strong>depan</strong> atau <strong>belakang</strong> elemen lain (teks, shape).</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-xs">
-                <span className="inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 font-semibold text-blue-600 shadow-sm border border-blue-200/50">
-                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                    <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-                  </svg>
-                  Foto akan muncul di sini saat diambil
-                </span>
-              </div>
-            </div>
-          </Section>
-          
           {renderFillControls({ showBorderRadius: true })}
           {renderOutlineControls({ defaultColor: "#f4f4f4", maxWidth: 24 })}
         </>

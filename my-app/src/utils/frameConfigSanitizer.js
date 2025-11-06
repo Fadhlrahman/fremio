@@ -85,8 +85,17 @@ export const sanitizeFrameConfigForStorage = (config) => {
     metadata: cloneMetadata(config.metadata),
   };
 
-  delete sanitized.frameImage;
-  delete sanitized.preview;
+  // For custom frames (from Create page), keep frameImage and preview!
+  // They are essential for the frame to display correctly
+  const isCustomFrame = config.isCustom || config.id?.startsWith('custom-');
+  
+  if (!isCustomFrame) {
+    // Only remove frameImage/preview for non-custom frames
+    // (regular frames from Frames page can reload these from frameConfigs.js)
+    delete sanitized.frameImage;
+    delete sanitized.preview;
+  }
+  // For custom frames, KEEP frameImage and preview - they're needed!
 
   const sanitizedDesigner = sanitizeDesigner(config.designer);
   if (sanitizedDesigner) {

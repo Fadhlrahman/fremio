@@ -338,8 +338,19 @@ export const activateDraftFrame = (draft) => {
   // This is the CRITICAL FIX - don't sanitize, store complete data
   let configPersisted = false;
   try {
-    configPersisted = safeStorage.setJSON("frameConfig", frameConfig);
-    console.log('✅ [activateDraftFrame] Full frameConfig stored to localStorage');
+    // Add timestamp for session validation
+    const configWithTimestamp = {
+      ...frameConfig,
+      __timestamp: Date.now(),
+      __selectedAt: new Date().toISOString()
+    };
+    
+    configPersisted = safeStorage.setJSON("frameConfig", configWithTimestamp);
+    
+    // Save timestamp separately for validation
+    safeStorage.setItem('frameConfigTimestamp', String(configWithTimestamp.__timestamp));
+    
+    console.log('✅ [activateDraftFrame] Full frameConfig stored to localStorage with timestamp');
   } catch (error) {
     console.warn('⚠️ [activateDraftFrame] localStorage failed (too large), frameConfig will load from draft:', error);
     // Don't throw error - TakeMoment can load from draft directly via activeDraftId

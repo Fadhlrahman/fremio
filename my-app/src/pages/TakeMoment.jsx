@@ -9,6 +9,7 @@ import { useNavigate } from "react-router-dom";
 import frameProvider from "../utils/frameProvider.js";
 import safeStorage from "../utils/safeStorage.js";
 import { deriveFrameLayerPlan } from "../utils/frameLayerPlan.js";
+import { clearStaleFrameCache } from "../utils/frameCacheCleaner.js";
 import flipIcon from "../assets/flip.png";
 import fremioLogo from "../assets/logo.svg";
 
@@ -776,18 +777,80 @@ export default function TakeMoment() {
 
   useEffect(() => {
     clearCapturedMedia();
+    
+    // Clear stale cache (older than 24 hours)
+    clearStaleFrameCache();
+    
+    // 🆕 NEW SESSION LOGIC: Clear old frame data to prevent carryover
+    // Only keep frameConfig if it has a fresh timestamp (within last 5 minutes)
+    const frameConfigTimestamp = safeStorage.getItem('frameConfigTimestamp');
+    const now = Date.now();
+    const FIVE_MINUTES = 5 * 60 * 1000; // 5 minutes in milliseconds
+    
+    if (frameConfigTimestamp) {
+      const timeDiff = now - Number(frameConfigTimestamp);
+      const isStaleSession = timeDiff > FIVE_MINUTES;
+      
+      console.log('🕐 TakeMoment session check:', {
+        timestamp: new Date(Number(frameConfigTimestamp)).toLocaleString(),
+        ageMinutes: Math.round(timeDiff / 1000 / 60),
+        isStale: isStaleSession
+      });
+      
+      if (isStaleSession) {
+        console.log('🧹 Clearing stale frame session (>5 minutes old)');
+        safeStorage.removeItem('frameConfig');
+        safeStorage.removeItem('frameConfigTimestamp');
+        safeStorage.removeItem('selectedFrame');
+        // Don't clear activeDraftId - user might want to resume draft
+      }
+    } else {
+      // No timestamp means very old data or fresh start - clear to be safe
+      console.log('🧹 No timestamp found, clearing old frame data');
+      safeStorage.removeItem('frameConfig');
+      safeStorage.removeItem('selectedFrame');
+    }
 
-    // CRITICAL: Check if frame is already loaded in memory (e.g., from Drafts activation)
+    // CRITICAL: Always check localStorage first for custom frames (from Create page)
+    const storedConfig = safeStorage.getJSON('frameConfig');
+    const activeDraftId = safeStorage.getItem('activeDraftId');
+    
+    console.log('🔍 TakeMoment useEffect - checking frame sources:', {
+      hasStoredConfig: !!storedConfig,
+      storedConfigId: storedConfig?.id,
+      isCustomStored: storedConfig?.isCustom || storedConfig?.id?.startsWith('custom-'),
+      hasActiveDraftId: !!activeDraftId,
+      activeDraftId: activeDraftId
+    });
+
+    // Priority 1: Use stored config from localStorage (set by Create/Drafts)
+    if (storedConfig?.id && (storedConfig.isCustom || activeDraftId)) {
+      console.log('✅ Using stored custom frame config from Create/Drafts:', storedConfig.id);
+      
+      // Set to frameProvider for consistency
+      frameProvider.setFrame(storedConfig.id, { config: storedConfig, isCustom: true }).then(() => {
+        const frameConfig = frameProvider.getCurrentConfig();
+        if (frameConfig?.maxCaptures) {
+          setMaxCaptures(frameConfig.maxCaptures);
+        } else {
+          setMaxCaptures(4);
+        }
+        persistLayerPlan(frameConfig);
+      });
+      return;
+    }
+    
+    // Priority 2: Check if frame is already loaded in frameProvider memory
     const existingConfig = frameProvider.getCurrentConfig();
-    console.log('🔍 TakeMoment useEffect - checking existing frame:', {
+    console.log('🔍 Checking frameProvider memory:', {
       hasExistingConfig: !!existingConfig,
       existingFrameId: existingConfig?.id,
       isCustom: existingConfig?.id?.startsWith('custom-')
     });
 
     if (existingConfig?.id) {
-      // Frame already set (e.g., from Drafts), don't reload
-      console.log('✅ Using existing frame config:', existingConfig.id);
+      // Frame already set (e.g., from Frames page), use it
+      console.log('✅ Using existing frame config from frameProvider:', existingConfig.id);
       if (existingConfig?.maxCaptures) {
         setMaxCaptures(existingConfig.maxCaptures);
       } else {
@@ -795,7 +858,7 @@ export default function TakeMoment() {
       }
       persistLayerPlan(existingConfig);
     } else {
-      // No frame in memory, load from storage
+      // Priority 3: No frame anywhere, load from storage
       console.log('📁 No frame in memory, loading from storage...');
       frameProvider
         .loadFrameFromStorage()
@@ -2191,11 +2254,15 @@ export default function TakeMoment() {
         safeStorage.setJSON("capturedVideos", basePayload.videos);
       }
 
-      // Save frame config - with fallback to stored config if frameProvider failed
-      let configToSave = frameConfig;
+      // Save frame config - prioritize stored config (from Create/Drafts), then frameProvider
+      let configToSave = safeStorage.getJSON("frameConfig");
+      
+      // Only use frameProvider if no stored config (e.g., coming from Frames page)
       if (!configToSave || !configToSave.id) {
-        console.warn("⚠️ frameProvider config is empty, trying stored config...");
-        configToSave = safeStorage.getJSON("frameConfig");
+        console.warn("⚠️ No stored frameConfig, using frameProvider...");
+        configToSave = frameConfig;
+      } else {
+        console.log("✅ Using stored frameConfig (from Create/Drafts):", configToSave.id);
       }
       
       if (configToSave && configToSave.id) {

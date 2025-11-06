@@ -90,7 +90,7 @@ const normalizePhotoPlaceholders = (elements = []) => {
     return [];
   }
 
-  return elements.filter((element) => {
+  const photoPlaceholders = elements.filter((element) => {
     if (!element || typeof element !== "object") {
       return false;
     }
@@ -102,6 +102,15 @@ const normalizePhotoPlaceholders = (elements = []) => {
     const label = String(element?.data?.label || "").toLowerCase();
     return element.type === "shape" && label.includes("foto");
   });
+  
+  console.log('🔍 [normalizePhotoPlaceholders] Filtering photo slots:', {
+    totalElements: elements.length,
+    photoPlaceholders: photoPlaceholders.length,
+    types: elements.map(el => ({ type: el.type, id: el.id?.slice(0, 8) })),
+    photoTypes: photoPlaceholders.map(el => ({ type: el.type, id: el.id?.slice(0, 8), photoIndex: el.data?.photoIndex }))
+  });
+  
+  return photoPlaceholders;
 };
 
 const clampNormalized = (value) => {
@@ -203,11 +212,27 @@ export const buildFrameConfigFromDraft = (draft) => {
   }
 
   const sourceElements = extractDraftElements(draft);
+  
+  console.log('🔍 [buildFrameConfigFromDraft] Source elements:', {
+    total: sourceElements.length,
+    types: sourceElements.map(el => ({ 
+      type: el.type, 
+      id: el.id?.slice(0, 8), 
+      zIndex: el.zIndex,
+      label: el.data?.label 
+    }))
+  });
+  
   const photoElements = normalizePhotoPlaceholders(sourceElements);
-
-  console.log('🔍 [buildFrameConfigFromDraft] Source elements z-index:', 
-    sourceElements.map(el => ({ type: el.type, id: el.id?.slice(0, 8), zIndex: el.zIndex }))
-  );
+  
+  console.log('🔍 [buildFrameConfigFromDraft] After filtering for photo slots:', {
+    photoElementsCount: photoElements.length,
+    photoElements: photoElements.map(el => ({ 
+      type: el.type, 
+      id: el.id?.slice(0, 8),
+      photoIndex: el.data?.photoIndex 
+    }))
+  });
 
   const {
     id,
@@ -261,6 +286,18 @@ export const buildFrameConfigFromDraft = (draft) => {
   });
 
   const maxCaptures = uniquePhotoIndices.size > 0 ? uniquePhotoIndices.size : slots.length;
+  
+  console.log('🔍 [buildFrameConfigFromDraft] maxCaptures calculation:', {
+    slotsCount: slots.length,
+    uniquePhotoIndices: Array.from(uniquePhotoIndices),
+    maxCaptures,
+    slotDetails: slots.map((s, i) => ({
+      id: s.id,
+      photoIndex: s.photoIndex,
+      width: s.width,
+      height: s.height
+    }))
+  });
 
   const orientation = canvasHeight >= canvasWidth ? "portrait" : "landscape";
 

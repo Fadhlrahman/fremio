@@ -89,6 +89,9 @@ export default function PropertiesPanel({
   onSendToBack,
   onBringForward,
   onSendBackward,
+  canvasAspectRatio,
+  onCanvasAspectRatioChange,
+  showCanvasSizeMode = false,
 }) {
   // Local state for dimension inputs
   const [localWidth, setLocalWidth] = useState("");
@@ -602,6 +605,59 @@ export default function PropertiesPanel({
           </div>
         </CollapsibleSection>
 
+        {/* Ukuran Canvas - Collapsible */}
+        <CollapsibleSection 
+          title="Ukuran Canvas" 
+          isOpen={openDropdown === 'ukuran-canvas'}
+          onToggle={() => setOpenDropdown(openDropdown === 'ukuran-canvas' ? null : 'ukuran-canvas')}
+        >
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-1 gap-2">
+              {[
+                { label: "Story Instagram", ratio: "9:16", desc: "1080 × 1920" },
+                { label: "Instagram Feeds", ratio: "4:5", desc: "1080 × 1350" },
+                { label: "Photostrip", ratio: "2:3", desc: "1200 × 1800" },
+              ].map((preset) => (
+                <button
+                  key={preset.ratio}
+                  onClick={() => {
+                    onCanvasAspectRatioChange?.(preset.ratio);
+                  }}
+                  className={`px-4 py-3 text-sm rounded-xl border-2 transition-all text-left ${
+                    canvasAspectRatio === preset.ratio
+                      ? "border-[#e0b7a9] bg-gradient-to-r from-[#fdf7f4] to-[#f5e5df] text-[#4a302b] font-semibold shadow-md"
+                      : "border-[#e0b7a9]/20 bg-white hover:border-[#e0b7a9]/40 hover:bg-[#fdf7f4]/30 text-slate-700"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-semibold">{preset.label}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">{preset.desc}</div>
+                    </div>
+                    {canvasAspectRatio === preset.ratio && (
+                      <div className="w-5 h-5 rounded-full bg-[#e0b7a9] flex items-center justify-center">
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                          <path d="M10 3L4.5 8.5L2 6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+            
+            {/* Current Ratio Display */}
+            <div className="bg-gradient-to-br from-[#fdf7f4] to-[#f5e5df] rounded-xl p-3 border border-[#e0b7a9]/20">
+              <div className="text-xs font-semibold text-[#e0b7a9] uppercase tracking-wider mb-1">
+                Rasio Saat Ini
+              </div>
+              <div className="text-lg font-bold text-[#4a302b]">
+                {canvasAspectRatio}
+              </div>
+            </div>
+          </div>
+        </CollapsibleSection>
+
         {/* Warna Latar - Collapsible */}
         <CollapsibleSection 
           title="Warna Latar" 
@@ -610,6 +666,71 @@ export default function PropertiesPanel({
         >
           <div className="flex flex-col items-center gap-3">
             <ColorPicker value={canvasBackground} onChange={onBackgroundChange} />
+          </div>
+        </CollapsibleSection>
+      </motion.div>
+    );
+  }
+
+  // Canvas Size Mode - Show when canvas size tool is active
+  if (showCanvasSizeMode) {
+    return (
+      <motion.div
+        variants={panelVariant}
+        initial="hidden"
+        animate="visible"
+        className="flex h-full w-full flex-col gap-4"
+      >
+        {/* Ukuran Canvas Section */}
+        <CollapsibleSection 
+          title="Ukuran Canvas" 
+          isOpen={true}
+          onToggle={() => {}}
+        >
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-1 gap-2">
+              {[
+                { label: "Story Instagram", ratio: "9:16", desc: "1080 × 1920" },
+                { label: "Instagram Feeds", ratio: "4:5", desc: "1080 × 1350" },
+                { label: "Photostrip", ratio: "2:3", desc: "1200 × 1800" },
+              ].map((preset) => (
+                <button
+                  key={preset.ratio}
+                  onClick={() => {
+                    onCanvasAspectRatioChange?.(preset.ratio);
+                  }}
+                  className={`px-4 py-3 text-sm rounded-xl border-2 transition-all text-left ${
+                    canvasAspectRatio === preset.ratio
+                      ? "border-[#e0b7a9] bg-gradient-to-r from-[#fdf7f4] to-[#f5e5df] text-[#4a302b] font-semibold shadow-md"
+                      : "border-[#e0b7a9]/20 bg-white hover:border-[#e0b7a9]/40 hover:bg-[#fdf7f4]/30 text-slate-700"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-semibold">{preset.label}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">{preset.desc}</div>
+                    </div>
+                    {canvasAspectRatio === preset.ratio && (
+                      <div className="w-5 h-5 rounded-full bg-[#e0b7a9] flex items-center justify-center">
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                          <path d="M10 3L4.5 8.5L2 6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+            
+            {/* Current Ratio Display */}
+            <div className="bg-gradient-to-br from-[#fdf7f4] to-[#f5e5df] rounded-xl p-3 border border-[#e0b7a9]/20">
+              <div className="text-xs font-semibold text-[#e0b7a9] uppercase tracking-wider mb-1">
+                Rasio Saat Ini
+              </div>
+              <div className="text-lg font-bold text-[#4a302b]">
+                {canvasAspectRatio}
+              </div>
+            </div>
           </div>
         </CollapsibleSection>
       </motion.div>

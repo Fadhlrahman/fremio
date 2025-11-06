@@ -1,6 +1,7 @@
 import { Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
+import { AdminOnly } from "./components/guards/RoleGuard.simple.jsx";
 import RootLayout from "./layouts/RootLayout.jsx";
 import Home from "./pages/Home.jsx";
 import Frames from "./pages/Frames.jsx";
@@ -19,6 +20,12 @@ import Profile from "./pages/Profile.jsx";
 import Settings from "./pages/Settings.jsx";
 import Wishlist from "./pages/Wishlist.jsx";
 import Drafts from "./pages/Drafts.jsx";
+
+// Admin Pages
+import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
+import KreatorApplications from "./pages/admin/KreatorApplications.jsx";
+import AdminFrames from "./pages/admin/AdminFrames.jsx";
+
 import "./App.css";
 
 export default function App() {
@@ -113,6 +120,32 @@ export default function App() {
               <ProtectedRoute>
                 <FrameBuilder />
               </ProtectedRoute>
+            }
+          />
+
+          {/* Admin Routes */}
+          <Route
+            path="admin/dashboard"
+            element={
+              <AdminOnly>
+                <AdminDashboard />
+              </AdminOnly>
+            }
+          />
+          <Route
+            path="admin/applications"
+            element={
+              <AdminOnly>
+                <KreatorApplications />
+              </AdminOnly>
+            }
+          />
+          <Route
+            path="admin/frames"
+            element={
+              <AdminOnly>
+                <AdminFrames />
+              </AdminOnly>
             }
           />
 

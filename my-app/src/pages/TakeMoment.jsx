@@ -823,9 +823,67 @@ export default function TakeMoment() {
       activeDraftId: activeDraftId
     });
 
-    // Priority 1: Use stored config from localStorage (set by Create/Drafts)
-    if (storedConfig?.id && (storedConfig.isCustom || activeDraftId)) {
-      console.log('✅ Using stored custom frame config from Create/Drafts:', storedConfig.id);
+    // Priority 1: Check for activeDraftId first (custom frame from Create page)
+    if (activeDraftId) {
+      console.log('🎯 activeDraftId found in initialization, loading custom frame from draft');
+      console.log('   activeDraftId:', activeDraftId);
+      console.log('   storedConfig.id:', storedConfig?.id);
+      console.log('   storedConfig.isCustom:', storedConfig?.isCustom);
+      
+      // CRITICAL: Even if storedConfig exists, if activeDraftId is present, we MUST use draft
+      // Because storedConfig might be incomplete (no images) or wrong frame (Testframe1)
+      (async () => {
+        try {
+          const { default: draftStorage } = await import('../utils/draftStorage.js');
+          const draft = await draftStorage.getDraftById(activeDraftId);
+          
+          if (draft) {
+            console.log('✅ Draft loaded:', {
+              id: draft.id,
+              title: draft.title,
+              hasElements: !!draft.elements,
+              elementsCount: draft.elements?.length
+            });
+            
+            const { buildFrameConfigFromDraft } = await import('../utils/draftHelpers.js');
+            const customFrameConfig = buildFrameConfigFromDraft(draft);
+            
+            console.log('✅ Custom frame built from draft:', {
+              id: customFrameConfig.id,
+              maxCaptures: customFrameConfig.maxCaptures,
+              slotsCount: customFrameConfig.slots?.length,
+              hasBackgroundPhoto: !!customFrameConfig.designer?.elements?.find(el => el.type === 'background-photo')
+            });
+            
+            // Set to frameProvider
+            await frameProvider.setFrame(customFrameConfig.id, { config: customFrameConfig, isCustom: true });
+            
+            // Set maxCaptures from custom frame (NOT from storedConfig!)
+            setMaxCaptures(customFrameConfig.maxCaptures || 1);
+            console.log('✅ Set maxCaptures to:', customFrameConfig.maxCaptures || 1);
+            
+            persistLayerPlan(customFrameConfig);
+          } else {
+            console.error('❌ Draft not found:', activeDraftId);
+            // Fallback to stored config
+            if (storedConfig?.maxCaptures) {
+              setMaxCaptures(storedConfig.maxCaptures);
+            }
+          }
+        } catch (error) {
+          console.error('❌ Failed to load draft:', error);
+          // Fallback to stored config
+          if (storedConfig?.maxCaptures) {
+            setMaxCaptures(storedConfig.maxCaptures);
+          }
+        }
+      })();
+      return;
+    }
+    
+    // Priority 2: Use stored config from localStorage (for regular frames)
+    if (storedConfig?.id && storedConfig.isCustom) {
+      console.log('✅ Using stored custom frame config from localStorage:', storedConfig.id);
       
       // Set to frameProvider for consistency
       frameProvider.setFrame(storedConfig.id, { config: storedConfig, isCustom: true }).then(() => {
@@ -2254,30 +2312,91 @@ export default function TakeMoment() {
         safeStorage.setJSON("capturedVideos", basePayload.videos);
       }
 
-      // Save frame config - prioritize stored config (from Create/Drafts), then frameProvider
-      let configToSave = safeStorage.getJSON("frameConfig");
+      // Save frame config - CRITICAL: prioritize custom frame from draft
+      console.log('💾 [SAVE DATA] Starting frame config save...');
+      console.log('   Captured photos count:', capturedPhotosRef.current.length);
+      console.log('   Photos data preview:', capturedPhotosRef.current.map((p, i) => ({
+        index: i,
+        hasData: !!p,
+        isString: typeof p === 'string',
+        length: typeof p === 'string' ? p.length : 'N/A',
+        preview: typeof p === 'string' ? p.substring(0, 30) + '...' : 'Not a string'
+      })));
       
-      // Only use frameProvider if no stored config (e.g., coming from Frames page)
-      if (!configToSave || !configToSave.id) {
-        console.warn("⚠️ No stored frameConfig, using frameProvider...");
+      let configToSave = null;
+      const activeDraftId = safeStorage.getItem("activeDraftId");
+      
+      // If there's an activeDraftId, it means user came from Create page with custom frame
+      // MUST use that custom frame, not any other stored frameConfig!
+      if (activeDraftId) {
+        console.log("🎯 CRITICAL: activeDraftId found, using custom frame from current session");
+        console.log("   activeDraftId:", activeDraftId);
+        
+        // Use frameConfig from frameProvider (set by activateDraftFrame)
         configToSave = frameConfig;
+        console.log("   frameProvider config ID:", configToSave?.id);
+        
+        if (!configToSave || !configToSave.id?.startsWith('custom-')) {
+          console.warn("⚠️ activeDraftId exists but frameProvider has wrong frame, rebuilding from draft...");
+          try {
+            const { default: draftStorage } = await import('../utils/draftStorage.js');
+            const draft = await draftStorage.getDraftById(activeDraftId);
+            if (draft) {
+              const { buildFrameConfigFromDraft } = await import('../utils/draftHelpers.js');
+              configToSave = buildFrameConfigFromDraft(draft);
+              console.log("✅ Rebuilt custom frame from draft:", configToSave.id);
+            } else {
+              console.error("❌ Draft not found:", activeDraftId);
+            }
+          } catch (error) {
+            console.error("❌ Failed to rebuild from draft:", error);
+          }
+        } else {
+          console.log("✅ Using custom frame from frameProvider:", configToSave.id);
+        }
       } else {
-        console.log("✅ Using stored frameConfig (from Create/Drafts):", configToSave.id);
+        // No activeDraftId means user came from Frames page (regular frame)
+        // Use stored frameConfig or frameProvider
+        console.log("📦 No activeDraftId, using regular frame");
+        configToSave = safeStorage.getJSON("frameConfig");
+        
+        if (!configToSave || !configToSave.id) {
+          console.warn("⚠️ No stored frameConfig, using frameProvider...");
+          configToSave = frameConfig;
+        } else {
+          console.log("✅ Using stored frameConfig (regular frame):", configToSave.id);
+        }
       }
       
       if (configToSave && configToSave.id) {
         try {
           console.log("💾 Saving frame config before editor:", configToSave.id);
           safeStorage.setItem("selectedFrame", configToSave.id);
-          safeStorage.setJSON("frameConfig", configToSave);
+          
+          // Add timestamp for validation
+          const configWithTimestamp = {
+            ...configToSave,
+            __timestamp: Date.now(),
+            __savedFrom: 'TakeMoment'
+          };
+          
+          safeStorage.setJSON("frameConfig", configWithTimestamp);
+          safeStorage.setItem('frameConfigTimestamp', String(configWithTimestamp.__timestamp));
+          
+          console.log("✅ Frame config saved with timestamp:", configWithTimestamp.__timestamp);
         } catch (error) {
           console.error(
             "❌ QuotaExceededError when saving frame config",
             error
           );
-          alert(
-            "Warning: Could not save frame configuration due to storage limits."
-          );
+          console.warn("⚠️ Frame config too large for localStorage, EditPhoto will load from draft");
+          
+          // Make sure activeDraftId is still there as fallback
+          const activeDraftId = safeStorage.getItem('activeDraftId');
+          if (!activeDraftId && configToSave.metadata?.draftId) {
+            safeStorage.setItem('activeDraftId', configToSave.metadata.draftId);
+            console.log("✅ Restored activeDraftId:", configToSave.metadata.draftId);
+          }
         }
       } else {
         console.error("❌ No valid frame config to save!");

@@ -68,7 +68,41 @@ export default function EditPhoto() {
           }
         }
         
-        // If frameConfig is incomplete (no background photo or missing image), try to load from draft
+        // CRITICAL FIX: If no config at all, try to load from draft
+        if (!config) {
+          console.log('⚠️ No frameConfig in localStorage, checking for activeDraftId...');
+          const activeDraftId = safeStorage.getItem('activeDraftId');
+          
+          if (activeDraftId) {
+            try {
+              console.log('🔄 Loading frameConfig from draft:', activeDraftId);
+              const { default: draftStorage } = await import('../utils/draftStorage.js');
+              const draft = await draftStorage.getDraftById(activeDraftId);
+              
+              if (draft) {
+                const { buildFrameConfigFromDraft } = await import('../utils/draftHelpers.js');
+                config = buildFrameConfigFromDraft(draft);
+                console.log('✅ Successfully loaded frameConfig from draft:', config.id);
+                
+                // Try to save to localStorage for next time (might fail if too large)
+                try {
+                  safeStorage.setJSON('frameConfig', config);
+                  safeStorage.setItem('frameConfigTimestamp', String(Date.now()));
+                } catch (e) {
+                  console.warn('⚠️ Could not cache frameConfig to localStorage:', e);
+                }
+              } else {
+                console.error('❌ Draft not found:', activeDraftId);
+              }
+            } catch (error) {
+              console.error('❌ Failed to load from draft:', error);
+            }
+          } else {
+            console.warn('⚠️ No activeDraftId found');
+          }
+        }
+        
+        // If frameConfig exists but is incomplete (missing background photo image), try to enhance it from draft
         if (config && config.isCustom) {
           const backgroundPhoto = config.designer?.elements?.find(el => el?.type === 'background-photo');
           const needsReload = !backgroundPhoto || !backgroundPhoto.data?.image;

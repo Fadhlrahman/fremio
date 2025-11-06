@@ -432,13 +432,14 @@ export default function Create() {
   const [toast, setToast] = useState(null);
   const [isMobileView, setIsMobileView] = useState(false);
   const [activeMobileProperty, setActiveMobileProperty] = useState(null);
+  const [showCanvasSizeInProperties, setShowCanvasSizeInProperties] = useState(false);
   const [canvasAspectRatio, setCanvasAspectRatio] = useState("9:16"); // Story Instagram default
   const [activeDraftId, setActiveDraftId] = useState(null);
   const [justSavedDraft, setJustSavedDraft] = useState(false); // Track if draft was just saved
   const previewFrameRef = useRef(null);
   const [previewConstraints, setPreviewConstraints] = useState({
-    maxWidth: 360,
-    maxHeight: 640,
+    maxWidth: 280,
+    maxHeight: 500,
   });
   const hasLoadedDraftRef = useRef(false);
   const location = useLocation();
@@ -1821,11 +1822,23 @@ export default function Create() {
   const toolButtons = useMemo(() => {
     const buttons = [
       {
+        id: "canvas-size",
+        label: "Ukuran Canvas",
+        mobileLabel: "Ukuran",
+        icon: Maximize2,
+        onClick: () => {
+          setShowCanvasSizeInProperties(true);
+          selectElement(null); // Deselect any element
+        },
+        isActive: showCanvasSizeInProperties,
+      },
+      {
         id: "background",
         label: "Background",
         mobileLabel: "Background",
         icon: Palette,
         onClick: () => {
+          setShowCanvasSizeInProperties(false);
           selectElement("background");
           // Desktop: hanya select background, tidak auto-upload
           // Upload dilakukan dari properties panel
@@ -1843,7 +1856,10 @@ export default function Create() {
         label: "Area Foto",
         mobileLabel: "Foto",
         icon: ImageIcon,
-        onClick: () => addToolElement("photo"),
+        onClick: () => {
+          setShowCanvasSizeInProperties(false);
+          addToolElement("photo");
+        },
         isActive: selectedElement?.type === "photo",
       },
       {
@@ -1851,7 +1867,10 @@ export default function Create() {
         label: "Add Text",
         mobileLabel: "Teks",
         icon: TypeIcon,
-        onClick: () => addToolElement("text"),
+        onClick: () => {
+          setShowCanvasSizeInProperties(false);
+          addToolElement("text");
+        },
         isActive: selectedElement?.type === "text",
       },
       {
@@ -1859,7 +1878,10 @@ export default function Create() {
         label: "Shape",
         mobileLabel: "Bentuk",
         icon: Shapes,
-        onClick: () => addToolElement("shape"),
+        onClick: () => {
+          setShowCanvasSizeInProperties(false);
+          addToolElement("shape");
+        },
         isActive: selectedElement?.type === "shape",
       },
       {
@@ -1867,7 +1889,10 @@ export default function Create() {
         label: "Unggahan",
         mobileLabel: "Unggah",
         icon: UploadCloud,
-        onClick: () => addToolElement("upload"),
+        onClick: () => {
+          setShowCanvasSizeInProperties(false);
+          addToolElement("upload");
+        },
         isActive: selectedElement?.type === "upload",
       },
     ];
@@ -1881,6 +1906,7 @@ export default function Create() {
     backgroundPhotoElement,
     triggerBackgroundUpload,
     isMobileView,
+    showCanvasSizeInProperties,
   ]);
 
   useEffect(() => {
@@ -1927,8 +1953,8 @@ export default function Create() {
 
     const computeConstraints = () => {
       const { clientWidth, clientHeight } = node;
-      const usableWidth = Math.max(0, Math.floor(clientWidth - 12));
-      const usableHeight = Math.max(0, Math.floor(clientHeight - 12));
+      const usableWidth = Math.max(0, Math.floor(clientWidth - 40));
+      const usableHeight = Math.max(0, Math.floor(clientHeight - 40));
 
       if (usableWidth > 0 && usableHeight > 0) {
         setPreviewConstraints({
@@ -1938,7 +1964,10 @@ export default function Create() {
       }
     };
 
-    computeConstraints();
+    // Use requestAnimationFrame to ensure DOM is fully laid out
+    requestAnimationFrame(() => {
+      computeConstraints();
+    });
 
     if (typeof ResizeObserver !== "undefined") {
       const observer = new ResizeObserver(() => computeConstraints());
@@ -1948,13 +1977,7 @@ export default function Create() {
 
     window.addEventListener("resize", computeConstraints);
     return () => window.removeEventListener("resize", computeConstraints);
-  }, [isMobileView, canvasAspectRatio]);
-
-  const canvasRatioOptions = [
-    { id: "9:16", label: "Story Instagram", ratio: 9 / 16 },
-    { id: "4:5", label: "Instagram Feed", ratio: 4 / 5 },
-    { id: "2:3", label: "Photostrip", ratio: 2 / 3 },
-  ];
+  }, [isMobileView]);
 
   const handleElementDimensionChange = useCallback(
     (dimension, rawValue) => {
@@ -2524,24 +2547,6 @@ export default function Create() {
           <h2 className="create-preview__title">Preview</h2>
           
           <div className="create-preview__body">
-            <div className="create-ratio-selector">
-              <label htmlFor="canvas-ratio-select" className="create-ratio-label">
-                Ukuran Canvas:
-              </label>
-              <select
-                id="canvas-ratio-select"
-                value={canvasAspectRatio}
-                onChange={(e) => setCanvasAspectRatio(e.target.value)}
-                className="create-ratio-dropdown"
-              >
-                {canvasRatioOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
             <div
               ref={previewFrameRef}
               className="create-preview__frame"
@@ -2680,6 +2685,11 @@ export default function Create() {
                 onSendToBack={sendToBack}
                 onBringForward={bringForward}
                 onSendBackward={sendBackward}
+                canvasAspectRatio={canvasAspectRatio}
+                onCanvasAspectRatioChange={(ratio) => {
+                  setCanvasAspectRatio(ratio);
+                }}
+                showCanvasSizeMode={showCanvasSizeInProperties}
               />
             </div>
           </Motion.aside>

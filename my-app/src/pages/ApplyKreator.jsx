@@ -25,7 +25,7 @@ export default function ApplyKreator() {
 
   const [errors, setErrors] = useState({});
 
-  // Check if user already has an application.
+  // Check if user already has an application
   useEffect(() => {
     if (!currentUser || roleLoading) return;
 

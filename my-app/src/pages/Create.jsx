@@ -188,6 +188,23 @@ const withTimeout = (promise, {
   });
 };
 
+const computeDraftSaveTimeoutMs = (bytes, baseTimeoutMs = 20000) => { // ⚡ Increased base from 15s to 20s
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return baseTimeoutMs;
+  }
+
+  const bytesPerMb = 1024 * 1024;
+  const approxMb = bytes / bytesPerMb;
+
+  // ⚡ More generous scaling: 8s per MB (up from 6s) to handle larger payloads
+  const extraMsPerMb = 8000;
+  const extraMs = Math.max(0, Math.ceil(Math.max(0, approxMb - 1)) * extraMsPerMb);
+  const computedTimeout = baseTimeoutMs + extraMs;
+  const maxTimeout = 90000; // ⚡ Extended cap from 60s to 90s for very large drafts
+
+  return Math.min(Math.max(baseTimeoutMs, computedTimeout), maxTimeout);
+};
+
 
 const prepareCanvasExportClone = (rootNode) => {
   if (!rootNode) {
@@ -1204,7 +1221,8 @@ export default function Create() {
       console.log('  Calculated aspect ratio:', canvasWidth / canvasHeight);
       console.log('  Expected for 9:16:', 9/16, '=', 1080/1920);
 
-  const captureScale = canvasWidth <= 720 ? 2 : 1;
+  // ⚡ AGGRESSIVE: Use lower scale to reduce capture time and size
+  const captureScale = 1; // Always use 1x scale (was: 2x for small canvases)
 
       const exportWrapper = document.createElement("div");
       Object.assign(exportWrapper.style, {
@@ -1246,6 +1264,9 @@ export default function Create() {
       };
 
       // ✅ SINGLE CAPTURE: html2canvas will respect CSS z-index ordering
+      console.log('📸 [html2canvas] Starting capture with scale:', captureScale);
+      const captureStartTime = Date.now();
+      
       const capturePromise = html2canvas(exportCanvasNode, {
         backgroundColor: null, // Transparent background
         useCORS: true,
@@ -1257,6 +1278,7 @@ export default function Create() {
         scrollX: 0,
         scrollY: 0,
         allowTaint: true,
+        logging: false, // Disable html2canvas verbose logging
         ignoreElements: (element) => {
           if (!element) return false;
           if (element.nodeType === Node.ELEMENT_NODE) {
@@ -1272,12 +1294,15 @@ export default function Create() {
       let captureCanvas = null;
       try {
         captureCanvas = await withTimeout(capturePromise, {
-          timeoutMs: 15000,
+          timeoutMs: 20000, // Increased from 15s to 20s for slower devices
           timeoutMessage: 'Rendering canvas took too long',
           onTimeout: () => console.warn('⚠️ html2canvas timed out while saving draft'),
         });
+        const captureElapsed = Date.now() - captureStartTime;
+        console.log(`📸 [html2canvas] Capture completed in ${captureElapsed}ms`);
       } catch (captureError) {
-        console.warn('⚠️ html2canvas failed, using fallback preview:', captureError);
+        const captureElapsed = Date.now() - captureStartTime;
+        console.warn(`⚠️ html2canvas failed after ${captureElapsed}ms:`, captureError);
       }
 
       if (captureCanvas) {
@@ -1347,7 +1372,7 @@ export default function Create() {
       }
 
       let exportCanvas = finalCanvas;
-      const maxPreviewWidth = 640;
+      const maxPreviewWidth = 400; // ⚡ Reduced from 640 for faster saves
       if (exportCanvas.width > maxPreviewWidth) {
         const previewScale = maxPreviewWidth / exportCanvas.width;
         const scaledCanvas = document.createElement("canvas");
@@ -1356,7 +1381,7 @@ export default function Create() {
         const ctx = scaledCanvas.getContext("2d");
         if (ctx) {
           ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = "high";
+          ctx.imageSmoothingQuality = "medium"; // ⚡ Reduced from "high"
           ctx.drawImage(exportCanvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
           exportCanvas = scaledCanvas;
         }
@@ -1373,12 +1398,12 @@ export default function Create() {
       // PNG format is 5-10x larger than JPEG and can cause quota exceeded errors!
       let previewDataUrl = "";
       try {
-        // Use JPEG with 0.6 quality - good enough for thumbnails, much smaller
-        previewDataUrl = exportCanvas.toDataURL("image/jpeg", 0.6);
+        // ⚡ Use JPEG with 0.5 quality (reduced from 0.6) - even smaller for faster saves
+        previewDataUrl = exportCanvas.toDataURL("image/jpeg", 0.5);
         const previewSizeKB = Math.round(previewDataUrl.length / 1024);
         console.log('🖼️ [Preview compressed]', {
           format: 'JPEG',
-          quality: 0.6,
+          quality: 0.5,
           sizeKB: previewSizeKB,
           purpose: 'thumbnail only',
         });
@@ -1386,7 +1411,7 @@ export default function Create() {
         console.warn("⚠️ JPEG preview error, trying lower quality", err);
         try {
           // Try even lower quality if needed
-          previewDataUrl = exportCanvas.toDataURL("image/jpeg", 0.5);
+          previewDataUrl = exportCanvas.toDataURL("image/jpeg", 0.4);
         } catch (err2) {
           console.error("❌ Failed to generate preview:", err2);
           // Use tiny 1x1 placeholder if preview fails
@@ -1489,6 +1514,9 @@ export default function Create() {
       );
 
       // Compress upload and background-photo element images before saving
+      console.log('🗜️ [Compression] Starting image compression for elements:', layeredElements.length);
+      const compressionStartTime = Date.now();
+      
       const compressedElements = await Promise.all(layeredElements.map(async (element) => {
         const imageSource = element?.data?.image;
         const shouldCompress =
@@ -1500,14 +1528,16 @@ export default function Create() {
         }
 
         try {
-          const timeoutMs = element.type === 'background-photo' ? 10000 : 8000;
+          const timeoutMs = element.type === 'background-photo' ? 8000 : 6000; // Reduced timeout
           const img = await loadImageAsync(imageSource, { timeoutMs });
 
           if (!img || !Number.isFinite(img.width) || !Number.isFinite(img.height)) {
             throw new Error('Invalid image dimensions');
           }
 
-          const maxWidth = element.type === 'background-photo' ? 1080 : 800;
+          // ⚡ ULTRA AGGRESSIVE: Smaller size and lower quality for faster saves
+          const maxWidth = element.type === 'background-photo' ? 600 : 480; // Reduced from 800/600
+          const quality = element.type === 'background-photo' ? 0.6 : 0.7; // Reduced from 0.65/0.75
           let targetWidth = img.width;
           let targetHeight = img.height;
 
@@ -1526,7 +1556,6 @@ export default function Create() {
           }
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-          const quality = element.type === 'background-photo' ? 0.75 : 0.85;
           const compressedImage = canvas.toDataURL('image/jpeg', quality);
 
           console.log('🗜️ Compressed image:', {
@@ -1534,6 +1563,7 @@ export default function Create() {
             original: imageSource.length,
             compressed: compressedImage.length,
             saved: imageSource.length - compressedImage.length,
+            reductionPercent: Math.round(((imageSource.length - compressedImage.length) / imageSource.length) * 100) + '%',
           });
 
           return {
@@ -1549,6 +1579,9 @@ export default function Create() {
           return element;
         }
       }));
+
+      const compressionElapsed = Date.now() - compressionStartTime;
+      console.log(`🗜️ [Compression] Completed in ${compressionElapsed}ms`);
 
       const signature = computeDraftSignature(
         compressedElements,
@@ -1566,8 +1599,14 @@ export default function Create() {
       });
 
       // Save captured photos with the draft
-      const capturedPhotos = safeStorage.getJSON('capturedPhotos') || [];
-      console.log('💾 [SAVING DRAFT] Captured photos to save:', capturedPhotos.length);
+      const rawCapturedPhotos = safeStorage.getJSON('capturedPhotos');
+      const capturedPhotosCount = Array.isArray(rawCapturedPhotos) ? rawCapturedPhotos.length : 0;
+
+      if (capturedPhotosCount > 0) {
+        console.log('� [SAVING DRAFT] Detected captured photos in storage but skipping persist to keep drafts lean:', {
+          capturedPhotosCount,
+        });
+      }
 
       // Check if there's a frame artwork element (upload element with very high z-index and locked)
       const frameArtworkElement = serializedElements.find(
@@ -1601,7 +1640,7 @@ export default function Create() {
         elements: compressedElements,
         preview: previewDataUrl,
         signature,
-        capturedPhotos: Array.isArray(capturedPhotos) && capturedPhotos.length > 0 ? capturedPhotos : undefined,
+  capturedPhotos: undefined,
         frameArtwork: frameArtwork || undefined,
       };
 
@@ -1632,14 +1671,51 @@ export default function Create() {
         console.warn('⚠️ Could not check storage usage:', e);
       }
 
-      const savedDraft = await withTimeout(
-        draftStorage.saveDraft(draftDataToSave),
-        {
-          timeoutMs: 15000,
-          timeoutMessage: 'Menyimpan draft melebihi batas waktu',
-          onTimeout: () => console.warn('⚠️ Draft save timed out'),
+      console.log('💾 [DRAFT SAVE] Starting save operation...');
+      const saveStartTime = Date.now();
+
+      const savePromise = draftStorage.saveDraft(draftDataToSave);
+      const primaryTimeoutMs = computeDraftSaveTimeoutMs(draftString.length);
+      const logTimeoutSeconds = Math.round(primaryTimeoutMs / 1000);
+
+      console.log('⏱️ [DRAFT SAVE] Timeout budget:', {
+        bytes: draftString.length,
+        approxMB: draftSizeMB,
+        primaryTimeoutMs,
+        primaryTimeoutSeconds: logTimeoutSeconds,
+      });
+
+      const awaitDraftSave = async (promise, timeoutMs, attemptLabel) => {
+        const seconds = Math.round(timeoutMs / 1000);
+        return withTimeout(promise, {
+          timeoutMs,
+          timeoutMessage: `Menyimpan draft melebihi batas waktu (${attemptLabel}, ${seconds}s)`,
+          onTimeout: () => console.warn(`⚠️ Draft save timed out (${attemptLabel}, ${seconds}s)`),
+        });
+      };
+
+      let savedDraft;
+      try {
+        savedDraft = await awaitDraftSave(savePromise, primaryTimeoutMs, 'utama');
+        const saveElapsed = Date.now() - saveStartTime;
+        console.log(`💾 [DRAFT SAVE] Save completed in ${saveElapsed}ms`);
+      } catch (primaryError) {
+        if (primaryError?.name === 'TimeoutError') {
+          const extendedTimeoutMs = Math.min(primaryTimeoutMs + 20000, 60000);
+          const extendedSeconds = Math.round(extendedTimeoutMs / 1000);
+          console.warn('⏱️ [DRAFT SAVE] Primary timeout elapsed, retrying with extended budget', {
+            primaryTimeoutMs,
+            extendedTimeoutMs,
+            extendedSeconds,
+          });
+
+          savedDraft = await awaitDraftSave(savePromise, extendedTimeoutMs, 'lanjutan');
+          const saveElapsed = Date.now() - saveStartTime;
+          console.log(`💾 [DRAFT SAVE] Save completed (extended) in ${saveElapsed}ms`);
+        } else {
+          throw primaryError;
         }
-      );
+      }
 
       console.log('✅ [DRAFT SAVED] Success! Draft ID:', savedDraft.id);
       console.log('✅ [DRAFT SAVED] Elements with preserved z-index:', 

@@ -1,30 +1,47 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import draftStorage from "../utils/draftStorage.js";
-import { activateDraftFrame } from "../utils/draftHelpers.js";
 import safeStorage from "../utils/safeStorage.js";
-import frameProvider from "../utils/frameProvider.js";
 import "../styles/drafts.css";
 
 export default function Drafts() {
   const navigate = useNavigate();
   const [drafts, setDrafts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activatingId, setActivatingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const isMountedRef = useRef(true);
 
-  const reloadDrafts = useCallback(() => {
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const reloadDrafts = useCallback(async () => {
+    if (!isMountedRef.current) {
+      return;
+    }
+
     setLoading(true);
+    setErrorMessage("");
+
     try {
-      const loaded = draftStorage.loadDrafts();
-      setDrafts(Array.isArray(loaded) ? loaded : []);
+      const loaded = await draftStorage.loadDrafts();
+      if (isMountedRef.current) {
+        setDrafts(Array.isArray(loaded) ? loaded : []);
+      }
     } catch (error) {
       console.error("⚠️ Failed to load drafts", error);
-      setErrorMessage("Gagal memuat draft. Coba lagi nanti.");
-      setDrafts([]);
+      if (isMountedRef.current) {
+        setErrorMessage("Gagal memuat draft. Coba lagi nanti.");
+        setDrafts([]);
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -62,15 +79,21 @@ export default function Drafts() {
     const confirmDelete = window.confirm("Hapus draft ini?");
     if (!confirmDelete) return;
 
-    setDeletingId(draftId);
+    if (isMountedRef.current) {
+      setDeletingId(draftId);
+    }
     try {
-      draftStorage.deleteDraft(draftId);
-      reloadDrafts();
+      await draftStorage.deleteDraft(draftId);
+      await reloadDrafts();
     } catch (error) {
       console.error("❌ Failed to delete draft", error);
-      setErrorMessage("Draft tidak bisa dihapus. Coba lagi.");
+      if (isMountedRef.current) {
+        setErrorMessage("Draft tidak bisa dihapus. Coba lagi.");
+      }
     } finally {
-      setDeletingId(null);
+      if (isMountedRef.current) {
+        setDeletingId(null);
+      }
     }
   };
 

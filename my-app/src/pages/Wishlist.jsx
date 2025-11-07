@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 
-// Mock data frontend-only (backend nanti)
+// Mock data frontend-only (backend nanti).
 const MOCK_WISHLIST = [
   { id: "fw-301", title: "Fremio Series Blue 3x2", size: "3x2", color: "Blue" },
   { id: "fw-302", title: "Fremio Series Pink 3", size: "3x3", color: "Pink" },

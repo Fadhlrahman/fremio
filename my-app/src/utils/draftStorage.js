@@ -48,92 +48,92 @@ export const getDraftById = async (id) => {
   }
 };
 
-const persistDrafts = async (drafts) => {
-  if (USE_INDEXEDDB) {
-    try {
-      console.log('💾 [persistDrafts] Saving to IndexedDB:', {
-        count: drafts.length,
-        ids: drafts.map(d => d.id),
-      });
+const persistDraftsToLocalStorage = async (drafts) => {
+  try {
+    console.log('💾 [persistDrafts] Attempting to save to localStorage:', {
+      count: drafts.length,
+      ids: drafts.map((d) => d.id),
+    });
 
-      // Save each draft individually to IndexedDB
-      for (const draft of drafts) {
-        await indexedDBStorage.saveDraft(draft);
-      }
+    const success = safeStorage.setJSON(STORAGE_KEY, drafts);
 
-      console.log('✅ [persistDrafts] All drafts saved to IndexedDB');
-      return true;
+    console.log('💾 [persistDrafts] setJSON result:', success);
 
-    } catch (error) {
-      console.error("❌ [persistDrafts] Failed to persist to IndexedDB:", error);
-      console.error("❌ [persistDrafts] Error details:", {
-        message: error.message,
-        name: error.name,
-        stack: error.stack,
-      });
-      
-      // Try fallback to localStorage (will likely fail for large data, but worth trying)
-      console.log('🔄 [persistDrafts] Attempting localStorage fallback...');
-      try {
-        const success = safeStorage.setJSON(STORAGE_KEY, drafts);
-        if (!success) {
-          throw new Error("localStorage setJSON returned false");
-        }
-        console.log('✅ [persistDrafts] Saved to localStorage as fallback');
-        return true;
-      } catch (fallbackError) {
-        console.error("❌ [persistDrafts] localStorage fallback also failed:", fallbackError);
-        throw error; // Throw original IndexedDB error
-      }
+    if (!success) {
+      throw new Error("Failed to save drafts to localStorage (setJSON returned false)");
     }
-  } else {
-    // Original localStorage logic
-    try {
-      console.log('💾 [persistDrafts] Attempting to save to localStorage:', {
-        count: drafts.length,
-        ids: drafts.map(d => d.id),
-      });
 
-      const success = safeStorage.setJSON(STORAGE_KEY, drafts);
-      
-      console.log('💾 [persistDrafts] setJSON result:', success);
-      
-      if (!success) {
-        throw new Error("Failed to save drafts to localStorage (setJSON returned false)");
-      }
+    const verification = safeStorage.getJSON(STORAGE_KEY);
 
-      const verification = safeStorage.getJSON(STORAGE_KEY);
-      
-      console.log('✅ [persistDrafts] Verification result:', {
-        isArray: Array.isArray(verification),
-        count: verification?.length,
-        ids: verification?.map(d => d.id),
-      });
+    console.log('✅ [persistDrafts] Verification result:', {
+      isArray: Array.isArray(verification),
+      count: verification?.length,
+      ids: verification?.map((d) => d.id),
+    });
 
-      if (!Array.isArray(verification)) {
-        throw new Error("Draft persistence verification failed - not an array");
-      }
-
-      if (verification.length !== drafts.length) {
-        console.warn('⚠️ [persistDrafts] Draft count mismatch!', {
-          expected: drafts.length,
-          actual: verification.length,
-        });
-      }
-
-      console.log('✅ [persistDrafts] Drafts successfully persisted and verified');
-      return true;
-
-    } catch (error) {
-      console.error("❌ [persistDrafts] Failed to persist drafts", error);
-      console.error("❌ [persistDrafts] Error details:", {
-        message: error.message,
-        name: error.name,
-        stack: error.stack,
-      });
-      throw error;
+    if (!Array.isArray(verification)) {
+      throw new Error("Draft persistence verification failed - not an array");
     }
+
+    if (verification.length !== drafts.length) {
+      console.warn('⚠️ [persistDrafts] Draft count mismatch!', {
+        expected: drafts.length,
+        actual: verification.length,
+      });
+    }
+
+    console.log('✅ [persistDrafts] Drafts successfully persisted and verified');
+    return true;
+  } catch (error) {
+    console.error("❌ [persistDrafts] Failed to persist drafts", error);
+    console.error("❌ [persistDrafts] Error details:", {
+      message: error.message,
+      name: error.name,
+      stack: error.stack,
+    });
+    throw error;
   }
+};
+
+const buildSavedDraft = (incoming, nowIso, existing, id) => ({
+  ...existing,
+  ...incoming,
+  id,
+  title: incoming.title ?? existing?.title ?? "Draft",
+  createdAt: existing?.createdAt ?? incoming.createdAt ?? nowIso,
+  updatedAt: nowIso,
+});
+
+const saveDraftToIndexedDB = async (incoming, nowIso) => {
+  const id = incoming.id ?? generateId();
+  const normalizedIncoming = { ...incoming, id };
+  const existing = incoming.id ? await indexedDBStorage.getDraft(incoming.id) : null;
+  const savedDraft = buildSavedDraft(normalizedIncoming, nowIso, existing, id);
+
+  console.log('💾 [saveDraft] Persisting single draft to IndexedDB:', {
+    id: savedDraft.id,
+    hasElements: Array.isArray(savedDraft.elements),
+  });
+
+  await indexedDBStorage.saveDraft(savedDraft);
+  return savedDraft;
+};
+
+const saveDraftToLocalStorage = async (incoming, nowIso) => {
+  const drafts = ensureArray(safeStorage.getJSON(STORAGE_KEY, []));
+  const id = incoming.id ?? generateId();
+  const index = drafts.findIndex((draft) => draft.id === id);
+  const existing = index !== -1 ? drafts[index] : null;
+  const savedDraft = buildSavedDraft({ ...incoming, id }, nowIso, existing, id);
+
+  if (index !== -1) {
+    drafts[index] = savedDraft;
+  } else {
+    drafts.push(savedDraft);
+  }
+
+  await persistDraftsToLocalStorage(drafts);
+  return savedDraft;
 };
 
 export const deleteDraft = async (id) => {
@@ -169,51 +169,18 @@ export const clearDrafts = async () => {
 };
 
 export const saveDraft = async (inputDraft) => {
-  const drafts = await loadDrafts();
   const nowIso = new Date().toISOString();
+  const incoming = { ...inputDraft };
 
-  const incoming = {
-    ...inputDraft,
-  };
-
-  let savedDraft;
-
-  if (incoming.id) {
-    const index = drafts.findIndex((draft) => draft.id === incoming.id);
-    if (index !== -1) {
-      const existing = drafts[index];
-      savedDraft = {
-        ...existing,
-        ...incoming,
-        id: existing.id,
-        title: incoming.title ?? existing.title ?? "Draft",
-        createdAt: existing.createdAt ?? nowIso,
-        updatedAt: nowIso,
-      };
-      drafts[index] = savedDraft;
-    } else {
-      savedDraft = {
-        ...incoming,
-        id: incoming.id,
-        title: incoming.title ?? "Draft",
-        createdAt: incoming.createdAt ?? nowIso,
-        updatedAt: nowIso,
-      };
-      drafts.push(savedDraft);
+  if (USE_INDEXEDDB) {
+    try {
+      return await saveDraftToIndexedDB(incoming, nowIso);
+    } catch (error) {
+      console.error('❌ [saveDraft] Failed to save draft to IndexedDB, falling back to localStorage:', error);
     }
-  } else {
-    savedDraft = {
-      ...incoming,
-      id: generateId(),
-      title: incoming.title ?? "Draft",
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    };
-    drafts.push(savedDraft);
   }
 
-  await persistDrafts(drafts);
-  return savedDraft;
+  return saveDraftToLocalStorage(incoming, nowIso);
 };
 
 export default {

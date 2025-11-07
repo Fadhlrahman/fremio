@@ -351,6 +351,45 @@ const detectMobile = () => {
   return /android|iPad|iPhone|iPod/i.test(ua) && touchCapable;
 };
 
+const persistCapturedMediaToDraft = async (draftId, photos, videos) => {
+  if (!draftId) return;
+
+  const timestamp = new Date().toISOString();
+
+  try {
+    const { default: draftStorage } = await import("../utils/draftStorage.js");
+    const existingDraft = await draftStorage.getDraftById(draftId);
+
+    if (!existingDraft) {
+      console.warn("⚠️ No existing draft found while persisting captured media", {
+        draftId,
+      });
+      return;
+    }
+
+    const draftUpdate = {
+      ...existingDraft,
+      capturedPhotos: Array.isArray(photos) ? [...photos] : [],
+      capturedVideos: Array.isArray(videos) ? [...videos] : [],
+      lastCapturedAt: timestamp,
+    };
+
+    await draftStorage.saveDraft(draftUpdate);
+
+    console.log("✅ Captured media persisted to draft for recovery", {
+      draftId,
+      photos: draftUpdate.capturedPhotos.length,
+      videos: draftUpdate.capturedVideos.length,
+      timestamp,
+    });
+  } catch (error) {
+    console.warn("⚠️ Failed to persist captured media to draft fallback", {
+      draftId,
+      error,
+    });
+  }
+};
+
 const useIsMobile = () => {
   const [isMobile, setIsMobile] = useState(() => detectMobile());
 
@@ -1630,8 +1669,30 @@ export default function TakeMoment() {
                 Number.isFinite(validationResult.actualDuration),
             });
 
+            // Convert blob to dataUrl for localStorage storage
+            console.log('🔄 Converting video blob to dataUrl...');
+            const reader = new FileReader();
+            const dataUrlPromise = new Promise((resolveDataUrl) => {
+              reader.onloadend = () => {
+                const dataUrl = reader.result;
+                console.log('✅ Video dataUrl created:', {
+                  length: dataUrl?.length || 0,
+                  preview: dataUrl?.substring(0, 50) || 'none'
+                });
+                resolveDataUrl(dataUrl);
+              };
+              reader.onerror = () => {
+                console.warn('⚠️ Failed to convert blob to dataUrl, using blob only');
+                resolveDataUrl(null);
+              };
+              reader.readAsDataURL(blob);
+            });
+
+            const dataUrl = await dataUrlPromise;
+
             resolve({
               blob,
+              dataUrl, // Add dataUrl for storage
               previewUrl,
               mimeType:
                 blob.type ||
@@ -1746,8 +1807,28 @@ export default function TakeMoment() {
     const blob = await canvasToBlob(canvas, "image/jpeg", 0.9);
     const previewUrl = URL.createObjectURL(blob);
 
+    // Convert blob to dataUrl for localStorage storage
+    console.log('🔄 Converting photo blob to dataUrl...');
+    const reader = new FileReader();
+    const dataUrl = await new Promise((resolve, reject) => {
+      reader.onloadend = () => {
+        const result = reader.result;
+        console.log('✅ Photo dataUrl created:', {
+          length: result?.length || 0,
+          preview: result?.substring(0, 50) || 'none'
+        });
+        resolve(result);
+      };
+      reader.onerror = () => {
+        console.warn('⚠️ Failed to convert photo blob to dataUrl');
+        reject(new Error('FileReader error'));
+      };
+      reader.readAsDataURL(blob);
+    });
+
     const payload = {
       blob,
+      dataUrl, // Add dataUrl for storage
       previewUrl,
       width,
       height,
@@ -1859,7 +1940,20 @@ export default function TakeMoment() {
   const handleChoosePhoto = useCallback(async () => {
     if (!currentPhoto) return;
 
+    if (isVideoProcessing) {
+      alert("Video masih diproses. Mohon tunggu beberapa detik lagi.");
+      return;
+    }
+
+    if (!currentVideo?.dataUrl && !(currentVideo?.blob instanceof Blob)) {
+      alert(
+        "Video tidak ditemukan. Silakan tunggu hingga proses selesai atau ambil ulang."
+      );
+      return;
+    }
+
     let willReachMax = false;
+    let saveSucceeded = false;
 
     try {
       if (!currentPhoto.blob) {
@@ -1867,10 +1961,29 @@ export default function TakeMoment() {
       }
 
       const previewUrl = URL.createObjectURL(currentPhoto.blob);
+      let resolvedPhotoDataUrl = currentPhoto.dataUrl;
+      if (!resolvedPhotoDataUrl && currentPhoto.blob instanceof Blob) {
+        try {
+          resolvedPhotoDataUrl = await blobToDataURL(currentPhoto.blob);
+          console.log("📸 Photo dataUrl generated during save", {
+            length: resolvedPhotoDataUrl?.length || 0,
+          });
+        } catch (photoConversionError) {
+          console.warn(
+            "⚠️ Failed to convert photo blob to dataUrl during save",
+            photoConversionError
+          );
+        }
+      }
+
       const photoEntry = {
         id: generatePhotoEntryId(),
         blob: currentPhoto.blob,
-        dataUrl: null,
+        dataUrl:
+          typeof resolvedPhotoDataUrl === "string"
+          && resolvedPhotoDataUrl.startsWith("data:")
+            ? resolvedPhotoDataUrl
+            : null,
         previewUrl,
         width: currentPhoto.width ?? null,
         height: currentPhoto.height ?? null,
@@ -1881,6 +1994,12 @@ export default function TakeMoment() {
             : null,
         source: "camera",
       };
+
+      if (!photoEntry.dataUrl) {
+        console.warn(
+          "⚠️ Photo entry missing dataUrl; fallback to preview URL only"
+        );
+      }
 
       const basePhotos = Array.isArray(capturedPhotosRef.current)
         ? [...capturedPhotosRef.current]
@@ -1900,12 +2019,43 @@ export default function TakeMoment() {
 
       let preparedVideoEntry = null;
       if (currentVideo?.blob || currentVideo?.dataUrl) {
+        let videoSource = currentVideo;
+        if (!currentVideo.dataUrl && currentVideo.blob instanceof Blob) {
+          try {
+            const dataUrl = await blobToDataURL(currentVideo.blob);
+            videoSource = {
+              ...currentVideo,
+              dataUrl,
+            };
+            console.log("🎥 Video dataUrl generated from blob", {
+              length: dataUrl?.length || 0,
+            });
+          } catch (videoConversionError) {
+            console.error(
+              "❌ Failed to convert recorded video blob to dataUrl",
+              videoConversionError
+            );
+            alert(
+              "Video gagal diproses. Silakan tunggu beberapa detik lalu pilih lagi atau ambil ulang."
+            );
+            return;
+          }
+        }
+
+        if (!videoSource?.dataUrl) {
+          console.warn("⚠️ Video source has no dataUrl even after conversion");
+        }
+
         const targetIndex =
           insertedIndex === -1 ? trimmedPhotos.length - 1 : insertedIndex;
         preparedVideoEntry = createCapturedVideoEntry(
-          currentVideo,
+          videoSource,
           Math.max(0, targetIndex)
         );
+      }
+
+      if (!preparedVideoEntry) {
+        console.warn("⚠️ No video entry prepared; captured video may be missing");
       }
 
       const videosWorking = [...baseVideos];
@@ -1925,19 +2075,26 @@ export default function TakeMoment() {
       setCapturedVideos(trimmedVideos);
       scheduleStorageWrite(trimmedPhotos, trimmedVideos);
 
+      saveSucceeded = true;
+
       willReachMax = trimmedPhotos.length >= maxCaptures;
     } catch (error) {
       console.error("❌ Error processing captured media", error);
       alert("Gagal memproses foto. Silakan coba lagi.");
       return;
     } finally {
-      replaceCurrentPhoto(null);
-      replaceCurrentVideo(null);
-      setShowConfirmation(false);
-      setIsVideoProcessing(false);
+      if (saveSucceeded) {
+        replaceCurrentPhoto(null);
+        replaceCurrentVideo(null);
+        setShowConfirmation(false);
+        setIsVideoProcessing(false);
 
-      if (cameraActive && willReachMax) {
-        stopCamera();
+        if (cameraActive && willReachMax) {
+          stopCamera();
+        }
+      } else {
+        // Keep modal open so user can retry once video is ready
+        setIsVideoProcessing(false);
       }
     }
   }, [
@@ -1946,6 +2103,7 @@ export default function TakeMoment() {
     capturedVideosRef,
     currentPhoto,
     currentVideo,
+    isVideoProcessing,
     createCapturedVideoEntry,
     maxCaptures,
     replaceCurrentPhoto,
@@ -2312,6 +2470,16 @@ export default function TakeMoment() {
         safeStorage.setJSON("capturedVideos", basePayload.videos);
       }
 
+      const activeDraftId = safeStorage.getItem("activeDraftId");
+
+      if (activeDraftId) {
+        await persistCapturedMediaToDraft(
+          activeDraftId,
+          basePayload.photos,
+          basePayload.videos
+        );
+      }
+
       // Save frame config - CRITICAL: prioritize custom frame from draft
       console.log('💾 [SAVE DATA] Starting frame config save...');
       console.log('   Captured photos count:', capturedPhotosRef.current.length);
@@ -2324,7 +2492,6 @@ export default function TakeMoment() {
       })));
       
       let configToSave = null;
-      const activeDraftId = safeStorage.getItem("activeDraftId");
       
       // If there's an activeDraftId, it means user came from Create page with custom frame
       // MUST use that custom frame, not any other stored frameConfig!

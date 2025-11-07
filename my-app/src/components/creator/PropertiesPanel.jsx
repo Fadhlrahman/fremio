@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Trash2, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown, ChevronDown, ChevronUp } from "lucide-react";
+import { X, Trash2, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown, ChevronDown, ChevronUp, Lock, Unlock } from "lucide-react";
 import ColorPicker from "./ColorPicker.jsx";
 import "./PropertiesPanel.css";
 
@@ -92,6 +92,8 @@ export default function PropertiesPanel({
   canvasAspectRatio,
   onCanvasAspectRatioChange,
   showCanvasSizeMode = false,
+  isBackgroundLocked = false,
+  onToggleBackgroundLock = () => {},
 }) {
   // Local state for dimension inputs
   const [localWidth, setLocalWidth] = useState("");
@@ -516,6 +518,32 @@ export default function PropertiesPanel({
         animate="visible"
         className="flex h-full w-full flex-col gap-4"
       >
+        {/* Lock Background Button */}
+        <div className="w-full px-4 py-3">
+          <button
+            type="button"
+            onClick={onToggleBackgroundLock}
+            className={`w-full flex items-center justify-center gap-2 rounded-xl px-4 py-3 font-medium transition-all duration-200 ${
+              isBackgroundLocked
+                ? "bg-gradient-to-r from-red-50 to-red-100 text-red-700 border-2 border-red-300 hover:from-red-100 hover:to-red-200"
+                : "bg-gradient-to-r from-green-50 to-green-100 text-green-700 border-2 border-green-300 hover:from-green-100 hover:to-green-200"
+            }`}
+            style={{ fontSize: '14px' }}
+          >
+            {isBackgroundLocked ? (
+              <>
+                <Lock size={18} />
+                <span>Background Terkunci</span>
+              </>
+            ) : (
+              <>
+                <Unlock size={18} />
+                <span>Kunci Background</span>
+              </>
+            )}
+          </button>
+        </div>
+
         {/* Upload Background - Collapsible */}
         <CollapsibleSection 
           title="Upload Background" 

@@ -1,15 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import safeStorage from '../utils/safeStorage.js';
 import { BACKGROUND_PHOTO_Z } from '../constants/layers.js';
 import html2canvas from 'html2canvas';
 import { clearFrameCache, clearStaleFrameCache } from '../utils/frameCacheCleaner.js';
+import { convertBlobToMp4 } from '../utils/videoTranscoder.js';
 
 export default function EditPhoto() {
   console.log('🚀 EDITPHOTO RENDERING...');
   
   const navigate = useNavigate();
   const [photos, setPhotos] = useState([]);
+  const [videos, setVideos] = useState([]);
   const [frameConfig, setFrameConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [designerElements, setDesignerElements] = useState([]);
@@ -30,6 +32,11 @@ export default function EditPhoto() {
   const [activeFilter, setActiveFilter] = useState(null);
   const photosFilled = React.useRef(false);
 
+  const hasValidVideo = useMemo(() => {
+    if (!Array.isArray(videos)) return false;
+    return videos.some((video) => video && (video.dataUrl || video.blob));
+  }, [videos]);
+
   useEffect(() => {
     console.log('📦 Loading data from localStorage...');
     
@@ -38,11 +45,140 @@ export default function EditPhoto() {
     
     const loadFrameData = async () => {
       try {
+        const activeDraftId = safeStorage.getItem('activeDraftId');
+        let recoveryDraft;
+        const loadDraftForRecovery = async () => {
+          if (recoveryDraft !== undefined || !activeDraftId) {
+            return recoveryDraft ?? null;
+          }
+          try {
+            const { default: draftStorage } = await import('../utils/draftStorage.js');
+            const draft = await draftStorage.getDraftById(activeDraftId);
+            recoveryDraft = draft ?? null;
+            if (!draft) {
+              console.warn('⚠️ Draft not found for recovery:', activeDraftId);
+            }
+          } catch (draftError) {
+            console.error('❌ Failed to load draft for recovery:', draftError);
+            recoveryDraft = null;
+          }
+          return recoveryDraft;
+        };
+
         // Load photos
-        const capturedPhotos = safeStorage.getJSON('capturedPhotos');
-        if (capturedPhotos && Array.isArray(capturedPhotos)) {
-          setPhotos(capturedPhotos);
-          console.log('✅ Loaded photos:', capturedPhotos.length);
+        let photosFromStorage = safeStorage.getJSON('capturedPhotos');
+        let resolvedPhotos = Array.isArray(photosFromStorage)
+          ? [...photosFromStorage]
+          : [];
+
+        if (resolvedPhotos.length === 0 && activeDraftId) {
+          const draft = await loadDraftForRecovery();
+          if (draft?.capturedPhotos?.length) {
+            resolvedPhotos = [...draft.capturedPhotos];
+            console.log('♻️ Recovered photos from draft storage:', {
+              activeDraftId,
+              count: resolvedPhotos.length,
+            });
+            try {
+              safeStorage.setJSON('capturedPhotos', resolvedPhotos);
+            } catch (rehydrateError) {
+              console.warn('⚠️ Could not rehydrate capturedPhotos into localStorage:', rehydrateError);
+            }
+          }
+        }
+
+        if (resolvedPhotos.length > 0) {
+          setPhotos(resolvedPhotos);
+          console.log('✅ Loaded photos:', resolvedPhotos.length);
+        } else {
+          setPhotos([]);
+          console.log('ℹ️ No captured photos found in storage or draft');
+        }
+
+        // Load videos
+        let videosFromStorage = safeStorage.getJSON('capturedVideos');
+        console.log('🔍 Loading videos from storage:', {
+          found: !!videosFromStorage,
+          isArray: Array.isArray(videosFromStorage),
+          length: videosFromStorage?.length || 0,
+        });
+
+        let resolvedVideos = Array.isArray(videosFromStorage)
+          ? [...videosFromStorage]
+          : [];
+
+        if (resolvedVideos.length === 0 && activeDraftId) {
+          const draft = await loadDraftForRecovery();
+          if (draft?.capturedVideos?.length) {
+            resolvedVideos = [...draft.capturedVideos];
+            console.log('♻️ Recovered videos from draft storage:', {
+              activeDraftId,
+              count: resolvedVideos.length,
+            });
+            try {
+              safeStorage.setJSON('capturedVideos', resolvedVideos);
+            } catch (rehydrateError) {
+              console.warn('⚠️ Could not rehydrate capturedVideos into localStorage:', rehydrateError);
+            }
+          }
+        }
+
+        if (resolvedVideos.length) {
+          const normalizedVideos = resolvedVideos.map((entry, index) => {
+            if (!entry) return null;
+
+            // Legacy format: string data URL
+            if (typeof entry === 'string') {
+              if (entry.startsWith('data:')) {
+                return {
+                  id: `video-${index}`,
+                  dataUrl: entry,
+                  mimeType: entry.substring(5, entry.indexOf(';')) || 'video/webm',
+                  duration: null,
+                  timer: null,
+                  source: 'legacy-string',
+                };
+              }
+              console.warn('⚠️ Unknown video string format:', entry.substring(0, 30));
+              return null;
+            }
+
+            if (typeof entry === 'object') {
+              if (entry.dataUrl || entry.blob) {
+                return {
+                  id: entry.id || `video-${index}`,
+                  dataUrl: entry.dataUrl || null,
+                  blob: entry.blob || null,
+                  mimeType: entry.mimeType || (entry.dataUrl?.substring(5, entry.dataUrl.indexOf(';')) || 'video/webm'),
+                  duration: Number.isFinite(entry.duration) ? entry.duration : null,
+                  timer: Number.isFinite(entry.timer) ? entry.timer : null,
+                  mirrored: Boolean(entry.mirrored),
+                  requiresPreviewMirror: Boolean(entry.requiresPreviewMirror),
+                  facingMode: entry.facingMode || null,
+                  sizeBytes: entry.sizeBytes ?? null,
+                  recordedAt: entry.recordedAt ?? entry.capturedAt ?? null,
+                  source: entry.source || 'camera-recording',
+                };
+              }
+              console.warn('⚠️ Video entry missing dataUrl/blob:', entry);
+              return null;
+            }
+
+            console.warn('⚠️ Unsupported video entry type:', typeof entry, entry);
+            return null;
+          });
+
+          const validVideoCount = normalizedVideos.filter((v) => v && (v.dataUrl || v.blob)).length;
+          setVideos(normalizedVideos);
+
+          console.log('✅ Videos normalized:', {
+            totalEntries: resolvedVideos.length,
+            normalizedEntries: normalizedVideos.length,
+            validEntries: validVideoCount,
+          });
+        } else {
+          console.log('ℹ️ No videos found in storage');
+          setVideos([]);
         }
 
         // Load frame config
@@ -71,13 +207,11 @@ export default function EditPhoto() {
         // CRITICAL FIX: If no config at all, try to load from draft
         if (!config) {
           console.log('⚠️ No frameConfig in localStorage, checking for activeDraftId...');
-          const activeDraftId = safeStorage.getItem('activeDraftId');
           
           if (activeDraftId) {
             try {
               console.log('🔄 Loading frameConfig from draft:', activeDraftId);
-              const { default: draftStorage } = await import('../utils/draftStorage.js');
-              const draft = await draftStorage.getDraftById(activeDraftId);
+              const draft = await loadDraftForRecovery();
               
               if (draft) {
                 const { buildFrameConfigFromDraft } = await import('../utils/draftHelpers.js');
@@ -112,11 +246,9 @@ export default function EditPhoto() {
             console.log('  - Has background photo element:', !!backgroundPhoto);
             console.log('  - Has image data:', !!backgroundPhoto?.data?.image);
             
-            const activeDraftId = safeStorage.getItem('activeDraftId');
             if (activeDraftId) {
               try {
-                const { default: draftStorage } = await import('../utils/draftStorage.js');
-                const draft = await draftStorage.getDraftById(activeDraftId);
+                const draft = await loadDraftForRecovery();
                 
                 if (draft && draft.elements) {
                   const draftBackgroundPhoto = draft.elements.find(el => el?.type === 'background-photo');
@@ -315,6 +447,17 @@ export default function EditPhoto() {
     setDesignerElements(updatedElements);
     photosFilled.current = true;
   }, [photos, designerElements]);
+
+  // Debug log for videos state
+  useEffect(() => {
+    console.log('🎥 Videos state updated:', {
+      videos,
+      isArray: Array.isArray(videos),
+      length: videos?.length || 0,
+      hasValidVideo,
+      buttonWillBeEnabled: hasValidVideo && !isSaving,
+    });
+  }, [videos, hasValidVideo, isSaving]);
 
   // Filter presets (9 filters - no Cool Tone, no blur)
   const filterPresets = [
@@ -1007,21 +1150,489 @@ export default function EditPhoto() {
               Download Photo
             </button>
             <button
-              onClick={() => {
-                alert('Fitur Download Video belum tersedia.');
+              onClick={async () => {
+                // Check if videos exist
+                if (!videos || videos.length === 0) {
+                  alert('Tidak ada video yang tersimpan. Ambil video dulu di halaman Take Moment.');
+                  return;
+                }
+
+                // Check if any video has valid data
+                if (!hasValidVideo) {
+                  alert('Video tidak valid atau corrupt. Silakan ambil video baru.');
+                  return;
+                }
+
+                try {
+                  setSaveMessage('🎬 Merender video dengan frame...');
+                  setIsSaving(true);
+
+                  // Create off-screen canvas for video rendering
+                  const canvas = document.createElement('canvas');
+                  canvas.width = 1080;
+                  canvas.height = 1920;
+                  const ctx = canvas.getContext('2d', { willReadFrequently: false });
+
+                  // Prepare video elements
+                  const videoElements = [];
+                  const photoSlots = designerElements.filter(el => 
+                    el.type === 'upload' && typeof el.data?.photoIndex === 'number'
+                  );
+
+                  console.log('📹 Preparing videos...', { 
+                    totalVideos: videos.length, 
+                    photoSlots: photoSlots.length 
+                  });
+
+                  // Log video metadata to verify source and duration
+                  videos.forEach((v, idx) => {
+                    if (v) {
+                      console.log(`📹 Video ${idx} metadata:`, {
+                        hasDataUrl: !!v.dataUrl,
+                        hasBlob: !!v.blob,
+                        duration: v.duration,
+                        timer: v.timer,
+                        mimeType: v.mimeType,
+                        source: 'camera recording from TakeMoment'
+                      });
+                    }
+                  });
+
+                  // Load videos into video elements
+                  for (let i = 0; i < photoSlots.length && i < videos.length; i++) {
+                    const videoData = videos[i];
+                    if (!videoData || (!videoData.dataUrl && !videoData.blob)) continue;
+
+                    const videoEl = document.createElement('video');
+                    videoEl.muted = true;
+                    videoEl.loop = false;
+                    videoEl.playsInline = true;
+                    videoEl.crossOrigin = 'anonymous';
+                    
+                    if (videoData.dataUrl) {
+                      videoEl.src = videoData.dataUrl;
+                    } else if (videoData.blob) {
+                      videoEl.src = URL.createObjectURL(videoData.blob);
+                    }
+
+                    let loadSucceeded = false;
+
+                    await new Promise((resolve) => {
+                      let timeoutId;
+
+                      const cleanup = () => {
+                        if (timeoutId) {
+                          clearTimeout(timeoutId);
+                        }
+                        videoEl.onloadedmetadata = null;
+                        videoEl.onloadeddata = null;
+                        videoEl.oncanplay = null;
+                        videoEl.onerror = null;
+                      };
+
+                      const markReady = (eventLabel) => {
+                        loadSucceeded = true;
+                        console.log(`✅ Video ${i} ready (${eventLabel}):`, {
+                          duration: videoEl.duration,
+                          width: videoEl.videoWidth,
+                          height: videoEl.videoHeight,
+                          readyState: videoEl.readyState,
+                        });
+                        cleanup();
+                        resolve();
+                      };
+
+                      videoEl.onloadedmetadata = () => markReady('loadedmetadata');
+                      videoEl.onloadeddata = () => markReady('loadeddata');
+                      videoEl.oncanplay = () => markReady('canplay');
+                      videoEl.onerror = (error) => {
+                        console.error(`❌ Video ${i} failed to load`, error);
+                        cleanup();
+                        resolve();
+                      };
+
+                      timeoutId = setTimeout(() => {
+                        console.warn(`⏱️ Video ${i} load timed out`, {
+                          readyState: videoEl.readyState,
+                          duration: videoEl.duration,
+                        });
+                        cleanup();
+                        resolve();
+                      }, 8000);
+                    });
+
+                    const isReady =
+                      loadSucceeded ||
+                      videoEl.readyState >= 2 ||
+                      (Number.isFinite(videoEl.duration) && videoEl.duration > 0);
+
+                    if (isReady) {
+                      videoElements.push({
+                        video: videoEl,
+                        slot: photoSlots[i],
+                        index: i
+                      });
+                    } else if (videoEl.src.startsWith('blob:')) {
+                      URL.revokeObjectURL(videoEl.src);
+                    }
+                  }
+
+                  if (videoElements.length === 0) {
+                    throw new Error('Tidak ada video yang berhasil dimuat');
+                  }
+
+                  console.log('✅ Videos loaded:', videoElements.length);
+
+                  // Calculate max duration from actual video duration
+                  const maxDuration = Math.max(
+                    ...videoElements.map(({ video }) => 
+                      video.duration && Number.isFinite(video.duration) ? video.duration : 0
+                    ),
+                    3 // Minimum 3 seconds
+                  );
+
+                  console.log('🎬 Video download will render:');
+                  console.log('   - Duration: ' + maxDuration + 's (from recorded video)');
+                  console.log('   - Original timer: ' + (videos[0]?.timer || 'unknown') + 's');
+                  console.log('   - Expected duration based on timer:');
+                  console.log('     * Timer 3s → Video ~4s');
+                  console.log('     * Timer 5s → Video ~6s');
+                  console.log('     * Timer 10s → Video ~6s');
+                  console.log('   - Video will play in photo slots with frame overlay');
+
+                  // Setup MediaRecorder
+                  const stream = canvas.captureStream(25); // 25 fps
+                  const mimeTypes = [
+                    'video/webm;codecs=vp9',
+                    'video/webm;codecs=vp8',
+                    'video/webm',
+                    'video/mp4'
+                  ];
+
+                  let mimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type));
+                  if (!mimeType) {
+                    throw new Error('Browser tidak mendukung perekaman video');
+                  }
+
+                  const recorder = new MediaRecorder(stream, {
+                    mimeType,
+                    videoBitsPerSecond: 2500000 // 2.5 Mbps
+                  });
+
+                  const chunks = [];
+                  recorder.ondataavailable = (e) => {
+                    if (e.data && e.data.size > 0) {
+                      chunks.push(e.data);
+                    }
+                  };
+
+                  // Preload background image
+                  let backgroundImage = null;
+                  if (backgroundPhotoElement && backgroundPhotoElement.data?.image) {
+                    console.log('🖼️ Preloading background image...');
+                    backgroundImage = new Image();
+                    backgroundImage.crossOrigin = 'anonymous';
+                    await new Promise((resolve) => {
+                      backgroundImage.onload = () => {
+                        console.log('✅ Background image loaded');
+                        resolve();
+                      };
+                      backgroundImage.onerror = () => {
+                        console.warn('⚠️ Background image failed to load');
+                        backgroundImage = null;
+                        resolve();
+                      };
+                      backgroundImage.src = backgroundPhotoElement.data.image;
+                      // Timeout after 3 seconds
+                      setTimeout(() => resolve(), 3000);
+                    });
+                  }
+
+                  // Preload frame overlay image
+                  let frameImage = null;
+                  if (frameConfig && !frameConfig.isCustom && frameConfig.frameImage) {
+                    console.log('🖼️ Preloading frame overlay image...');
+                    frameImage = new Image();
+                    frameImage.crossOrigin = 'anonymous';
+                    await new Promise((resolve) => {
+                      frameImage.onload = () => {
+                        console.log('✅ Frame overlay loaded');
+                        resolve();
+                      };
+                      frameImage.onerror = () => {
+                        console.warn('⚠️ Frame overlay failed to load');
+                        frameImage = null;
+                        resolve();
+                      };
+                      frameImage.src = frameConfig.frameImage;
+                      // Timeout after 3 seconds
+                      setTimeout(() => resolve(), 3000);
+                    });
+                  }
+
+                  // Function to draw composite frame
+                  const drawFrame = () => {
+                    // Clear canvas
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    // Draw background photo if exists
+                    if (backgroundImage && backgroundImage.complete && backgroundImage.naturalWidth > 0) {
+                      try {
+                        ctx.drawImage(
+                          backgroundImage,
+                          backgroundPhotoElement.x || 0,
+                          backgroundPhotoElement.y || 0,
+                          backgroundPhotoElement.width || canvas.width,
+                          backgroundPhotoElement.height || canvas.height
+                        );
+                      } catch (err) {
+                        console.warn('Error drawing background:', err);
+                      }
+                    }
+
+                    // Draw video frames
+                    videoElements.forEach(({ video, slot }) => {
+                      if (video.readyState >= 2 && !video.paused && !video.ended) {
+                        try {
+                          ctx.save();
+                          const slotX = slot.x || 0;
+                          const slotY = slot.y || 0;
+                          const slotWidth = slot.width || 300;
+                          const slotHeight = slot.height || 300;
+
+                          // Mirror video horizontally around slot center
+                          ctx.translate(slotX + slotWidth / 2, slotY);
+                          ctx.scale(-1, 1);
+                          ctx.drawImage(
+                            video,
+                            -slotWidth / 2,
+                            0,
+                            slotWidth,
+                            slotHeight
+                          );
+                          ctx.restore();
+                        } catch (err) {
+                          console.warn('Error drawing video frame:', err);
+                        }
+                      }
+                    });
+
+                    // Draw other elements (text, shapes, etc)
+                    designerElements.forEach(element => {
+                      if (element.type === 'upload') return; // Skip photo slots (already drawn)
+                      
+                      if (element.type === 'text' && element.data?.text) {
+                        ctx.save();
+                        const fontSize = element.data?.fontSize || 24;
+                        const fontWeight = element.data?.fontWeight || 500;
+                        const fontFamily = element.data?.fontFamily || 'Inter';
+                        ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+                        ctx.fillStyle = element.data?.color || '#111827';
+                        ctx.textAlign = element.data?.align || 'left';
+                        
+                        const lines = (element.data.text || '').split('\n');
+                        const lineHeight = fontSize * 1.2;
+                        let textX = element.x || 0;
+                        if (element.data?.align === 'center') textX = (element.x || 0) + (element.width || 100) / 2;
+                        else if (element.data?.align === 'right') textX = (element.x || 0) + (element.width || 100);
+                        
+                        let startY = (element.y || 0) + fontSize;
+                        lines.forEach((line, index) => {
+                          ctx.fillText(line, textX, startY + (index * lineHeight));
+                        });
+                        ctx.restore();
+                      }
+                    });
+
+                    // Draw frame overlay (if not custom)
+                    if (frameImage && frameImage.complete && frameImage.naturalWidth > 0) {
+                      try {
+                        ctx.drawImage(frameImage, 0, 0, canvas.width, canvas.height);
+                      } catch (err) {
+                        console.warn('Error drawing frame overlay:', err);
+                      }
+                    }
+                  };
+
+                  // Start recording
+                  const recordingPromise = new Promise((resolve, reject) => {
+                    recorder.onstop = () => {
+                      console.log('🎬 Recording stopped, creating blob...');
+                      if (chunks.length === 0) {
+                        console.error('❌ No video chunks recorded!');
+                        reject(new Error('No video data recorded'));
+                        return;
+                      }
+                      const blob = new Blob(chunks, { type: mimeType });
+                      console.log('✅ Video blob created:', {
+                        size: (blob.size / 1024).toFixed(2) + 'KB',
+                        type: blob.type,
+                        chunks: chunks.length
+                      });
+                      resolve(blob);
+                    };
+                    recorder.onerror = (e) => {
+                      console.error('❌ MediaRecorder error:', e);
+                      reject(e);
+                    };
+                  });
+
+                  console.log('🎬 Starting MediaRecorder...');
+                  recorder.start(100); // 100ms timeslice for frequent chunks
+                  console.log('✅ MediaRecorder started, state:', recorder.state);
+
+                  // Play all videos and start animation loop
+                  console.log('▶️ Starting video playback...');
+                  await Promise.all(
+                    videoElements.map(({ video, index }) => {
+                      video.currentTime = 0;
+                      return video.play().then(() => {
+                        console.log(`✅ Video ${index} playing`);
+                      }).catch(err => {
+                        console.warn(`⚠️ Video ${index} play failed:`, err);
+                      });
+                    })
+                  );
+
+                  // Animation loop
+                  console.log('🎞️ Starting animation loop...');
+                  const startTime = performance.now();
+                  let frameCount = 0;
+                  
+                  const animate = () => {
+                    drawFrame();
+                    frameCount++;
+                    
+                    const elapsed = (performance.now() - startTime) / 1000;
+                    const allEnded = videoElements.every(({ video }) => 
+                      video.ended || video.currentTime >= maxDuration
+                    );
+
+                    // Log progress every second
+                    if (frameCount % 25 === 0) {
+                      console.log(`🎬 Recording progress: ${elapsed.toFixed(1)}s / ${maxDuration}s (frame ${frameCount})`);
+                    }
+
+                    if (elapsed < maxDuration + 0.5 && !allEnded) {
+                      requestAnimationFrame(animate);
+                    } else {
+                      // Stop recording
+                      console.log('🛑 Stopping recording...');
+                      console.log(`   Total frames: ${frameCount}, Duration: ${elapsed.toFixed(2)}s`);
+                      
+                      if (recorder.state !== 'inactive') {
+                        recorder.stop();
+                      }
+                      
+                      videoElements.forEach(({ video, index }) => {
+                        video.pause();
+                        console.log(`⏸️ Video ${index} paused at ${video.currentTime.toFixed(2)}s`);
+                        if (video.src.startsWith('blob:')) {
+                          URL.revokeObjectURL(video.src);
+                        }
+                      });
+                    }
+                  };
+
+                  animate();
+
+                  // Wait for recording to finish
+                  console.log('⏳ Waiting for recording to complete...');
+                  setSaveMessage('⏳ Finalizing video...');
+                  const videoBlob = await recordingPromise;
+
+                  // Validate blob
+                  if (!videoBlob || videoBlob.size < 1000) {
+                    throw new Error(`Video blob too small or invalid (${videoBlob?.size || 0} bytes)`);
+                  }
+
+                  console.log('💾 Preparing final download blob...', {
+                    sizeKB: (videoBlob.size / 1024).toFixed(2),
+                    type: videoBlob.type,
+                  });
+
+                  let downloadBlob = videoBlob;
+                  let downloadExtension = 'webm';
+                  let downloadMime = videoBlob.type || 'video/webm';
+
+                  setSaveMessage('🔄 Mengonversi video ke MP4...');
+                  try {
+                    const mp4Blob = await convertBlobToMp4(videoBlob, {
+                      frameRate: 25,
+                      durationSeconds: maxDuration,
+                      outputPrefix: 'fremio-video',
+                    });
+
+                    if (mp4Blob && mp4Blob.size > 0) {
+                      downloadBlob = mp4Blob;
+                      downloadExtension = 'mp4';
+                      downloadMime = 'video/mp4';
+                      console.log('✅ Video converted to MP4:', {
+                        sizeKB: (mp4Blob.size / 1024).toFixed(2),
+                      });
+                    } else {
+                      console.warn('⚠️ MP4 conversion returned empty result, falling back to original blob');
+                    }
+                  } catch (conversionError) {
+                    console.error('❌ MP4 conversion failed, using original recording:', conversionError);
+                  }
+
+                  // Download video
+                  console.log('💾 Downloading video...');
+                  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                  const filename = `fremio-video-${timestamp}.${downloadExtension}`;
+                  const downloadUrl = URL.createObjectURL(downloadBlob);
+                  const link = document.createElement('a');
+                  link.href = downloadUrl;
+                  link.download = filename;
+                  link.type = downloadMime;
+                  document.body.appendChild(link); // Add to DOM for better compatibility
+                  link.click();
+                  document.body.removeChild(link);
+                  
+                  // Cleanup after a delay
+                  setTimeout(() => {
+                    URL.revokeObjectURL(downloadUrl);
+                  }, 1000);
+
+                  setSaveMessage(downloadExtension === 'mp4'
+                    ? '✅ Video MP4 berhasil didownload!'
+                    : '✅ Video berhasil didownload (format cadangan)');
+                  setTimeout(() => setSaveMessage(''), 3000);
+                  console.log('✅ Video download complete:', filename);
+
+                } catch (error) {
+                  console.error('❌ Error rendering video:', error);
+                  alert('Gagal merender video: ' + error.message);
+                  setSaveMessage('');
+                } finally {
+                  setIsSaving(false);
+                }
               }}
+              disabled={(() => {
+                const isDisabled = !hasValidVideo || isSaving;
+                console.log('🔘 Download Video button state:', {
+                  videosLength: videos?.length || 0,
+                  hasValidVideo,
+                  isSaving,
+                  isDisabled,
+                });
+                return isDisabled;
+              })()}
               style={{
                 padding: '0.75rem 1.5rem',
-                background: '#6B7280',
+                background: (!hasValidVideo || isSaving) ? '#9CA3AF' : '#8B5CF6',
                 color: 'white',
                 border: 'none',
                 borderRadius: '8px',
                 fontSize: '1rem',
-                cursor: 'pointer',
-                fontWeight: '600'
+                cursor: (!hasValidVideo || isSaving) ? 'not-allowed' : 'pointer',
+                fontWeight: '600',
+                opacity: (!hasValidVideo || isSaving) ? 0.6 : 1
               }}
             >
-              Download Video
+              {isSaving ? '⏳ Processing...' : 'Download Video'}
             </button>
           </div>
 

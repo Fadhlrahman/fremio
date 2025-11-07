@@ -89,7 +89,7 @@ const addRoundedRectPath = (ctx, x, y, width, height, radius) => {
   ctx.closePath();
 };
 
-const loadImageAsync = (src) =>
+const loadImageAsync = (src, { timeoutMs = 8000, crossOrigin = 'anonymous' } = {}) =>
   new Promise((resolve, reject) => {
     if (typeof src !== 'string' || src.length === 0) {
       reject(new Error('Invalid image source'));
@@ -107,14 +107,86 @@ const loadImageAsync = (src) =>
     }
 
     const img = new Image();
+    let timeoutId = null;
+
+    const cleanup = () => {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+      img.onload = null;
+      img.onerror = null;
+    };
+
     if (isHttpUrl || isRelativeUrl) {
-      img.crossOrigin = 'anonymous';
+      img.crossOrigin = crossOrigin;
     }
-    img.onload = () => resolve(img);
-    img.onerror = (error) => reject(error);
+
+    img.onload = () => {
+      cleanup();
+      resolve(img);
+    };
+
+    img.onerror = (error) => {
+      cleanup();
+      reject(error instanceof Error ? error : new Error('Failed to load image'));
+    };
+
+    if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+      timeoutId = setTimeout(() => {
+        cleanup();
+        reject(new Error(`Image load timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    }
+
     img.decoding = 'async';
     img.src = src;
   });
+
+const withTimeout = (promise, {
+  timeoutMs = 10000,
+  timeoutMessage,
+  onTimeout,
+} = {}) => {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return promise;
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timerId = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      try {
+        onTimeout?.();
+      } catch (error) {
+        console.warn('⚠️ withTimeout onTimeout handler failed:', error);
+      }
+      const err = new Error(timeoutMessage || `Operation timed out after ${timeoutMs}ms`);
+      err.name = 'TimeoutError';
+      reject(err);
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timerId);
+        resolve(value);
+      })
+      .catch((error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timerId);
+        reject(error);
+      });
+  });
+};
 
 
 const prepareCanvasExportClone = (rootNode) => {
@@ -436,6 +508,7 @@ export default function Create() {
   const [canvasAspectRatio, setCanvasAspectRatio] = useState("9:16"); // Story Instagram default
   const [activeDraftId, setActiveDraftId] = useState(null);
   const [justSavedDraft, setJustSavedDraft] = useState(false); // Track if draft was just saved
+  const [isBackgroundLocked, setIsBackgroundLocked] = useState(false); // Lock background to prevent accidental edits
   const previewFrameRef = useRef(null);
   const [previewConstraints, setPreviewConstraints] = useState({
     maxWidth: 280,
@@ -1120,6 +1193,7 @@ export default function Create() {
     const canvasNode = document.getElementById("creator-canvas");
     if (!canvasNode) return;
 
+    let cleanupCapture = null;
     setSaving(true);
     try {
       const { width: canvasWidth, height: canvasHeight } = getCanvasDimensions(canvasAspectRatio);
@@ -1130,8 +1204,7 @@ export default function Create() {
       console.log('  Calculated aspect ratio:', canvasWidth / canvasHeight);
       console.log('  Expected for 9:16:', 9/16, '=', 1080/1920);
 
-      const captureScale = canvasWidth <= 720 ? 2 : 1;
-      let cleanupCapture = () => {};
+  const captureScale = canvasWidth <= 720 ? 2 : 1;
 
       const exportWrapper = document.createElement("div");
       Object.assign(exportWrapper.style, {
@@ -1173,7 +1246,7 @@ export default function Create() {
       };
 
       // ✅ SINGLE CAPTURE: html2canvas will respect CSS z-index ordering
-      const captureCanvas = await html2canvas(exportCanvasNode, {
+      const capturePromise = html2canvas(exportCanvasNode, {
         backgroundColor: null, // Transparent background
         useCORS: true,
         scale: captureScale,
@@ -1196,18 +1269,31 @@ export default function Create() {
         },
       });
 
-      console.log('📸 [html2canvas result]', {
-        width: captureCanvas.width,
-        height: captureCanvas.height,
-      });
+      let captureCanvas = null;
+      try {
+        captureCanvas = await withTimeout(capturePromise, {
+          timeoutMs: 15000,
+          timeoutMessage: 'Rendering canvas took too long',
+          onTimeout: () => console.warn('⚠️ html2canvas timed out while saving draft'),
+        });
+      } catch (captureError) {
+        console.warn('⚠️ html2canvas failed, using fallback preview:', captureError);
+      }
+
+      if (captureCanvas) {
+        console.log('📸 [html2canvas result]', {
+          width: captureCanvas.width,
+          height: captureCanvas.height,
+        });
+      }
 
       // ✅ SIMPLIFIED PREVIEW GENERATION
       // Just use captureCanvas directly - it already has correct z-index layering
       // We only need to carve holes for photo slots
       
       const finalCanvas = document.createElement('canvas');
-      finalCanvas.width = captureCanvas.width;
-      finalCanvas.height = captureCanvas.height;
+      finalCanvas.width = captureCanvas?.width ?? Math.round(canvasWidth * captureScale);
+      finalCanvas.height = captureCanvas?.height ?? Math.round(canvasHeight * captureScale);
       const finalCtx = finalCanvas.getContext('2d', { alpha: true });
       
       if (finalCtx) {
@@ -1245,8 +1331,10 @@ export default function Create() {
         finalCtx.fillStyle = canvasBackground || '#ffffff';
         finalCtx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
 
-        // Draw captured elements (already in correct z-index order)
-        finalCtx.drawImage(captureCanvas, 0, 0);
+        if (captureCanvas) {
+          // Draw captured elements (already in correct z-index order)
+          finalCtx.drawImage(captureCanvas, 0, 0);
+        }
 
         // ✅ IMPORTANT: Do NOT carve holes for custom frames!
         // For custom frames:
@@ -1402,105 +1490,64 @@ export default function Create() {
 
       // Compress upload and background-photo element images before saving
       const compressedElements = await Promise.all(layeredElements.map(async (element) => {
-        // Compress background-photo images (CRITICAL for storage!)
-        if (element.type === 'background-photo' && element.data?.image) {
-          try {
-            const img = new Image();
-            img.src = element.data.image;
-            await new Promise((resolve, reject) => {
-              img.onload = resolve;
-              img.onerror = reject;
-            });
+        const imageSource = element?.data?.image;
+        const shouldCompress =
+          typeof imageSource === 'string' &&
+          (element.type === 'background-photo' || element.type === 'upload');
 
-            // Compress background photo more aggressively to save localStorage
-            // Max 1080px width (good quality, smaller size)
-            const maxWidth = 1080;
-            let targetWidth = img.width;
-            let targetHeight = img.height;
-            
-            if (targetWidth > maxWidth) {
-              const scale = maxWidth / targetWidth;
-              targetWidth = maxWidth;
-              targetHeight = Math.round(targetHeight * scale);
-            }
-
-            const canvas = document.createElement('canvas');
-            canvas.width = targetWidth;
-            canvas.height = targetHeight;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-            
-            // Use JPEG with 0.75 quality (good balance between size and quality)
-            const compressedImage = canvas.toDataURL('image/jpeg', 0.75);
-            console.log('🗜️ Compressed background photo:', {
-              original: element.data.image.length,
-              compressed: compressedImage.length,
-              saved: element.data.image.length - compressedImage.length,
-              percentage: Math.round((1 - compressedImage.length / element.data.image.length) * 100) + '%',
-            });
-
-            return {
-              ...element,
-              data: {
-                ...element.data,
-                image: compressedImage,
-              },
-            };
-          } catch (error) {
-            console.warn('⚠️ Failed to compress background photo, using original:', error);
-            return element;
-          }
+        if (!shouldCompress) {
+          return element;
         }
-        
-        // Compress upload element images
-        if (element.type === 'upload' && element.data?.image) {
-          try {
-            // Create a smaller version of upload images to save storage
-            const img = new Image();
-            img.src = element.data.image;
-            await new Promise((resolve, reject) => {
-              img.onload = resolve;
-              img.onerror = reject;
-            });
 
-            // Compress to max 800px width while maintaining aspect ratio
-            const maxWidth = 800;
-            let targetWidth = img.width;
-            let targetHeight = img.height;
-            
-            if (targetWidth > maxWidth) {
-              const scale = maxWidth / targetWidth;
-              targetWidth = maxWidth;
-              targetHeight = Math.round(targetHeight * scale);
-            }
+        try {
+          const timeoutMs = element.type === 'background-photo' ? 10000 : 8000;
+          const img = await loadImageAsync(imageSource, { timeoutMs });
 
-            const canvas = document.createElement('canvas');
-            canvas.width = targetWidth;
-            canvas.height = targetHeight;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-            
-            const compressedImage = canvas.toDataURL('image/jpeg', 0.85);
-            console.log('🗜️ Compressed upload image:', {
-              original: element.data.image.length,
-              compressed: compressedImage.length,
-              saved: element.data.image.length - compressedImage.length,
-            });
-
-            return {
-              ...element,
-              data: {
-                ...element.data,
-                image: compressedImage,
-                originalImage: undefined, // Remove original to save space
-              },
-            };
-          } catch (error) {
-            console.warn('⚠️ Failed to compress upload image, using original:', error);
-            return element;
+          if (!img || !Number.isFinite(img.width) || !Number.isFinite(img.height)) {
+            throw new Error('Invalid image dimensions');
           }
+
+          const maxWidth = element.type === 'background-photo' ? 1080 : 800;
+          let targetWidth = img.width;
+          let targetHeight = img.height;
+
+          if (targetWidth > maxWidth) {
+            const scale = maxWidth / targetWidth;
+            targetWidth = maxWidth;
+            targetHeight = Math.max(1, Math.round(targetHeight * scale));
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(targetWidth));
+          canvas.height = Math.max(1, Math.round(targetHeight));
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            throw new Error('Failed to acquire 2D context');
+          }
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+          const quality = element.type === 'background-photo' ? 0.75 : 0.85;
+          const compressedImage = canvas.toDataURL('image/jpeg', quality);
+
+          console.log('🗜️ Compressed image:', {
+            type: element.type,
+            original: imageSource.length,
+            compressed: compressedImage.length,
+            saved: imageSource.length - compressedImage.length,
+          });
+
+          return {
+            ...element,
+            data: {
+              ...element.data,
+              image: compressedImage,
+              originalImage: undefined,
+            },
+          };
+        } catch (error) {
+          console.warn(`⚠️ Failed to compress ${element.type} image, using original:`, error);
+          return element;
         }
-        return element;
       }));
 
       const signature = computeDraftSignature(
@@ -1585,7 +1632,14 @@ export default function Create() {
         console.warn('⚠️ Could not check storage usage:', e);
       }
 
-      const savedDraft = await draftStorage.saveDraft(draftDataToSave);
+      const savedDraft = await withTimeout(
+        draftStorage.saveDraft(draftDataToSave),
+        {
+          timeoutMs: 15000,
+          timeoutMessage: 'Menyimpan draft melebihi batas waktu',
+          onTimeout: () => console.warn('⚠️ Draft save timed out'),
+        }
+      );
 
       console.log('✅ [DRAFT SAVED] Success! Draft ID:', savedDraft.id);
       console.log('✅ [DRAFT SAVED] Elements with preserved z-index:', 
@@ -1623,16 +1677,17 @@ export default function Create() {
       );
     } catch (error) {
       console.error("Failed to save draft", error);
+      const isTimeoutError = error?.name === 'TimeoutError';
       const message =
-        error?.message && /quota|persist/i.test(error.message)
-          ? "Penyimpanan penuh. Hapus draft lama terlebih dahulu."
-          : TOAST_MESSAGES.saveError;
+        isTimeoutError
+          ? "Proses menyimpan terlalu lama. Coba kurangi ukuran gambar atau ulangi beberapa saat lagi."
+          : error?.message && /quota|persist/i.test(error.message)
+            ? "Penyimpanan penuh. Hapus draft lama terlebih dahulu."
+            : TOAST_MESSAGES.saveError;
       showToast("error", message);
     } finally {
       try {
-        if (typeof cleanupCapture === "function") {
-          cleanupCapture();
-        }
+        cleanupCapture?.();
       } catch (err) {
         console.warn("⚠️ Failed to clean up capture node", err);
       }
@@ -1642,6 +1697,10 @@ export default function Create() {
 
   const addToolElement = (type) => {
     if (type === "background") {
+      if (isBackgroundLocked) {
+        showToast("info", "Background dikunci. Unlock untuk mengedit.", 2000);
+        return;
+      }
       selectElement("background");
       return;
     }
@@ -1654,6 +1713,11 @@ export default function Create() {
       selectElement(newElementId);
     }
   };
+
+  const toggleBackgroundLock = useCallback(() => {
+    setIsBackgroundLocked(prev => !prev);
+    showToast("success", isBackgroundLocked ? "Background unlocked" : "Background locked", 1500);
+  }, [isBackgroundLocked, showToast]);
 
   const handleUseThisFrame = async () => {
     if (!activeDraftId) {
@@ -2563,6 +2627,10 @@ export default function Create() {
                   if (id === null) {
                     clearSelection();
                   } else if (id === "background") {
+                    if (isBackgroundLocked) {
+                      showToast("info", "Background dikunci. Unlock untuk mengedit.", 2000);
+                      return;
+                    }
                     selectElement("background");
                   } else {
                     selectElement(id);
@@ -2673,6 +2741,10 @@ export default function Create() {
                 onDeleteElement={removeElement}
                 clearSelection={clearSelection}
                 onSelectBackgroundPhoto={() => {
+                  if (isBackgroundLocked) {
+                    showToast("info", "Background dikunci. Unlock untuk mengedit.", 2000);
+                    return;
+                  }
                   if (backgroundPhotoElement) {
                     selectElement(backgroundPhotoElement.id);
                   } else {
@@ -2690,6 +2762,8 @@ export default function Create() {
                   setCanvasAspectRatio(ratio);
                 }}
                 showCanvasSizeMode={showCanvasSizeInProperties}
+                isBackgroundLocked={isBackgroundLocked}
+                onToggleBackgroundLock={toggleBackgroundLock}
               />
             </div>
           </Motion.aside>

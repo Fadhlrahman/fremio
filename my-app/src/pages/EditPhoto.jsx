@@ -1370,6 +1370,65 @@ export default function EditPhoto() {
                     });
                   }
 
+                  const resolveNumericRadius = (value) => {
+                    if (Number.isFinite(value)) {
+                      return value;
+                    }
+                    if (typeof value === 'string') {
+                      const parsed = parseFloat(value);
+                      return Number.isFinite(parsed) ? parsed : 0;
+                    }
+                    return 0;
+                  };
+
+                  const clampRadius = (radius, width, height) => {
+                    if (!Number.isFinite(radius) || radius <= 0) {
+                      return 0;
+                    }
+                    const maxRadius = Math.min(width, height) / 2;
+                    return Math.min(Math.max(radius, 0), maxRadius);
+                  };
+
+                  const applySlotClipPath = (ctx, slot, width, height) => {
+                    if (!ctx || !slot) {
+                      return;
+                    }
+
+                    const slotShape = slot?.data?.shape;
+                    if (slotShape === 'circle') {
+                      const radius = Math.min(width, height) / 2;
+                      ctx.beginPath();
+                      ctx.arc(width / 2, height / 2, radius, 0, Math.PI * 2);
+                      ctx.closePath();
+                      ctx.clip();
+                      return;
+                    }
+
+                    const rawRadius = resolveNumericRadius(slot?.data?.borderRadius);
+                    const radius = clampRadius(rawRadius, width, height);
+
+                    if (radius <= 0) {
+                      ctx.beginPath();
+                      ctx.rect(0, 0, width, height);
+                      ctx.closePath();
+                      ctx.clip();
+                      return;
+                    }
+
+                    ctx.beginPath();
+                    ctx.moveTo(radius, 0);
+                    ctx.lineTo(width - radius, 0);
+                    ctx.quadraticCurveTo(width, 0, width, radius);
+                    ctx.lineTo(width, height - radius);
+                    ctx.quadraticCurveTo(width, height, width - radius, height);
+                    ctx.lineTo(radius, height);
+                    ctx.quadraticCurveTo(0, height, 0, height - radius);
+                    ctx.lineTo(0, radius);
+                    ctx.quadraticCurveTo(0, 0, radius, 0);
+                    ctx.closePath();
+                    ctx.clip();
+                  };
+
                   // Function to draw composite frame
                   const drawFrame = () => {
                     // Clear canvas
@@ -1401,12 +1460,15 @@ export default function EditPhoto() {
                           const slotWidth = slot.width || 300;
                           const slotHeight = slot.height || 300;
 
-                          // Mirror video horizontally around slot center
-                          ctx.translate(slotX + slotWidth / 2, slotY);
+                          ctx.translate(slotX, slotY);
+                          applySlotClipPath(ctx, slot, slotWidth, slotHeight);
+
+                          // Mirror video horizontally around the slot without affecting frame elements
+                          ctx.translate(slotWidth, 0);
                           ctx.scale(-1, 1);
                           ctx.drawImage(
                             video,
-                            -slotWidth / 2,
+                            0,
                             0,
                             slotWidth,
                             slotHeight

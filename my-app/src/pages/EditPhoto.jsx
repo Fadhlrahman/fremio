@@ -1429,6 +1429,53 @@ export default function EditPhoto() {
                     ctx.clip();
                   };
 
+                  const drawMediaCoverInSlot = (ctx, media, width, height) => {
+                    if (!media) {
+                      return;
+                    }
+
+                    const intrinsicWidth =
+                      Number.isFinite(media.videoWidth) && media.videoWidth > 0
+                        ? media.videoWidth
+                        : Number.isFinite(media.naturalWidth) && media.naturalWidth > 0
+                        ? media.naturalWidth
+                        : Number.isFinite(media.width) && media.width > 0
+                        ? media.width
+                        : width;
+
+                    const intrinsicHeight =
+                      Number.isFinite(media.videoHeight) && media.videoHeight > 0
+                        ? media.videoHeight
+                        : Number.isFinite(media.naturalHeight) && media.naturalHeight > 0
+                        ? media.naturalHeight
+                        : Number.isFinite(media.height) && media.height > 0
+                        ? media.height
+                        : height;
+
+                    if (!intrinsicWidth || !intrinsicHeight) {
+                      ctx.drawImage(media, 0, 0, width, height);
+                      return;
+                    }
+
+                    const mediaRatio = intrinsicWidth / intrinsicHeight;
+                    const slotRatio = width / height;
+
+                    let sourceX = 0;
+                    let sourceY = 0;
+                    let sourceWidth = intrinsicWidth;
+                    let sourceHeight = intrinsicHeight;
+
+                    if (mediaRatio > slotRatio) {
+                      sourceWidth = intrinsicHeight * slotRatio;
+                      sourceX = (intrinsicWidth - sourceWidth) / 2;
+                    } else {
+                      sourceHeight = intrinsicWidth / slotRatio;
+                      sourceY = (intrinsicHeight - sourceHeight) / 2;
+                    }
+
+                    ctx.drawImage(media, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, width, height);
+                  };
+
                   // Function to draw composite frame
                   const drawFrame = () => {
                     // Clear canvas
@@ -1466,13 +1513,7 @@ export default function EditPhoto() {
                           // Mirror video horizontally around the slot without affecting frame elements
                           ctx.translate(slotWidth, 0);
                           ctx.scale(-1, 1);
-                          ctx.drawImage(
-                            video,
-                            0,
-                            0,
-                            slotWidth,
-                            slotHeight
-                          );
+                          drawMediaCoverInSlot(ctx, video, slotWidth, slotHeight);
                           ctx.restore();
                         } catch (err) {
                           console.warn('Error drawing video frame:', err);

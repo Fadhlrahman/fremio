@@ -1173,6 +1173,15 @@ export default function EditPhoto() {
                   canvas.height = 1920;
                   const ctx = canvas.getContext('2d', { willReadFrequently: false });
 
+                  if (typeof MediaRecorder === 'undefined') {
+                    throw new Error('Browser ini belum mendukung fitur perekaman canvas (MediaRecorder). Coba gunakan Chrome atau Edge versi terbaru.');
+                  }
+
+                  const captureStreamFn = canvas.captureStream || canvas.mozCaptureStream || canvas.webkitCaptureStream || null;
+                  if (typeof captureStreamFn !== 'function') {
+                    throw new Error('Browser ini belum mendukung captureStream pada canvas. Coba gunakan Chrome atau Edge versi terbaru.');
+                  }
+
                   // Prepare video elements
                   const videoElements = [];
                   const photoSlots = designerElements.filter(el => 
@@ -1314,7 +1323,7 @@ export default function EditPhoto() {
                   console.log('   - Video will play in photo slots with frame overlay');
 
                   // Setup MediaRecorder
-                  const stream = canvas.captureStream(25); // 25 fps
+                  const stream = captureStreamFn.call(canvas, 25); // 25 fps
                   const mimeTypes = [
                     'video/webm;codecs=vp9',
                     'video/webm;codecs=vp8',
@@ -1868,29 +1877,35 @@ export default function EditPhoto() {
                   });
 
                   let downloadBlob = videoBlob;
-                  let downloadExtension = 'webm';
-                  let downloadMime = videoBlob.type || 'video/webm';
+                  let downloadExtension = videoBlob.type === 'video/mp4' ? 'mp4' : 'webm';
+                  let downloadMime = videoBlob.type || (downloadExtension === 'mp4' ? 'video/mp4' : 'video/webm');
 
-                  setSaveMessage('🔄 Mengonversi video ke MP4...');
-                  try {
-                    const mp4Blob = await convertBlobToMp4(videoBlob, {
-                      frameRate: 25,
-                      durationSeconds: maxDuration,
-                      outputPrefix: 'fremio-video',
-                    });
+                  const needsMp4Conversion = downloadBlob.type !== 'video/mp4';
 
-                    if (mp4Blob && mp4Blob.size > 0) {
-                      downloadBlob = mp4Blob;
-                      downloadExtension = 'mp4';
-                      downloadMime = 'video/mp4';
-                      console.log('✅ Video converted to MP4:', {
-                        sizeKB: (mp4Blob.size / 1024).toFixed(2),
+                  if (needsMp4Conversion) {
+                    setSaveMessage('🔄 Mengonversi video ke MP4...');
+                    try {
+                      const mp4Blob = await convertBlobToMp4(videoBlob, {
+                        frameRate: 25,
+                        durationSeconds: maxDuration,
+                        outputPrefix: 'fremio-video',
                       });
-                    } else {
-                      console.warn('⚠️ MP4 conversion returned empty result, falling back to original blob');
+
+                      if (mp4Blob && mp4Blob.size > 0) {
+                        downloadBlob = mp4Blob;
+                        downloadExtension = 'mp4';
+                        downloadMime = 'video/mp4';
+                        console.log('✅ Video converted to MP4:', {
+                          sizeKB: (mp4Blob.size / 1024).toFixed(2),
+                        });
+                      } else {
+                        console.warn('⚠️ MP4 conversion returned empty result, falling back to original blob');
+                      }
+                    } catch (conversionError) {
+                      console.error('❌ MP4 conversion failed, using original recording:', conversionError);
                     }
-                  } catch (conversionError) {
-                    console.error('❌ MP4 conversion failed, using original recording:', conversionError);
+                  } else {
+                    console.log('🎯 Skipping MP4 conversion — recorder already produced MP4 output.');
                   }
 
                   // Download video

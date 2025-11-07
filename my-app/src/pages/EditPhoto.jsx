@@ -1283,6 +1283,19 @@ export default function EditPhoto() {
 
                   console.log('✅ Videos loaded:', videoElements.length);
 
+                  const videoBySlotId = new Map();
+                  const videoByPhotoIndex = new Map();
+
+                  videoElements.forEach(({ video, slot }) => {
+                    if (slot?.id) {
+                      videoBySlotId.set(slot.id, { video, slot });
+                    }
+                    const photoIndex = slot?.data?.photoIndex;
+                    if (typeof photoIndex === 'number' && !videoByPhotoIndex.has(photoIndex)) {
+                      videoByPhotoIndex.set(photoIndex, { video, slot });
+                    }
+                  });
+
                   // Calculate max duration from actual video duration
                   const maxDuration = Math.max(
                     ...videoElements.map(({ video }) => 
@@ -1370,6 +1383,58 @@ export default function EditPhoto() {
                     });
                   }
 
+                  // Preload overlay upload images (non-photo elements)
+                  const overlayImagesByElement = new Map();
+                  const overlayUploadElements = designerElements.filter((element) => {
+                    if (!element || element.type !== 'upload') return false;
+                    if (typeof element?.data?.photoIndex === 'number') return false;
+                    return Boolean(element?.data?.image);
+                  });
+
+                  if (overlayUploadElements.length) {
+                    console.log('🖼️ Preloading overlay uploads:', overlayUploadElements.length);
+                    await Promise.all(
+                      overlayUploadElements.map((element, index) => {
+                        return new Promise((resolve) => {
+                          const img = new Image();
+                          img.crossOrigin = 'anonymous';
+
+                          let settled = false;
+                          const finish = () => {
+                            if (!settled) {
+                              settled = true;
+                              resolve();
+                            }
+                          };
+
+                          const timeoutId = setTimeout(() => {
+                            console.warn(`⏱️ Overlay image ${index} load timeout`);
+                            finish();
+                          }, 3000);
+
+                          img.onload = () => {
+                            clearTimeout(timeoutId);
+                            console.log(`✅ Overlay upload ${index} loaded`, {
+                              width: img.naturalWidth,
+                              height: img.naturalHeight,
+                              id: element?.id,
+                            });
+                            overlayImagesByElement.set(element, img);
+                            finish();
+                          };
+
+                          img.onerror = (err) => {
+                            clearTimeout(timeoutId);
+                            console.warn(`⚠️ Overlay upload ${index} failed to load`, err);
+                            finish();
+                          };
+
+                          img.src = element.data.image;
+                        });
+                      })
+                    );
+                  }
+
                   const resolveNumericRadius = (value) => {
                     if (Number.isFinite(value)) {
                       return value;
@@ -1387,6 +1452,58 @@ export default function EditPhoto() {
                     }
                     const maxRadius = Math.min(width, height) / 2;
                     return Math.min(Math.max(radius, 0), maxRadius);
+                  };
+
+                  const buildRoundedRectPath = (context, width, height, radius) => {
+                    context.beginPath();
+                    context.moveTo(radius, 0);
+                    context.lineTo(width - radius, 0);
+                    context.quadraticCurveTo(width, 0, width, radius);
+                    context.lineTo(width, height - radius);
+                    context.quadraticCurveTo(width, height, width - radius, height);
+                    context.lineTo(radius, height);
+                    context.quadraticCurveTo(0, height, 0, height - radius);
+                    context.lineTo(0, radius);
+                    context.quadraticCurveTo(0, 0, radius, 0);
+                    context.closePath();
+                  };
+
+                  const withElementTransform = (context, element, defaults, draw) => {
+                    const width = Number.isFinite(element?.width)
+                      ? element.width
+                      : Number.isFinite(defaults?.width)
+                      ? defaults.width
+                      : 0;
+                    const height = Number.isFinite(element?.height)
+                      ? element.height
+                      : Number.isFinite(defaults?.height)
+                      ? defaults.height
+                      : 0;
+                    const x = Number.isFinite(element?.x)
+                      ? element.x
+                      : Number.isFinite(defaults?.x)
+                      ? defaults.x
+                      : 0;
+                    const y = Number.isFinite(element?.y)
+                      ? element.y
+                      : Number.isFinite(defaults?.y)
+                      ? defaults.y
+                      : 0;
+                    const rotationDeg = Number.isFinite(element?.rotation)
+                      ? element.rotation
+                      : Number.isFinite(defaults?.rotation)
+                      ? defaults.rotation
+                      : 0;
+                    const rotationRad = (rotationDeg * Math.PI) / 180;
+
+                    context.save();
+                    context.translate(x + width / 2, y + height / 2);
+                    if (rotationRad) {
+                      context.rotate(rotationRad);
+                    }
+                    context.translate(-width / 2, -height / 2);
+                    draw({ width, height });
+                    context.restore();
                   };
 
                   const applySlotClipPath = (ctx, slot, width, height) => {
@@ -1415,17 +1532,7 @@ export default function EditPhoto() {
                       return;
                     }
 
-                    ctx.beginPath();
-                    ctx.moveTo(radius, 0);
-                    ctx.lineTo(width - radius, 0);
-                    ctx.quadraticCurveTo(width, 0, width, radius);
-                    ctx.lineTo(width, height - radius);
-                    ctx.quadraticCurveTo(width, height, width - radius, height);
-                    ctx.lineTo(radius, height);
-                    ctx.quadraticCurveTo(0, height, 0, height - radius);
-                    ctx.lineTo(0, radius);
-                    ctx.quadraticCurveTo(0, 0, radius, 0);
-                    ctx.closePath();
+                    buildRoundedRectPath(ctx, width, height, radius);
                     ctx.clip();
                   };
 
@@ -1476,82 +1583,187 @@ export default function EditPhoto() {
                     ctx.drawImage(media, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, width, height);
                   };
 
+                  const layeredElements = designerElements
+                    .filter(Boolean)
+                    .slice()
+                    .sort((a, b) => {
+                      const zA = Number.isFinite(a?.zIndex) ? a.zIndex : 200;
+                      const zB = Number.isFinite(b?.zIndex) ? b.zIndex : 200;
+                      if (zA === zB) {
+                        const indexA = designerElements.indexOf(a);
+                        const indexB = designerElements.indexOf(b);
+                        return indexA - indexB;
+                      }
+                      return zA - zB;
+                    });
+
+                  const activeFilter = [
+                    `brightness(${filters.brightness}%)`,
+                    `contrast(${filters.contrast}%)`,
+                    `saturate(${filters.saturate}%)`,
+                    `grayscale(${filters.grayscale}%)`,
+                    `sepia(${filters.sepia}%)`,
+                    `blur(${filters.blur}px)`,
+                    `hue-rotate(${filters.hueRotate}deg)`
+                  ].join(' ');
+
+                  const baseCanvasColor = frameConfig?.designer?.canvasBackground || '#FFFFFF';
+
                   // Function to draw composite frame
                   const drawFrame = () => {
-                    // Clear canvas
-                    ctx.fillStyle = '#FFFFFF';
+                    // Clear canvas with configured background color
+                    ctx.save();
+                    ctx.setTransform(1, 0, 0, 1, 0, 0);
+                    ctx.globalAlpha = 1;
+                    ctx.filter = 'none';
+                    ctx.fillStyle = baseCanvasColor;
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.restore();
 
                     // Draw background photo if exists
                     if (backgroundImage && backgroundImage.complete && backgroundImage.naturalWidth > 0) {
                       try {
-                        ctx.drawImage(
-                          backgroundImage,
-                          backgroundPhotoElement.x || 0,
-                          backgroundPhotoElement.y || 0,
-                          backgroundPhotoElement.width || canvas.width,
-                          backgroundPhotoElement.height || canvas.height
-                        );
+                        if (backgroundPhotoElement) {
+                          withElementTransform(
+                            ctx,
+                            backgroundPhotoElement,
+                            { width: canvas.width, height: canvas.height, x: 0, y: 0 },
+                            ({ width, height }) => {
+                              ctx.filter = activeFilter;
+                              applySlotClipPath(ctx, backgroundPhotoElement, width, height);
+                              drawMediaCoverInSlot(ctx, backgroundImage, width, height);
+                            }
+                          );
+                        } else {
+                          ctx.save();
+                          ctx.filter = activeFilter;
+                          drawMediaCoverInSlot(ctx, backgroundImage, canvas.width, canvas.height);
+                          ctx.restore();
+                        }
                       } catch (err) {
                         console.warn('Error drawing background:', err);
                       }
                     }
 
-                    // Draw video frames
-                    videoElements.forEach(({ video, slot }) => {
-                      if (video.readyState >= 2 && !video.paused && !video.ended) {
+                    // Draw layered designer elements (videos, overlays, shapes, text)
+                    layeredElements.forEach((element) => {
+                      if (!element) return;
+
+                      const isPhotoSlot =
+                        element.type === 'upload' && typeof element?.data?.photoIndex === 'number';
+
+                      if (isPhotoSlot) {
+                        const slotVideoEntry =
+                          (element.id && videoBySlotId.get(element.id)) ||
+                          videoByPhotoIndex.get(element.data.photoIndex);
+
+                        if (!slotVideoEntry) {
+                          return;
+                        }
+
+                        const { video } = slotVideoEntry;
+
+                        if (!(video.readyState >= 2 && !video.paused && !video.ended)) {
+                          return;
+                        }
+
                         try {
-                          ctx.save();
-                          const slotX = slot.x || 0;
-                          const slotY = slot.y || 0;
-                          const slotWidth = slot.width || 300;
-                          const slotHeight = slot.height || 300;
-
-                          ctx.translate(slotX, slotY);
-                          applySlotClipPath(ctx, slot, slotWidth, slotHeight);
-
-                          // Mirror video horizontally around the slot without affecting frame elements
-                          ctx.translate(slotWidth, 0);
-                          ctx.scale(-1, 1);
-                          drawMediaCoverInSlot(ctx, video, slotWidth, slotHeight);
-                          ctx.restore();
+                          withElementTransform(ctx, element, null, ({ width, height }) => {
+                            ctx.filter = activeFilter;
+                            applySlotClipPath(ctx, element, width, height);
+                            ctx.translate(width, 0);
+                            ctx.scale(-1, 1);
+                            drawMediaCoverInSlot(ctx, video, width, height);
+                          });
                         } catch (err) {
                           console.warn('Error drawing video frame:', err);
                         }
+                        return;
                       }
-                    });
 
-                    // Draw other elements (text, shapes, etc)
-                    designerElements.forEach(element => {
-                      if (element.type === 'upload') return; // Skip photo slots (already drawn)
-                      
-                      if (element.type === 'text' && element.data?.text) {
-                        ctx.save();
-                        const fontSize = element.data?.fontSize || 24;
-                        const fontWeight = element.data?.fontWeight || 500;
-                        const fontFamily = element.data?.fontFamily || 'Inter';
-                        ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
-                        ctx.fillStyle = element.data?.color || '#111827';
-                        ctx.textAlign = element.data?.align || 'left';
-                        
-                        const lines = (element.data.text || '').split('\n');
-                        const lineHeight = fontSize * 1.2;
-                        let textX = element.x || 0;
-                        if (element.data?.align === 'center') textX = (element.x || 0) + (element.width || 100) / 2;
-                        else if (element.data?.align === 'right') textX = (element.x || 0) + (element.width || 100);
-                        
-                        let startY = (element.y || 0) + fontSize;
-                        lines.forEach((line, index) => {
-                          ctx.fillText(line, textX, startY + (index * lineHeight));
+                      if (element.type === 'shape') {
+                        withElementTransform(ctx, element, null, ({ width, height }) => {
+                          const opacity = Number.isFinite(element?.data?.opacity)
+                            ? element.data.opacity
+                            : 1;
+                          ctx.filter = 'none';
+                          ctx.globalAlpha = opacity;
+                          ctx.fillStyle = element.data?.fill || '#000';
+
+                          if (element.data?.shape === 'circle') {
+                            ctx.beginPath();
+                            ctx.arc(width / 2, height / 2, Math.min(width, height) / 2, 0, Math.PI * 2);
+                            ctx.fill();
+                          } else {
+                            const rawRadius = resolveNumericRadius(element?.data?.borderRadius);
+                            const radius = clampRadius(rawRadius, width, height);
+                            buildRoundedRectPath(ctx, width, height, radius);
+                            ctx.fill();
+                          }
                         });
-                        ctx.restore();
+                        return;
+                      }
+
+                      if (element.type === 'text' && element.data?.text) {
+                        withElementTransform(ctx, element, null, ({ width, height }) => {
+                          ctx.filter = 'none';
+                          ctx.globalAlpha = Number.isFinite(element?.data?.opacity)
+                            ? element.data.opacity
+                            : 1;
+                          const fontSize = element.data?.fontSize || 24;
+                          const fontWeight = element.data?.fontWeight || 500;
+                          const fontFamily = element.data?.fontFamily || 'Inter';
+                          ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+                          const align = element.data?.align || 'left';
+                          ctx.textAlign = align;
+                          ctx.textBaseline = 'alphabetic';
+                          ctx.fillStyle = element.data?.color || '#111827';
+
+                          const lines = (element.data.text || '').split('\n');
+                          const lineHeight = fontSize * 1.2;
+                          const totalTextHeight = lines.length * lineHeight;
+
+                          let textX = 0;
+                          if (align === 'center') textX = width / 2;
+                          else if (align === 'right') textX = width;
+
+                          let startY = fontSize;
+                          const verticalAlign = element.data?.verticalAlign;
+                          if (verticalAlign === 'middle') {
+                            startY = (height - totalTextHeight) / 2 + fontSize;
+                          } else if (verticalAlign === 'bottom') {
+                            startY = height - totalTextHeight + fontSize;
+                          }
+
+                          lines.forEach((line, index) => {
+                            ctx.fillText(line, textX, startY + index * lineHeight);
+                          });
+                        });
+                        return;
+                      }
+
+                      if (element.type === 'upload') {
+                        const overlayImage = overlayImagesByElement.get(element);
+                        if (!overlayImage || !overlayImage.complete || overlayImage.naturalWidth <= 0) {
+                          return;
+                        }
+
+                        withElementTransform(ctx, element, null, ({ width, height }) => {
+                          ctx.filter = 'none';
+                          applySlotClipPath(ctx, element, width, height);
+                          drawMediaCoverInSlot(ctx, overlayImage, width, height);
+                        });
                       }
                     });
 
                     // Draw frame overlay (if not custom)
                     if (frameImage && frameImage.complete && frameImage.naturalWidth > 0) {
                       try {
+                        ctx.save();
+                        ctx.filter = 'none';
+                        ctx.globalAlpha = 1;
                         ctx.drawImage(frameImage, 0, 0, canvas.width, canvas.height);
+                        ctx.restore();
                       } catch (err) {
                         console.warn('Error drawing frame overlay:', err);
                       }

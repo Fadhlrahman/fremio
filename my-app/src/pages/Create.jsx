@@ -1550,21 +1550,40 @@ export default function Create() {
           const canvas = document.createElement('canvas');
           canvas.width = Math.max(1, Math.round(targetWidth));
           canvas.height = Math.max(1, Math.round(targetHeight));
-          const ctx = canvas.getContext('2d');
+          const ctx = canvas.getContext('2d', { alpha: true }); // Enable alpha channel
           if (!ctx) {
             throw new Error('Failed to acquire 2D context');
           }
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-          const compressedImage = canvas.toDataURL('image/jpeg', quality);
-
-          console.log('🗜️ Compressed image:', {
-            type: element.type,
-            original: imageSource.length,
-            compressed: compressedImage.length,
-            saved: imageSource.length - compressedImage.length,
-            reductionPercent: Math.round(((imageSource.length - compressedImage.length) / imageSource.length) * 100) + '%',
-          });
+          // ✅ CRITICAL FIX: Check if image has transparency
+          // PNG images with transparency MUST stay as PNG, not convert to JPEG
+          // JPEG doesn't support alpha channel - transparent areas become BLACK!
+          const isOriginalPNG = imageSource.startsWith('data:image/png');
+          const hasTransparency = isOriginalPNG; // Assume PNG has transparency
+          
+          let compressedImage;
+          if (hasTransparency) {
+            // Keep as PNG to preserve transparency
+            compressedImage = canvas.toDataURL('image/png');
+            console.log('🗜️ Keeping PNG format for transparency:', {
+              type: element.type,
+              format: 'PNG',
+              original: imageSource.length,
+              compressed: compressedImage.length,
+            });
+          } else {
+            // Use JPEG for better compression (no transparency)
+            compressedImage = canvas.toDataURL('image/jpeg', quality);
+            console.log('🗜️ Compressed image:', {
+              type: element.type,
+              format: 'JPEG',
+              original: imageSource.length,
+              compressed: compressedImage.length,
+              saved: imageSource.length - compressedImage.length,
+              reductionPercent: Math.round(((imageSource.length - compressedImage.length) / imageSource.length) * 100) + '%',
+            });
+          }
 
           return {
             ...element,

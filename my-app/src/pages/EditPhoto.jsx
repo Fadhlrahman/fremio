@@ -797,7 +797,7 @@ export default function EditPhoto() {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        background: '#fff'
+                        background: 'transparent' // ✅ Changed from '#fff' to support transparent PNGs
                       }}
                     >
                       <img
@@ -806,7 +806,7 @@ export default function EditPhoto() {
                         style={{
                           width: '100%',
                           height: '100%',
-                          objectFit: 'cover',
+                          objectFit: 'cover', // Back to cover - transparency preserved in PNG format
                           display: 'block',
                           ...getFilterStyle()
                         }}
@@ -925,7 +925,7 @@ export default function EditPhoto() {
                   const canvas = document.createElement('canvas');
                   canvas.width = 1080;
                   canvas.height = 1920;
-                  const ctx = canvas.getContext('2d');
+                  const ctx = canvas.getContext('2d', { alpha: true }); // ✅ Enable alpha for transparency
                   
                   // Background color
                   ctx.fillStyle = frameConfig?.designer?.canvasBackground || '#ffffff';
@@ -949,6 +949,29 @@ export default function EditPhoto() {
                     }
                     
                     ctx.drawImage(img, sourceX, sourceY, sourceW, sourceH, x, y, w, h);
+                  };
+                  
+                  // ✅ Helper function untuk object-fit: contain (untuk transparent PNGs)
+                  const drawImageContain = (ctx, img, x, y, w, h) => {
+                    const imgRatio = img.width / img.height;
+                    const boxRatio = w / h;
+                    
+                    let drawW = w;
+                    let drawH = h;
+                    let drawX = x;
+                    let drawY = y;
+                    
+                    if (imgRatio > boxRatio) {
+                      // Image lebih lebar, fit to width
+                      drawH = w / imgRatio;
+                      drawY = y + (h - drawH) / 2;
+                    } else {
+                      // Image lebih tinggi, fit to height
+                      drawW = h * imgRatio;
+                      drawX = x + (w - drawW) / 2;
+                    }
+                    
+                    ctx.drawImage(img, 0, 0, img.width, img.height, drawX, drawY, drawW, drawH);
                   };
                   
                   // Load dan draw background photo
@@ -1002,6 +1025,11 @@ export default function EditPhoto() {
                       await new Promise((resolve, reject) => {
                         img.onload = () => {
                           ctx.save();
+                          
+                          // ✅ Reset context for proper transparency handling
+                          ctx.globalAlpha = 1;
+                          ctx.globalCompositeOperation = 'source-over';
+                          
                           // Apply filters
                           ctx.filter = `
                             brightness(${filters.brightness}%)
@@ -1033,7 +1061,7 @@ export default function EditPhoto() {
                           ctx.closePath();
                           ctx.clip();
                           
-                          // Draw dengan object-fit: cover
+                          // Use cover - transparency preserved in PNG format from Create page
                           drawImageCover(ctx, img, x, y, w, h);
                           ctx.restore();
                           resolve();
@@ -1171,7 +1199,8 @@ export default function EditPhoto() {
                   const canvas = document.createElement('canvas');
                   canvas.width = 1080;
                   canvas.height = 1920;
-                  const ctx = canvas.getContext('2d', { willReadFrequently: false });
+                  // ✅ Set alpha: true to properly support transparent PNGs
+                  const ctx = canvas.getContext('2d', { alpha: true, willReadFrequently: false });
 
                   if (typeof MediaRecorder === 'undefined') {
                     throw new Error('Browser ini belum mendukung fitur perekaman canvas (MediaRecorder). Coba gunakan Chrome atau Edge versi terbaru.');
@@ -1573,6 +1602,7 @@ export default function EditPhoto() {
                       return;
                     }
 
+                    // Use 'cover' behavior (crop to fill) - transparency is preserved in PNG format
                     const mediaRatio = intrinsicWidth / intrinsicHeight;
                     const slotRatio = width / height;
 
@@ -1624,6 +1654,7 @@ export default function EditPhoto() {
                     ctx.save();
                     ctx.setTransform(1, 0, 0, 1, 0, 0);
                     ctx.globalAlpha = 1;
+                    ctx.globalCompositeOperation = 'source-over'; // ✅ Ensure proper alpha blending
                     ctx.filter = 'none';
                     ctx.fillStyle = baseCanvasColor;
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1758,6 +1789,9 @@ export default function EditPhoto() {
                         }
 
                         withElementTransform(ctx, element, null, ({ width, height }) => {
+                          // ✅ Reset context properties to ensure transparent PNGs render correctly
+                          ctx.globalAlpha = 1;
+                          ctx.globalCompositeOperation = 'source-over';
                           ctx.filter = 'none';
                           applySlotClipPath(ctx, element, width, height);
                           drawMediaCoverInSlot(ctx, overlayImage, width, height);

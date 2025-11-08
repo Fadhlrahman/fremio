@@ -956,7 +956,7 @@ export default function Create() {
         safeStorage.removeItem("capturedPhotos");
       }
 
-      const clonedElements = Array.isArray(draft.elements)
+      let clonedElements = Array.isArray(draft.elements)
         ? typeof structuredClone === "function"
           ? structuredClone(draft.elements)
           : JSON.parse(JSON.stringify(draft.elements))

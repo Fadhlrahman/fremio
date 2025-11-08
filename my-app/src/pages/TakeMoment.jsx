@@ -478,6 +478,18 @@ export default function TakeMoment() {
   const activeRecordingRef = useRef(null);
   const captureSectionRef = useRef(null);
   const previewSectionRef = useRef(null);
+  
+  // Background replacement refs
+  const canvasRef = useRef(null);
+  const segmentationRef = useRef(null);
+  const animationFrameRef = useRef(null);
+  const filterModeRef = useRef('original');
+  const backgroundModeRef = useRef('blur');
+  const backgroundColorRef = useRef('#10B981');
+  const backgroundImageRef = useRef(null);
+  const cachedImageRef = useRef(null); // Cache loaded Image object
+  const hasInitialSegmentationRef = useRef(false);
+  const personMaskCanvasRef = useRef(null);
 
   const [cameraActive, setCameraActive] = useState(false);
   const [capturedPhotos, setCapturedPhotos] = useState([]);
@@ -487,6 +499,15 @@ export default function TakeMoment() {
   const [timer, setTimer] = useState(TIMER_OPTIONS[0]);
   const [currentPhoto, setCurrentPhoto] = useState(null);
   const [currentVideo, setCurrentVideo] = useState(null);
+  
+  // Background replacement states
+  const [filterMode, setFilterMode] = useState('original');
+  const [blurMode, setBlurMode] = useState(null);
+  const [isLoadingBlur, setIsLoadingBlur] = useState(false);
+  const [backgroundMode, setBackgroundMode] = useState('blur');
+  const [backgroundColor, setBackgroundColor] = useState('#10B981');
+  const [backgroundImage, setBackgroundImage] = useState(null);
+  const [showBackgroundPanel, setShowBackgroundPanel] = useState(false);
 
   const capturedPhotosRef = useRef(capturedPhotos);
   const capturedVideosRef = useRef(capturedVideos);
@@ -1087,6 +1108,316 @@ export default function TakeMoment() {
     () => !isUsingBackCamera,
     [isUsingBackCamera]
   );
+
+  const displayMirror = useMemo(
+    () => (filterMode === 'blur' ? true : shouldMirrorVideo),
+    [filterMode, shouldMirrorVideo]
+  );
+
+  // Sync background settings to refs
+  useEffect(() => {
+    filterModeRef.current = filterMode;
+    backgroundModeRef.current = backgroundMode;
+    backgroundColorRef.current = backgroundColor;
+    backgroundImageRef.current = backgroundImage;
+    
+    // Preload image when backgroundImage changes
+    if (backgroundImage && backgroundMode === 'image') {
+      const img = new Image();
+      img.onload = () => {
+        cachedImageRef.current = img;
+        console.log('🖼️ Background image cached:', img.width, 'x', img.height);
+      };
+      img.onerror = () => {
+        console.error('❌ Failed to load background image');
+        cachedImageRef.current = null;
+      };
+      img.src = backgroundImage;
+    } else {
+      cachedImageRef.current = null;
+    }
+  }, [filterMode, backgroundMode, backgroundColor, backgroundImage]);
+
+  useEffect(() => {
+    if (filterMode !== 'blur') {
+      setShowBackgroundPanel(false);
+    }
+  }, [filterMode]);
+
+  // MediaPipe Background Replacement
+  useEffect(() => {
+    let isMounted = true;
+    
+    const cleanup = () => {
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+      if (segmentationRef.current) {
+        try { segmentationRef.current.close(); } catch(e) {}
+        segmentationRef.current = null;
+      }
+      hasInitialSegmentationRef.current = false;
+    };
+
+    if (filterMode === 'original') {
+      cleanup();
+      setBlurMode(null);
+      setIsLoadingBlur(false);
+      hasInitialSegmentationRef.current = false;
+      return;
+    }
+
+    const initMediaPipe = async () => {
+      if (typeof window === 'undefined') {
+        return;
+      }
+
+      if (!cameraActive || !videoRef.current) {
+        console.log('⚠️ Cannot init MediaPipe: cameraActive=', cameraActive, 'videoRef=', !!videoRef.current);
+        return;
+      }
+      
+      console.log('🎬 Starting MediaPipe initialization...');
+      hasInitialSegmentationRef.current = false;
+      setIsLoadingBlur(true);
+      
+      const sources = [
+        {
+          script: 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1.1675465747/selfie_segmentation.js',
+          assetBase: 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1.1675465747'
+        },
+        {
+          script: 'https://unpkg.com/@mediapipe/selfie_segmentation@0.1.1675465747/selfie_segmentation.js',
+          assetBase: 'https://unpkg.com/@mediapipe/selfie_segmentation@0.1.1675465747'
+        }
+      ];
+
+      const loadSelfieSegmentationFromSource = (source) => {
+        return new Promise((resolve, reject) => {
+          if (window.__SELFIE_SEG_CTOR) {
+            return resolve(window.__SELFIE_SEG_CTOR);
+          }
+
+          const globalModule = window.SelfieSegmentation || window.selfieSegmentation;
+          const ctorCandidate =
+            globalModule?.SelfieSegmentation || globalModule;
+          if (typeof ctorCandidate === 'function') {
+            window.__SELFIE_SEG_CTOR = ctorCandidate;
+            window.__SELFIE_SEG_ASSET_BASE = window.__SELFIE_SEG_ASSET_BASE || source.assetBase;
+            return resolve(ctorCandidate);
+          }
+
+          const existingScript = document.querySelector('script[data-selfie-segmentation="true"]');
+          if (existingScript && existingScript.dataset.src === source.script) {
+            existingScript.addEventListener('load', () => {
+              const readyModule = window.SelfieSegmentation || window.selfieSegmentation;
+              const ctor = readyModule?.SelfieSegmentation || readyModule;
+              if (typeof ctor === 'function') {
+                window.__SELFIE_SEG_CTOR = ctor;
+                window.__SELFIE_SEG_ASSET_BASE = source.assetBase;
+                resolve(ctor);
+              } else {
+                reject(new Error('SelfieSegmentation global not available after script load'));
+              }
+            }, { once: true });
+            existingScript.addEventListener('error', () => {
+              reject(new Error('SelfieSegmentation script failed to load'));
+            }, { once: true });
+            return;
+          }
+
+          const script = document.createElement('script');
+          script.src = source.script;
+          script.async = true;
+          script.crossOrigin = 'anonymous';
+          script.dataset.selfieSegmentation = 'true';
+          script.dataset.src = source.script;
+          script.onload = () => {
+            const readyModule = window.SelfieSegmentation || window.selfieSegmentation;
+            const ctor = readyModule?.SelfieSegmentation || readyModule;
+            if (typeof ctor === 'function') {
+              window.__SELFIE_SEG_CTOR = ctor;
+              window.__SELFIE_SEG_ASSET_BASE = source.assetBase;
+              resolve(ctor);
+            } else {
+              reject(new Error('SelfieSegmentation global not available after script load'));
+            }
+          };
+          script.onerror = () => reject(new Error('SelfieSegmentation script failed to load'));
+          document.head.appendChild(script);
+        });
+      };
+
+      for (let source of sources) {
+        try {
+          console.log('🔄 Loading MediaPipe from:', source.script);
+          const SelfieSegmentationCtor = await Promise.race([
+            loadSelfieSegmentationFromSource(source),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('CDN Timeout after 20s')), 20000))
+          ]);
+          
+          if (!isMounted) {
+            console.log('⚠️ Component unmounted, aborting MediaPipe init');
+            return;
+          }
+
+          if (typeof SelfieSegmentationCtor !== 'function') {
+            console.error('❌ Failed to resolve SelfieSegmentation constructor from script source', source.script);
+            continue;
+          }
+
+          console.log('✅ MediaPipe module loaded successfully');
+          const seg = new SelfieSegmentationCtor({
+            locateFile: (file) => {
+              const base = window.__SELFIE_SEG_ASSET_BASE || source.assetBase;
+              return `${base}/${file}`;
+            }
+          });
+          
+          seg.setOptions({ modelSelection: 1, selfieMode: displayMirror });
+          console.log('⚙️ MediaPipe options set, attaching onResults...');
+
+          if (typeof seg.initialize === 'function') {
+            try {
+              await seg.initialize();
+              console.log('📦 MediaPipe initialized base models');
+            } catch (initErr) {
+              console.warn('⚠️ MediaPipe initialize() warning:', initErr?.message || initErr);
+            }
+          }
+          
+          seg.onResults((results) => {
+            if (!isMounted || !canvasRef.current) return;
+            
+            // Check filterMode from ref
+            if (filterModeRef.current === 'original') return;
+            
+            if (!hasInitialSegmentationRef.current) {
+              hasInitialSegmentationRef.current = true;
+              setBlurMode('mediapipe');
+              setIsLoadingBlur(false);
+              console.log('✨ MediaPipe background ready');
+            }
+            
+            const canvas = canvasRef.current;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            const mirrorOutput = displayMirror;
+
+            const drawMirrored = (context, image, width, height) => {
+              if (!image) return;
+              if (mirrorOutput) {
+                context.save();
+                context.scale(-1, 1);
+                context.drawImage(image, -width, 0, width, height);
+                context.restore();
+              } else {
+                context.drawImage(image, 0, 0, width, height);
+              }
+            };
+            
+            if (!results.segmentationMask) {
+              console.warn('⚠️ MediaPipe returned empty segmentation mask');
+              if (!hasInitialSegmentationRef.current) {
+                setIsLoadingBlur(false);
+              }
+              return;
+            }
+
+            if (canvas.width !== results.image.width) {
+              canvas.width = results.image.width;
+              canvas.height = results.image.height;
+              console.log('📐 Canvas resized:', canvas.width, 'x', canvas.height);
+            }
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw background - use refs to get latest values
+            const mode = backgroundModeRef.current;
+            const color = backgroundColorRef.current;
+            const cachedImage = cachedImageRef.current;
+            
+            if (mode === 'blur') {
+              ctx.save();
+              ctx.filter = 'blur(20px)';
+              drawMirrored(ctx, results.image, canvas.width, canvas.height);
+              ctx.restore();
+            } else if (mode === 'color') {
+              ctx.fillStyle = color;
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+            } else if (mode === 'image' && cachedImage) {
+              drawMirrored(ctx, cachedImage, canvas.width, canvas.height);
+            } else {
+              // Fallback to blur if no background set
+              ctx.save();
+              ctx.filter = 'blur(20px)';
+              drawMirrored(ctx, results.image, canvas.width, canvas.height);
+              ctx.restore();
+            }
+            
+            // Draw person
+            if (results.segmentationMask) {
+              let maskCanvas = personMaskCanvasRef.current;
+              if (!maskCanvas) {
+                maskCanvas = document.createElement('canvas');
+                personMaskCanvasRef.current = maskCanvas;
+              }
+
+              if (maskCanvas.width !== canvas.width) {
+                maskCanvas.width = canvas.width;
+                maskCanvas.height = canvas.height;
+              }
+
+              const maskCtx = maskCanvas.getContext('2d');
+              maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+              drawMirrored(maskCtx, results.image, maskCanvas.width, maskCanvas.height);
+              maskCtx.globalCompositeOperation = 'destination-in';
+              drawMirrored(maskCtx, results.segmentationMask, maskCanvas.width, maskCanvas.height);
+              maskCtx.globalCompositeOperation = 'source-over';
+              ctx.drawImage(maskCanvas, 0, 0, canvas.width, canvas.height);
+            }
+          });
+          
+          segmentationRef.current = seg;
+          
+          const processFrame = async () => {
+            if (!isMounted || !videoRef.current || !segmentationRef.current) return;
+            if (filterModeRef.current === 'original') return;
+            
+            try {
+              await segmentationRef.current.send({ image: videoRef.current });
+            } catch(e) {
+              console.error('MediaPipe send error:', e);
+            }
+            
+            if (isMounted && filterModeRef.current !== 'original') {
+              animationFrameRef.current = requestAnimationFrame(processFrame);
+            }
+          };
+          
+          console.log('✅ MediaPipe initialized, starting processFrame loop');
+          processFrame();
+          return;
+        } catch(e) {
+          console.warn('⚠️ CDN failed:', source.script, e.message);
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+      
+      // All CDNs failed
+      console.error('❌ All MediaPipe CDNs failed');
+      setIsLoadingBlur(false);
+      setBlurMode(null);
+    };
+
+    if (filterMode === 'blur' && cameraActive) {
+      initMediaPipe();
+    }
+
+    return () => {
+      isMounted = false;
+      cleanup();
+    };
+  }, [filterMode, cameraActive, displayMirror]);
+
   const hasReachedMaxPhotos = capturedPhotos.length >= maxCaptures;
   const isCaptureDisabled =
     capturing || isVideoProcessing || hasReachedMaxPhotos;
@@ -1779,13 +2110,16 @@ export default function TakeMoment() {
   );
 
   const capturePhoto = useCallback(async () => {
-    if (!videoRef.current) {
+    // Use canvas when MediaPipe is active, otherwise use video
+    const sourceElement = (blurMode === 'mediapipe' && canvasRef.current) ? canvasRef.current : videoRef.current;
+    
+    if (!sourceElement) {
       throw new Error("Video element is not ready for capture");
     }
 
     const video = videoRef.current;
-    const width = video.videoWidth || 1280;
-    const height = video.videoHeight || 720;
+    const width = video?.videoWidth || 1280;
+    const height = video?.videoHeight || 720;
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
@@ -1795,13 +2129,15 @@ export default function TakeMoment() {
       throw new Error("Unable to access 2D context for capture canvas");
     }
 
-    if (shouldMirrorVideo) {
+  const mirrorForCapture = filterMode === 'blur' ? true : shouldMirrorVideo;
+
+    if (mirrorForCapture) {
       ctx.save();
       ctx.scale(-1, 1);
-      ctx.drawImage(video, -width, 0, width, height);
+      ctx.drawImage(sourceElement, -width, 0, width, height);
       ctx.restore();
     } else {
-      ctx.drawImage(video, 0, 0, width, height);
+      ctx.drawImage(sourceElement, 0, 0, width, height);
     }
 
     const blob = await canvasToBlob(canvas, "image/jpeg", 0.9);
@@ -1838,7 +2174,7 @@ export default function TakeMoment() {
     replaceCurrentPhoto(payload);
     setShowConfirmation(true);
     return payload;
-  }, [replaceCurrentPhoto, shouldMirrorVideo]);
+  }, [replaceCurrentPhoto, shouldMirrorVideo, blurMode, filterMode]);
 
   const handleCapture = useCallback(() => {
     if (!videoRef.current || capturing || isVideoProcessing) return;
@@ -3073,36 +3409,52 @@ export default function TakeMoment() {
 
     return (
       <div
-        ref={sectionRef}
         style={{
-          background: "#fff",
-          borderRadius: isMobileVariant ? "18px" : "20px",
-          overflow: "hidden",
-          position: "relative",
-          minHeight: isMobileVariant ? "min(320px, 56vh)" : "320px",
-          height: isMobileVariant ? "min(320px, 56vh)" : undefined,
-          maxWidth: isMobileVariant ? "100%" : "640px",
           width: "100%",
-          margin: "0 auto",
-          aspectRatio: isMobileVariant ? undefined : "4 / 3",
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
-          justifyContent: "center",
+          gap: isMobileVariant ? "12px" : "16px",
         }}
       >
-        {cameraActive ? (
-          <>
-            <video
+        <div
+          ref={sectionRef}
+          style={{
+            background: "#fff",
+            borderRadius: isMobileVariant ? "18px" : "20px",
+            overflow: "hidden",
+            position: "relative",
+            minHeight: isMobileVariant ? "min(320px, 56vh)" : "320px",
+            height: isMobileVariant ? "min(320px, 56vh)" : undefined,
+            maxWidth: isMobileVariant ? "100%" : "640px",
+            width: "100%",
+            margin: "0 auto",
+            aspectRatio: isMobileVariant ? undefined : "4 / 3",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {cameraActive ? (
+            <>
+              <video
               ref={videoRef}
               autoPlay
               playsInline
               muted
               style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
                 width: "100%",
                 height: "100%",
                 objectFit: "cover",
-                transform: shouldMirrorVideo ? "scaleX(-1)" : "none",
+                transform: displayMirror ? "scaleX(-1)" : "none",
                 background: "#000",
+                opacity: blurMode === 'mediapipe' ? 0 : 1,
+                transition: "opacity 200ms ease",
+                pointerEvents: blurMode === 'mediapipe' ? 'none' : 'auto',
+                zIndex: 1,
               }}
               onLoadedMetadata={() => {
                 if (videoRef.current) {
@@ -3117,93 +3469,324 @@ export default function TakeMoment() {
                 setCameraError("Video gagal dimuat");
               }}
             />
-            {cameraError && (
+            
+            {/* MediaPipe Canvas */}
+              <canvas
+                ref={canvasRef}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  background: "#000",
+                  transform:
+                    blurMode === 'mediapipe'
+                      ? 'none'
+                      : displayMirror
+                      ? 'scaleX(-1)'
+                      : 'none',
+                  opacity: blurMode === 'mediapipe' ? 1 : 0,
+                  transition: "opacity 200ms ease",
+                  pointerEvents: "none",
+                  zIndex: 2,
+                }}
+              />
+
+              {cameraError && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: isMobileVariant ? "16px" : "24px",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    background: "rgba(255, 59, 48, 0.95)",
+                    color: "#fff",
+                    padding: "0.75rem 1rem",
+                    borderRadius: "14px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.5rem",
+                    boxShadow: "0 12px 32px rgba(0,0,0,0.25)",
+                    maxWidth: "90%",
+                    textAlign: "left",
+                    fontSize: "0.95rem",
+                  }}
+                >
+                  <span role="img" aria-label="Camera error">
+                    ⚠️
+                  </span>
+                  <span>{cameraError}</span>
+                </div>
+              )}
+
+              {renderCountdownOverlay()}
+
+              {isMobileVariant && cameraActive && !isSwitchingCamera && (
+                <button
+                  onClick={handleSwitchCamera}
+                  style={{
+                    position: "absolute",
+                    top: "14px",
+                    right: "14px",
+                    width: "44px",
+                    height: "44px",
+                    borderRadius: "22px",
+                    border: "none",
+                    background: "rgba(15,23,42,0.4)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                  }}
+                >
+                  <img
+                    src={flipIcon}
+                    alt="Flip camera"
+                    style={{ width: "20px", height: "20px" }}
+                  />
+                </button>
+              )}
+            </>
+          ) : (
+            <div
+              style={{
+                textAlign: "center",
+                color: "#94a3b8",
+                fontSize: "1.05rem",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.5rem",
+                alignItems: "center",
+                padding: "2.5rem 1rem",
+              }}
+            >
+              <div style={{ fontSize: "3.5rem", lineHeight: 1 }}>📷</div>
+              <div style={{ fontWeight: 600 }}>Kamera belum aktif</div>
+              <div style={{ fontSize: "0.9rem" }}>
+                aktifkan kamera atau upload dari galeri
+              </div>
+              {cameraError && (
+                <div
+                  style={{
+                    marginTop: "0.5rem",
+                    background: "rgba(255, 59, 48, 0.1)",
+                    border: "1px solid rgba(255, 59, 48, 0.3)",
+                    color: "#ef4444",
+                    borderRadius: "10px",
+                    padding: "0.5rem 0.75rem",
+                    fontSize: "0.85rem",
+                    lineHeight: 1.4,
+                    maxWidth: "320px",
+                  }}
+                >
+                  {cameraError}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {cameraActive && !isSwitchingCamera && (
+          <div
+            style={{
+              display: "flex",
+              gap: "10px",
+              background: "rgba(15,23,42,0.9)",
+              padding: isMobileVariant ? "8px 12px" : "10px 16px",
+              borderRadius: "999px",
+              boxShadow: "0 12px 32px rgba(15,23,42,0.25)",
+            }}
+          >
+            <button
+              onClick={() => {
+                setFilterMode('original');
+                setShowBackgroundPanel(false);
+              }}
+              disabled={capturing}
+              style={{
+                padding: isMobileVariant ? "8px 14px" : "10px 18px",
+                borderRadius: "18px",
+                border: "none",
+                background: filterMode === 'original' ? '#8B5CF6' : 'transparent',
+                color: '#fff',
+                fontSize: "14px",
+                fontWeight: 600,
+                cursor: capturing ? 'not-allowed' : 'pointer',
+                opacity: capturing ? 0.5 : 1,
+                transition: "background 0.2s ease",
+              }}
+            >
+              📷 Normal
+            </button>
+            <button
+              onClick={() => {
+                setFilterMode('blur');
+                setShowBackgroundPanel(true);
+              }}
+              disabled={capturing || isLoadingBlur}
+              style={{
+                padding: isMobileVariant ? "8px 14px" : "10px 18px",
+                borderRadius: "18px",
+                border: "none",
+                background: filterMode === 'blur' ? '#8B5CF6' : 'transparent',
+                color: '#fff',
+                fontSize: "14px",
+                fontWeight: 600,
+                cursor: (capturing || isLoadingBlur) ? 'not-allowed' : 'pointer',
+                opacity: (capturing || isLoadingBlur) ? 0.5 : 1,
+                transition: "background 0.2s ease",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+              }}
+            >
+              🎨 Background
+              {isLoadingBlur && <span style={{ fontSize: '10px' }}>⏳</span>}
+            </button>
+          </div>
+        )}
+
+        {cameraActive && !isSwitchingCamera && filterMode === 'blur' && !isLoadingBlur && blurMode === 'mediapipe' && (
+          <>
+            {showBackgroundPanel ? (
               <div
                 style={{
-                  position: "absolute",
-                  bottom: isMobileVariant ? "16px" : "24px",
-                  left: "50%",
-                  transform: "translateX(-50%)",
-                  background: "rgba(255, 59, 48, 0.95)",
-                  color: "#fff",
-                  padding: "0.75rem 1rem",
-                  borderRadius: "14px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.5rem",
-                  boxShadow: "0 12px 32px rgba(0,0,0,0.25)",
-                  maxWidth: "90%",
-                  textAlign: "left",
-                  fontSize: "0.95rem",
+                  width: "100%",
+                  maxWidth: isMobileVariant ? "100%" : "640px",
+                  background: "rgba(15,23,42,0.95)",
+                  backdropFilter: "blur(16px)",
+                  padding: isMobileVariant ? "14px" : "18px",
+                  borderRadius: "20px",
+                  boxShadow: "0 18px 36px rgba(15,23,42,0.3)",
                 }}
               >
-                <span role="img" aria-label="Camera error">
-                  ⚠️
-                </span>
-                <span>{cameraError}</span>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: "12px",
+                    color: "#A78BFA",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                  }}
+                >
+                  <span>🎨 Background Options</span>
+                  <button
+                    onClick={() => setShowBackgroundPanel(false)}
+                    style={{
+                      background: "rgba(255,255,255,0.1)",
+                      border: "none",
+                      color: "#fff",
+                      borderRadius: "12px",
+                      padding: "6px 10px",
+                      fontSize: "12px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    ✕ Tutup
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                  <button onClick={() => setBackgroundMode('blur')} disabled={capturing} style={{
+                    flex: 1, padding: "8px 12px", borderRadius: "12px", border: "none",
+                    background: backgroundMode === 'blur' ? '#8B5CF6' : 'rgba(255,255,255,0.1)',
+                    color: '#fff', fontSize: "13px", fontWeight: 600,
+                    cursor: capturing ? 'not-allowed' : 'pointer', opacity: capturing ? 0.5 : 1,
+                  }}>
+                    🌫️ Blur
+                  </button>
+                  <button onClick={() => setBackgroundMode('color')} disabled={capturing} style={{
+                    flex: 1, padding: "8px 12px", borderRadius: "12px", border: "none",
+                    background: backgroundMode === 'color' ? '#8B5CF6' : 'rgba(255,255,255,0.1)',
+                    color: '#fff', fontSize: "13px", fontWeight: 600,
+                    cursor: capturing ? 'not-allowed' : 'pointer', opacity: capturing ? 0.5 : 1,
+                  }}>
+                    🎨 Color
+                  </button>
+                  <button onClick={() => setBackgroundMode('image')} disabled={capturing} style={{
+                    flex: 1, padding: "8px 12px", borderRadius: "12px", border: "none",
+                    background: backgroundMode === 'image' ? '#8B5CF6' : 'rgba(255,255,255,0.1)',
+                    color: '#fff', fontSize: "13px", fontWeight: 600,
+                    cursor: capturing ? 'not-allowed' : 'pointer', opacity: capturing ? 0.5 : 1,
+                  }}>
+                    🖼️ Image
+                  </button>
+                </div>
+
+                {backgroundMode === 'color' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '8px' }}>
+                    {['#FFFFFF', '#000000', '#EC4899', '#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#6B7280', '#14B8A6', '#F97316', '#6366F1'].map(color => (
+                      <button
+                        key={color}
+                        onClick={() => setBackgroundColor(color)}
+                        disabled={capturing}
+                        style={{
+                          width: '100%',
+                          aspectRatio: '1',
+                          background: color,
+                          border: backgroundColor === color ? '3px solid #A78BFA' : '2px solid rgba(255,255,255,0.2)',
+                          borderRadius: '10px',
+                          cursor: capturing ? 'not-allowed' : 'pointer',
+                          opacity: capturing ? 0.5 : 1,
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {backgroundMode === 'image' && (
+                  <div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={capturing}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (ev) => setBackgroundImage(ev.target?.result);
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      style={{
+                        padding: '8px',
+                        background: 'rgba(255,255,255,0.1)',
+                        border: '2px dashed rgba(255,255,255,0.3)',
+                        borderRadius: '10px',
+                        color: '#fff',
+                        fontSize: '13px',
+                        cursor: capturing ? 'not-allowed' : 'pointer',
+                        opacity: capturing ? 0.5 : 1,
+                        width: '100%',
+                      }}
+                    />
+                  </div>
+                )}
               </div>
-            )}
-            {renderCountdownOverlay()}
-            {isMobileVariant && cameraActive && !isSwitchingCamera && (
+            ) : (
               <button
-                onClick={handleSwitchCamera}
+                onClick={() => setShowBackgroundPanel(true)}
                 style={{
-                  position: "absolute",
-                  top: "14px",
-                  right: "14px",
-                  width: "44px",
-                  height: "44px",
-                  borderRadius: "22px",
+                  background: "rgba(15,23,42,0.85)",
+                  color: "#E2E8F0",
                   border: "none",
-                  background: "rgba(15,23,42,0.4)",
+                  borderRadius: "14px",
+                  padding: "10px 16px",
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: "center",
+                  gap: "8px",
+                  boxShadow: "0 12px 28px rgba(15,23,42,0.25)",
+                  cursor: "pointer",
                 }}
               >
-                <img
-                  src={flipIcon}
-                  alt="Flip camera"
-                  style={{ width: "20px", height: "20px" }}
-                />
+                🎨 Buka pengaturan background
               </button>
             )}
           </>
-        ) : (
-          <div
-            style={{
-              textAlign: "center",
-              color: "#94a3b8",
-              fontSize: "1.05rem",
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.5rem",
-              alignItems: "center",
-            }}
-          >
-            <div style={{ fontSize: "3.5rem", lineHeight: 1 }}>📷</div>
-            <div style={{ fontWeight: 600 }}>Kamera belum aktif</div>
-            <div style={{ fontSize: "0.9rem" }}>
-              aktifkan kamera atau upload dari galeri
-            </div>
-            {cameraError && (
-              <div
-                style={{
-                  marginTop: "0.5rem",
-                  background: "rgba(255, 59, 48, 0.1)",
-                  border: "1px solid rgba(255, 59, 48, 0.3)",
-                  color: "#ef4444",
-                  borderRadius: "10px",
-                  padding: "0.5rem 0.75rem",
-                  fontSize: "0.85rem",
-                  lineHeight: 1.4,
-                  maxWidth: "320px",
-                }}
-              >
-                {cameraError}
-              </div>
-            )}
-          </div>
         )}
       </div>
     );

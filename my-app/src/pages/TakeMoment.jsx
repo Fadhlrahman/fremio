@@ -1110,7 +1110,7 @@ export default function TakeMoment() {
   );
 
   const displayMirror = useMemo(
-    () => (filterMode === 'blur' ? true : shouldMirrorVideo),
+    () => (filterMode === "blur" ? true : shouldMirrorVideo),
     [filterMode, shouldMirrorVideo]
   );
 
@@ -1273,8 +1273,8 @@ export default function TakeMoment() {
             }
           });
           
-          seg.setOptions({ modelSelection: 1, selfieMode: displayMirror });
-          console.log('⚙️ MediaPipe options set, attaching onResults...');
+          seg.setOptions({ modelSelection: 1, selfieMode: false });
+          console.log('⚙️ MediaPipe options set (selfieMode: false for CSS mirror), attaching onResults...');
 
           if (typeof seg.initialize === 'function') {
             try {
@@ -1300,7 +1300,7 @@ export default function TakeMoment() {
             
             const canvas = canvasRef.current;
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
-            const mirrorOutput = displayMirror;
+            const mirrorOutput = false; // Preview mirroring handled via CSS transform
 
             const drawMirrored = (context, image, width, height) => {
               if (!image) return;
@@ -2129,7 +2129,7 @@ export default function TakeMoment() {
       throw new Error("Unable to access 2D context for capture canvas");
     }
 
-  const mirrorForCapture = filterMode === 'blur' ? true : shouldMirrorVideo;
+  const mirrorForCapture = filterMode === "blur" ? true : shouldMirrorVideo;
 
     if (mirrorForCapture) {
       ctx.save();
@@ -3481,12 +3481,7 @@ export default function TakeMoment() {
                   height: "100%",
                   objectFit: "cover",
                   background: "#000",
-                  transform:
-                    blurMode === 'mediapipe'
-                      ? 'none'
-                      : displayMirror
-                      ? 'scaleX(-1)'
-                      : 'none',
+                  transform: displayMirror ? 'scaleX(-1)' : 'none',
                   opacity: blurMode === 'mediapipe' ? 1 : 0,
                   transition: "opacity 200ms ease",
                   pointerEvents: "none",

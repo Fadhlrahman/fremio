@@ -522,6 +522,8 @@ export default function Create() {
   const [isMobileView, setIsMobileView] = useState(false);
   const [activeMobileProperty, setActiveMobileProperty] = useState(null);
   const [showCanvasSizeInProperties, setShowCanvasSizeInProperties] = useState(false);
+  const [gradientColor1, setGradientColor1] = useState('#667eea');
+  const [gradientColor2, setGradientColor2] = useState('#764ba2');
   const [canvasAspectRatio, setCanvasAspectRatio] = useState("9:16"); // Story Instagram default
   const [activeDraftId, setActiveDraftId] = useState(null);
   const [justSavedDraft, setJustSavedDraft] = useState(false); // Track if draft was just saved
@@ -1352,8 +1354,45 @@ export default function Create() {
           });
         });
 
-        // Draw background
-        finalCtx.fillStyle = canvasBackground || '#ffffff';
+        // Draw background (support solid color and gradients)
+        const bgValue = canvasBackground || '#ffffff';
+        if (bgValue.startsWith('linear-gradient') || bgValue.startsWith('radial-gradient')) {
+          // Parse gradient and draw
+          const gradientMatch = bgValue.match(/(linear|radial)-gradient\((.*)\)/);
+          if (gradientMatch) {
+            const [, type, params] = gradientMatch;
+            const colors = params.match(/#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{3}|rgba?\([^)]+\)/g) || [];
+            
+            let gradient;
+            if (type === 'linear') {
+              // Default diagonal gradient
+              gradient = finalCtx.createLinearGradient(0, 0, finalCanvas.width, finalCanvas.height);
+            } else {
+              // Radial gradient from center
+              const centerX = finalCanvas.width / 2;
+              const centerY = finalCanvas.height / 2;
+              const radius = Math.max(finalCanvas.width, finalCanvas.height) / 2;
+              gradient = finalCtx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+            }
+            
+            // Add color stops
+            if (colors.length >= 2) {
+              gradient.addColorStop(0, colors[0]);
+              gradient.addColorStop(1, colors[colors.length - 1]);
+              if (colors.length > 2) {
+                colors.slice(1, -1).forEach((color, i) => {
+                  gradient.addColorStop((i + 1) / (colors.length - 1), color);
+                });
+              }
+            }
+            
+            finalCtx.fillStyle = gradient;
+          } else {
+            finalCtx.fillStyle = '#ffffff';
+          }
+        } else {
+          finalCtx.fillStyle = bgValue;
+        }
         finalCtx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
 
         if (captureCanvas) {
@@ -2213,11 +2252,138 @@ export default function Create() {
 
     if (isBackgroundSelected) {
       if (activeMobileProperty === "background-color") {
+        const isGradient = canvasBackground?.startsWith('linear-gradient') || canvasBackground?.startsWith('radial-gradient');
+        const solidColor = isGradient ? '#ffffff' : (canvasBackground || '#ffffff');
+        
         content = (
-          <ColorPicker
-            value={canvasBackground}
-            onChange={(nextColor) => setCanvasBackground(nextColor)}
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setCanvasBackground(solidColor)}
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  border: !isGradient ? '2px solid #8B5CF6' : '1px solid #e2e8f0',
+                  background: !isGradient ? '#F3E8FF' : '#fff',
+                  color: !isGradient ? '#8B5CF6' : '#64748b',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Solid
+              </button>
+              <button
+                type="button"
+                onClick={() => setCanvasBackground('linear-gradient(135deg, #667eea 0%, #764ba2 100%)')}
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  border: isGradient ? '2px solid #8B5CF6' : '1px solid #e2e8f0',
+                  background: isGradient ? '#F3E8FF' : '#fff',
+                  color: isGradient ? '#8B5CF6' : '#64748b',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Gradient
+              </button>
+            </div>
+            
+            {isGradient ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {/* Preview gradient */}
+                <div 
+                  style={{ 
+                    height: '80px', 
+                    borderRadius: '12px', 
+                    background: `linear-gradient(135deg, ${gradientColor1} 0%, ${gradientColor2} 100%)`,
+                    border: '2px solid #e2e8f0',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                  }} 
+                />
+                
+                {/* Color Point 1 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>Warna Titik 1:</div>
+                  <ColorPicker
+                    value={gradientColor1}
+                    onChange={(newColor) => {
+                      setGradientColor1(newColor);
+                      setCanvasBackground(`linear-gradient(135deg, ${newColor} 0%, ${gradientColor2} 100%)`);
+                    }}
+                  />
+                </div>
+                
+                {/* Color Point 2 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>Warna Titik 2:</div>
+                  <ColorPicker
+                    value={gradientColor2}
+                    onChange={(newColor) => {
+                      setGradientColor2(newColor);
+                      setCanvasBackground(`linear-gradient(135deg, ${gradientColor1} 0%, ${newColor} 100%)`);
+                    }}
+                  />
+                </div>
+                
+                {/* Quick presets */}
+                <div style={{ fontSize: '12px', fontWeight: 600, color: '#475569', marginTop: '4px' }}>Quick Presets:</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                  {[
+                    { name: 'Purple', c1: '#667eea', c2: '#764ba2' },
+                    { name: 'Ocean', c1: '#667eea', c2: '#0093E9' },
+                    { name: 'Sunset', c1: '#f093fb', c2: '#f5576c' },
+                    { name: 'Forest', c1: '#11998e', c2: '#38ef7d' },
+                    { name: 'Pink', c1: '#FA8BFF', c2: '#2BD2FF' },
+                    { name: 'Gold', c1: '#FFB75E', c2: '#ED8F03' },
+                  ].map((preset) => (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      onClick={() => {
+                        setGradientColor1(preset.c1);
+                        setGradientColor2(preset.c2);
+                        setCanvasBackground(`linear-gradient(135deg, ${preset.c1} 0%, ${preset.c2} 100%)`);
+                      }}
+                      style={{
+                        padding: '20px 6px',
+                        borderRadius: '6px',
+                        border: '1px solid #e2e8f0',
+                        background: `linear-gradient(135deg, ${preset.c1} 0%, ${preset.c2} 100%)`,
+                        cursor: 'pointer',
+                        position: 'relative',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <span style={{
+                        position: 'absolute',
+                        bottom: '3px',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        fontSize: '9px',
+                        fontWeight: 700,
+                        color: '#fff',
+                        textShadow: '0 1px 3px rgba(0,0,0,0.6)',
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {preset.name}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <ColorPicker
+                value={solidColor}
+                onChange={(nextColor) => setCanvasBackground(nextColor)}
+              />
+            )}
+          </div>
         );
       } else if (activeMobileProperty === "background-photo") {
         content = (
@@ -2857,6 +3023,10 @@ export default function Create() {
                   setCanvasAspectRatio(ratio);
                 }}
                 showCanvasSizeMode={showCanvasSizeInProperties}
+                gradientColor1={gradientColor1}
+                gradientColor2={gradientColor2}
+                setGradientColor1={setGradientColor1}
+                setGradientColor2={setGradientColor2}
                 isBackgroundLocked={isBackgroundLocked}
                 onToggleBackgroundLock={toggleBackgroundLock}
               />

@@ -486,6 +486,12 @@ export default function TakeMoment() {
   const filterModeRef = useRef('original');
   const backgroundModeRef = useRef('blur');
   const backgroundColorRef = useRef('#10B981');
+  const backgroundGradientRef = useRef({
+    enabled: false,
+    color1: '#8B5CF6',
+    color2: '#EC4899',
+    angle: 135
+  });
   const backgroundImageRef = useRef(null);
   const cachedImageRef = useRef(null); // Cache loaded Image object
   const hasInitialSegmentationRef = useRef(false);
@@ -506,6 +512,12 @@ export default function TakeMoment() {
   const [isLoadingBlur, setIsLoadingBlur] = useState(false);
   const [backgroundMode, setBackgroundMode] = useState('blur');
   const [backgroundColor, setBackgroundColor] = useState('#10B981');
+  const [backgroundGradient, setBackgroundGradient] = useState({
+    enabled: false,
+    color1: '#8B5CF6',
+    color2: '#EC4899',
+    angle: 135
+  });
   const [backgroundImage, setBackgroundImage] = useState(null);
   const [showBackgroundPanel, setShowBackgroundPanel] = useState(false);
 
@@ -3492,7 +3504,7 @@ export default function TakeMoment() {
               {cameraError && (
                 <div
                   style={{
-                    position: "absolute",
+                    position: "absolute ",
                     bottom: isMobileVariant ? "16px" : "24px",
                     left: "50%",
                     transform: "translateX(-50%)",

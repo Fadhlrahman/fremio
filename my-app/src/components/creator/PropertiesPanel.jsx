@@ -94,6 +94,10 @@ export default function PropertiesPanel({
   showCanvasSizeMode = false,
   isBackgroundLocked = false,
   onToggleBackgroundLock = () => {},
+  gradientColor1 = '#667eea',
+  gradientColor2 = '#764ba2',
+  setGradientColor1 = () => {},
+  setGradientColor2 = () => {},
 }) {
   // Local state for dimension inputs
   const [localWidth, setLocalWidth] = useState("");
@@ -692,8 +696,107 @@ export default function PropertiesPanel({
           isOpen={openDropdown === 'warna-latar'}
           onToggle={() => setOpenDropdown(openDropdown === 'warna-latar' ? null : 'warna-latar')}
         >
-          <div className="flex flex-col items-center gap-3">
-            <ColorPicker value={canvasBackground} onChange={onBackgroundChange} />
+          <div className="flex flex-col gap-3">
+            {(() => {
+              const isGradient = canvasBackground?.startsWith('linear-gradient') || canvasBackground?.startsWith('radial-gradient');
+              const solidColor = isGradient ? '#ffffff' : (canvasBackground || '#ffffff');
+              
+              return (
+                <>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onBackgroundChange(solidColor)}
+                      className={`flex-1 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${
+                        !isGradient
+                          ? 'bg-purple-100 text-purple-700 border-2 border-purple-500'
+                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      Solid
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onBackgroundChange('linear-gradient(135deg, #667eea 0%, #764ba2 100%)')}
+                      className={`flex-1 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${
+                        isGradient
+                          ? 'bg-purple-100 text-purple-700 border-2 border-purple-500'
+                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      Gradient
+                    </button>
+                  </div>
+                  
+                  {isGradient ? (
+                    <div className="flex flex-col gap-3">
+                      {/* Gradient Preview */}
+                      <div 
+                        className="h-20 rounded-xl border-2 border-slate-200 shadow-md"
+                        style={{ 
+                          background: `linear-gradient(135deg, ${gradientColor1} 0%, ${gradientColor2} 100%)` 
+                        }}
+                      />
+                      
+                      {/* Color Point 1 */}
+                      <div className="flex flex-col gap-1.5">
+                        <div className="text-xs font-semibold text-slate-600">Warna Titik 1:</div>
+                        <ColorPicker 
+                          value={gradientColor1} 
+                          onChange={(newColor) => {
+                            setGradientColor1(newColor);
+                            onBackgroundChange(`linear-gradient(135deg, ${newColor} 0%, ${gradientColor2} 100%)`);
+                          }} 
+                        />
+                      </div>
+                      
+                      {/* Color Point 2 */}
+                      <div className="flex flex-col gap-1.5">
+                        <div className="text-xs font-semibold text-slate-600">Warna Titik 2:</div>
+                        <ColorPicker 
+                          value={gradientColor2} 
+                          onChange={(newColor) => {
+                            setGradientColor2(newColor);
+                            onBackgroundChange(`linear-gradient(135deg, ${gradientColor1} 0%, ${newColor} 100%)`);
+                          }} 
+                        />
+                      </div>
+                      
+                      {/* Quick Presets */}
+                      <div className="text-xs font-semibold text-slate-700 mt-1">Quick Presets:</div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          { name: 'Purple', c1: '#667eea', c2: '#764ba2' },
+                          { name: 'Ocean', c1: '#667eea', c2: '#0093E9' },
+                          { name: 'Sunset', c1: '#f093fb', c2: '#f5576c' },
+                          { name: 'Forest', c1: '#11998e', c2: '#38ef7d' },
+                          { name: 'Pink', c1: '#FA8BFF', c2: '#2BD2FF' },
+                          { name: 'Gold', c1: '#FFB75E', c2: '#ED8F03' },
+                        ].map((preset) => (
+                          <button
+                            key={preset.name}
+                            type="button"
+                            onClick={() => {
+                              setGradientColor1(preset.c1);
+                              setGradientColor2(preset.c2);
+                              onBackgroundChange(`linear-gradient(135deg, ${preset.c1} 0%, ${preset.c2} 100%)`);
+                            }}
+                            className="relative h-14 rounded-lg overflow-hidden ring-1 ring-slate-200 hover:ring-purple-300 transition-all"
+                            style={{ background: `linear-gradient(135deg, ${preset.c1} 0%, ${preset.c2} 100%)` }}
+                          >
+                            <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[9px] font-bold text-white drop-shadow-md whitespace-nowrap">
+                              {preset.name}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <ColorPicker value={solidColor} onChange={onBackgroundChange} />
+                  )}
+                </>
+              );
+            })()}
           </div>
         </CollapsibleSection>
       </motion.div>

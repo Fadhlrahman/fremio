@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
+import userStorage from "../utils/userStorage";
 
 const AuthContext = createContext();
 
@@ -27,8 +28,13 @@ export function AuthProvider({ children }) {
   }
 
   function logout() {
+    // Clear ALL user-specific data using userStorage
+    userStorage.clearUserData();
+
     setUser(null);
     localStorage.removeItem("fremio_user");
+
+    console.log("✅ User logged out and all session data cleared");
   }
 
   function register(userData) {

@@ -1,18 +1,19 @@
 // Frame data provider - utility untuk mengelola frame configurations
-import { 
-  getFrameConfig, 
-  getFrameMetadata, 
-  isValidFrame, 
+import {
+  getFrameConfig,
+  getFrameMetadata,
+  isValidFrame,
   getAllFrames,
-  preloadFrameConfigs
-} from '../config/frameConfigManager.js';
-import safeStorage from './safeStorage.js';
-import { sanitizeFrameConfigForStorage } from './frameConfigSanitizer.js';
+  preloadFrameConfigs,
+} from "../config/frameConfigManager.js";
+import safeStorage from "./safeStorage.js";
+import userStorage from "./userStorage.js";
+import { sanitizeFrameConfigForStorage } from "./frameConfigSanitizer.js";
 
-const CUSTOM_FRAME_PREFIX = 'custom-';
+const CUSTOM_FRAME_PREFIX = "custom-";
 
 const isCustomFrameId = (frameName) =>
-  typeof frameName === 'string' && frameName.startsWith(CUSTOM_FRAME_PREFIX);
+  typeof frameName === "string" && frameName.startsWith(CUSTOM_FRAME_PREFIX);
 
 export class FrameDataProvider {
   constructor() {
@@ -26,12 +27,15 @@ export class FrameDataProvider {
     console.log(`🎯 setFrame called with: ${frameName}`);
 
     if (!frameName) {
-      console.error('Frame name is required to set frame.');
+      console.error("Frame name is required to set frame.");
       return false;
     }
 
-  const providedConfig = options.config;
-  const treatAsCustom = options.isCustom ?? providedConfig?.isCustom ?? isCustomFrameId(frameName);
+    const providedConfig = options.config;
+    const treatAsCustom =
+      options.isCustom ??
+      providedConfig?.isCustom ??
+      isCustomFrameId(frameName);
 
     this.isLoading = true;
 
@@ -42,16 +46,20 @@ export class FrameDataProvider {
         if (isValidFrame(frameName)) {
           config = await getFrameConfig(frameName);
         } else {
-          const cachedConfig = safeStorage.getJSON('frameConfig');
+          const cachedConfig = safeStorage.getJSON("frameConfig");
           if (cachedConfig?.id === frameName) {
             config = cachedConfig;
           }
 
           if (!config) {
             if (treatAsCustom) {
-              throw new Error(`Custom frame "${frameName}" tidak ditemukan di storage`);
+              throw new Error(
+                `Custom frame "${frameName}" tidak ditemukan di storage`
+              );
             }
-            console.error(`Frame "${frameName}" tidak valid atau tidak ditemukan`);
+            console.error(
+              `Frame "${frameName}" tidak valid atau tidak ditemukan`
+            );
             return false;
           }
         }
@@ -67,23 +75,25 @@ export class FrameDataProvider {
       // Logging for debugging
       if (treatAsCustom) {
         console.log(`🔍 CUSTOM FRAME SET DEBUG:`);
-        console.log('  - Frame ID:', frameName);
-        console.log('  - Config ID:', config.id);
-        console.log('  - Max captures:', config.maxCaptures);
-        console.log('  - Slots count:', config.slots?.length);
-        console.log('  - Is custom:', config.isCustom);
-      } else if (frameName === 'Testframe3') {
+        console.log("  - Frame ID:", frameName);
+        console.log("  - Config ID:", config.id);
+        console.log("  - Max captures:", config.maxCaptures);
+        console.log("  - Slots count:", config.slots?.length);
+        console.log("  - Is custom:", config.isCustom);
+      } else if (frameName === "Testframe3") {
         console.log(`🔍 ${frameName.toUpperCase()} SET FRAME DEBUG:`);
-        console.log('  - isValidFrame result:', isValidFrame(frameName));
-        console.log('  - getFrameConfig result:', this.currentConfig);
-        console.log('  - maxCaptures:', this.currentConfig?.maxCaptures);
-        console.log('  - slots count:', this.currentConfig?.slots?.length);
+        console.log("  - isValidFrame result:", isValidFrame(frameName));
+        console.log("  - getFrameConfig result:", this.currentConfig);
+        console.log("  - maxCaptures:", this.currentConfig?.maxCaptures);
+        console.log("  - slots count:", this.currentConfig?.slots?.length);
       }
 
       this.persistFrameSelection(frameName, config);
 
       const slotCount = Array.isArray(config?.slots) ? config.slots.length : 0;
-      console.log(`✅ Frame "${frameName}" berhasil di-set dengan ${slotCount} slots`);
+      console.log(
+        `✅ Frame "${frameName}" berhasil di-set dengan ${slotCount} slots`
+      );
       return true;
     } catch (error) {
       console.error(`❌ Error setting frame "${frameName}":`, error);
@@ -95,14 +105,14 @@ export class FrameDataProvider {
 
   // Load frame dari localStorage (now async with IndexedDB fallback)
   async loadFrameFromStorage() {
-    const storedFrame = safeStorage.getItem('selectedFrame');
-    const storedConfig = safeStorage.getJSON('frameConfig');
+    const storedFrame = safeStorage.getItem("selectedFrame");
+    const storedConfig = safeStorage.getJSON("frameConfig");
 
-    console.log('📁 Checking localStorage for frame data...');
-    console.log('  - Stored frame ID:', storedFrame);
-    console.log('  - Stored config exists:', !!storedConfig);
-    console.log('  - Stored config ID:', storedConfig?.id);
-    console.log('  - Is custom frame:', storedFrame?.startsWith('custom-'));
+    console.log("📁 Checking localStorage for frame data...");
+    console.log("  - Stored frame ID:", storedFrame);
+    console.log("  - Stored config exists:", !!storedConfig);
+    console.log("  - Stored config ID:", storedConfig?.id);
+    console.log("  - Is custom frame:", storedFrame?.startsWith("custom-"));
 
     // If we have a complete config in localStorage, use it
     if (storedConfig?.id && storedConfig?.designer?.elements) {
@@ -114,43 +124,50 @@ export class FrameDataProvider {
         console.log(`📁 Frame "${frameId}" loaded from cached config`);
         return true;
       } catch (error) {
-        console.warn('⚠️ Cached config tidak valid, mencoba ulang...', error);
+        console.warn("⚠️ Cached config tidak valid, mencoba ulang...", error);
       }
     }
 
     // If custom frame but no config, try to load from IndexedDB draft
-    if (storedFrame?.startsWith('custom-')) {
-      const activeDraftId = safeStorage.getItem('activeDraftId');
-      
+    if (storedFrame?.startsWith("custom-")) {
+      const activeDraftId = userStorage.getItem("activeDraftId");
+
       if (activeDraftId) {
-        console.log('🔄 Custom frame without config, loading from IndexedDB draft:', activeDraftId);
-        
+        console.log(
+          "🔄 Custom frame without config, loading from IndexedDB draft:",
+          activeDraftId
+        );
+
         try {
-          const { default: draftStorage } = await import('./draftStorage.js');
+          const { default: draftStorage } = await import("./draftStorage.js");
           const draft = await draftStorage.getDraftById(activeDraftId);
-          
+
           if (draft) {
-            console.log('✅ Draft found in IndexedDB, rebuilding frameConfig...');
-            
-            const { buildFrameConfigFromDraft } = await import('./draftHelpers.js');
+            console.log(
+              "✅ Draft found in IndexedDB, rebuilding frameConfig..."
+            );
+
+            const { buildFrameConfigFromDraft } = await import(
+              "./draftHelpers.js"
+            );
             const frameConfig = buildFrameConfigFromDraft(draft);
-            
+
             this.currentFrame = frameConfig.id;
             this.currentConfig = frameConfig;
             this.persistFrameSelection(frameConfig.id, frameConfig);
-            
-            console.log('✅ Frame config rebuilt from IndexedDB draft:', {
+
+            console.log("✅ Frame config rebuilt from IndexedDB draft:", {
               id: frameConfig.id,
               hasDesignerElements: !!frameConfig.designer?.elements,
               elementsCount: frameConfig.designer?.elements?.length,
             });
-            
+
             return true;
           } else {
-            console.warn('⚠️ Draft not found in IndexedDB:', activeDraftId);
+            console.warn("⚠️ Draft not found in IndexedDB:", activeDraftId);
           }
         } catch (error) {
-          console.error('❌ Failed to load draft from IndexedDB:', error);
+          console.error("❌ Failed to load draft from IndexedDB:", error);
         }
       }
     }
@@ -168,20 +185,24 @@ export class FrameDataProvider {
           if (storedConfig?.id === storedFrame) {
             this.currentFrame = storedFrame;
             this.currentConfig = storedConfig;
-            console.log(`📁 Custom frame "${storedFrame}" loaded from cached config`);
+            console.log(
+              `📁 Custom frame "${storedFrame}" loaded from cached config`
+            );
             return true;
           }
-          console.warn(`⚠️ Custom frame "${storedFrame}" tidak memiliki konfigurasi tersimpan`);
+          console.warn(
+            `⚠️ Custom frame "${storedFrame}" tidak memiliki konfigurasi tersimpan`
+          );
         } else {
           console.warn(`⚠️ Stored frame "${storedFrame}" tidak valid lagi`);
         }
       } catch (error) {
-        console.error('❌ Error loading frame from storage:', error);
+        console.error("❌ Error loading frame from storage:", error);
       }
     }
 
-    console.log('📁 No valid frame in storage, using default...');
-    return await this.setFrame('Testframe1');
+    console.log("📁 No valid frame in storage, using default...");
+    return await this.setFrame("Testframe1");
   }
 
   // Mendapatkan konfigurasi frame saat ini
@@ -196,9 +217,12 @@ export class FrameDataProvider {
 
   // Mendapatkan maksimal capture untuk frame saat ini
   getMaxCaptures() {
-    console.log('🔢 getMaxCaptures called');
-    console.log('📊 currentConfig:', this.currentConfig);
-    console.log('🔢 returning maxCaptures:', this.currentConfig ? this.currentConfig.maxCaptures : 0);
+    console.log("🔢 getMaxCaptures called");
+    console.log("📊 currentConfig:", this.currentConfig);
+    console.log(
+      "🔢 returning maxCaptures:",
+      this.currentConfig ? this.currentConfig.maxCaptures : 0
+    );
     return this.currentConfig ? this.currentConfig.maxCaptures : 0;
   }
 
@@ -220,39 +244,45 @@ export class FrameDataProvider {
 
   // Validasi apakah masih bisa capture foto
   canCaptureMore(currentSlotPhotos) {
-    console.log('🔍 canCaptureMore called');
-    console.log('📊 currentConfig:', this.currentConfig);
-    console.log('📸 currentSlotPhotos:', currentSlotPhotos);
-    
+    console.log("🔍 canCaptureMore called");
+    console.log("📊 currentConfig:", this.currentConfig);
+    console.log("📸 currentSlotPhotos:", currentSlotPhotos);
+
     if (!this.currentConfig) {
-      console.log('❌ No currentConfig, returning false');
+      console.log("❌ No currentConfig, returning false");
       return false;
     }
-    
-    const filledSlots = currentSlotPhotos.filter(photo => photo !== null).length;
+
+    const filledSlots = currentSlotPhotos.filter(
+      (photo) => photo !== null
+    ).length;
     const maxCaptures = this.currentConfig.maxCaptures;
     const canCapture = filledSlots < maxCaptures;
-    
-    console.log(`📊 filledSlots: ${filledSlots}, maxCaptures: ${maxCaptures}, canCapture: ${canCapture}`);
-    
+
+    console.log(
+      `📊 filledSlots: ${filledSlots}, maxCaptures: ${maxCaptures}, canCapture: ${canCapture}`
+    );
+
     return canCapture;
   }
 
   // Mendapatkan index slot kosong berikutnya
   getNextEmptySlotIndex(currentSlotPhotos) {
-    return currentSlotPhotos.findIndex(photo => photo === null);
+    return currentSlotPhotos.findIndex((photo) => photo === null);
   }
 
   // Mendapatkan progress capture
   getCaptureProgress(currentSlotPhotos) {
-    const filledSlots = currentSlotPhotos.filter(photo => photo !== null).length;
+    const filledSlots = currentSlotPhotos.filter(
+      (photo) => photo !== null
+    ).length;
     const maxCaptures = this.getMaxCaptures();
-    
+
     return {
       current: filledSlots,
       max: maxCaptures,
       percentage: maxCaptures > 0 ? (filledSlots / maxCaptures) * 100 : 0,
-      isComplete: filledSlots === maxCaptures
+      isComplete: filledSlots === maxCaptures,
     };
   }
 
@@ -260,11 +290,11 @@ export class FrameDataProvider {
   clearFrame() {
     this.currentFrame = null;
     this.currentConfig = null;
-    safeStorage.removeItem('selectedFrame');
-    safeStorage.removeItem('frameConfig');
-    safeStorage.removeItem('activeDraftId');
-    safeStorage.removeItem('activeDraftSignature');
-    console.log('🗑️ Frame data berhasil dihapus');
+    safeStorage.removeItem("selectedFrame");
+    safeStorage.removeItem("frameConfig");
+    userStorage.removeItem("activeDraftId");
+    userStorage.removeItem("activeDraftSignature");
+    console.log("🗑️ Frame data berhasil dihapus");
   }
 
   // Get all available frames metadata
@@ -284,7 +314,7 @@ export class FrameDataProvider {
 
   // Preload frame configurations for better performance
   async preloadFrames(frameNames) {
-    console.log('🚀 Preloading frames for better performance...');
+    console.log("🚀 Preloading frames for better performance...");
     return await preloadFrameConfigs(frameNames);
   }
 
@@ -295,106 +325,126 @@ export class FrameDataProvider {
 
   persistFrameSelection(frameName, config) {
     try {
-      const frameIdSaved = safeStorage.setItem('selectedFrame', frameName);
+      const frameIdSaved = safeStorage.setItem("selectedFrame", frameName);
 
       // Add timestamp to detect stale frameConfig
       const configWithTimestamp = {
         ...config,
         __timestamp: Date.now(),
-        __selectedAt: new Date().toISOString()
+        __selectedAt: new Date().toISOString(),
       };
 
-      const isCustomFrame = config.isCustom || frameName?.startsWith('custom-');
-      
+      const isCustomFrame = config.isCustom || frameName?.startsWith("custom-");
+
       // For custom frames, try to save WITHOUT sanitizing first (to preserve all data)
       let configSaved = false;
-      
+
       if (isCustomFrame) {
-        console.log('💾 [persistFrameSelection] Attempting to save FULL custom frame config...');
+        console.log(
+          "💾 [persistFrameSelection] Attempting to save FULL custom frame config..."
+        );
         try {
-          configSaved = safeStorage.setJSON('frameConfig', configWithTimestamp);
+          configSaved = safeStorage.setJSON("frameConfig", configWithTimestamp);
           if (configSaved) {
-            console.log('✅ [persistFrameSelection] Full custom frame config saved successfully');
+            console.log(
+              "✅ [persistFrameSelection] Full custom frame config saved successfully"
+            );
           }
         } catch (error) {
-          console.warn('⚠️ [persistFrameSelection] Full config too large for localStorage:', error.message);
+          console.warn(
+            "⚠️ [persistFrameSelection] Full config too large for localStorage:",
+            error.message
+          );
           // Will try sanitized version below
         }
       }
-      
+
       // If not saved yet (not custom OR custom but too large), try sanitized version
       if (!configSaved) {
-        console.log('💾 [persistFrameSelection] Saving sanitized frame config...');
-        const sanitizedConfig = sanitizeFrameConfigForStorage(configWithTimestamp);
-        
+        console.log(
+          "💾 [persistFrameSelection] Saving sanitized frame config..."
+        );
+        const sanitizedConfig =
+          sanitizeFrameConfigForStorage(configWithTimestamp);
+
         if (sanitizedConfig) {
-          configSaved = safeStorage.setJSON('frameConfig', sanitizedConfig);
+          configSaved = safeStorage.setJSON("frameConfig", sanitizedConfig);
         }
 
         if (!configSaved && sanitizedConfig) {
-          console.warn('⚠️ Failed to store sanitized frame config, attempting fallback without image data');
+          console.warn(
+            "⚠️ Failed to store sanitized frame config, attempting fallback without image data"
+          );
           const fallbackConfig = { ...sanitizedConfig };
           delete fallbackConfig.imagePath;
-          configSaved = safeStorage.setJSON('frameConfig', fallbackConfig);
+          configSaved = safeStorage.setJSON("frameConfig", fallbackConfig);
         }
       }
 
       if (!frameIdSaved || !configSaved) {
-        throw new Error('Failed to persist frame selection');
+        throw new Error("Failed to persist frame selection");
       }
 
       // Save timestamp for validation
-      safeStorage.setItem('frameConfigTimestamp', String(configWithTimestamp.__timestamp));
+      safeStorage.setItem(
+        "frameConfigTimestamp",
+        String(configWithTimestamp.__timestamp)
+      );
 
       if (config?.metadata?.draftId) {
-        safeStorage.setItem('activeDraftId', config.metadata.draftId);
+        userStorage.setItem("activeDraftId", config.metadata.draftId);
       } else {
-        safeStorage.removeItem('activeDraftId');
+        userStorage.removeItem("activeDraftId");
       }
 
       if (config?.metadata?.signature) {
-        safeStorage.setItem('activeDraftSignature', config.metadata.signature);
+        userStorage.setItem("activeDraftSignature", config.metadata.signature);
       } else {
-        safeStorage.removeItem('activeDraftSignature');
+        userStorage.removeItem("activeDraftSignature");
       }
-      
-      console.log('✅ Frame selection persisted with timestamp:', configWithTimestamp.__timestamp);
+
+      console.log(
+        "✅ Frame selection persisted with timestamp:",
+        configWithTimestamp.__timestamp
+      );
     } catch (error) {
-      console.error('❌ Error persisting frame selection:', error);
+      console.error("❌ Error persisting frame selection:", error);
       throw error; // Re-throw so setFrame can catch it
     }
   }
 
   // Legacy compatibility method
   getFrameConfigSync(frameName) {
-    console.warn('⚠️ getFrameConfigSync is deprecated. Use async methods instead.');
+    console.warn(
+      "⚠️ getFrameConfigSync is deprecated. Use async methods instead."
+    );
     return getFrameMetadata(frameName);
   }
 
   // Mendapatkan informasi frame untuk UI
   getFrameInfo() {
     if (!this.currentConfig) return null;
-    
+
     return {
       name: this.currentConfig.name,
       description: this.currentConfig.description,
       maxCaptures: this.currentConfig.maxCaptures,
       slotsCount: this.currentConfig.slots.length,
       aspectRatio: this.currentConfig.layout.aspectRatio,
-      orientation: this.currentConfig.layout.orientation
+      orientation: this.currentConfig.layout.orientation,
     };
   }
 
   // Generate preview slots untuk UI
   generatePreviewSlots(slotPhotos) {
     const slots = this.getSlots();
-    
+
     return slots.map((slot, index) => ({
       ...slot,
       index,
       hasPhoto: slotPhotos[index] !== null,
       photo: slotPhotos[index],
-      isEmpty: slotPhotos[index] === null
+      isEmpty: slotPhotos[index] === null,
     }));
   }
 }

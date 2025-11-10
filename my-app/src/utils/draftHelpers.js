@@ -1,9 +1,18 @@
 import safeStorage from "./safeStorage.js";
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from "../components/creator/canvasConstants.js";
+import userStorage from "./userStorage.js";
+import {
+  CANVAS_WIDTH,
+  CANVAS_HEIGHT,
+} from "../components/creator/canvasConstants.js";
 import { sanitizeFrameConfigForStorage } from "./frameConfigSanitizer.js";
 
 const toAspectRatioString = (width, height) => {
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
     return "1:1";
   }
 
@@ -33,18 +42,8 @@ const toAspectRatioString = (width, height) => {
 
 const normalizeElement = (element) => {
   if (!element || typeof element !== "object") return null;
-  const {
-    id,
-    type,
-    x,
-    y,
-    width,
-    height,
-    rotation,
-    zIndex,
-    isLocked,
-    data,
-  } = element;
+  const { id, type, x, y, width, height, rotation, zIndex, isLocked, data } =
+    element;
 
   return {
     id,
@@ -74,11 +73,17 @@ const extractDraftElements = (draft) => {
     return draft.elements;
   }
 
-  if (Array.isArray(draft.designer?.elements) && draft.designer.elements.length > 0) {
+  if (
+    Array.isArray(draft.designer?.elements) &&
+    draft.designer.elements.length > 0
+  ) {
     return draft.designer.elements;
   }
 
-  if (Array.isArray(draft.frameConfig?.designer?.elements) && draft.frameConfig.designer.elements.length > 0) {
+  if (
+    Array.isArray(draft.frameConfig?.designer?.elements) &&
+    draft.frameConfig.designer.elements.length > 0
+  ) {
     return draft.frameConfig.designer.elements;
   }
 
@@ -102,14 +107,18 @@ const normalizePhotoPlaceholders = (elements = []) => {
     const label = String(element?.data?.label || "").toLowerCase();
     return element.type === "shape" && label.includes("foto");
   });
-  
-  console.log('🔍 [normalizePhotoPlaceholders] Filtering photo slots:', {
+
+  console.log("🔍 [normalizePhotoPlaceholders] Filtering photo slots:", {
     totalElements: elements.length,
     photoPlaceholders: photoPlaceholders.length,
-    types: elements.map(el => ({ type: el.type, id: el.id?.slice(0, 8) })),
-    photoTypes: photoPlaceholders.map(el => ({ type: el.type, id: el.id?.slice(0, 8), photoIndex: el.data?.photoIndex }))
+    types: elements.map((el) => ({ type: el.type, id: el.id?.slice(0, 8) })),
+    photoTypes: photoPlaceholders.map((el) => ({
+      type: el.type,
+      id: el.id?.slice(0, 8),
+      photoIndex: el.data?.photoIndex,
+    })),
   });
-  
+
   return photoPlaceholders;
 };
 
@@ -126,7 +135,12 @@ const clampNormalized = (value) => {
   return value;
 };
 
-const normalizeSlotFromElement = (element, index, canvasWidth, canvasHeight) => {
+const normalizeSlotFromElement = (
+  element,
+  index,
+  canvasWidth,
+  canvasHeight
+) => {
   const safeCanvasWidth = canvasWidth > 0 ? canvasWidth : CANVAS_WIDTH;
   const safeCanvasHeight = canvasHeight > 0 ? canvasHeight : CANVAS_HEIGHT;
 
@@ -141,7 +155,8 @@ const normalizeSlotFromElement = (element, index, canvasWidth, canvasHeight) => 
   const width = clampNormalized(rawWidth / safeCanvasWidth);
   const height = clampNormalized(rawHeight / safeCanvasHeight);
 
-  const aspectRatio = rawHeight > 0 ? toAspectRatioString(rawWidth, rawHeight) : "4:5";
+  const aspectRatio =
+    rawHeight > 0 ? toAspectRatioString(rawWidth, rawHeight) : "4:5";
   const photoIndex = Number.isFinite(element?.data?.photoIndex)
     ? element.data.photoIndex
     : index;
@@ -168,9 +183,10 @@ const normalizeLegacySlot = (slot, index) => {
   const top = clampNormalized(coerceNumber(slot.top ?? slot.y, 0));
   const width = clampNormalized(coerceNumber(slot.width ?? slot.w, 0));
   const height = clampNormalized(coerceNumber(slot.height ?? slot.h, 0));
-  const aspectRatio = typeof slot.aspectRatio === "string" && slot.aspectRatio.includes(":")
-    ? slot.aspectRatio
-    : toAspectRatioString(width || 1, height || 1);
+  const aspectRatio =
+    typeof slot.aspectRatio === "string" && slot.aspectRatio.includes(":")
+      ? slot.aspectRatio
+      : toAspectRatioString(width || 1, height || 1);
 
   return {
     id: slot.id || `legacy_slot_${index + 1}`,
@@ -185,7 +201,11 @@ const normalizeLegacySlot = (slot, index) => {
   };
 };
 
-export const computeDraftSignature = (elements = [], canvasBackground, aspectRatio) => {
+export const computeDraftSignature = (
+  elements = [],
+  canvasBackground,
+  aspectRatio
+) => {
   const payload = {
     aspectRatio,
     canvasBackground,
@@ -212,27 +232,30 @@ export const buildFrameConfigFromDraft = (draft) => {
   }
 
   const sourceElements = extractDraftElements(draft);
-  
-  console.log('🔍 [buildFrameConfigFromDraft] Source elements:', {
+
+  console.log("🔍 [buildFrameConfigFromDraft] Source elements:", {
     total: sourceElements.length,
-    types: sourceElements.map(el => ({ 
-      type: el.type, 
-      id: el.id?.slice(0, 8), 
-      zIndex: el.zIndex,
-      label: el.data?.label 
-    }))
-  });
-  
-  const photoElements = normalizePhotoPlaceholders(sourceElements);
-  
-  console.log('🔍 [buildFrameConfigFromDraft] After filtering for photo slots:', {
-    photoElementsCount: photoElements.length,
-    photoElements: photoElements.map(el => ({ 
-      type: el.type, 
+    types: sourceElements.map((el) => ({
+      type: el.type,
       id: el.id?.slice(0, 8),
-      photoIndex: el.data?.photoIndex 
-    }))
+      zIndex: el.zIndex,
+      label: el.data?.label,
+    })),
   });
+
+  const photoElements = normalizePhotoPlaceholders(sourceElements);
+
+  console.log(
+    "🔍 [buildFrameConfigFromDraft] After filtering for photo slots:",
+    {
+      photoElementsCount: photoElements.length,
+      photoElements: photoElements.map((el) => ({
+        type: el.type,
+        id: el.id?.slice(0, 8),
+        photoIndex: el.data?.photoIndex,
+      })),
+    }
+  );
 
   const {
     id,
@@ -248,10 +271,16 @@ export const buildFrameConfigFromDraft = (draft) => {
   } = draft;
 
   const signature =
-    draftSignature || computeDraftSignature(sourceElements, canvasBackground, aspectRatio);
+    draftSignature ||
+    computeDraftSignature(sourceElements, canvasBackground, aspectRatio);
 
   let slots = photoElements.map((element, index) =>
-    normalizeSlotFromElement(element, index, coerceNumber(canvasWidth, CANVAS_WIDTH), coerceNumber(canvasHeight, CANVAS_HEIGHT))
+    normalizeSlotFromElement(
+      element,
+      index,
+      coerceNumber(canvasWidth, CANVAS_WIDTH),
+      coerceNumber(canvasHeight, CANVAS_HEIGHT)
+    )
   );
 
   if (slots.length === 0) {
@@ -269,10 +298,13 @@ export const buildFrameConfigFromDraft = (draft) => {
   }
 
   if (slots.length === 0) {
-    console.warn("⚠️ [buildFrameConfigFromDraft] Draft does not contain any photo slots", {
-      draftId: draft.id,
-      hasElements: Array.isArray(sourceElements) && sourceElements.length > 0,
-    });
+    console.warn(
+      "⚠️ [buildFrameConfigFromDraft] Draft does not contain any photo slots",
+      {
+        draftId: draft.id,
+        hasElements: Array.isArray(sourceElements) && sourceElements.length > 0,
+      }
+    );
   }
 
   const uniquePhotoIndices = new Set();
@@ -285,9 +317,10 @@ export const buildFrameConfigFromDraft = (draft) => {
     }
   });
 
-  const maxCaptures = uniquePhotoIndices.size > 0 ? uniquePhotoIndices.size : slots.length;
-  
-  console.log('🔍 [buildFrameConfigFromDraft] maxCaptures calculation:', {
+  const maxCaptures =
+    uniquePhotoIndices.size > 0 ? uniquePhotoIndices.size : slots.length;
+
+  console.log("🔍 [buildFrameConfigFromDraft] maxCaptures calculation:", {
     slotsCount: slots.length,
     uniquePhotoIndices: Array.from(uniquePhotoIndices),
     maxCaptures,
@@ -295,17 +328,21 @@ export const buildFrameConfigFromDraft = (draft) => {
       id: s.id,
       photoIndex: s.photoIndex,
       width: s.width,
-      height: s.height
-    }))
+      height: s.height,
+    })),
   });
 
   const orientation = canvasHeight >= canvasWidth ? "portrait" : "landscape";
 
-  console.log('✅ [buildFrameConfigFromDraft] Final frameConfig:', {
+  console.log("✅ [buildFrameConfigFromDraft] Final frameConfig:", {
     id: `custom-${id}`,
     slotsCount: slots.length,
     designerElementsCount: sourceElements.length,
-    designerElementsZIndex: sourceElements.map(el => ({ type: el.type, id: el.id?.slice(0, 8), zIndex: el.zIndex })),
+    designerElementsZIndex: sourceElements.map((el) => ({
+      type: el.type,
+      id: el.id?.slice(0, 8),
+      zIndex: el.zIndex,
+    })),
   });
 
   return {
@@ -346,31 +383,33 @@ export const buildFrameConfigFromDraft = (draft) => {
 
 export const activateDraftFrame = (draft) => {
   const frameConfig = buildFrameConfigFromDraft(draft);
-  
+
   // Store FULL frameConfig (with images) to IndexedDB for large data
   // Don't sanitize - we need all images for TakeMoment to work!
-  console.log('💾 [activateDraftFrame] Storing full frameConfig:', {
+  console.log("💾 [activateDraftFrame] Storing full frameConfig:", {
     id: frameConfig.id,
     hasDesignerElements: !!frameConfig.designer?.elements,
     elementsCount: frameConfig.designer?.elements?.length,
-    hasBackgroundPhoto: !!frameConfig.designer?.elements?.find(el => el.type === 'background-photo'),
+    hasBackgroundPhoto: !!frameConfig.designer?.elements?.find(
+      (el) => el.type === "background-photo"
+    ),
   });
 
   // Store to localStorage (small data: just IDs and flags)
   const idPersisted = safeStorage.setItem("selectedFrame", frameConfig.id);
-  
+
   if (draft?.id) {
-    safeStorage.setItem("activeDraftId", draft.id);
+    userStorage.setItem("activeDraftId", draft.id);
   } else {
-    safeStorage.removeItem("activeDraftId");
+    userStorage.removeItem("activeDraftId");
   }
-  
+
   if (frameConfig?.metadata?.signature) {
-    safeStorage.setItem("activeDraftSignature", frameConfig.metadata.signature);
+    userStorage.setItem("activeDraftSignature", frameConfig.metadata.signature);
   } else {
-    safeStorage.removeItem("activeDraftSignature");
+    userStorage.removeItem("activeDraftSignature");
   }
-  
+
   // Store FULL frameConfig to localStorage for Editor/TakeMoment
   // This is the CRITICAL FIX - don't sanitize, store complete data
   let configPersisted = false;
@@ -379,17 +418,25 @@ export const activateDraftFrame = (draft) => {
     const configWithTimestamp = {
       ...frameConfig,
       __timestamp: Date.now(),
-      __selectedAt: new Date().toISOString()
+      __selectedAt: new Date().toISOString(),
     };
-    
+
     configPersisted = safeStorage.setJSON("frameConfig", configWithTimestamp);
-    
+
     // Save timestamp separately for validation
-    safeStorage.setItem('frameConfigTimestamp', String(configWithTimestamp.__timestamp));
-    
-    console.log('✅ [activateDraftFrame] Full frameConfig stored to localStorage with timestamp');
+    safeStorage.setItem(
+      "frameConfigTimestamp",
+      String(configWithTimestamp.__timestamp)
+    );
+
+    console.log(
+      "✅ [activateDraftFrame] Full frameConfig stored to localStorage with timestamp"
+    );
   } catch (error) {
-    console.warn('⚠️ [activateDraftFrame] localStorage failed (too large), frameConfig will load from draft:', error);
+    console.warn(
+      "⚠️ [activateDraftFrame] localStorage failed (too large), frameConfig will load from draft:",
+      error
+    );
     // Don't throw error - TakeMoment can load from draft directly via activeDraftId
     configPersisted = true; // Mark as successful since we have activeDraftId fallback
   }
@@ -397,24 +444,27 @@ export const activateDraftFrame = (draft) => {
   if (!idPersisted) {
     throw new Error("Failed to save frame ID to storage");
   }
-  
+
   // Restore captured photos if they were saved with the draft
   if (Array.isArray(draft.capturedPhotos) && draft.capturedPhotos.length > 0) {
-    console.log('📸 [activateDraftFrame] Restoring captured photos:', draft.capturedPhotos.length);
-    safeStorage.setJSON("capturedPhotos", draft.capturedPhotos);
+    console.log(
+      "📸 [activateDraftFrame] Restoring captured photos:",
+      draft.capturedPhotos.length
+    );
+    userStorage.setJSON("capturedPhotos", draft.capturedPhotos);
   } else {
-    console.log('📸 [activateDraftFrame] No captured photos to restore');
-    safeStorage.removeItem("capturedPhotos");
+    console.log("📸 [activateDraftFrame] No captured photos to restore");
+    userStorage.removeItem("capturedPhotos");
   }
-  
+
   // Store frame artwork info if available (for editor to load)
   if (draft.frameArtwork) {
-    console.log('🖼️ [activateDraftFrame] Storing frame artwork info');
-    safeStorage.setJSON("draftFrameArtwork", draft.frameArtwork);
+    console.log("🖼️ [activateDraftFrame] Storing frame artwork info");
+    userStorage.setJSON("draftFrameArtwork", draft.frameArtwork);
   } else {
-    safeStorage.removeItem("draftFrameArtwork");
+    userStorage.removeItem("draftFrameArtwork");
   }
-  
+
   return frameConfig;
 };
 

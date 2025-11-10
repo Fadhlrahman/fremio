@@ -1,4 +1,11 @@
-import { useMemo, useRef, useState, useEffect, useCallback, useLayoutEffect } from "react";
+import {
+  useMemo,
+  useRef,
+  useState,
+  useEffect,
+  useCallback,
+  useLayoutEffect,
+} from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion as Motion } from "framer-motion";
 import html2canvas from "html2canvas";
@@ -35,10 +42,14 @@ import {
   PHOTO_SLOT_MIN_Z,
 } from "../constants/layers.js";
 import { useShallow } from "zustand/react/shallow";
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from "../components/creator/canvasConstants.js";
+import {
+  CANVAS_WIDTH,
+  CANVAS_HEIGHT,
+} from "../components/creator/canvasConstants.js";
 import draftStorage from "../utils/draftStorage.js";
 import { computeDraftSignature } from "../utils/draftHelpers.js";
 import safeStorage from "../utils/safeStorage.js";
+import userStorage from "../utils/userStorage.js";
 import { clearStaleFrameCache } from "../utils/frameCacheCleaner.js";
 import "./Create.css";
 
@@ -55,10 +66,10 @@ const TOAST_MESSAGES = {
 };
 
 const parseNumericValue = (value, fallback = 0) => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
+  if (typeof value === "number" && Number.isFinite(value)) {
     return value;
   }
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     const parsed = Number.parseFloat(value);
     if (Number.isFinite(parsed)) {
       return parsed;
@@ -68,7 +79,10 @@ const parseNumericValue = (value, fallback = 0) => {
 };
 
 const addRoundedRectPath = (ctx, x, y, width, height, radius) => {
-  const effectiveRadius = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
+  const effectiveRadius = Math.max(
+    0,
+    Math.min(radius, Math.min(width, height) / 2)
+  );
   if (effectiveRadius === 0) {
     ctx.beginPath();
     ctx.rect(x, y, width, height);
@@ -81,7 +95,12 @@ const addRoundedRectPath = (ctx, x, y, width, height, radius) => {
   ctx.lineTo(x + width - effectiveRadius, y);
   ctx.quadraticCurveTo(x + width, y, x + width, y + effectiveRadius);
   ctx.lineTo(x + width, y + height - effectiveRadius);
-  ctx.quadraticCurveTo(x + width, y + height, x + width - effectiveRadius, y + height);
+  ctx.quadraticCurveTo(
+    x + width,
+    y + height,
+    x + width - effectiveRadius,
+    y + height
+  );
   ctx.lineTo(x + effectiveRadius, y + height);
   ctx.quadraticCurveTo(x, y + height, x, y + height - effectiveRadius);
   ctx.lineTo(x, y + effectiveRadius);
@@ -89,20 +108,26 @@ const addRoundedRectPath = (ctx, x, y, width, height, radius) => {
   ctx.closePath();
 };
 
-const loadImageAsync = (src, { timeoutMs = 8000, crossOrigin = 'anonymous' } = {}) =>
+const loadImageAsync = (
+  src,
+  { timeoutMs = 8000, crossOrigin = "anonymous" } = {}
+) =>
   new Promise((resolve, reject) => {
-    if (typeof src !== 'string' || src.length === 0) {
-      reject(new Error('Invalid image source'));
+    if (typeof src !== "string" || src.length === 0) {
+      reject(new Error("Invalid image source"));
       return;
     }
 
-    const isDataUrl = src.startsWith('data:');
-    const isBlobUrl = src.startsWith('blob:');
+    const isDataUrl = src.startsWith("data:");
+    const isBlobUrl = src.startsWith("blob:");
     const isHttpUrl = /^https?:/i.test(src);
-    const isRelativeUrl = src.startsWith('/') || src.startsWith('./') || src.startsWith('../');
+    const isRelativeUrl =
+      src.startsWith("/") || src.startsWith("./") || src.startsWith("../");
 
     if (!isDataUrl && !isBlobUrl && !isHttpUrl && !isRelativeUrl) {
-      reject(new Error(`Unsupported image source format: ${src.slice(0, 32)}...`));
+      reject(
+        new Error(`Unsupported image source format: ${src.slice(0, 32)}...`)
+      );
       return;
     }
 
@@ -128,7 +153,9 @@ const loadImageAsync = (src, { timeoutMs = 8000, crossOrigin = 'anonymous' } = {
 
     img.onerror = (error) => {
       cleanup();
-      reject(error instanceof Error ? error : new Error('Failed to load image'));
+      reject(
+        error instanceof Error ? error : new Error("Failed to load image")
+      );
     };
 
     if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
@@ -138,15 +165,14 @@ const loadImageAsync = (src, { timeoutMs = 8000, crossOrigin = 'anonymous' } = {
       }, timeoutMs);
     }
 
-    img.decoding = 'async';
+    img.decoding = "async";
     img.src = src;
   });
 
-const withTimeout = (promise, {
-  timeoutMs = 10000,
-  timeoutMessage,
-  onTimeout,
-} = {}) => {
+const withTimeout = (
+  promise,
+  { timeoutMs = 10000, timeoutMessage, onTimeout } = {}
+) => {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     return promise;
   }
@@ -161,10 +187,12 @@ const withTimeout = (promise, {
       try {
         onTimeout?.();
       } catch (error) {
-        console.warn('⚠️ withTimeout onTimeout handler failed:', error);
+        console.warn("⚠️ withTimeout onTimeout handler failed:", error);
       }
-      const err = new Error(timeoutMessage || `Operation timed out after ${timeoutMs}ms`);
-      err.name = 'TimeoutError';
+      const err = new Error(
+        timeoutMessage || `Operation timed out after ${timeoutMs}ms`
+      );
+      err.name = "TimeoutError";
       reject(err);
     }, timeoutMs);
 
@@ -188,7 +216,8 @@ const withTimeout = (promise, {
   });
 };
 
-const computeDraftSaveTimeoutMs = (bytes, baseTimeoutMs = 20000) => { // ⚡ Increased base from 15s to 20s
+const computeDraftSaveTimeoutMs = (bytes, baseTimeoutMs = 20000) => {
+  // ⚡ Increased base from 15s to 20s
   if (!Number.isFinite(bytes) || bytes <= 0) {
     return baseTimeoutMs;
   }
@@ -198,13 +227,15 @@ const computeDraftSaveTimeoutMs = (bytes, baseTimeoutMs = 20000) => { // ⚡ Inc
 
   // ⚡ More generous scaling: 8s per MB (up from 6s) to handle larger payloads
   const extraMsPerMb = 8000;
-  const extraMs = Math.max(0, Math.ceil(Math.max(0, approxMb - 1)) * extraMsPerMb);
+  const extraMs = Math.max(
+    0,
+    Math.ceil(Math.max(0, approxMb - 1)) * extraMsPerMb
+  );
   const computedTimeout = baseTimeoutMs + extraMs;
   const maxTimeout = 90000; // ⚡ Extended cap from 60s to 90s for very large drafts
 
   return Math.min(Math.max(baseTimeoutMs, computedTimeout), maxTimeout);
 };
-
 
 const prepareCanvasExportClone = (rootNode) => {
   if (!rootNode) {
@@ -212,83 +243,96 @@ const prepareCanvasExportClone = (rootNode) => {
   }
 
   try {
-    rootNode.setAttribute('data-export-clone', 'true');
+    rootNode.setAttribute("data-export-clone", "true");
 
     // Remove UI elements that shouldn't be in export
-    const ignoreNodes = rootNode.querySelectorAll('[data-export-ignore]');
+    const ignoreNodes = rootNode.querySelectorAll("[data-export-ignore]");
     ignoreNodes.forEach((node) => node.remove());
 
-    const resizeHandles = rootNode.querySelectorAll('.react-rnd-handle, .creator-resize-wrapper');
+    const resizeHandles = rootNode.querySelectorAll(
+      ".react-rnd-handle, .creator-resize-wrapper"
+    );
     resizeHandles.forEach((node) => node.remove());
 
     // Make photo slots transparent (they will be filled with actual photos later)
-    const photoSlots = rootNode.querySelectorAll('.creator-element--type-photo');
+    const photoSlots = rootNode.querySelectorAll(
+      ".creator-element--type-photo"
+    );
     photoSlots.forEach((slot) => {
-      slot.style.background = 'transparent';
-      slot.style.backgroundColor = 'transparent';
-      slot.style.boxShadow = 'none';
-      slot.style.color = 'transparent';
-      slot.style.textShadow = 'none';
-      slot.style.fontSize = '0px';
-      slot.style.filter = 'none';
-      slot.style.mixBlendMode = 'normal';
+      slot.style.background = "transparent";
+      slot.style.backgroundColor = "transparent";
+      slot.style.boxShadow = "none";
+      slot.style.color = "transparent";
+      slot.style.textShadow = "none";
+      slot.style.fontSize = "0px";
+      slot.style.filter = "none";
+      slot.style.mixBlendMode = "normal";
       const children = Array.from(slot.children || []);
       children.forEach((child) => slot.removeChild(child));
     });
 
     // ✅ CRITICAL FIX: Physically reorder DOM elements by z-index
     // html2canvas renders based on DOM order when position:absolute is used
-    const creatorElements = Array.from(rootNode.querySelectorAll('.creator-element'));
-    
+    const creatorElements = Array.from(
+      rootNode.querySelectorAll(".creator-element")
+    );
+
     if (creatorElements.length > 0) {
       // Get parent container
       const parent = creatorElements[0].parentNode;
-      
+
       // Sort elements by z-index (low to high)
       const sorted = creatorElements.sort((a, b) => {
-        const aZ = Number.parseFloat(a.getAttribute('data-element-zindex')) || 
-                   Number.parseFloat(a.style.zIndex) || 0;
-        const bZ = Number.parseFloat(b.getAttribute('data-element-zindex')) || 
-                   Number.parseFloat(b.style.zIndex) || 0;
+        const aZ =
+          Number.parseFloat(a.getAttribute("data-element-zindex")) ||
+          Number.parseFloat(a.style.zIndex) ||
+          0;
+        const bZ =
+          Number.parseFloat(b.getAttribute("data-element-zindex")) ||
+          Number.parseFloat(b.style.zIndex) ||
+          0;
         return aZ - bZ;
       });
 
       // Remove all elements from DOM
-      sorted.forEach(el => el.remove());
-      
+      sorted.forEach((el) => el.remove());
+
       // Re-append in sorted order (low z-index first, high z-index last)
-      sorted.forEach(el => {
+      sorted.forEach((el) => {
         // Sync CSS z-index to match data attribute
-        const dataZ = el.getAttribute('data-element-zindex');
+        const dataZ = el.getAttribute("data-element-zindex");
         if (dataZ && Number.isFinite(Number.parseFloat(dataZ))) {
           el.style.zIndex = dataZ;
         }
         parent.appendChild(el);
       });
 
-      console.log('✅ [prepareCanvasExportClone] DOM reordered by z-index:', 
-        sorted.map(el => ({
+      console.log(
+        "✅ [prepareCanvasExportClone] DOM reordered by z-index:",
+        sorted.map((el) => ({
           type: el.className.match(/creator-element--type-(\w+)/)?.[1],
           zIndex: el.style.zIndex,
-          dataZIndex: el.getAttribute('data-element-zindex'),
+          dataZIndex: el.getAttribute("data-element-zindex"),
         }))
       );
     }
-
   } catch (error) {
-    console.error('❌ [prepareCanvasExportClone] Error during clone preparation:', error);
+    console.error(
+      "❌ [prepareCanvasExportClone] Error during clone preparation:",
+      error
+    );
   }
 };
 
 const getSafeZIndex = (element) => {
-  if (!element || typeof element !== 'object') {
+  if (!element || typeof element !== "object") {
     return NORMAL_ELEMENTS_MIN_Z;
   }
   const parsed = Number(element.zIndex);
   if (Number.isFinite(parsed)) {
     return parsed;
   }
-  if (element.type === 'background-photo') {
+  if (element.type === "background-photo") {
     return BACKGROUND_PHOTO_Z;
   }
   return NORMAL_ELEMENTS_MIN_Z;
@@ -302,7 +346,7 @@ const collectOverlayElementIds = (elements = []) => {
   const photoElements = elements.filter(
     (element) =>
       element &&
-      element.type === 'photo' &&
+      element.type === "photo" &&
       element.data?.__capturedOverlay !== true
   );
 
@@ -319,9 +363,9 @@ const collectOverlayElementIds = (elements = []) => {
     }
 
     if (
-      candidate.type === 'photo' ||
-      candidate.type === 'background-photo' ||
-      candidate.type === 'transparent-area' ||
+      candidate.type === "photo" ||
+      candidate.type === "background-photo" ||
+      candidate.type === "transparent-area" ||
       candidate.data?.__capturedOverlay === true
     ) {
       return;
@@ -346,11 +390,11 @@ const normalizePhotoLayering = (elements = []) => {
   let didMutate = false;
 
   const normalizedElements = elements.map((element) => {
-    if (!element || typeof element !== 'object') {
+    if (!element || typeof element !== "object") {
       return element;
     }
 
-    if (element.type === 'background-photo') {
+    if (element.type === "background-photo") {
       return element;
     }
 
@@ -359,16 +403,16 @@ const normalizePhotoLayering = (elements = []) => {
     if (Number.isFinite(element.zIndex)) {
       return element;
     }
-    
+
     // Only set default z-index for elements that don't have one
     const absoluteMin = BACKGROUND_PHOTO_Z + 1;
     let defaultZ = NORMAL_ELEMENTS_MIN_Z;
-    
+
     // Photo and upload elements can start lower
-    if (element.type === 'photo' || element.type === 'upload') {
+    if (element.type === "photo" || element.type === "upload") {
       defaultZ = PHOTO_SLOT_MIN_Z;
     }
-    
+
     let desiredZ = defaultZ;
     if (desiredZ < absoluteMin) {
       desiredZ = absoluteMin;
@@ -382,12 +426,15 @@ const normalizePhotoLayering = (elements = []) => {
 };
 
 const createOverlayId = (placeholderId, photoIndex) => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
-  return `captured-overlay-${placeholderId || 'slot'}-${photoIndex}-${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
+  return `captured-overlay-${
+    placeholderId || "slot"
+  }-${photoIndex}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 };
 
 const deriveOverlayZIndex = (placeholder) => {
@@ -397,16 +444,12 @@ const deriveOverlayZIndex = (placeholder) => {
   return baseZ + CAPTURED_OVERLAY_Z_OFFSET;
 };
 
-const createCapturedPhotoOverlay = (
-  placeholder,
-  photoData,
-  photoIndex
-) => {
+const createCapturedPhotoOverlay = (placeholder, photoData, photoIndex) => {
   const overlayId = createOverlayId(placeholder?.id, photoIndex);
   const overlayZIndex = deriveOverlayZIndex(placeholder);
   return {
     id: overlayId,
-    type: 'upload',
+    type: "upload",
     x: placeholder?.x ?? 0,
     y: placeholder?.y ?? 0,
     width: placeholder?.width ?? 0,
@@ -416,7 +459,7 @@ const createCapturedPhotoOverlay = (
     isLocked: true,
     data: {
       image: photoData,
-      objectFit: 'cover',
+      objectFit: "cover",
       borderRadius: placeholder?.data?.borderRadius ?? 0,
       stroke: null,
       strokeWidth: 0,
@@ -433,7 +476,7 @@ const injectCapturedPhotoOverlays = (elements = []) => {
     return elements;
   }
 
-  const storedPhotos = safeStorage.getJSON('capturedPhotos');
+  const storedPhotos = safeStorage.getJSON("capturedPhotos");
   if (!Array.isArray(storedPhotos) || storedPhotos.length === 0) {
     return elements.filter((element) => !element?.data?.__capturedOverlay);
   }
@@ -443,7 +486,7 @@ const injectCapturedPhotoOverlays = (elements = []) => {
   );
 
   const photoPlaceholders = cleanedElements.filter(
-    (element) => element?.type === 'photo'
+    (element) => element?.type === "photo"
   );
 
   if (!photoPlaceholders.length) {
@@ -451,14 +494,14 @@ const injectCapturedPhotoOverlays = (elements = []) => {
   }
 
   const overlays = [];
-  
+
   // Force overlays to use minimum z-index so photos stay behind ALL other elements
   // including background and shapes. This ensures captured photos never appear on top.
-  
+
   photoPlaceholders.forEach((placeholder, placeholderIndex) => {
     const photoIndex = placeholderIndex;
     const photoData = storedPhotos[photoIndex];
-    if (typeof photoData !== 'string' || !photoData.startsWith('data:')) {
+    if (typeof photoData !== "string" || !photoData.startsWith("data:")) {
       return;
     }
     const overlay = createCapturedPhotoOverlay(
@@ -466,7 +509,10 @@ const injectCapturedPhotoOverlays = (elements = []) => {
       photoData,
       photoIndex
     );
-    console.log(`📸 [injectCapturedPhotoOverlays] Creating overlay ${photoIndex} with z-index:`, overlay.zIndex);
+    console.log(
+      `📸 [injectCapturedPhotoOverlays] Creating overlay ${photoIndex} with z-index:`,
+      overlay.zIndex
+    );
     overlays.push(overlay);
   });
 
@@ -487,7 +533,7 @@ const injectCapturedPhotoOverlays = (elements = []) => {
 
   const result = [];
   cleanedElements.forEach((el) => {
-    if (el?.type === 'photo' && el.id && overlayBySource.has(el.id)) {
+    if (el?.type === "photo" && el.id && overlayBySource.has(el.id)) {
       // Insert overlay BEFORE the placeholder so placeholder remains later in DOM
       // (same zIndex but stable sort keeps array order). This prevents overlays
       // from being globally appended and accidentally appearing above unrelated
@@ -503,17 +549,21 @@ const injectCapturedPhotoOverlays = (elements = []) => {
   // If any overlays remain (no matching placeholder), append them at end
   overlayBySource.forEach((ov) => result.push(ov));
 
-  console.log('✅ [injectCapturedPhotoOverlays] Final result:', {
+  console.log("✅ [injectCapturedPhotoOverlays] Final result:", {
     totalElements: result.length,
     overlaysAdded: overlays.length,
-    zIndexes: result.map(el => ({ type: el.type, zIndex: el.zIndex, isOverlay: el?.data?.__capturedOverlay }))
+    zIndexes: result.map((el) => ({
+      type: el.type,
+      zIndex: el.zIndex,
+      isOverlay: el?.data?.__capturedOverlay,
+    })),
   });
 
   return result;
 };
 
 export default function Create() {
-  console.log('[Create] Component rendering...');
+  console.log("[Create] Component rendering...");
   const fileInputRef = useRef(null);
   const uploadPurposeRef = useRef("upload");
   const toastTimeoutRef = useRef(null);
@@ -521,9 +571,10 @@ export default function Create() {
   const [toast, setToast] = useState(null);
   const [isMobileView, setIsMobileView] = useState(false);
   const [activeMobileProperty, setActiveMobileProperty] = useState(null);
-  const [showCanvasSizeInProperties, setShowCanvasSizeInProperties] = useState(false);
-  const [gradientColor1, setGradientColor1] = useState('#667eea');
-  const [gradientColor2, setGradientColor2] = useState('#764ba2');
+  const [showCanvasSizeInProperties, setShowCanvasSizeInProperties] =
+    useState(false);
+  const [gradientColor1, setGradientColor1] = useState("#667eea");
+  const [gradientColor2, setGradientColor2] = useState("#764ba2");
   const [canvasAspectRatio, setCanvasAspectRatio] = useState("9:16"); // Story Instagram default
   const [activeDraftId, setActiveDraftId] = useState(null);
   const [justSavedDraft, setJustSavedDraft] = useState(false); // Track if draft was just saved
@@ -535,6 +586,7 @@ export default function Create() {
   });
   const hasLoadedDraftRef = useRef(false);
   const isLoadingDraftRef = useRef(false); // NEW: Track when actively loading a draft
+  const loadingTimeoutRef = useRef(null); // Track timeout for cleanup
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -603,17 +655,22 @@ export default function Create() {
   useEffect(() => {
     // Clear stale cache (older than 24 hours)
     clearStaleFrameCache();
-    
+
     // ✅ CRITICAL FIX: Skip this effect while loading a draft
     // This prevents interference with draft loading process
     if (isLoadingDraftRef.current) {
-      console.log('⏭️ [useEffect] Skipping overlay injection - draft is loading');
+      console.log(
+        "⏭️ [useEffect] Skipping overlay injection - draft is loading"
+      );
       return;
     }
-    
-    const storedPhotos = safeStorage.getJSON('capturedPhotos');
-    const hasStoredPhotos = Array.isArray(storedPhotos) && storedPhotos.length > 0;
-    const hasOverlays = elements.some((element) => element?.data?.__capturedOverlay);
+
+    const storedPhotos = safeStorage.getJSON("capturedPhotos");
+    const hasStoredPhotos =
+      Array.isArray(storedPhotos) && storedPhotos.length > 0;
+    const hasOverlays = elements.some(
+      (element) => element?.data?.__capturedOverlay
+    );
 
     if (hasStoredPhotos && !hasOverlays) {
       const augmented = injectCapturedPhotoOverlays(elements);
@@ -624,7 +681,9 @@ export default function Create() {
     }
 
     if (!hasStoredPhotos && hasOverlays) {
-      const cleaned = elements.filter((element) => !element?.data?.__capturedOverlay);
+      const cleaned = elements.filter(
+        (element) => !element?.data?.__capturedOverlay
+      );
       if (cleaned.length !== elements.length) {
         setElements(cleaned);
       }
@@ -647,7 +706,9 @@ export default function Create() {
   );
 
   const selectedElementObject =
-    selectedElement && selectedElement !== "background" ? selectedElement : null;
+    selectedElement && selectedElement !== "background"
+      ? selectedElement
+      : null;
   const isBackgroundSelected = selectedElement === "background";
   const isMobilePropertyToolbar =
     isMobileView && (isBackgroundSelected || Boolean(selectedElementObject));
@@ -658,9 +719,12 @@ export default function Create() {
     }
 
     const handlePointerDown = (event) => {
-      const canvasNode = previewFrameRef.current?.querySelector("#creator-canvas");
+      const canvasNode =
+        previewFrameRef.current?.querySelector("#creator-canvas");
       const toolbarNode = document.querySelector(".create-mobile-toolbar");
-      const propertyPanelNode = document.querySelector(".create-mobile-property-panel");
+      const propertyPanelNode = document.querySelector(
+        ".create-mobile-property-panel"
+      );
 
       const target = event.target;
       const isInsideCanvas = canvasNode?.contains(target);
@@ -786,21 +850,23 @@ export default function Create() {
   const getCanvasDimensions = useCallback((ratio) => {
     const defaultDimensions = { width: CANVAS_WIDTH, height: CANVAS_HEIGHT };
 
-    console.log('🎯 [getCanvasDimensions] Input ratio:', ratio);
+    console.log("🎯 [getCanvasDimensions] Input ratio:", ratio);
 
     if (typeof ratio !== "string") {
-      console.log('  ❌ Not a string, returning default');
+      console.log("  ❌ Not a string, returning default");
       return defaultDimensions;
     }
 
     const [rawWidth, rawHeight] = ratio.split(":").map(Number);
-    const ratioWidth = Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : null;
-    const ratioHeight = Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : null;
+    const ratioWidth =
+      Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : null;
+    const ratioHeight =
+      Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : null;
 
-    console.log('  Parsed:', { rawWidth, rawHeight, ratioWidth, ratioHeight });
+    console.log("  Parsed:", { rawWidth, rawHeight, ratioWidth, ratioHeight });
 
     if (!ratioWidth || !ratioHeight) {
-      console.log('  ❌ Invalid ratio parts, returning default');
+      console.log("  ❌ Invalid ratio parts, returning default");
       return defaultDimensions;
     }
 
@@ -809,7 +875,7 @@ export default function Create() {
         width: CANVAS_WIDTH,
         height: Math.round((CANVAS_WIDTH * ratioHeight) / ratioWidth),
       };
-      console.log('  ✅ Portrait/Square mode (H>=W):', result);
+      console.log("  ✅ Portrait/Square mode (H>=W):", result);
       return result;
     }
 
@@ -817,7 +883,7 @@ export default function Create() {
       width: Math.round((CANVAS_HEIGHT * ratioWidth) / ratioHeight),
       height: CANVAS_HEIGHT,
     };
-    console.log('  ✅ Landscape mode (W>H):', result);
+    console.log("  ✅ Landscape mode (W>H):", result);
     return result;
   }, []);
 
@@ -826,13 +892,21 @@ export default function Create() {
       return "9:16";
     }
 
-    if (typeof draft.aspectRatio === "string" && draft.aspectRatio.includes(":")) {
+    if (
+      typeof draft.aspectRatio === "string" &&
+      draft.aspectRatio.includes(":")
+    ) {
       return draft.aspectRatio;
     }
 
     const width = Number(draft.canvasWidth);
     const height = Number(draft.canvasHeight);
-    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    if (
+      !Number.isFinite(width) ||
+      !Number.isFinite(height) ||
+      width <= 0 ||
+      height <= 0
+    ) {
       return "9:16";
     }
 
@@ -856,105 +930,127 @@ export default function Create() {
     return `${ratioWidth}:${ratioHeight}`;
   }, []);
 
-  const scaleDraftElements = useCallback((elements, fromWidth, fromHeight, toWidth, toHeight) => {
-    if (!Array.isArray(elements)) {
-      return [];
-    }
-
-    if (!Number.isFinite(fromWidth) || !Number.isFinite(fromHeight) || fromWidth <= 0 || fromHeight <= 0) {
-      return elements;
-    }
-
-    if (!Number.isFinite(toWidth) || !Number.isFinite(toHeight) || toWidth <= 0 || toHeight <= 0) {
-      return elements;
-    }
-
-    const scaleX = toWidth / fromWidth;
-    const scaleY = toHeight / fromHeight;
-
-    if (Math.abs(scaleX - 1) < 0.001 && Math.abs(scaleY - 1) < 0.001) {
-      return elements;
-    }
-
-    const averageScale = (scaleX + scaleY) / 2;
-
-    return elements.map((element) => {
-      if (!element || typeof element !== "object") {
-        return element;
+  const scaleDraftElements = useCallback(
+    (elements, fromWidth, fromHeight, toWidth, toHeight) => {
+      if (!Array.isArray(elements)) {
+        return [];
       }
 
-      const next = { ...element };
-
-      if (typeof next.x === "number") {
-        next.x = Math.round(next.x * scaleX);
-      }
-      if (typeof next.y === "number") {
-        next.y = Math.round(next.y * scaleY);
-      }
-      if (typeof next.width === "number") {
-        next.width = Math.round(next.width * scaleX);
-      }
-      if (typeof next.height === "number") {
-        next.height = Math.round(next.height * scaleY);
+      if (
+        !Number.isFinite(fromWidth) ||
+        !Number.isFinite(fromHeight) ||
+        fromWidth <= 0 ||
+        fromHeight <= 0
+      ) {
+        return elements;
       }
 
-      if (next?.data && typeof next.data === "object") {
-        const data = { ...next.data };
-
-        if (typeof data.borderRadius === "number") {
-          data.borderRadius = Math.max(0, Math.round(data.borderRadius * averageScale));
-        }
-
-        if (typeof data.strokeWidth === "number") {
-          data.strokeWidth = Math.max(0, Math.round(data.strokeWidth * averageScale));
-        }
-
-        if (typeof data.fontSize === "number") {
-          data.fontSize = Math.max(1, Math.round(data.fontSize * scaleY));
-        }
-
-        if (typeof data.lineHeight === "number") {
-          data.lineHeight = Math.max(0.1, data.lineHeight * scaleY);
-        }
-
-        if (typeof data.letterSpacing === "number") {
-          data.letterSpacing = data.letterSpacing * scaleX;
-        }
-
-        if (typeof data.outlineWidth === "number") {
-          data.outlineWidth = Math.max(0, Math.round(data.outlineWidth * averageScale));
-        }
-
-        next.data = data;
+      if (
+        !Number.isFinite(toWidth) ||
+        !Number.isFinite(toHeight) ||
+        toWidth <= 0 ||
+        toHeight <= 0
+      ) {
+        return elements;
       }
 
-      return next;
-    });
-  }, []);
+      const scaleX = toWidth / fromWidth;
+      const scaleY = toHeight / fromHeight;
+
+      if (Math.abs(scaleX - 1) < 0.001 && Math.abs(scaleY - 1) < 0.001) {
+        return elements;
+      }
+
+      const averageScale = (scaleX + scaleY) / 2;
+
+      return elements.map((element) => {
+        if (!element || typeof element !== "object") {
+          return element;
+        }
+
+        const next = { ...element };
+
+        if (typeof next.x === "number") {
+          next.x = Math.round(next.x * scaleX);
+        }
+        if (typeof next.y === "number") {
+          next.y = Math.round(next.y * scaleY);
+        }
+        if (typeof next.width === "number") {
+          next.width = Math.round(next.width * scaleX);
+        }
+        if (typeof next.height === "number") {
+          next.height = Math.round(next.height * scaleY);
+        }
+
+        if (next?.data && typeof next.data === "object") {
+          const data = { ...next.data };
+
+          if (typeof data.borderRadius === "number") {
+            data.borderRadius = Math.max(
+              0,
+              Math.round(data.borderRadius * averageScale)
+            );
+          }
+
+          if (typeof data.strokeWidth === "number") {
+            data.strokeWidth = Math.max(
+              0,
+              Math.round(data.strokeWidth * averageScale)
+            );
+          }
+
+          if (typeof data.fontSize === "number") {
+            data.fontSize = Math.max(1, Math.round(data.fontSize * scaleY));
+          }
+
+          if (typeof data.lineHeight === "number") {
+            data.lineHeight = Math.max(0.1, data.lineHeight * scaleY);
+          }
+
+          if (typeof data.letterSpacing === "number") {
+            data.letterSpacing = data.letterSpacing * scaleX;
+          }
+
+          if (typeof data.outlineWidth === "number") {
+            data.outlineWidth = Math.max(
+              0,
+              Math.round(data.outlineWidth * averageScale)
+            );
+          }
+
+          next.data = data;
+        }
+
+        return next;
+      });
+    },
+    []
+  );
 
   const loadDraftIntoEditor = useCallback(
     async (draftId, { notify = true } = {}) => {
-      console.log('🎬 [loadDraftIntoEditor] STARTED with draftId:', draftId);
-      
+      console.log("🎬 [loadDraftIntoEditor] STARTED with draftId:", draftId);
+
       if (!draftId) {
-        console.log('❌ [loadDraftIntoEditor] No draftId provided');
+        console.log("❌ [loadDraftIntoEditor] No draftId provided");
         return false;
       }
 
       // ✅ CRITICAL FIX: Set loading flag to prevent useEffect interference
       isLoadingDraftRef.current = true;
-      console.log('🔒 [loadDraftIntoEditor] Set loading flag to TRUE');
+      console.log("🔒 [loadDraftIntoEditor] Set loading flag to TRUE");
 
       // ✅ CRITICAL FIX: getDraftById is async, must await it!
       const draft = await draftStorage.getDraftById(draftId);
-      console.log('📦 [loadDraftIntoEditor] Draft from storage:', {
+      console.log("📦 [loadDraftIntoEditor] Draft from storage:", {
         found: !!draft,
         id: draft?.id,
         elementsCount: draft?.elements?.length,
         hasPreview: !!draft?.preview,
         hasCapturedPhotos: draft?.capturedPhotos?.length || 0,
       });
-      
+
       if (!draft) {
         if (notify) {
           showToast("error", "Draft tidak ditemukan.");
@@ -964,11 +1060,17 @@ export default function Create() {
       }
 
       // Restore captured photos if they were saved with the draft
-      if (Array.isArray(draft.capturedPhotos) && draft.capturedPhotos.length > 0) {
-        console.log('📸 [loadDraftIntoEditor] Restoring captured photos:', draft.capturedPhotos.length);
+      if (
+        Array.isArray(draft.capturedPhotos) &&
+        draft.capturedPhotos.length > 0
+      ) {
+        console.log(
+          "📸 [loadDraftIntoEditor] Restoring captured photos:",
+          draft.capturedPhotos.length
+        );
         safeStorage.setJSON("capturedPhotos", draft.capturedPhotos);
       } else {
-        console.log('📸 [loadDraftIntoEditor] No captured photos to restore');
+        console.log("📸 [loadDraftIntoEditor] No captured photos to restore");
         safeStorage.removeItem("capturedPhotos");
       }
 
@@ -978,11 +1080,14 @@ export default function Create() {
           : JSON.parse(JSON.stringify(draft.elements))
         : [];
 
-      console.log('📋 [loadDraftIntoEditor] Cloned elements:', clonedElements.length);
+      console.log(
+        "📋 [loadDraftIntoEditor] Cloned elements:",
+        clonedElements.length
+      );
 
       // Ensure background-photo always has z-index 0
-      clonedElements = clonedElements.map(el => {
-        if (el?.type === 'background-photo') {
+      clonedElements = clonedElements.map((el) => {
+        if (el?.type === "background-photo") {
           return { ...el, zIndex: 0 };
         }
         return el;
@@ -991,7 +1096,7 @@ export default function Create() {
       // ✅ FIX: Don't add frame artwork when loading draft!
       // The draft.elements already contains all elements including frame artwork if it was saved
       // Adding it again here causes DUPLICATION (frame appears 2x)
-      // 
+      //
       // REMOVED CODE:
       // - Check for draft.frameArtwork
       // - Use draft.preview as fallback
@@ -999,16 +1104,20 @@ export default function Create() {
       //
       // WHY: Draft should be self-contained with all elements
       // Frame artwork was already saved in draft.elements when template was created
-      
-      console.log('📋 [loadDraftIntoEditor] Cloned elements (WITHOUT adding frame artwork separately):', {
-        count: clonedElements.length,
-        types: clonedElements.map(el => el.type),
-      });
 
-  const targetAspectRatio = deriveAspectRatioFromDraft(draft);
+      console.log(
+        "📋 [loadDraftIntoEditor] Cloned elements (WITHOUT adding frame artwork separately):",
+        {
+          count: clonedElements.length,
+          types: clonedElements.map((el) => el.type),
+        }
+      );
+
+      const targetAspectRatio = deriveAspectRatioFromDraft(draft);
       const targetDimensions = getCanvasDimensions(targetAspectRatio);
       const sourceWidth = Number(draft.canvasWidth) || targetDimensions.width;
-      const sourceHeight = Number(draft.canvasHeight) || targetDimensions.height;
+      const sourceHeight =
+        Number(draft.canvasHeight) || targetDimensions.height;
       const scaledElements = scaleDraftElements(
         clonedElements,
         sourceWidth,
@@ -1017,41 +1126,51 @@ export default function Create() {
         targetDimensions.height
       );
 
-  const withoutTransparentAreas = Array.isArray(scaledElements)
-    ? scaledElements.filter((element) => element?.type !== 'transparent-area')
-    : [];
-  const normalizedElements = normalizePhotoLayering(withoutTransparentAreas);
-  
-  // ✅ CRITICAL FIX: Don't inject overlays when loading draft
-  // The draft should already have all elements it needs
-  // Injecting overlays here causes issues with z-index and element visibility
-  // The useEffect will handle overlay injection later if needed (but we skip it with the loading flag)
-  console.log('✅ [loadDraftIntoEditor] Using normalized elements WITHOUT overlay injection:', {
-    elementsCount: normalizedElements.length,
-    types: normalizedElements.map(el => ({ type: el.type, zIndex: el.zIndex })),
-  });
-  
-  const runtimeElements = normalizedElements; // Don't inject overlays during load
+      const withoutTransparentAreas = Array.isArray(scaledElements)
+        ? scaledElements.filter(
+            (element) => element?.type !== "transparent-area"
+          )
+        : [];
+      const normalizedElements = normalizePhotoLayering(
+        withoutTransparentAreas
+      );
 
-  console.log('✅ [loadDraftIntoEditor] Setting elements:', {
-    normalizedCount: normalizedElements.length,
-    runtimeCount: runtimeElements.length,
-    aspectRatio: targetAspectRatio,
-    detailedElements: runtimeElements.map(el => ({
-      id: el.id?.slice(0, 8),
-      type: el.type,
-      x: el.x,
-      y: el.y,
-      width: el.width,
-      height: el.height,
-      zIndex: el.zIndex,
-      hasImage: !!el.data?.image,
-      text: el.data?.text,
-    })),
-  });
+      // ✅ CRITICAL FIX: Don't inject overlays when loading draft
+      // The draft should already have all elements it needs
+      // Injecting overlays here causes issues with z-index and element visibility
+      // The useEffect will handle overlay injection later if needed (but we skip it with the loading flag)
+      console.log(
+        "✅ [loadDraftIntoEditor] Using normalized elements WITHOUT overlay injection:",
+        {
+          elementsCount: normalizedElements.length,
+          types: normalizedElements.map((el) => ({
+            type: el.type,
+            zIndex: el.zIndex,
+          })),
+        }
+      );
 
-  setCanvasAspectRatio(targetAspectRatio);
-  setElements(runtimeElements);
+      const runtimeElements = normalizedElements; // Don't inject overlays during load
+
+      console.log("✅ [loadDraftIntoEditor] Setting elements:", {
+        normalizedCount: normalizedElements.length,
+        runtimeCount: runtimeElements.length,
+        aspectRatio: targetAspectRatio,
+        detailedElements: runtimeElements.map((el) => ({
+          id: el.id?.slice(0, 8),
+          type: el.type,
+          x: el.x,
+          y: el.y,
+          width: el.width,
+          height: el.height,
+          zIndex: el.zIndex,
+          hasImage: !!el.data?.image,
+          text: el.data?.text,
+        })),
+      });
+
+      setCanvasAspectRatio(targetAspectRatio);
+      setElements(runtimeElements);
       if (draft.canvasBackground) {
         setCanvasBackground(draft.canvasBackground);
       }
@@ -1067,18 +1186,22 @@ export default function Create() {
           targetAspectRatio
         );
 
-      safeStorage.setItem("activeDraftId", draft.id);
+      userStorage.setItem("activeDraftId", draft.id);
       if (effectiveSignature) {
-        safeStorage.setItem("activeDraftSignature", effectiveSignature);
+        userStorage.setItem("activeDraftSignature", effectiveSignature);
       }
 
       hasLoadedDraftRef.current = true;
 
       // ✅ CRITICAL FIX: Clear loading flag after elements are set
-      // Use setTimeout to allow React to complete the render cycle
-      setTimeout(() => {
+      // Use tracked timeout for proper cleanup
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+      }
+      loadingTimeoutRef.current = setTimeout(() => {
         isLoadingDraftRef.current = false;
-        console.log('🔓 [loadDraftIntoEditor] Cleared loading flag');
+        loadingTimeoutRef.current = null;
+        console.log("🔓 [loadDraftIntoEditor] Cleared loading flag");
       }, 100);
 
       if (notify) {
@@ -1104,40 +1227,42 @@ export default function Create() {
   useEffect(() => {
     const draftId = location.state?.draftId;
     const comeFromDraftsPage = !!draftId;
-    
-    console.log('🎯 [Create useEffect] Navigation detected:', {
+
+    console.log("🎯 [Create useEffect] Navigation detected:", {
       hasDraftId: !!draftId,
       draftId,
       comeFromDraftsPage,
       pathname: location.pathname,
       state: location.state,
     });
-    
+
     if (comeFromDraftsPage) {
       // User clicked "Lihat Frame" from Drafts page - load the draft
-      console.log('📂 [Create] Loading draft from Drafts page:', draftId);
+      console.log("📂 [Create] Loading draft from Drafts page:", draftId);
       hasLoadedDraftRef.current = false; // Reset before loading
-      
+
       // ✅ CRITICAL FIX: loadDraftIntoEditor is now async, must await it
-      loadDraftIntoEditor(draftId, { notify: true }).then((success) => {
-        console.log('📂 [Create] loadDraftIntoEditor result:', success);
-      }).catch((error) => {
-        console.error('❌ [Create] Failed to load draft:', error);
-      });
-      
+      loadDraftIntoEditor(draftId, { notify: true })
+        .then((success) => {
+          console.log("📂 [Create] loadDraftIntoEditor result:", success);
+        })
+        .catch((error) => {
+          console.error("❌ [Create] Failed to load draft:", error);
+        });
+
       navigate(location.pathname, { replace: true, state: null });
     } else if (!hasLoadedDraftRef.current) {
       // User entered Create page directly - reset ONLY on first mount
-      console.log('🔄 [Create] First time entry - resetting canvas');
+      console.log("🔄 [Create] First time entry - resetting canvas");
       setElements([]);
-      setCanvasBackground('#f7f1ed');
-      setCanvasAspectRatio('9:16');
+      setCanvasBackground("#f7f1ed");
+      setCanvasAspectRatio("9:16");
       setActiveDraftId(null);
       clearSelection();
-      safeStorage.removeItem("activeDraftId");
-      safeStorage.removeItem("activeDraftSignature");
-      safeStorage.removeItem("capturedPhotos");
-      safeStorage.removeItem("draftFrameArtwork");
+      userStorage.removeItem("activeDraftId");
+      userStorage.removeItem("activeDraftSignature");
+      userStorage.removeItem("capturedPhotos");
+      userStorage.removeItem("draftFrameArtwork");
       hasLoadedDraftRef.current = true; // Mark as initialized
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1148,24 +1273,30 @@ export default function Create() {
       return;
     }
 
-    const storedDraftId = safeStorage.getItem("activeDraftId");
+    const storedDraftId = userStorage.getItem("activeDraftId");
     if (!storedDraftId) {
       return;
     }
 
     // ✅ CRITICAL FIX: loadDraftIntoEditor is async
-    loadDraftIntoEditor(storedDraftId, { notify: false }).then(async (loaded) => {
-      if (loaded) {
-        const storedSignature = safeStorage.getItem("activeDraftSignature");
-        const draft = await draftStorage.getDraftById(storedDraftId);
-        if (storedSignature && draft?.signature && storedSignature !== draft.signature) {
-          // Signature mismatch - update storage to reflect current draft state
-          safeStorage.setItem("activeDraftSignature", draft.signature);
+    loadDraftIntoEditor(storedDraftId, { notify: false })
+      .then(async (loaded) => {
+        if (loaded) {
+          const storedSignature = userStorage.getItem("activeDraftSignature");
+          const draft = await draftStorage.getDraftById(storedDraftId);
+          if (
+            storedSignature &&
+            draft?.signature &&
+            storedSignature !== draft.signature
+          ) {
+            // Signature mismatch - update storage to reflect current draft state
+            safeStorage.setItem("activeDraftSignature", draft.signature);
+          }
         }
-      }
-    }).catch((error) => {
-      console.error('❌ [Create] Failed to load stored draft:', error);
-    });
+      })
+      .catch((error) => {
+        console.error("❌ [Create] Failed to load stored draft:", error);
+      });
   }, [loadDraftIntoEditor]);
 
   useEffect(() => {
@@ -1174,7 +1305,8 @@ export default function Create() {
     }
 
     if (!backgroundPhotoElement.data?.imageAspectRatio) {
-      const { width: canvasWidth, height: canvasHeight } = getCanvasDimensions(canvasAspectRatio);
+      const { width: canvasWidth, height: canvasHeight } =
+        getCanvasDimensions(canvasAspectRatio);
       const inferredRatio =
         backgroundPhotoElement.width > 0 && backgroundPhotoElement.height > 0
           ? backgroundPhotoElement.width / backgroundPhotoElement.height
@@ -1183,12 +1315,21 @@ export default function Create() {
         data: { imageAspectRatio: inferredRatio },
       });
     }
-  }, [backgroundPhotoElement, updateElement, canvasAspectRatio, getCanvasDimensions]);
+  }, [
+    backgroundPhotoElement,
+    updateElement,
+    canvasAspectRatio,
+    getCanvasDimensions,
+  ]);
 
   useEffect(
     () => () => {
       if (toastTimeoutRef.current) {
         clearTimeout(toastTimeoutRef.current);
+      }
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        isLoadingDraftRef.current = false;
       }
     },
     []
@@ -1220,11 +1361,12 @@ export default function Create() {
       if (typeof dataUrl === "string") {
         if (uploadPurposeRef.current === "background") {
           const metadata = await getImageMetadata(dataUrl);
-          const { width: canvasWidth, height: canvasHeight } = getCanvasDimensions(canvasAspectRatio);
-          addBackgroundPhoto(dataUrl, { 
-            ...metadata, 
-            canvasWidth, 
-            canvasHeight 
+          const { width: canvasWidth, height: canvasHeight } =
+            getCanvasDimensions(canvasAspectRatio);
+          addBackgroundPhoto(dataUrl, {
+            ...metadata,
+            canvasWidth,
+            canvasHeight,
           });
           showToast("success", "Background foto diperbarui.", 2200);
         } else {
@@ -1243,16 +1385,17 @@ export default function Create() {
     let cleanupCapture = null;
     setSaving(true);
     try {
-      const { width: canvasWidth, height: canvasHeight } = getCanvasDimensions(canvasAspectRatio);
-      
-      console.log('🔍 [SAVE DRAFT DEBUG]');
-      console.log('  canvasAspectRatio state:', canvasAspectRatio);
-      console.log('  Calculated dimensions:', { canvasWidth, canvasHeight });
-      console.log('  Calculated aspect ratio:', canvasWidth / canvasHeight);
-      console.log('  Expected for 9:16:', 9/16, '=', 1080/1920);
+      const { width: canvasWidth, height: canvasHeight } =
+        getCanvasDimensions(canvasAspectRatio);
 
-  // ⚡ AGGRESSIVE: Use lower scale to reduce capture time and size
-  const captureScale = 1; // Always use 1x scale (was: 2x for small canvases)
+      console.log("🔍 [SAVE DRAFT DEBUG]");
+      console.log("  canvasAspectRatio state:", canvasAspectRatio);
+      console.log("  Calculated dimensions:", { canvasWidth, canvasHeight });
+      console.log("  Calculated aspect ratio:", canvasWidth / canvasHeight);
+      console.log("  Expected for 9:16:", 9 / 16, "=", 1080 / 1920);
+
+      // ⚡ AGGRESSIVE: Use lower scale to reduce capture time and size
+      const captureScale = 1; // Always use 1x scale (was: 2x for small canvases)
 
       const exportWrapper = document.createElement("div");
       Object.assign(exportWrapper.style, {
@@ -1294,9 +1437,12 @@ export default function Create() {
       };
 
       // ✅ SINGLE CAPTURE: html2canvas will respect CSS z-index ordering
-      console.log('📸 [html2canvas] Starting capture with scale:', captureScale);
+      console.log(
+        "📸 [html2canvas] Starting capture with scale:",
+        captureScale
+      );
       const captureStartTime = Date.now();
-      
+
       const capturePromise = html2canvas(exportCanvasNode, {
         backgroundColor: null, // Transparent background
         useCORS: true,
@@ -1313,8 +1459,12 @@ export default function Create() {
           if (!element) return false;
           if (element.nodeType === Node.ELEMENT_NODE) {
             // Only ignore UI elements, NOT design elements
-            if (element.classList?.contains('creator-element--captured-overlay')) return true;
-            if (element.getAttribute?.('data-export-ignore') === 'true') return true;
+            if (
+              element.classList?.contains("creator-element--captured-overlay")
+            )
+              return true;
+            if (element.getAttribute?.("data-export-ignore") === "true")
+              return true;
             if (element.closest?.('[data-export-ignore="true"]')) return true;
           }
           return false;
@@ -1325,18 +1475,24 @@ export default function Create() {
       try {
         captureCanvas = await withTimeout(capturePromise, {
           timeoutMs: 20000, // Increased from 15s to 20s for slower devices
-          timeoutMessage: 'Rendering canvas took too long',
-          onTimeout: () => console.warn('⚠️ html2canvas timed out while saving draft'),
+          timeoutMessage: "Rendering canvas took too long",
+          onTimeout: () =>
+            console.warn("⚠️ html2canvas timed out while saving draft"),
         });
         const captureElapsed = Date.now() - captureStartTime;
-        console.log(`📸 [html2canvas] Capture completed in ${captureElapsed}ms`);
+        console.log(
+          `📸 [html2canvas] Capture completed in ${captureElapsed}ms`
+        );
       } catch (captureError) {
         const captureElapsed = Date.now() - captureStartTime;
-        console.warn(`⚠️ html2canvas failed after ${captureElapsed}ms:`, captureError);
+        console.warn(
+          `⚠️ html2canvas failed after ${captureElapsed}ms:`,
+          captureError
+        );
       }
 
       if (captureCanvas) {
-        console.log('📸 [html2canvas result]', {
+        console.log("📸 [html2canvas result]", {
           width: captureCanvas.width,
           height: captureCanvas.height,
         });
@@ -1345,14 +1501,16 @@ export default function Create() {
       // ✅ SIMPLIFIED PREVIEW GENERATION
       // Just use captureCanvas directly - it already has correct z-index layering
       // We only need to carve holes for photo slots
-      
-      const finalCanvas = document.createElement('canvas');
-      finalCanvas.width = captureCanvas?.width ?? Math.round(canvasWidth * captureScale);
-      finalCanvas.height = captureCanvas?.height ?? Math.round(canvasHeight * captureScale);
-      const finalCtx = finalCanvas.getContext('2d', { alpha: true });
-      
+
+      const finalCanvas = document.createElement("canvas");
+      finalCanvas.width =
+        captureCanvas?.width ?? Math.round(canvasWidth * captureScale);
+      finalCanvas.height =
+        captureCanvas?.height ?? Math.round(canvasHeight * captureScale);
+      const finalCtx = finalCanvas.getContext("2d", { alpha: true });
+
       if (finalCtx) {
-        const photoElements = elements.filter((el) => el.type === 'photo');
+        const photoElements = elements.filter((el) => el.type === "photo");
         const photoSlotInfos = [];
 
         photoElements.forEach((photoEl, placeholderIndex) => {
@@ -1365,7 +1523,9 @@ export default function Create() {
           }
 
           const candidateIndex = Number(photoEl?.data?.photoIndex);
-          const photoIndex = Number.isFinite(candidateIndex) ? candidateIndex : placeholderIndex;
+          const photoIndex = Number.isFinite(candidateIndex)
+            ? candidateIndex
+            : placeholderIndex;
 
           photoSlotInfos.push({
             elementId: photoEl?.id ?? null,
@@ -1377,32 +1537,53 @@ export default function Create() {
             height: rawHeight * captureScale,
             centerX: (rawX + rawWidth / 2) * captureScale,
             centerY: (rawY + rawHeight / 2) * captureScale,
-            borderRadius: parseNumericValue(photoEl?.data?.borderRadius) * captureScale,
+            borderRadius:
+              parseNumericValue(photoEl?.data?.borderRadius) * captureScale,
             rotationRadians: ((Number(photoEl?.rotation) || 0) * Math.PI) / 180,
           });
         });
 
         // Draw background (support solid color and gradients)
-        const bgValue = canvasBackground || '#ffffff';
-        if (bgValue.startsWith('linear-gradient') || bgValue.startsWith('radial-gradient')) {
+        const bgValue = canvasBackground || "#ffffff";
+        if (
+          bgValue.startsWith("linear-gradient") ||
+          bgValue.startsWith("radial-gradient")
+        ) {
           // Parse gradient and draw
-          const gradientMatch = bgValue.match(/(linear|radial)-gradient\((.*)\)/);
+          const gradientMatch = bgValue.match(
+            /(linear|radial)-gradient\((.*)\)/
+          );
           if (gradientMatch) {
             const [, type, params] = gradientMatch;
-            const colors = params.match(/#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{3}|rgba?\([^)]+\)/g) || [];
-            
+            const colors =
+              params.match(/#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{3}|rgba?\([^)]+\)/g) ||
+              [];
+
             let gradient;
-            if (type === 'linear') {
+            if (type === "linear") {
               // Default diagonal gradient
-              gradient = finalCtx.createLinearGradient(0, 0, finalCanvas.width, finalCanvas.height);
+              gradient = finalCtx.createLinearGradient(
+                0,
+                0,
+                finalCanvas.width,
+                finalCanvas.height
+              );
             } else {
               // Radial gradient from center
               const centerX = finalCanvas.width / 2;
               const centerY = finalCanvas.height / 2;
-              const radius = Math.max(finalCanvas.width, finalCanvas.height) / 2;
-              gradient = finalCtx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+              const radius =
+                Math.max(finalCanvas.width, finalCanvas.height) / 2;
+              gradient = finalCtx.createRadialGradient(
+                centerX,
+                centerY,
+                0,
+                centerX,
+                centerY,
+                radius
+              );
             }
-            
+
             // Add color stops
             if (colors.length >= 2) {
               gradient.addColorStop(0, colors[0]);
@@ -1413,10 +1594,10 @@ export default function Create() {
                 });
               }
             }
-            
+
             finalCtx.fillStyle = gradient;
           } else {
-            finalCtx.fillStyle = '#ffffff';
+            finalCtx.fillStyle = "#ffffff";
           }
         } else {
           finalCtx.fillStyle = bgValue;
@@ -1434,8 +1615,10 @@ export default function Create() {
         // - Photo slots are already transparent in captureCanvas
         // - Editor renders photo slots + designer elements separately
         // - Carving would destroy text/shapes that are above photo slots!
-        
-        console.log('✅ [Preview] Generated without carving (preserves layering for custom frames)');
+
+        console.log(
+          "✅ [Preview] Generated without carving (preserves layering for custom frames)"
+        );
       }
 
       let exportCanvas = finalCanvas;
@@ -1443,23 +1626,34 @@ export default function Create() {
       if (exportCanvas.width > maxPreviewWidth) {
         const previewScale = maxPreviewWidth / exportCanvas.width;
         const scaledCanvas = document.createElement("canvas");
-        scaledCanvas.width = Math.max(1, Math.round(exportCanvas.width * previewScale));
-        scaledCanvas.height = Math.max(1, Math.round(exportCanvas.height * previewScale));
+        scaledCanvas.width = Math.max(
+          1,
+          Math.round(exportCanvas.width * previewScale)
+        );
+        scaledCanvas.height = Math.max(
+          1,
+          Math.round(exportCanvas.height * previewScale)
+        );
         const ctx = scaledCanvas.getContext("2d");
         if (ctx) {
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = "medium"; // ⚡ Reduced from "high"
-          ctx.drawImage(exportCanvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
+          ctx.drawImage(
+            exportCanvas,
+            0,
+            0,
+            scaledCanvas.width,
+            scaledCanvas.height
+          );
           exportCanvas = scaledCanvas;
         }
       }
 
-
-      console.log('🖼️ [Preview canvas after scaling]', {
+      console.log("🖼️ [Preview canvas after scaling]", {
         width: exportCanvas.width,
         height: exportCanvas.height,
       });
-      
+
       // IMPORTANT: Use JPEG with low quality for preview to save localStorage space
       // Preview is only used as thumbnail, doesn't need high quality or transparency
       // PNG format is 5-10x larger than JPEG and can cause quota exceeded errors!
@@ -1468,11 +1662,11 @@ export default function Create() {
         // ⚡ Use JPEG with 0.5 quality (reduced from 0.6) - even smaller for faster saves
         previewDataUrl = exportCanvas.toDataURL("image/jpeg", 0.5);
         const previewSizeKB = Math.round(previewDataUrl.length / 1024);
-        console.log('🖼️ [Preview compressed]', {
-          format: 'JPEG',
+        console.log("🖼️ [Preview compressed]", {
+          format: "JPEG",
           quality: 0.5,
           sizeKB: previewSizeKB,
-          purpose: 'thumbnail only',
+          purpose: "thumbnail only",
         });
       } catch (err) {
         console.warn("⚠️ JPEG preview error, trying lower quality", err);
@@ -1482,7 +1676,7 @@ export default function Create() {
         } catch (err2) {
           console.error("❌ Failed to generate preview:", err2);
           // Use tiny 1x1 placeholder if preview fails
-          const tinyCanvas = document.createElement('canvas');
+          const tinyCanvas = document.createElement("canvas");
           tinyCanvas.width = 1;
           tinyCanvas.height = 1;
           previewDataUrl = tinyCanvas.toDataURL("image/jpeg", 0.5);
@@ -1491,19 +1685,20 @@ export default function Create() {
 
       if (!previewDataUrl || !previewDataUrl.startsWith("data:image")) {
         // Emergency fallback: tiny 1x1 image
-        const tinyCanvas = document.createElement('canvas');
+        const tinyCanvas = document.createElement("canvas");
         tinyCanvas.width = 1;
         tinyCanvas.height = 1;
         previewDataUrl = tinyCanvas.toDataURL("image/jpeg", 0.5);
-        console.warn('⚠️ Using emergency 1x1 preview fallback');
+        console.warn("⚠️ Using emergency 1x1 preview fallback");
       }
       const serializedElements =
         typeof structuredClone === "function"
           ? structuredClone(elements)
           : JSON.parse(JSON.stringify(elements));
 
-      console.log('🔍 [SAVE DEBUG] serializedElements z-index info:', 
-        serializedElements.map(el => ({
+      console.log(
+        "🔍 [SAVE DEBUG] serializedElements z-index info:",
+        serializedElements.map((el) => ({
           type: el.type,
           id: el.id?.slice(0, 8),
           zIndex: el.zIndex,
@@ -1513,24 +1708,28 @@ export default function Create() {
 
       const cleanElements = serializedElements.filter(
         (element) =>
-          element?.type !== 'transparent-area' &&
+          element?.type !== "transparent-area" &&
           !element?.data?.__capturedOverlay
       );
 
-      console.log('💾 [SAVING DRAFT] Elements breakdown:', {
+      console.log("💾 [SAVING DRAFT] Elements breakdown:", {
         total: serializedElements.length,
         cleaned: cleanElements.length,
-        types: cleanElements.map(el => ({ type: el.type, zIndex: el.zIndex, hasImage: !!el.data?.image })),
+        types: cleanElements.map((el) => ({
+          type: el.type,
+          zIndex: el.zIndex,
+          hasImage: !!el.data?.image,
+        })),
       });
 
       const layeredElements = cleanElements.map((element) => {
-        if (!element || typeof element !== 'object') {
+        if (!element || typeof element !== "object") {
           return element;
         }
 
         // ✅ Photo slots: Ensure minimum z-index (above background)
         // But preserve user's z-index if already set higher
-        if (element.type === 'photo') {
+        if (element.type === "photo") {
           if (!Number.isFinite(element.zIndex)) {
             return {
               ...element,
@@ -1539,7 +1738,9 @@ export default function Create() {
           }
           // If user set z-index lower than minimum, enforce minimum
           if (element.zIndex < PHOTO_SLOT_MIN_Z) {
-            console.warn(`⚠️ Photo slot z-index ${element.zIndex} is below minimum, setting to ${PHOTO_SLOT_MIN_Z}`);
+            console.warn(
+              `⚠️ Photo slot z-index ${element.zIndex} is below minimum, setting to ${PHOTO_SLOT_MIN_Z}`
+            );
             return {
               ...element,
               zIndex: PHOTO_SLOT_MIN_Z,
@@ -1550,10 +1751,12 @@ export default function Create() {
         }
 
         // ✅ Background photo: Always at the back
-        if (element.type === 'background-photo') {
+        if (element.type === "background-photo") {
           const desiredBackgroundZ = Number.isFinite(BACKGROUND_PHOTO_Z)
             ? BACKGROUND_PHOTO_Z
-            : (Number.isFinite(element.zIndex) ? element.zIndex : BACKGROUND_PHOTO_Z);
+            : Number.isFinite(element.zIndex)
+            ? element.zIndex
+            : BACKGROUND_PHOTO_Z;
 
           if (element.zIndex === desiredBackgroundZ) {
             return element;
@@ -1572,8 +1775,9 @@ export default function Create() {
       // The z-index from Create page should be preserved as-is.
       // Users have already arranged the layering in the canvas.
 
-      console.log('🔍 [SAVE DEBUG] Final layeredElements z-index info:', 
-        layeredElements.map(el => ({
+      console.log(
+        "🔍 [SAVE DEBUG] Final layeredElements z-index info:",
+        layeredElements.map((el) => ({
           type: el.type,
           id: el.id?.slice(0, 8),
           zIndex: el.zIndex,
@@ -1581,90 +1785,107 @@ export default function Create() {
       );
 
       // Compress upload and background-photo element images before saving
-      console.log('🗜️ [Compression] Starting image compression for elements:', layeredElements.length);
+      console.log(
+        "🗜️ [Compression] Starting image compression for elements:",
+        layeredElements.length
+      );
       const compressionStartTime = Date.now();
-      
-      const compressedElements = await Promise.all(layeredElements.map(async (element) => {
-        const imageSource = element?.data?.image;
-        const shouldCompress =
-          typeof imageSource === 'string' &&
-          (element.type === 'background-photo' || element.type === 'upload');
 
-        if (!shouldCompress) {
-          return element;
-        }
+      const compressedElements = await Promise.all(
+        layeredElements.map(async (element) => {
+          const imageSource = element?.data?.image;
+          const shouldCompress =
+            typeof imageSource === "string" &&
+            (element.type === "background-photo" || element.type === "upload");
 
-        try {
-          const timeoutMs = element.type === 'background-photo' ? 8000 : 6000; // Reduced timeout
-          const img = await loadImageAsync(imageSource, { timeoutMs });
-
-          if (!img || !Number.isFinite(img.width) || !Number.isFinite(img.height)) {
-            throw new Error('Invalid image dimensions');
+          if (!shouldCompress) {
+            return element;
           }
 
-          // ⚡ ULTRA AGGRESSIVE: Smaller size and lower quality for faster saves
-          const maxWidth = element.type === 'background-photo' ? 600 : 480; // Reduced from 800/600
-          const quality = element.type === 'background-photo' ? 0.6 : 0.7; // Reduced from 0.65/0.75
-          let targetWidth = img.width;
-          let targetHeight = img.height;
+          try {
+            const timeoutMs = element.type === "background-photo" ? 8000 : 6000; // Reduced timeout
+            const img = await loadImageAsync(imageSource, { timeoutMs });
 
-          if (targetWidth > maxWidth) {
-            const scale = maxWidth / targetWidth;
-            targetWidth = maxWidth;
-            targetHeight = Math.max(1, Math.round(targetHeight * scale));
+            if (
+              !img ||
+              !Number.isFinite(img.width) ||
+              !Number.isFinite(img.height)
+            ) {
+              throw new Error("Invalid image dimensions");
+            }
+
+            // ⚡ ULTRA AGGRESSIVE: Smaller size and lower quality for faster saves
+            const maxWidth = element.type === "background-photo" ? 600 : 480; // Reduced from 800/600
+            const quality = element.type === "background-photo" ? 0.6 : 0.7; // Reduced from 0.65/0.75
+            let targetWidth = img.width;
+            let targetHeight = img.height;
+
+            if (targetWidth > maxWidth) {
+              const scale = maxWidth / targetWidth;
+              targetWidth = maxWidth;
+              targetHeight = Math.max(1, Math.round(targetHeight * scale));
+            }
+
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.max(1, Math.round(targetWidth));
+            canvas.height = Math.max(1, Math.round(targetHeight));
+            const ctx = canvas.getContext("2d", { alpha: true }); // Enable alpha channel
+            if (!ctx) {
+              throw new Error("Failed to acquire 2D context");
+            }
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            // ✅ CRITICAL FIX: Check if image has transparency
+            // PNG images with transparency MUST stay as PNG, not convert to JPEG
+            // JPEG doesn't support alpha channel - transparent areas become BLACK!
+            const isOriginalPNG = imageSource.startsWith("data:image/png");
+            const hasTransparency = isOriginalPNG; // Assume PNG has transparency
+
+            let compressedImage;
+            if (hasTransparency) {
+              // Keep as PNG to preserve transparency
+              compressedImage = canvas.toDataURL("image/png");
+              console.log("🗜️ Keeping PNG format for transparency:", {
+                type: element.type,
+                format: "PNG",
+                original: imageSource.length,
+                compressed: compressedImage.length,
+              });
+            } else {
+              // Use JPEG for better compression (no transparency)
+              compressedImage = canvas.toDataURL("image/jpeg", quality);
+              console.log("🗜️ Compressed image:", {
+                type: element.type,
+                format: "JPEG",
+                original: imageSource.length,
+                compressed: compressedImage.length,
+                saved: imageSource.length - compressedImage.length,
+                reductionPercent:
+                  Math.round(
+                    ((imageSource.length - compressedImage.length) /
+                      imageSource.length) *
+                      100
+                  ) + "%",
+              });
+            }
+
+            return {
+              ...element,
+              data: {
+                ...element.data,
+                image: compressedImage,
+                originalImage: undefined,
+              },
+            };
+          } catch (error) {
+            console.warn(
+              `⚠️ Failed to compress ${element.type} image, using original:`,
+              error
+            );
+            return element;
           }
-
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.max(1, Math.round(targetWidth));
-          canvas.height = Math.max(1, Math.round(targetHeight));
-          const ctx = canvas.getContext('2d', { alpha: true }); // Enable alpha channel
-          if (!ctx) {
-            throw new Error('Failed to acquire 2D context');
-          }
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-          // ✅ CRITICAL FIX: Check if image has transparency
-          // PNG images with transparency MUST stay as PNG, not convert to JPEG
-          // JPEG doesn't support alpha channel - transparent areas become BLACK!
-          const isOriginalPNG = imageSource.startsWith('data:image/png');
-          const hasTransparency = isOriginalPNG; // Assume PNG has transparency
-          
-          let compressedImage;
-          if (hasTransparency) {
-            // Keep as PNG to preserve transparency
-            compressedImage = canvas.toDataURL('image/png');
-            console.log('🗜️ Keeping PNG format for transparency:', {
-              type: element.type,
-              format: 'PNG',
-              original: imageSource.length,
-              compressed: compressedImage.length,
-            });
-          } else {
-            // Use JPEG for better compression (no transparency)
-            compressedImage = canvas.toDataURL('image/jpeg', quality);
-            console.log('🗜️ Compressed image:', {
-              type: element.type,
-              format: 'JPEG',
-              original: imageSource.length,
-              compressed: compressedImage.length,
-              saved: imageSource.length - compressedImage.length,
-              reductionPercent: Math.round(((imageSource.length - compressedImage.length) / imageSource.length) * 100) + '%',
-            });
-          }
-
-          return {
-            ...element,
-            data: {
-              ...element.data,
-              image: compressedImage,
-              originalImage: undefined,
-            },
-          };
-        } catch (error) {
-          console.warn(`⚠️ Failed to compress ${element.type} image, using original:`, error);
-          return element;
-        }
-      }));
+        })
+      );
 
       const compressionElapsed = Date.now() - compressionStartTime;
       console.log(`🗜️ [Compression] Completed in ${compressionElapsed}ms`);
@@ -1675,29 +1896,34 @@ export default function Create() {
         canvasAspectRatio
       );
 
-      console.log('💾 [SAVING DRAFT] Final data being saved:', {
+      console.log("💾 [SAVING DRAFT] Final data being saved:", {
         canvasWidth,
         canvasHeight,
         aspectRatio: canvasAspectRatio,
-        'Calculated ratio': canvasWidth / canvasHeight,
-        'Expected 9:16': 9/16,
-        'Match?': Math.abs((canvasWidth / canvasHeight) - (9/16)) < 0.001
+        "Calculated ratio": canvasWidth / canvasHeight,
+        "Expected 9:16": 9 / 16,
+        "Match?": Math.abs(canvasWidth / canvasHeight - 9 / 16) < 0.001,
       });
 
       // Save captured photos with the draft
-      const rawCapturedPhotos = safeStorage.getJSON('capturedPhotos');
-      const capturedPhotosCount = Array.isArray(rawCapturedPhotos) ? rawCapturedPhotos.length : 0;
+      const rawCapturedPhotos = safeStorage.getJSON("capturedPhotos");
+      const capturedPhotosCount = Array.isArray(rawCapturedPhotos)
+        ? rawCapturedPhotos.length
+        : 0;
 
       if (capturedPhotosCount > 0) {
-        console.log('� [SAVING DRAFT] Detected captured photos in storage but skipping persist to keep drafts lean:', {
-          capturedPhotosCount,
-        });
+        console.log(
+          "� [SAVING DRAFT] Detected captured photos in storage but skipping persist to keep drafts lean:",
+          {
+            capturedPhotosCount,
+          }
+        );
       }
 
       // ✅ FIX: Don't save frameArtwork separately!
       // Frame artwork is already included in compressedElements array
       // Saving it separately causes duplication when loading
-      // 
+      //
       // REMOVED CODE:
       // - Find frameArtworkElement with __isFrameArtwork flag
       // - Extract frame artwork data
@@ -1724,37 +1950,42 @@ export default function Create() {
       const draftSizeKB = Math.round(draftString.length / 1024);
       const draftSizeMB = (draftString.length / 1024 / 1024).toFixed(2);
 
-      console.log('📏 [SAVE SIZE] Draft size before save:', {
+      console.log("📏 [SAVE SIZE] Draft size before save:", {
         bytes: draftString.length,
-        kilobytes: draftSizeKB + ' KB',
-        megabytes: draftSizeMB + ' MB',
+        kilobytes: draftSizeKB + " KB",
+        megabytes: draftSizeMB + " MB",
         elementsCount: compressedElements.length,
-        backgroundPhotoCount: compressedElements.filter(el => el.type === 'background-photo').length,
-        uploadCount: compressedElements.filter(el => el.type === 'upload').length,
+        backgroundPhotoCount: compressedElements.filter(
+          (el) => el.type === "background-photo"
+        ).length,
+        uploadCount: compressedElements.filter((el) => el.type === "upload")
+          .length,
       });
 
       // Check storage usage (IndexedDB provides much larger capacity)
       try {
-        const { default: indexedDBStorage } = await import('../utils/indexedDBStorage.js');
+        const { default: indexedDBStorage } = await import(
+          "../utils/indexedDBStorage.js"
+        );
         const storageEstimate = await indexedDBStorage.getStorageEstimate();
-        console.log('💾 [STORAGE] IndexedDB usage:', {
-          usageMB: (storageEstimate.usage / 1024 / 1024).toFixed(2) + ' MB',
-          quotaMB: (storageEstimate.quota / 1024 / 1024).toFixed(2) + ' MB',
-          percentage: storageEstimate.percentage + '%',
-          newDraftSizeMB: draftSizeMB + ' MB',
+        console.log("💾 [STORAGE] IndexedDB usage:", {
+          usageMB: (storageEstimate.usage / 1024 / 1024).toFixed(2) + " MB",
+          quotaMB: (storageEstimate.quota / 1024 / 1024).toFixed(2) + " MB",
+          percentage: storageEstimate.percentage + "%",
+          newDraftSizeMB: draftSizeMB + " MB",
         });
       } catch (e) {
-        console.warn('⚠️ Could not check storage usage:', e);
+        console.warn("⚠️ Could not check storage usage:", e);
       }
 
-      console.log('💾 [DRAFT SAVE] Starting save operation...');
+      console.log("💾 [DRAFT SAVE] Starting save operation...");
       const saveStartTime = Date.now();
 
       const savePromise = draftStorage.saveDraft(draftDataToSave);
       const primaryTimeoutMs = computeDraftSaveTimeoutMs(draftString.length);
       const logTimeoutSeconds = Math.round(primaryTimeoutMs / 1000);
 
-      console.log('⏱️ [DRAFT SAVE] Timeout budget:', {
+      console.log("⏱️ [DRAFT SAVE] Timeout budget:", {
         bytes: draftString.length,
         approxMB: draftSizeMB,
         primaryTimeoutMs,
@@ -1766,36 +1997,53 @@ export default function Create() {
         return withTimeout(promise, {
           timeoutMs,
           timeoutMessage: `Menyimpan draft melebihi batas waktu (${attemptLabel}, ${seconds}s)`,
-          onTimeout: () => console.warn(`⚠️ Draft save timed out (${attemptLabel}, ${seconds}s)`),
+          onTimeout: () =>
+            console.warn(
+              `⚠️ Draft save timed out (${attemptLabel}, ${seconds}s)`
+            ),
         });
       };
 
       let savedDraft;
       try {
-        savedDraft = await awaitDraftSave(savePromise, primaryTimeoutMs, 'utama');
+        savedDraft = await awaitDraftSave(
+          savePromise,
+          primaryTimeoutMs,
+          "utama"
+        );
         const saveElapsed = Date.now() - saveStartTime;
         console.log(`💾 [DRAFT SAVE] Save completed in ${saveElapsed}ms`);
       } catch (primaryError) {
-        if (primaryError?.name === 'TimeoutError') {
+        if (primaryError?.name === "TimeoutError") {
           const extendedTimeoutMs = Math.min(primaryTimeoutMs + 20000, 60000);
           const extendedSeconds = Math.round(extendedTimeoutMs / 1000);
-          console.warn('⏱️ [DRAFT SAVE] Primary timeout elapsed, retrying with extended budget', {
-            primaryTimeoutMs,
-            extendedTimeoutMs,
-            extendedSeconds,
-          });
+          console.warn(
+            "⏱️ [DRAFT SAVE] Primary timeout elapsed, retrying with extended budget",
+            {
+              primaryTimeoutMs,
+              extendedTimeoutMs,
+              extendedSeconds,
+            }
+          );
 
-          savedDraft = await awaitDraftSave(savePromise, extendedTimeoutMs, 'lanjutan');
+          savedDraft = await awaitDraftSave(
+            savePromise,
+            extendedTimeoutMs,
+            "lanjutan"
+          );
           const saveElapsed = Date.now() - saveStartTime;
-          console.log(`💾 [DRAFT SAVE] Save completed (extended) in ${saveElapsed}ms`);
+          console.log(
+            `💾 [DRAFT SAVE] Save completed (extended) in ${saveElapsed}ms`
+          );
         } else {
           throw primaryError;
         }
       }
 
-      console.log('✅ [DRAFT SAVED] Success! Draft ID:', savedDraft.id);
-      console.log('✅ [DRAFT SAVED] Elements with preserved z-index:', 
-        compressedElements.map(el => ({
+      console.log("✅ [DRAFT SAVED] Success! Draft ID:", savedDraft.id);
+      console.log(
+        "✅ [DRAFT SAVED] Elements with preserved z-index:",
+        compressedElements.map((el) => ({
           type: el.type,
           id: el.id?.slice(0, 8),
           zIndex: el.zIndex,
@@ -1803,20 +2051,20 @@ export default function Create() {
       );
 
       // IMPORTANT: Verify the draft is actually saved with correct z-index
-      console.log('🔍 [VERIFICATION] Reading draft from storage...');
+      console.log("🔍 [VERIFICATION] Reading draft from storage...");
       const verifyDraft = await draftStorage.getDraftById(savedDraft.id);
       if (verifyDraft) {
-        console.log('✅ [VERIFICATION] Draft loaded from storage:', {
+        console.log("✅ [VERIFICATION] Draft loaded from storage:", {
           id: verifyDraft.id,
           elementsCount: verifyDraft.elements?.length,
-          elementsZIndex: verifyDraft.elements?.map(el => ({
+          elementsZIndex: verifyDraft.elements?.map((el) => ({
             type: el.type,
             id: el.id?.slice(0, 8),
             zIndex: el.zIndex,
           })),
         });
       } else {
-        console.error('❌ [VERIFICATION] Failed to load draft from storage!');
+        console.error("❌ [VERIFICATION] Failed to load draft from storage!");
       }
 
       setActiveDraftId(savedDraft.id);
@@ -1829,13 +2077,12 @@ export default function Create() {
       );
     } catch (error) {
       console.error("Failed to save draft", error);
-      const isTimeoutError = error?.name === 'TimeoutError';
-      const message =
-        isTimeoutError
-          ? "Proses menyimpan terlalu lama. Coba kurangi ukuran gambar atau ulangi beberapa saat lagi."
-          : error?.message && /quota|persist/i.test(error.message)
-            ? "Penyimpanan penuh. Hapus draft lama terlebih dahulu."
-            : TOAST_MESSAGES.saveError;
+      const isTimeoutError = error?.name === "TimeoutError";
+      const message = isTimeoutError
+        ? "Proses menyimpan terlalu lama. Coba kurangi ukuran gambar atau ulangi beberapa saat lagi."
+        : error?.message && /quota|persist/i.test(error.message)
+        ? "Penyimpanan penuh. Hapus draft lama terlebih dahulu."
+        : TOAST_MESSAGES.saveError;
       showToast("error", message);
     } finally {
       try {
@@ -1867,8 +2114,12 @@ export default function Create() {
   };
 
   const toggleBackgroundLock = useCallback(() => {
-    setIsBackgroundLocked(prev => !prev);
-    showToast("success", isBackgroundLocked ? "Background unlocked" : "Background locked", 1500);
+    setIsBackgroundLocked((prev) => !prev);
+    showToast(
+      "success",
+      isBackgroundLocked ? "Background unlocked" : "Background locked",
+      1500
+    );
   }, [isBackgroundLocked, showToast]);
 
   const handleUseThisFrame = async () => {
@@ -1878,53 +2129,71 @@ export default function Create() {
     }
 
     try {
-      console.log('🔍 [handleUseThisFrame] Looking for draft:', activeDraftId);
-      
+      console.log("🔍 [handleUseThisFrame] Looking for draft:", activeDraftId);
+
       // Check all drafts first
       const allDrafts = await draftStorage.loadDrafts();
-      console.log('🔍 [handleUseThisFrame] All drafts in storage:', 
-        allDrafts.map(d => ({ id: d.id, title: d.title, hasElements: !!d.elements }))
+      console.log(
+        "🔍 [handleUseThisFrame] All drafts in storage:",
+        allDrafts.map((d) => ({
+          id: d.id,
+          title: d.title,
+          hasElements: !!d.elements,
+        }))
       );
-      
+
       // Load the draft
       let draft = await draftStorage.getDraftById(activeDraftId);
       if (!draft) {
-        console.error('❌ [handleUseThisFrame] Draft not found!', {
+        console.error("❌ [handleUseThisFrame] Draft not found!", {
           searchedId: activeDraftId,
-          availableIds: allDrafts.map(d => d.id),
+          availableIds: allDrafts.map((d) => d.id),
         });
-        
+
         // Try to re-save the current canvas as a new draft
-        console.log('🔄 [handleUseThisFrame] Attempting to save current canvas...');
+        console.log(
+          "🔄 [handleUseThisFrame] Attempting to save current canvas..."
+        );
         showToast("info", "Draft hilang, menyimpan ulang...");
-        
+
         try {
           // Trigger save again and WAIT for it to complete
           await handleSaveTemplate();
-          
-          console.log('🔍 [handleUseThisFrame] After re-save, checking for draft:', activeDraftId);
-          
+
+          console.log(
+            "🔍 [handleUseThisFrame] After re-save, checking for draft:",
+            activeDraftId
+          );
+
           // Try to load again
           const retryDraft = await draftStorage.getDraftById(activeDraftId);
-          
+
           if (!retryDraft) {
-            console.error('❌ [handleUseThisFrame] Draft STILL not found after re-save!', {
-              activeDraftId,
-              allDraftsAfterSave: (await draftStorage.loadDrafts()).map(d => ({ id: d.id, title: d.title })),
-            });
-            throw new Error("Draft tidak ditemukan setelah save ulang. Mungkin masalah storage.");
+            console.error(
+              "❌ [handleUseThisFrame] Draft STILL not found after re-save!",
+              {
+                activeDraftId,
+                allDraftsAfterSave: (await draftStorage.loadDrafts()).map(
+                  (d) => ({ id: d.id, title: d.title })
+                ),
+              }
+            );
+            throw new Error(
+              "Draft tidak ditemukan setelah save ulang. Mungkin masalah storage."
+            );
           }
-          
-          console.log('✅ [handleUseThisFrame] Draft successfully saved and loaded!');
+
+          console.log(
+            "✅ [handleUseThisFrame] Draft successfully saved and loaded!"
+          );
           draft = retryDraft;
-          
         } catch (saveError) {
-          console.error('❌ [handleUseThisFrame] Save failed:', saveError);
+          console.error("❌ [handleUseThisFrame] Save failed:", saveError);
           throw new Error(`Gagal menyimpan draft: ${saveError.message}`);
         }
       }
 
-      console.log('✅ [handleUseThisFrame] Draft loaded:', {
+      console.log("✅ [handleUseThisFrame] Draft loaded:", {
         id: draft.id,
         title: draft.title,
         hasElements: !!draft.elements,
@@ -1934,13 +2203,13 @@ export default function Create() {
       // Activate the frame
       const { activateDraftFrame } = await import("../utils/draftHelpers.js");
       const frameConfig = activateDraftFrame(draft);
-      
+
       if (!frameConfig) {
         throw new Error("Gagal membuat konfigurasi frame dari draft");
       }
 
-      console.log('✅ [CREATE] Frame activated:', frameConfig.id);
-      
+      console.log("✅ [CREATE] Frame activated:", frameConfig.id);
+
       // Navigate to TakeMoment
       navigate("/take-moment");
     } catch (error) {
@@ -2270,95 +2539,162 @@ export default function Create() {
 
     if (isBackgroundSelected) {
       if (activeMobileProperty === "background-color") {
-        const isGradient = canvasBackground?.startsWith('linear-gradient') || canvasBackground?.startsWith('radial-gradient');
-        const solidColor = isGradient ? '#ffffff' : (canvasBackground || '#ffffff');
-        
+        const isGradient =
+          canvasBackground?.startsWith("linear-gradient") ||
+          canvasBackground?.startsWith("radial-gradient");
+        const solidColor = isGradient
+          ? "#ffffff"
+          : canvasBackground || "#ffffff";
+
         content = (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+          >
+            <div style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
               <button
                 type="button"
                 onClick={() => setCanvasBackground(solidColor)}
                 style={{
                   flex: 1,
-                  padding: '8px 12px',
-                  borderRadius: '8px',
-                  border: !isGradient ? '2px solid #8B5CF6' : '1px solid #e2e8f0',
-                  background: !isGradient ? '#F3E8FF' : '#fff',
-                  color: !isGradient ? '#8B5CF6' : '#64748b',
-                  fontSize: '13px',
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  border: !isGradient
+                    ? "2px solid #8B5CF6"
+                    : "1px solid #e2e8f0",
+                  background: !isGradient ? "#F3E8FF" : "#fff",
+                  color: !isGradient ? "#8B5CF6" : "#64748b",
+                  fontSize: "13px",
                   fontWeight: 600,
-                  cursor: 'pointer',
+                  cursor: "pointer",
                 }}
               >
                 Solid
               </button>
               <button
                 type="button"
-                onClick={() => setCanvasBackground('linear-gradient(135deg, #667eea 0%, #764ba2 100%)')}
+                onClick={() =>
+                  setCanvasBackground(
+                    "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+                  )
+                }
                 style={{
                   flex: 1,
-                  padding: '8px 12px',
-                  borderRadius: '8px',
-                  border: isGradient ? '2px solid #8B5CF6' : '1px solid #e2e8f0',
-                  background: isGradient ? '#F3E8FF' : '#fff',
-                  color: isGradient ? '#8B5CF6' : '#64748b',
-                  fontSize: '13px',
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  border: isGradient
+                    ? "2px solid #8B5CF6"
+                    : "1px solid #e2e8f0",
+                  background: isGradient ? "#F3E8FF" : "#fff",
+                  color: isGradient ? "#8B5CF6" : "#64748b",
+                  fontSize: "13px",
                   fontWeight: 600,
-                  cursor: 'pointer',
+                  cursor: "pointer",
                 }}
               >
                 Gradient
               </button>
             </div>
-            
+
             {isGradient ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                }}
+              >
                 {/* Preview gradient */}
-                <div 
-                  style={{ 
-                    height: '80px', 
-                    borderRadius: '12px', 
+                <div
+                  style={{
+                    height: "80px",
+                    borderRadius: "12px",
                     background: `linear-gradient(135deg, ${gradientColor1} 0%, ${gradientColor2} 100%)`,
-                    border: '2px solid #e2e8f0',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                  }} 
+                    border: "2px solid #e2e8f0",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                  }}
                 />
-                
+
                 {/* Color Point 1 */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>Warna Titik 1:</div>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      color: "#64748b",
+                    }}
+                  >
+                    Warna Titik 1:
+                  </div>
                   <ColorPicker
                     value={gradientColor1}
                     onChange={(newColor) => {
                       setGradientColor1(newColor);
-                      setCanvasBackground(`linear-gradient(135deg, ${newColor} 0%, ${gradientColor2} 100%)`);
+                      setCanvasBackground(
+                        `linear-gradient(135deg, ${newColor} 0%, ${gradientColor2} 100%)`
+                      );
                     }}
                   />
                 </div>
-                
+
                 {/* Color Point 2 */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>Warna Titik 2:</div>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      color: "#64748b",
+                    }}
+                  >
+                    Warna Titik 2:
+                  </div>
                   <ColorPicker
                     value={gradientColor2}
                     onChange={(newColor) => {
                       setGradientColor2(newColor);
-                      setCanvasBackground(`linear-gradient(135deg, ${gradientColor1} 0%, ${newColor} 100%)`);
+                      setCanvasBackground(
+                        `linear-gradient(135deg, ${gradientColor1} 0%, ${newColor} 100%)`
+                      );
                     }}
                   />
                 </div>
-                
+
                 {/* Quick presets */}
-                <div style={{ fontSize: '12px', fontWeight: 600, color: '#475569', marginTop: '4px' }}>Quick Presets:</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    color: "#475569",
+                    marginTop: "4px",
+                  }}
+                >
+                  Quick Presets:
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(3, 1fr)",
+                    gap: "6px",
+                  }}
+                >
                   {[
-                    { name: 'Purple', c1: '#667eea', c2: '#764ba2' },
-                    { name: 'Ocean', c1: '#667eea', c2: '#0093E9' },
-                    { name: 'Sunset', c1: '#f093fb', c2: '#f5576c' },
-                    { name: 'Forest', c1: '#11998e', c2: '#38ef7d' },
-                    { name: 'Pink', c1: '#FA8BFF', c2: '#2BD2FF' },
-                    { name: 'Gold', c1: '#FFB75E', c2: '#ED8F03' },
+                    { name: "Purple", c1: "#667eea", c2: "#764ba2" },
+                    { name: "Ocean", c1: "#667eea", c2: "#0093E9" },
+                    { name: "Sunset", c1: "#f093fb", c2: "#f5576c" },
+                    { name: "Forest", c1: "#11998e", c2: "#38ef7d" },
+                    { name: "Pink", c1: "#FA8BFF", c2: "#2BD2FF" },
+                    { name: "Gold", c1: "#FFB75E", c2: "#ED8F03" },
                   ].map((preset) => (
                     <button
                       key={preset.name}
@@ -2366,29 +2702,33 @@ export default function Create() {
                       onClick={() => {
                         setGradientColor1(preset.c1);
                         setGradientColor2(preset.c2);
-                        setCanvasBackground(`linear-gradient(135deg, ${preset.c1} 0%, ${preset.c2} 100%)`);
+                        setCanvasBackground(
+                          `linear-gradient(135deg, ${preset.c1} 0%, ${preset.c2} 100%)`
+                        );
                       }}
                       style={{
-                        padding: '20px 6px',
-                        borderRadius: '6px',
-                        border: '1px solid #e2e8f0',
+                        padding: "20px 6px",
+                        borderRadius: "6px",
+                        border: "1px solid #e2e8f0",
                         background: `linear-gradient(135deg, ${preset.c1} 0%, ${preset.c2} 100%)`,
-                        cursor: 'pointer',
-                        position: 'relative',
-                        overflow: 'hidden',
+                        cursor: "pointer",
+                        position: "relative",
+                        overflow: "hidden",
                       }}
                     >
-                      <span style={{
-                        position: 'absolute',
-                        bottom: '3px',
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        fontSize: '9px',
-                        fontWeight: 700,
-                        color: '#fff',
-                        textShadow: '0 1px 3px rgba(0,0,0,0.6)',
-                        whiteSpace: 'nowrap',
-                      }}>
+                      <span
+                        style={{
+                          position: "absolute",
+                          bottom: "3px",
+                          left: "50%",
+                          transform: "translateX(-50%)",
+                          fontSize: "9px",
+                          fontWeight: 700,
+                          color: "#fff",
+                          textShadow: "0 1px 3px rgba(0,0,0,0.6)",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
                         {preset.name}
                       </span>
                     </button>
@@ -2414,14 +2754,17 @@ export default function Create() {
               }}
               className="create-mobile-property-panel__action"
             >
-              {backgroundPhotoElement ? "Ganti foto background" : "Tambah foto background"}
+              {backgroundPhotoElement
+                ? "Ganti foto background"
+                : "Tambah foto background"}
             </button>
             {backgroundPhotoElement && (
               <>
                 <button
                   type="button"
                   onClick={() => {
-                    const { width: canvasWidth, height: canvasHeight } = getCanvasDimensions(canvasAspectRatio);
+                    const { width: canvasWidth, height: canvasHeight } =
+                      getCanvasDimensions(canvasAspectRatio);
                     fitBackgroundPhotoToCanvas({ canvasWidth, canvasHeight });
                     setActiveMobileProperty(null);
                   }}
@@ -2464,11 +2807,26 @@ export default function Create() {
           break;
         case "text-font": {
           const fonts = [
-            'Inter', 'Roboto', 'Lato', 'Open Sans', 'Montserrat', 
-            'Poppins', 'Nunito Sans', 'Rubik', 'Work Sans', 'Source Sans Pro',
-            'Merriweather', 'Playfair Display', 'Libre Baskerville', 
-            'Cormorant Garamond', 'Bitter', 'Raleway', 'Oswald', 
-            'Bebas Neue', 'Anton', 'Pacifico'
+            "Inter",
+            "Roboto",
+            "Lato",
+            "Open Sans",
+            "Montserrat",
+            "Poppins",
+            "Nunito Sans",
+            "Rubik",
+            "Work Sans",
+            "Source Sans Pro",
+            "Merriweather",
+            "Playfair Display",
+            "Libre Baskerville",
+            "Cormorant Garamond",
+            "Bitter",
+            "Raleway",
+            "Oswald",
+            "Bebas Neue",
+            "Anton",
+            "Pacifico",
           ];
           content = (
             <div className="create-mobile-property-panel__actions">
@@ -2482,9 +2840,9 @@ export default function Create() {
                     });
                   }}
                   className={`create-mobile-property-panel__action ${
-                    (data.fontFamily ?? 'Inter') === font
-                      ? 'create-mobile-property-panel__action--active'
-                      : ''
+                    (data.fontFamily ?? "Inter") === font
+                      ? "create-mobile-property-panel__action--active"
+                      : ""
                   }`.trim()}
                   style={{ fontFamily: font }}
                 >
@@ -2704,7 +3062,8 @@ export default function Create() {
               <button
                 type="button"
                 onClick={() => {
-                  const { width: canvasWidth, height: canvasHeight } = getCanvasDimensions(canvasAspectRatio);
+                  const { width: canvasWidth, height: canvasHeight } =
+                    getCanvasDimensions(canvasAspectRatio);
                   fitBackgroundPhotoToCanvas({ canvasWidth, canvasHeight });
                   setActiveMobileProperty(null);
                 }}
@@ -2743,13 +3102,16 @@ export default function Create() {
           );
           break;
         case "layer-order":
-          if (selectedElementObject?.type !== 'background-photo') {
+          if (selectedElementObject?.type !== "background-photo") {
             content = (
-              <div className="create-mobile-property-panel__actions" style={{ 
-                display: 'grid', 
-                gridTemplateColumns: '1fr 1fr', 
-                gap: '12px' 
-              }}>
+              <div
+                className="create-mobile-property-panel__actions"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "12px",
+                }}
+              >
                 <button
                   type="button"
                   onClick={() => {
@@ -2757,7 +3119,7 @@ export default function Create() {
                   }}
                   className="create-mobile-property-panel__action"
                 >
-                  <ChevronsUp size={18} style={{ marginRight: '8px' }} />
+                  <ChevronsUp size={18} style={{ marginRight: "8px" }} />
                   Paling Depan
                 </button>
                 <button
@@ -2767,7 +3129,7 @@ export default function Create() {
                   }}
                   className="create-mobile-property-panel__action"
                 >
-                  <ArrowUp size={18} style={{ marginRight: '8px' }} />
+                  <ArrowUp size={18} style={{ marginRight: "8px" }} />
                   Kedepankan
                 </button>
                 <button
@@ -2777,7 +3139,7 @@ export default function Create() {
                   }}
                   className="create-mobile-property-panel__action"
                 >
-                  <ChevronsDown size={18} style={{ marginRight: '8px' }} />
+                  <ChevronsDown size={18} style={{ marginRight: "8px" }} />
                   Paling Belakang
                 </button>
                 <button
@@ -2787,7 +3149,7 @@ export default function Create() {
                   }}
                   className="create-mobile-property-panel__action"
                 >
-                  <ArrowDown size={18} style={{ marginRight: '8px' }} />
+                  <ArrowDown size={18} style={{ marginRight: "8px" }} />
                   Kebelakangkan
                 </button>
               </div>
@@ -2804,7 +3166,7 @@ export default function Create() {
     }
 
     return (
-  <Motion.div
+      <Motion.div
         key={activeMobileProperty}
         className="create-mobile-property-panel"
         initial={{ opacity: 0, y: 32 }}
@@ -2824,14 +3186,14 @@ export default function Create() {
           </button>
         </div>
         <div className="create-mobile-property-panel__content">{content}</div>
-  </Motion.div>
+      </Motion.div>
     );
   };
 
   return (
     <div className="create-page">
       {toast && (
-  <Motion.div
+        <Motion.div
           className="create-toast-wrapper"
           initial={{ opacity: 0, y: -12, scale: 0.94 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -2839,7 +3201,11 @@ export default function Create() {
           transition={{ type: "spring", stiffness: 460, damping: 26 }}
         >
           <div
-            className={`create-toast ${toast.type === "success" ? "create-toast--success" : "create-toast--error"}`}
+            className={`create-toast ${
+              toast.type === "success"
+                ? "create-toast--success"
+                : "create-toast--error"
+            }`}
           >
             {toast.type === "success" ? (
               <CheckCircle2 size={18} strokeWidth={2.5} />
@@ -2848,7 +3214,7 @@ export default function Create() {
             )}
             <span>{toast.message}</span>
           </div>
-  </Motion.div>
+        </Motion.div>
       )}
 
       <div className="create-grid">
@@ -2869,7 +3235,9 @@ export default function Create() {
                     key={button.id}
                     type="button"
                     onClick={() => handleToolButtonPress(button)}
-                    className={`create-tools__button ${button.isActive ? "create-tools__button--active" : ""}`.trim()}
+                    className={`create-tools__button ${
+                      button.isActive ? "create-tools__button--active" : ""
+                    }`.trim()}
                   >
                     <IconComponent size={20} strokeWidth={2} />
                     <span>{button.label}</span>
@@ -2880,7 +3248,7 @@ export default function Create() {
           </Motion.aside>
         )}
 
-  <Motion.section
+        <Motion.section
           variants={panelMotion}
           initial="hidden"
           animate="visible"
@@ -2888,7 +3256,7 @@ export default function Create() {
           className="create-preview"
         >
           <h2 className="create-preview__title">Preview</h2>
-          
+
           <div className="create-preview__body">
             <div
               ref={previewFrameRef}
@@ -2907,7 +3275,11 @@ export default function Create() {
                     clearSelection();
                   } else if (id === "background") {
                     if (isBackgroundLocked) {
-                      showToast("info", "Background dikunci. Unlock untuk mengedit.", 2000);
+                      showToast(
+                        "info",
+                        "Background dikunci. Unlock untuk mengedit.",
+                        2000
+                      );
                       return;
                     }
                     selectElement("background");
@@ -2971,8 +3343,8 @@ export default function Create() {
               onClick={handleUseThisFrame}
               className="create-save"
               style={{
-                marginTop: '12px',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                marginTop: "12px",
+                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
               }}
               whileTap={{ scale: 0.97 }}
               whileHover={{ y: -3 }}
@@ -2992,15 +3364,15 @@ export default function Create() {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                  <circle cx="8.5" cy="8.5" r="1.5"/>
-                  <polyline points="21 15 16 10 5 21"/>
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                  <polyline points="21 15 16 10 5 21" />
                 </svg>
                 Gunakan Frame Ini
               </>
             </Motion.button>
           )}
-  </Motion.section>
+        </Motion.section>
 
         {!isMobileView && (
           <Motion.aside
@@ -3021,7 +3393,11 @@ export default function Create() {
                 clearSelection={clearSelection}
                 onSelectBackgroundPhoto={() => {
                   if (isBackgroundLocked) {
-                    showToast("info", "Background dikunci. Unlock untuk mengedit.", 2000);
+                    showToast(
+                      "info",
+                      "Background dikunci. Unlock untuk mengedit.",
+                      2000
+                    );
                     return;
                   }
                   if (backgroundPhotoElement) {
@@ -3061,7 +3437,10 @@ export default function Create() {
               isMobilePropertyToolbar ? "create-mobile-toolbar--properties" : ""
             }`.trim()}
           >
-            {(isMobilePropertyToolbar ? mobilePropertyButtons : toolButtons).map((button) => {
+            {(isMobilePropertyToolbar
+              ? mobilePropertyButtons
+              : toolButtons
+            ).map((button) => {
               const Icon = button.icon;
               const isActive = isMobilePropertyToolbar
                 ? activeMobileProperty === button.id

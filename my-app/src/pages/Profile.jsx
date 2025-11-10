@@ -44,13 +44,24 @@ export default function Profile() {
       .map((s) => s[0]?.toUpperCase())
       .join("") || "U";
 
+  // Get profile photo from localStorage
+  const profilePhoto = localStorage.getItem(`profilePhoto_${user?.email}`);
+
   return (
     <section className="profile-page">
       <div className="profile-shell container">
         {/* Header */}
         <div className="profile-header">
-          <div className="profile-avatar" aria-hidden>
-            <span>{initials}</span>
+          <div
+            className="profile-avatar"
+            aria-hidden
+            style={{
+              background: profilePhoto ? `url(${profilePhoto})` : "#d9d9d9",
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }}
+          >
+            {!profilePhoto && <span>{initials}</span>}
           </div>
           <h1 className="profile-title">{fullName}</h1>
         </div>

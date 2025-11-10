@@ -1,16 +1,41 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext.jsx";
 import draftStorage from "../utils/draftStorage.js";
-import safeStorage from "../utils/safeStorage.js";
+import userStorage from "../utils/userStorage.js";
 import "../styles/drafts.css";
+import "../styles/profile.css";
 
 export default function Drafts() {
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [drafts, setDrafts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
   const isMountedRef = useRef(true);
+
+  const handleLogout = () => {
+    logout();
+    navigate("/", { replace: true });
+  };
+
+  // Get user info for avatar
+  const fullName =
+    user?.name ||
+    [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
+    (user?.email ? user.email.split("@")[0] : "User");
+
+  const initials =
+    (fullName || "U")
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((s) => s[0]?.toUpperCase())
+      .join("") || "U";
+
+  // Get profile photo from localStorage
+  const profilePhoto = localStorage.getItem(`profilePhoto_${user?.email}`);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -60,17 +85,17 @@ export default function Drafts() {
   const handleUseDraft = async (draft) => {
     if (!draft) return;
     setErrorMessage("");
-    
+
     // Navigate to Create page with draft ID
     // User will see the frame and can click "Gunakan Frame Ini" button there
     navigate("/create", { state: { draftId: draft.id } });
-    
-    // Set active draft in storage for Create page to load
-    safeStorage.setItem("activeDraftId", draft.id);
+
+    // Set active draft in storage for Create page to load (use userStorage)
+    userStorage.setItem("activeDraftId", draft.id);
     if (draft.signature) {
-      safeStorage.setItem("activeDraftSignature", draft.signature);
+      userStorage.setItem("activeDraftSignature", draft.signature);
     } else {
-      safeStorage.removeItem("activeDraftSignature");
+      userStorage.removeItem("activeDraftSignature");
     }
   };
 
@@ -97,10 +122,10 @@ export default function Drafts() {
     }
   };
 
-  const renderDraftCard = (draft) => {
-    const frameTitle = draft.title?.trim() || "Draft";
-    
-    // Determine ratio values (default to 9:16)
+  const renderDraftRow = (draft) => {
+    const frameTitle = draft.title?.trim() || "Draft Frame";
+
+    // Determine aspect ratio
     let ratioWidth = 9;
     let ratioHeight = 16;
 
@@ -141,172 +166,328 @@ export default function Drafts() {
       displayRatio = `${ratioWidth}:${ratioHeight}`;
     }
 
-    // Calculate preview size to match Create page save logic
-    // Create page saves with max width 640px, so we display with the same constraint
-    const MAX_PREVIEW_WIDTH = 640;
-    const savedCanvasWidth = Number(draft.canvasWidth) || 1080;
-    const savedCanvasHeight = Number(draft.canvasHeight) || 1920;
-    
-    let previewWidth = savedCanvasWidth;
-    let previewHeight = savedCanvasHeight;
-    
-    // Apply same scaling as Create page save
-    if (previewWidth > MAX_PREVIEW_WIDTH) {
-      const scale = MAX_PREVIEW_WIDTH / previewWidth;
-      previewWidth = Math.round(previewWidth * scale);
-      previewHeight = Math.round(previewHeight * scale);
-    }
-    
-    // Scale down further for 3-column grid layout (max 150px width per card)
-    const MAX_CARD_WIDTH = 150;
-    if (previewWidth > MAX_CARD_WIDTH) {
-      const cardScale = MAX_CARD_WIDTH / previewWidth;
-      previewWidth = Math.round(previewWidth * cardScale);
-      previewHeight = Math.round(previewHeight * cardScale);
-    }
+    // Format date
+    const updatedDate = draft.updatedAt || draft.createdAt;
+    const formattedDate = updatedDate
+      ? new Date(updatedDate).toLocaleDateString("id-ID", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })
+      : "-";
 
-    const previewContainerStyle = {
-      width: `${previewWidth}px`,
-      height: `${previewHeight}px`,
-      position: "relative",
-      overflow: "hidden"
-    };
-
-    console.log("🖼️ [Draft Card]", draft.id.slice(0, 8), {
-      savedAspectRatio: draft.aspectRatio,
-      canvasSize: `${draft.canvasWidth}×${draft.canvasHeight}`,
-      numericRatio: Number.isFinite(numericRatio) ? numericRatio.toFixed(4) : "N/A",
-      displayRatio,
-      previewWidth,
-      previewHeight,
-    });
-
-    const cardContainerStyle = {
-      width: `${previewWidth}px`,
-      display: 'inline-block'
-    };
+    // Thumbnail size for row display
+    const THUMB_HEIGHT = 80;
+    const thumbWidth = Math.round(THUMB_HEIGHT * (ratioWidth / ratioHeight));
 
     return (
       <div
         key={draft.id}
-        style={cardContainerStyle}
+        className="profile-row"
+        style={{ alignItems: "center" }}
       >
-        <div className="flex flex-col gap-3 overflow-hidden rounded-lg border border-[#e0b7a9]/40 bg-white p-3 shadow-md transition-all duration-300 hover:-translate-y-1 hover:border-[#e0b7a9] hover:shadow-lg">
+        <div
+          className="label"
+          style={{ display: "flex", alignItems: "center", gap: "12px" }}
+        >
+          {/* Thumbnail */}
           <div
-            className="relative"
-            style={previewContainerStyle}
+            style={{
+              width: `${thumbWidth}px`,
+              height: `${THUMB_HEIGHT}px`,
+              borderRadius: "8px",
+              overflow: "hidden",
+              border: "1px solid #e5e7eb",
+              flexShrink: 0,
+              position: "relative",
+            }}
           >
-          {draft.preview ? (
-            <img
-              src={draft.preview}
-              alt={frameTitle}
-              className="transition-transform duration-300 group-hover:scale-[1.02]"
-              style={{ 
-                width: "100%", 
-                height: "100%", 
-                objectFit: "cover",
-                display: "block"
+            {draft.preview ? (
+              <img
+                src={draft.preview}
+                alt={frameTitle}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  display: "block",
+                }}
+                loading="lazy"
+              />
+            ) : (
+              <div
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "#f3f4f6",
+                  fontSize: "10px",
+                  color: "#9ca3af",
+                  fontWeight: 600,
+                }}
+              >
+                No Preview
+              </div>
+            )}
+            {/* Ratio badge */}
+            <div
+              style={{
+                position: "absolute",
+                bottom: "4px",
+                right: "4px",
+                background: "rgba(0,0,0,0.7)",
+                color: "#fff",
+                padding: "2px 6px",
+                borderRadius: "4px",
+                fontSize: "10px",
+                fontWeight: 600,
               }}
-              onLoad={(event) => {
-                const { naturalWidth, naturalHeight } = event.currentTarget;
-                console.log("📷 Draft preview image loaded", draft.id.slice(0, 8), {
-                  naturalWidth,
-                  naturalHeight,
-                  ratio: naturalWidth && naturalHeight ? (naturalWidth / naturalHeight).toFixed(4) : "N/A",
-                });
-              }}
-              loading="lazy"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center bg-slate-100 text-xs font-semibold text-slate-500">
-              Tidak ada preview
+            >
+              {displayRatio}
             </div>
-          )}
-          {/* Aspect ratio badge */}
-          <div className="absolute top-2 right-2 rounded bg-black/70 px-2 py-1 text-xs font-semibold text-white backdrop-blur-sm">
-            {displayRatio}
+          </div>
+          {/* Info */}
+          <div>
+            <div
+              style={{ fontWeight: 700, color: "#222", marginBottom: "4px" }}
+            >
+              {frameTitle}
+            </div>
+            <div style={{ fontSize: "13px", color: "#999" }}>
+              Updated: {formattedDate}
+            </div>
           </div>
         </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <div
+          className="value"
+          style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}
+        >
           <button
             type="button"
             onClick={() => handleUseDraft(draft)}
-            className="w-full rounded-md border border-[#a2665a] bg-[#a2665a] px-2 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-[#8f564d] hover:border-[#8f564d] active:scale-95"
+            style={{
+              padding: "8px 16px",
+              background: "linear-gradient(to right, #e0b7a9, #c89585)",
+              color: "#fff",
+              border: "none",
+              borderRadius: "6px",
+              fontSize: "13px",
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: "all 0.2s",
+            }}
           >
-            Gunakan Frame
+            Gunakan
           </button>
           <button
             type="button"
             onClick={() => handleDeleteDraft(draft.id)}
             disabled={deletingId === draft.id}
-            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-red-600 shadow-sm transition-all hover:bg-red-50 hover:border-red-300 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+            style={{
+              padding: "8px 16px",
+              background: "#fff",
+              color: "#dc2626",
+              border: "1px solid #fecaca",
+              borderRadius: "6px",
+              fontSize: "13px",
+              fontWeight: 600,
+              cursor: deletingId === draft.id ? "not-allowed" : "pointer",
+              opacity: deletingId === draft.id ? 0.6 : 1,
+              transition: "all 0.2s",
+            }}
           >
             {deletingId === draft.id ? "Menghapus..." : "Hapus"}
           </button>
         </div>
       </div>
-    </div>
     );
   };
 
   return (
-    <section className="min-h-screen bg-gradient-to-b from-[#fdf7f4] via-white to-[#f7f1ed] py-16">
-      <div className="container mx-auto max-w-7xl px-4">
-        <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">Draft Frame Kamu</h2>
-            <p className="mt-2 text-sm text-slate-600 sm:text-base">
-              Semua frame kustom yang kamu simpan akan muncul di sini. Lanjutkan edit atau langsung gunakan saat Take Moment.
-            </p>
+    <section className="profile-page">
+      <div className="profile-shell container">
+        {/* Header matches Profile & Settings */}
+        <div className="profile-header">
+          <div
+            className="profile-avatar"
+            aria-hidden
+            style={{
+              background: profilePhoto ? `url(${profilePhoto})` : "#d9d9d9",
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }}
+          >
+            {!profilePhoto && <span>{initials}</span>}
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Link
-              to="/create"
-              className="inline-flex items-center justify-center rounded-md border border-[#e0b7a9] bg-white px-4 py-2 text-sm font-semibold text-[#a2665a] shadow-sm transition-all hover:bg-[#ffe8df]"
-            >
-              Buat draft baru
-            </Link>
-            <button
-              type="button"
-              onClick={reloadDrafts}
-              disabled={loading}
-              className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition-all hover:border-slate-300 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading ? "Memuat..." : "Refresh"}
-            </button>
-          </div>
+          <h1 className="profile-title">My Drafts</h1>
         </div>
 
-        {errorMessage ? (
-          <div className="mt-6 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600">
-            {errorMessage}
-          </div>
-        ) : null}
+        <div className="profile-body">
+          {/* Sidebar navigation */}
+          <aside className="profile-sidebar" aria-label="Profile navigation">
+            <nav>
+              <Link className="nav-item" to="/profile">
+                My Profile
+              </Link>
+              <Link className="nav-item" to="/settings">
+                Settings
+              </Link>
+              <Link className="nav-item active" to="/drafts">
+                Drafts
+              </Link>
+            </nav>
+            <button className="nav-logout" onClick={handleLogout}>
+              Logout
+            </button>
+          </aside>
 
-        {loading ? (
-          <div className="mt-20 flex flex-col items-center gap-2 text-slate-500">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-transparent" />
-            <span className="text-sm">Memuat draft...</span>
-          </div>
-        ) : sortedDrafts.length === 0 ? (
-          <div className="mt-20 flex flex-col items-center gap-4 rounded-2xl border-2 border-dashed border-[#e0b7a9]/70 bg-white/80 px-6 py-12 text-center text-slate-600">
-            <p className="text-base font-semibold">Belum ada draft tersimpan.</p>
-            <p className="max-w-md text-sm">
-              Buat frame pertama kamu di halaman Create, lalu simpan untuk digunakan kembali di Take Moment.
-            </p>
-            <Link
-              to="/create"
-              className="inline-flex items-center justify-center rounded-md bg-[#a2665a] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#8f564d]"
+          {/* Content */}
+          <main className="profile-content">
+            <h2 className="section-title">My Drafts</h2>
+
+            <div
+              style={{
+                marginBottom: "20px",
+                display: "flex",
+                gap: "12px",
+                flexWrap: "wrap",
+              }}
             >
-              Mulai buat frame pertama kamu
-            </Link>
-          </div>
-        ) : (
-          <div className="mt-10 grid auto-rows-fr grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 justify-items-center">
-            {sortedDrafts.map((draft) => renderDraftCard(draft))}
-          </div>
-        )}
+              <Link
+                to="/create"
+                style={{
+                  padding: "10px 20px",
+                  background: "linear-gradient(to right, #e0b7a9, #c89585)",
+                  color: "#fff",
+                  textDecoration: "none",
+                  borderRadius: "8px",
+                  fontWeight: 600,
+                  fontSize: "14px",
+                  border: "none",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                }}
+              >
+                Buat Draft Baru
+              </Link>
+              <button
+                type="button"
+                onClick={reloadDrafts}
+                disabled={loading}
+                style={{
+                  padding: "10px 20px",
+                  background: "#fff",
+                  color: "#666",
+                  border: "1px solid #ddd",
+                  borderRadius: "8px",
+                  fontWeight: 600,
+                  fontSize: "14px",
+                  cursor: loading ? "not-allowed" : "pointer",
+                  opacity: loading ? 0.6 : 1,
+                  transition: "all 0.2s",
+                }}
+              >
+                {loading ? "Memuat..." : "Refresh"}
+              </button>
+            </div>
+
+            {errorMessage ? (
+              <div
+                style={{
+                  padding: "12px 16px",
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  borderRadius: "8px",
+                  color: "#dc2626",
+                  fontSize: "14px",
+                  marginBottom: "16px",
+                }}
+              >
+                {errorMessage}
+              </div>
+            ) : null}
+
+            {loading ? (
+              <div
+                style={{
+                  marginTop: "80px",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: "12px",
+                  color: "#666",
+                }}
+              >
+                <div
+                  style={{
+                    width: "32px",
+                    height: "32px",
+                    border: "3px solid #e5e7eb",
+                    borderTop: "3px solid #a2665a",
+                    borderRadius: "50%",
+                    animation: "spin 1s linear infinite",
+                  }}
+                />
+                <span style={{ fontSize: "14px" }}>Memuat draft...</span>
+              </div>
+            ) : sortedDrafts.length === 0 ? (
+              <div
+                style={{
+                  marginTop: "80px",
+                  padding: "60px 24px",
+                  background: "linear-gradient(to bottom, #fef8f5, #fff)",
+                  border: "2px dashed #e0b7a9",
+                  borderRadius: "12px",
+                  textAlign: "center",
+                  color: "#666",
+                }}
+              >
+                <p
+                  style={{
+                    fontSize: "16px",
+                    fontWeight: 600,
+                    marginBottom: "12px",
+                  }}
+                >
+                  Belum ada draft tersimpan.
+                </p>
+                <p
+                  style={{
+                    fontSize: "14px",
+                    marginBottom: "24px",
+                    maxWidth: "400px",
+                    margin: "0 auto 24px",
+                  }}
+                >
+                  Buat frame pertama kamu di halaman Create, lalu simpan untuk
+                  digunakan kembali.
+                </p>
+                <Link
+                  to="/create"
+                  style={{
+                    display: "inline-block",
+                    padding: "12px 24px",
+                    background: "linear-gradient(to right, #e0b7a9, #c89585)",
+                    color: "#fff",
+                    textDecoration: "none",
+                    borderRadius: "8px",
+                    fontWeight: 600,
+                    fontSize: "14px",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  Mulai Buat Frame
+                </Link>
+              </div>
+            ) : (
+              <div className="profile-details">
+                {sortedDrafts.map((draft) => renderDraftRow(draft))}
+              </div>
+            )}
+          </main>
+        </div>
       </div>
     </section>
   );

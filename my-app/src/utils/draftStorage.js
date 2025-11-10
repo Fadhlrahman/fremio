@@ -6,66 +6,123 @@ const USE_INDEXEDDB = true; // Enable IndexedDB for larger storage capacity
 
 const ensureArray = (value) => (Array.isArray(value) ? value : []);
 
+// Get current user ID from localStorage
+const getCurrentUserId = () => {
+  try {
+    const userStr = localStorage.getItem("fremio_user");
+    if (userStr) {
+      const user = JSON.parse(userStr);
+      return user?.email || user?.id || "guest";
+    }
+  } catch (error) {
+    console.error("Failed to get current user:", error);
+  }
+  return "guest";
+};
+
 const generateId = () => {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
   return `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 };
 
 export const loadDrafts = async () => {
+  const currentUserId = getCurrentUserId();
+
   if (USE_INDEXEDDB) {
     try {
-      console.log('📦 Loading drafts from IndexedDB...');
-      const drafts = await indexedDBStorage.getAllDrafts();
-      return ensureArray(drafts);
+      console.log("📦 Loading drafts from IndexedDB for user:", currentUserId);
+      const allDrafts = await indexedDBStorage.getAllDrafts();
+      // Filter drafts for current user only
+      const userDrafts = ensureArray(allDrafts).filter(
+        (draft) => draft.userId === currentUserId
+      );
+      console.log(
+        `✅ Loaded ${userDrafts.length} drafts for user ${currentUserId}`
+      );
+      return userDrafts;
     } catch (error) {
-      console.error('❌ Failed to load from IndexedDB, falling back to localStorage:', error);
+      console.error(
+        "❌ Failed to load from IndexedDB, falling back to localStorage:",
+        error
+      );
       // Fallback to localStorage
       const drafts = safeStorage.getJSON(STORAGE_KEY, []);
-      return ensureArray(drafts);
+      const userDrafts = ensureArray(drafts).filter(
+        (draft) => draft.userId === currentUserId
+      );
+      return userDrafts;
     }
   } else {
     const drafts = safeStorage.getJSON(STORAGE_KEY, []);
-    return ensureArray(drafts);
+    const userDrafts = ensureArray(drafts).filter(
+      (draft) => draft.userId === currentUserId
+    );
+    return userDrafts;
   }
 };
 
 export const getDraftById = async (id) => {
+  const currentUserId = getCurrentUserId();
+
   if (USE_INDEXEDDB) {
     try {
       const draft = await indexedDBStorage.getDraft(id);
-      return draft;
+      // Verify draft belongs to current user
+      if (draft && draft.userId === currentUserId) {
+        return draft;
+      }
+      console.warn(`⚠️ Draft ${id} not found or belongs to different user`);
+      return null;
     } catch (error) {
-      console.error('❌ Failed to get draft from IndexedDB, falling back to localStorage:', error);
+      console.error(
+        "❌ Failed to get draft from IndexedDB, falling back to localStorage:",
+        error
+      );
       // Fallback to localStorage
       const drafts = safeStorage.getJSON(STORAGE_KEY, []);
-      return ensureArray(drafts).find((draft) => draft.id === id) || null;
+      const draft = ensureArray(drafts).find((draft) => draft.id === id);
+      // Verify draft belongs to current user
+      if (draft && draft.userId === currentUserId) {
+        return draft;
+      }
+      return null;
     }
   } else {
     const drafts = safeStorage.getJSON(STORAGE_KEY, []);
-    return ensureArray(drafts).find((draft) => draft.id === id) || null;
+    const draft = ensureArray(drafts).find((draft) => draft.id === id);
+    // Verify draft belongs to current user
+    if (draft && draft.userId === currentUserId) {
+      return draft;
+    }
+    return null;
   }
 };
 
 const persistDraftsToLocalStorage = async (drafts) => {
   try {
-    console.log('💾 [persistDrafts] Attempting to save to localStorage:', {
+    console.log("💾 [persistDrafts] Attempting to save to localStorage:", {
       count: drafts.length,
       ids: drafts.map((d) => d.id),
     });
 
     const success = safeStorage.setJSON(STORAGE_KEY, drafts);
 
-    console.log('💾 [persistDrafts] setJSON result:', success);
+    console.log("💾 [persistDrafts] setJSON result:", success);
 
     if (!success) {
-      throw new Error("Failed to save drafts to localStorage (setJSON returned false)");
+      throw new Error(
+        "Failed to save drafts to localStorage (setJSON returned false)"
+      );
     }
 
     const verification = safeStorage.getJSON(STORAGE_KEY);
 
-    console.log('✅ [persistDrafts] Verification result:', {
+    console.log("✅ [persistDrafts] Verification result:", {
       isArray: Array.isArray(verification),
       count: verification?.length,
       ids: verification?.map((d) => d.id),
@@ -76,13 +133,15 @@ const persistDraftsToLocalStorage = async (drafts) => {
     }
 
     if (verification.length !== drafts.length) {
-      console.warn('⚠️ [persistDrafts] Draft count mismatch!', {
+      console.warn("⚠️ [persistDrafts] Draft count mismatch!", {
         expected: drafts.length,
         actual: verification.length,
       });
     }
 
-    console.log('✅ [persistDrafts] Drafts successfully persisted and verified');
+    console.log(
+      "✅ [persistDrafts] Drafts successfully persisted and verified"
+    );
     return true;
   } catch (error) {
     console.error("❌ [persistDrafts] Failed to persist drafts", error);
@@ -95,22 +154,29 @@ const persistDraftsToLocalStorage = async (drafts) => {
   }
 };
 
-const buildSavedDraft = (incoming, nowIso, existing, id) => ({
-  ...existing,
-  ...incoming,
-  id,
-  title: incoming.title ?? existing?.title ?? "Draft",
-  createdAt: existing?.createdAt ?? incoming.createdAt ?? nowIso,
-  updatedAt: nowIso,
-});
+const buildSavedDraft = (incoming, nowIso, existing, id) => {
+  const currentUserId = getCurrentUserId();
+
+  return {
+    ...existing,
+    ...incoming,
+    id,
+    userId: incoming.userId ?? existing?.userId ?? currentUserId, // Always set userId
+    title: incoming.title ?? existing?.title ?? "Draft",
+    createdAt: existing?.createdAt ?? incoming.createdAt ?? nowIso,
+    updatedAt: nowIso,
+  };
+};
 
 const saveDraftToIndexedDB = async (incoming, nowIso) => {
   const id = incoming.id ?? generateId();
   const normalizedIncoming = { ...incoming, id };
-  const existing = incoming.id ? await indexedDBStorage.getDraft(incoming.id) : null;
+  const existing = incoming.id
+    ? await indexedDBStorage.getDraft(incoming.id)
+    : null;
   const savedDraft = buildSavedDraft(normalizedIncoming, nowIso, existing, id);
 
-  console.log('💾 [saveDraft] Persisting single draft to IndexedDB:', {
+  console.log("💾 [saveDraft] Persisting single draft to IndexedDB:", {
     id: savedDraft.id,
     hasElements: Array.isArray(savedDraft.elements),
   });
@@ -137,23 +203,38 @@ const saveDraftToLocalStorage = async (incoming, nowIso) => {
 };
 
 export const deleteDraft = async (id) => {
+  const currentUserId = getCurrentUserId();
+
   if (USE_INDEXEDDB) {
     try {
-      await indexedDBStorage.deleteDraft(id);
-      return await loadDrafts(); // Return updated list
+      // Verify draft belongs to current user before deleting
+      const draft = await indexedDBStorage.getDraft(id);
+      if (draft && draft.userId === currentUserId) {
+        await indexedDBStorage.deleteDraft(id);
+        console.log(`✅ Deleted draft ${id} for user ${currentUserId}`);
+      } else {
+        console.warn(
+          `⚠️ Cannot delete draft ${id} - belongs to different user`
+        );
+      }
+      return await loadDrafts(); // Return updated list for current user
     } catch (error) {
-      console.error('❌ Failed to delete from IndexedDB:', error);
+      console.error("❌ Failed to delete from IndexedDB:", error);
       // Fallback to localStorage
       const drafts = safeStorage.getJSON(STORAGE_KEY, []);
-      const nextDrafts = ensureArray(drafts).filter((draft) => draft.id !== id);
+      const nextDrafts = ensureArray(drafts).filter(
+        (draft) => draft.id !== id || draft.userId !== currentUserId
+      );
       safeStorage.setJSON(STORAGE_KEY, nextDrafts);
-      return nextDrafts;
+      return nextDrafts.filter((draft) => draft.userId === currentUserId);
     }
   } else {
     const drafts = safeStorage.getJSON(STORAGE_KEY, []);
-    const nextDrafts = ensureArray(drafts).filter((draft) => draft.id !== id);
+    const nextDrafts = ensureArray(drafts).filter(
+      (draft) => draft.id !== id || draft.userId !== currentUserId
+    );
     safeStorage.setJSON(STORAGE_KEY, nextDrafts);
-    return nextDrafts;
+    return nextDrafts.filter((draft) => draft.userId === currentUserId);
   }
 };
 
@@ -162,7 +243,7 @@ export const clearDrafts = async () => {
     try {
       await indexedDBStorage.clearAllDrafts();
     } catch (error) {
-      console.error('❌ Failed to clear IndexedDB:', error);
+      console.error("❌ Failed to clear IndexedDB:", error);
     }
   }
   safeStorage.removeItem(STORAGE_KEY);
@@ -176,7 +257,10 @@ export const saveDraft = async (inputDraft) => {
     try {
       return await saveDraftToIndexedDB(incoming, nowIso);
     } catch (error) {
-      console.error('❌ [saveDraft] Failed to save draft to IndexedDB, falling back to localStorage:', error);
+      console.error(
+        "❌ [saveDraft] Failed to save draft to IndexedDB, falling back to localStorage:",
+        error
+      );
     }
   }
 

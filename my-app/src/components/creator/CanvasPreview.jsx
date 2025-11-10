@@ -1,4 +1,12 @@
-import { forwardRef, memo, useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import { Rnd } from "react-rnd";
 import { motion as Motion } from "framer-motion";
 import trashIcon from "../../assets/create-icon/create-trash.png";
@@ -187,7 +195,7 @@ const getElementStyle = (element, isSelected) => {
   switch (element.type) {
     case "text":
       return {
-        fontFamily: element.data?.fontFamily ?? 'Inter',
+        fontFamily: element.data?.fontFamily ?? "Inter",
         fontSize: `${element.data?.fontSize ?? 24}px`,
         color: element.data?.color ?? "#111827",
         fontWeight: element.data?.fontWeight ?? 500,
@@ -213,7 +221,9 @@ const getElementStyle = (element, isSelected) => {
         background: element.data?.fill ?? "#f4d3c2",
         backgroundColor: element.data?.fill ?? "#f4d3c2",
         borderRadius: `${element.data?.borderRadius ?? 24}px`,
-        border: hasStroke ? `${strokeWidth}px solid ${element.data.stroke}` : "none",
+        border: hasStroke
+          ? `${strokeWidth}px solid ${element.data.stroke}`
+          : "none",
       };
     }
     case "upload":
@@ -224,19 +234,21 @@ const getElementStyle = (element, isSelected) => {
       const baseRadius =
         element.data?.borderRadius ??
         (element.type === "background-photo" ? 0 : 24);
-      
+
       // Use transparent background if image exists for upload, otherwise use placeholder color
       const hasImage = element.data?.image;
       const baseBackground =
         element.type === "background-photo"
           ? element.data?.fill ?? "transparent"
-          : hasImage 
-            ? "transparent"
-            : element.data?.fill ?? "#dbeafe";
+          : hasImage
+          ? "transparent"
+          : element.data?.fill ?? "#dbeafe";
 
       return {
         borderRadius: `${baseRadius}px`,
-        border: hasStroke ? `${strokeWidth}px solid ${element.data.stroke}` : "none",
+        border: hasStroke
+          ? `${strokeWidth}px solid ${element.data.stroke}`
+          : "none",
         background: baseBackground,
         backgroundColor: baseBackground,
         backgroundImage: "none",
@@ -289,206 +301,227 @@ const resetRndPosition = (meta) => {
   }
 };
 
-const ElementContent = forwardRef(({ element, isSelected, isEditing, editingValue, onTextChange, onTextBlur, textInputRef }, ref) => {
-  // For photo slots, use custom styling (don't override with getElementStyle background)
-  const shouldUseCustomPhotoStyle = element.type === "photo";
-  
-  const style = shouldUseCustomPhotoStyle 
-    ? {
-        width: "100%",
-        height: "100%",
-        overflow: "hidden",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        // Border radius from element data if exists
-        borderRadius: `${element.data?.borderRadius ?? 24}px`,
-      }
-    : {
-        width: "100%",
-        height: "100%",
-        ...getElementStyle(element, isSelected),
-      };
+const ElementContent = forwardRef(
+  (
+    {
+      element,
+      isSelected,
+      isEditing,
+      editingValue,
+      onTextChange,
+      onTextBlur,
+      textInputRef,
+    },
+    ref
+  ) => {
+    // For photo slots, use custom styling (don't override with getElementStyle background)
+    const shouldUseCustomPhotoStyle = element.type === "photo";
 
-  if (element.type === "text") {
-    if (isEditing) {
+    const style = shouldUseCustomPhotoStyle
+      ? {
+          width: "100%",
+          height: "100%",
+          overflow: "hidden",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          // Border radius from element data if exists
+          borderRadius: `${element.data?.borderRadius ?? 24}px`,
+        }
+      : {
+          width: "100%",
+          height: "100%",
+          ...getElementStyle(element, isSelected),
+        };
+
+    if (element.type === "text") {
+      if (isEditing) {
+        return (
+          <textarea
+            ref={textInputRef}
+            value={editingValue}
+            onChange={(e) => onTextChange(e.target.value)}
+            onBlur={onTextBlur}
+            autoFocus
+            style={{
+              ...style,
+              resize: "none",
+              border: "none",
+              outline: "none",
+              background: "rgba(255,255,255,0.95)",
+              cursor: "text",
+              overflow: "hidden",
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          />
+        );
+      }
+      return <div style={style}>{element.data?.text ?? "Teks"}</div>;
+    }
+
+    if (element.type === "shape") {
+      return <div style={style} />;
+    }
+
+    if (element.type === "upload") {
+      const isCapturedOverlay = element.data?.__capturedOverlay === true;
       return (
-        <textarea
-          ref={textInputRef}
-          value={editingValue}
-          onChange={(e) => onTextChange(e.target.value)}
-          onBlur={onTextBlur}
-          autoFocus
-          style={{
-            ...style,
-            resize: 'none',
-            border: 'none',
-            outline: 'none',
-            background: 'rgba(255,255,255,0.95)',
-            cursor: 'text',
-            overflow: 'hidden',
-          }}
-          onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
-        />
+        <div
+          style={style}
+          className={
+            isCapturedOverlay ? "captured-photo-overlay-content" : undefined
+          }
+          data-captured-overlay={isCapturedOverlay ? "true" : undefined}
+          data-export-allow={isCapturedOverlay ? "photo-overlay" : undefined}
+        >
+          {element.data?.image ? (
+            <img
+              src={element.data.image}
+              alt="Unggahan"
+              className="h-full w-full object-cover"
+              style={{
+                objectFit: element.data?.objectFit ?? "cover",
+                pointerEvents: "none",
+              }}
+              draggable={false}
+            />
+          ) : (
+            <div className="text-xs font-medium uppercase tracking-widest text-slate-600">
+              {element.data?.label ?? "Unggahan"}
+            </div>
+          )}
+        </div>
       );
     }
-    return <div style={style}>{element.data?.text ?? "Teks"}</div>;
-  }
 
-  if (element.type === "shape") {
-    return <div style={style} />;
-  }
-
-  if (element.type === "upload") {
-    const isCapturedOverlay = element.data?.__capturedOverlay === true;
-    return (
-      <div
-        style={style}
-        className={isCapturedOverlay ? 'captured-photo-overlay-content' : undefined}
-        data-captured-overlay={isCapturedOverlay ? 'true' : undefined}
-        data-export-allow={isCapturedOverlay ? 'photo-overlay' : undefined}
-      >
-        {element.data?.image ? (
-          <img
-            src={element.data.image}
-            alt="Unggahan"
-            className="h-full w-full object-cover"
-            style={{ 
-              objectFit: element.data?.objectFit ?? "cover",
-              pointerEvents: "none",
-            }}
-            draggable={false}
-          />
-        ) : (
-          <div className="text-xs font-medium uppercase tracking-widest text-slate-600">
-            {element.data?.label ?? "Unggahan"}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  if (element.type === "background-photo") {
-    return (
-      <div style={{ ...style, position: "relative" }} ref={ref}>
-        {element.data?.image ? (
-          <img
-            src={element.data.image}
-            alt="Background"
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "fill",
-              pointerEvents: "none",
-              display: "block",
-            }}
-            draggable={false}
-          />
-        ) : (
-          <div className="text-xs font-semibold uppercase tracking-widest text-slate-500">
-            {element.data?.label ?? "Background"}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  if (element.type === "photo") {
-    // Photo slot: Dummy placeholder that shows position & size for real photos later
-    // This is the "recipe" that Editor will use to place real captured photos
-    const slotNumber = element.data?.slotNumber || element.data?.label || 'Area Foto';
-    
-    console.log('📷 Rendering photo slot:', {
-      id: element.id,
-      label: slotNumber,
-      position: { x: element.x, y: element.y },
-      size: { width: element.width, height: element.height },
-      zIndex: element.zIndex,
-      hasCustomStyle: shouldUseCustomPhotoStyle,
-    });
-    
-    return (
-      <div 
-        style={{
-          ...style,
-          // Override: Set gradient background directly (not from getElementStyle)
-          background: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)',
-          position: 'relative',
-        }} 
-        className="h-full w-full creator-photo-placeholder"
-        data-photo-placeholder="true"
-      >
-        {/* Dashed border to indicate placeholder */}
-        <div 
-          style={{
-            position: 'absolute',
-            inset: 0,
-            border: '2px dashed rgb(129 140 248 / 0.7)',
-            borderRadius: 'inherit',
-            pointerEvents: 'none',
-          }}
-          aria-hidden="true"
-        />
-        
-        {/* Camera icon placeholder */}
-        <svg 
-          style={{
-            position: 'absolute',
-            inset: 0,
-            margin: 'auto',
-            color: 'rgb(165 180 252 / 0.4)',
-            pointerEvents: 'none',
-            width: '40%',
-            height: '40%',
-          }}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-          <circle cx="12" cy="13" r="4"/>
-        </svg>
-        
-        {/* Label */}
-        <div style={{
-          position: 'relative',
-          zIndex: 1,
-          borderRadius: '8px',
-          background: 'rgba(255, 255, 255, 0.9)',
-          backdropFilter: 'blur(4px)',
-          padding: '6px 12px',
-          fontSize: '11px',
-          fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: '0.1em',
-          color: 'rgb(79 70 229)',
-          boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)',
-          pointerEvents: 'none',
-          border: '1px solid rgb(199 210 254)',
-        }}>
-          📷 {slotNumber}
+    if (element.type === "background-photo") {
+      return (
+        <div style={{ ...style, position: "relative" }} ref={ref}>
+          {element.data?.image ? (
+            <img
+              src={element.data.image}
+              alt="Background"
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "fill",
+                pointerEvents: "none",
+                display: "block",
+              }}
+              draggable={false}
+            />
+          ) : (
+            <div className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+              {element.data?.label ?? "Background"}
+            </div>
+          )}
         </div>
-        
-        {/* Selection indicator */}
-        {isSelected && (
-          <div style={{
-            position: 'absolute',
-            inset: 0,
-            border: '2px solid rgb(99 102 241)',
-            borderRadius: 'inherit',
-            pointerEvents: 'none',
-          }} />
-        )}
-      </div>
-    );
-  }
+      );
+    }
 
-  return <div className="h-full w-full rounded-lg bg-white/80" />;
-});
+    if (element.type === "photo") {
+      // Photo slot: Dummy placeholder that shows position & size for real photos later
+      // This is the "recipe" that Editor will use to place real captured photos
+      const slotNumber =
+        element.data?.slotNumber || element.data?.label || "Area Foto";
+
+      console.log("📷 Rendering photo slot:", {
+        id: element.id,
+        label: slotNumber,
+        position: { x: element.x, y: element.y },
+        size: { width: element.width, height: element.height },
+        zIndex: element.zIndex,
+        hasCustomStyle: shouldUseCustomPhotoStyle,
+      });
+
+      return (
+        <div
+          style={{
+            ...style,
+            // Override: Set gradient background directly (not from getElementStyle)
+            background: "linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)",
+            position: "relative",
+          }}
+          className="h-full w-full creator-photo-placeholder"
+          data-photo-placeholder="true"
+        >
+          {/* Dashed border to indicate placeholder */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              border: "2px dashed rgb(129 140 248 / 0.7)",
+              borderRadius: "inherit",
+              pointerEvents: "none",
+            }}
+            aria-hidden="true"
+          />
+
+          {/* Camera icon placeholder */}
+          <svg
+            style={{
+              position: "absolute",
+              inset: 0,
+              margin: "auto",
+              color: "rgb(165 180 252 / 0.4)",
+              pointerEvents: "none",
+              width: "40%",
+              height: "40%",
+            }}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+            <circle cx="12" cy="13" r="4" />
+          </svg>
+
+          {/* Label */}
+          <div
+            style={{
+              position: "relative",
+              zIndex: 1,
+              borderRadius: "8px",
+              background: "rgba(255, 255, 255, 0.9)",
+              backdropFilter: "blur(4px)",
+              padding: "6px 12px",
+              fontSize: "11px",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.1em",
+              color: "rgb(79 70 229)",
+              boxShadow:
+                "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
+              pointerEvents: "none",
+              border: "1px solid rgb(199 210 254)",
+            }}
+          >
+            📷 {slotNumber}
+          </div>
+
+          {/* Selection indicator */}
+          {isSelected && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                border: "2px solid rgb(99 102 241)",
+                borderRadius: "inherit",
+                pointerEvents: "none",
+              }}
+            />
+          )}
+        </div>
+      );
+    }
+
+    return <div className="h-full w-full rounded-lg bg-white/80" />;
+  }
+);
 
 function CanvasPreviewComponent({
   elements,
@@ -511,10 +544,10 @@ function CanvasPreviewComponent({
   const backgroundTouchRef = useRef(null);
   const interactionMetaRef = useRef(new Map());
   const backgroundInteractionRef = useRef(createInteractionState());
-  
+
   // Handler untuk memulai edit teks (double-click)
   const handleDoubleClickText = (element) => {
-    if (element.type === 'text') {
+    if (element.type === "text") {
       setEditingTextId(element.id);
       setEditingTextValue(element.data?.text ?? "");
       // Focus textarea after state update
@@ -526,23 +559,23 @@ function CanvasPreviewComponent({
       }, 10);
     }
   };
-  
+
   // Handler untuk mengubah teks
-  const handleTextChange = (value) => {
+  const handleTextChange = useCallback((value) => {
     setEditingTextValue(value);
-  };
-  
+  }, []);
+
   // Handler untuk selesai edit (blur)
-  const handleTextBlur = () => {
+  const handleTextBlur = useCallback(() => {
     if (editingTextId) {
       onUpdate(editingTextId, {
-        data: { text: editingTextValue }
+        data: { text: editingTextValue },
       });
       setEditingTextId(null);
       setEditingTextValue("");
     }
-  };
-  
+  }, [editingTextId, editingTextValue, onUpdate]);
+
   // Reset editing saat element berubah
   useEffect(() => {
     if (selectedElementId !== editingTextId) {
@@ -571,13 +604,13 @@ function CanvasPreviewComponent({
   };
 
   useEffect(() => {
-      const elementIds = new Set(elements.map((element) => element.id));
-      interactionMetaRef.current.forEach((meta, key) => {
-        if (!elementIds.has(key)) {
-          clearHoldTimer(meta);
-          interactionMetaRef.current.delete(key);
-        }
-      });
+    const elementIds = new Set(elements.map((element) => element.id));
+    interactionMetaRef.current.forEach((meta, key) => {
+      if (!elementIds.has(key)) {
+        clearHoldTimer(meta);
+        interactionMetaRef.current.delete(key);
+      }
+    });
   }, [elements]);
 
   useEffect(
@@ -596,10 +629,12 @@ function CanvasPreviewComponent({
   };
 
   const sortedElements = useMemo(() => {
-    const sorted = [...elements].sort((a, b) => (a.zIndex ?? 1) - (b.zIndex ?? 1));
-    console.log('🎨 [CanvasPreview] sortedElements:', {
+    const sorted = [...elements].sort(
+      (a, b) => (a.zIndex ?? 1) - (b.zIndex ?? 1)
+    );
+    console.log("🎨 [CanvasPreview] sortedElements:", {
       total: sorted.length,
-      elements: sorted.map(el => ({
+      elements: sorted.map((el) => ({
         id: el.id?.slice(0, 8),
         type: el.type,
         zIndex: el.zIndex,
@@ -607,7 +642,7 @@ function CanvasPreviewComponent({
         y: el.y,
         width: el.width,
         height: el.height,
-      }))
+      })),
     });
     return sorted;
   }, [elements]);
@@ -620,8 +655,10 @@ function CanvasPreviewComponent({
     }
 
     const [rawWidth, rawHeight] = aspectRatio.split(":").map(Number);
-    const ratioWidth = Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : null;
-    const ratioHeight = Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : null;
+    const ratioWidth =
+      Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : null;
+    const ratioHeight =
+      Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : null;
 
     if (!ratioWidth || !ratioHeight) {
       return defaultDimensions;
@@ -667,40 +704,43 @@ function CanvasPreviewComponent({
   const clampBackgroundPosition = (width, height, x, y) => {
     // Background photo must always COVER the entire canvas
     // This means photo edges must be at or beyond canvas edges
-    
+
     // For X axis:
     // - If photo wider than canvas: can shift left (negative x) or stay at 0
     // - Photo's left edge can be at most at x=0 (aligned with canvas left)
     // - Photo's right edge must be at least at canvasWidth (x + width >= canvasWidth)
     //   → x >= canvasWidth - width
-    
+
     let minX, maxX;
     if (width >= canvasDimensions.width) {
       // Photo is wider than canvas
-      minX = canvasDimensions.width - width;  // Can shift left (negative value)
-      maxX = 0;                                // Can't shift right beyond 0
+      minX = canvasDimensions.width - width; // Can shift left (negative value)
+      maxX = 0; // Can't shift right beyond 0
     } else {
       // Photo is narrower than canvas - center it (shouldn't happen with cover mode)
       minX = maxX = Math.round((canvasDimensions.width - width) / 2);
     }
-    
+
     // For Y axis: same logic
     let minY, maxY;
     if (height >= canvasDimensions.height) {
       // Photo is taller than canvas
       minY = canvasDimensions.height - height; // Can shift up (negative value)
-      maxY = 0;                                 // Can't shift down beyond 0
+      maxY = 0; // Can't shift down beyond 0
     } else {
       // Photo is shorter than canvas - center it (shouldn't happen with cover mode)
       minY = maxY = Math.round((canvasDimensions.height - height) / 2);
     }
-    
-    console.log('[clampBackgroundPosition]', {
+
+    console.log("[clampBackgroundPosition]", {
       input: { width, height, x, y },
-      canvas: { width: canvasDimensions.width, height: canvasDimensions.height },
-      limits: { minX, maxX, minY, maxY }
+      canvas: {
+        width: canvasDimensions.width,
+        height: canvasDimensions.height,
+      },
+      limits: { minX, maxX, minY, maxY },
     });
-    
+
     return {
       x: Math.max(minX, Math.min(maxX, x)),
       y: Math.max(minY, Math.min(maxY, y)),
@@ -763,7 +803,9 @@ function CanvasPreviewComponent({
   // Add native touch event listeners for background photo
   // Ultra-smooth pinch-to-zoom using CSS transforms
   useEffect(() => {
-    const backgroundElement = elements.find(el => el.type === 'background-photo');
+    const backgroundElement = elements.find(
+      (el) => el.type === "background-photo"
+    );
     if (!backgroundElement || !backgroundElement.id) {
       return;
     }
@@ -771,35 +813,40 @@ function CanvasPreviewComponent({
     const meta = getInteractionMeta(backgroundElement.id);
     let gestureState = null;
     let cleanupFn = null;
-    
+    let isMounted = true;
+
     // Setup with a delay to ensure Rnd is mounted
     const timer = setTimeout(() => {
-  const elementDom = backgroundTouchRef.current;
+      if (!isMounted) return;
+
+      const elementDom = backgroundTouchRef.current;
       if (!elementDom) {
-        console.warn('❌ Background element DOM not found for touch listeners');
+        console.warn("❌ Background element DOM not found for touch listeners");
         return;
       }
 
-      console.log('✅ Touch listeners attached to background photo');
+      console.log("✅ Touch listeners attached to background photo");
 
       const handleTouchStart = (e) => {
-        console.log('👆 Touch start:', e.touches.length, 'fingers');
-        
+        // Prevent double handling from React synthetic events
+        e.stopImmediatePropagation();
+        console.log("👆 Touch start:", e.touches.length, "fingers");
+
         // Pinch: 2 fingers
         if (e.touches.length === 2) {
           e.preventDefault();
           e.stopPropagation();
-          
+
           const touch1 = e.touches[0];
           const touch2 = e.touches[1];
-          
+
           const startDistance = Math.hypot(
             touch1.clientX - touch2.clientX,
             touch1.clientY - touch2.clientY
           );
-          
+
           gestureState = {
-            type: 'pinch',
+            type: "pinch",
             startDistance,
             startWidth: backgroundElement.width,
             startHeight: backgroundElement.height,
@@ -807,31 +854,31 @@ function CanvasPreviewComponent({
             startY: backgroundElement.y,
             currentScale: 1,
           };
-          
-          elementDom.style.willChange = 'transform';
+
+          elementDom.style.willChange = "transform";
           meta.pointerActive = false;
           meta.isDragging = false;
-          
-          console.log('🤏 Pinch started');
+
+          console.log("🤏 Pinch started");
         }
         // Drag: 1 finger
         else if (e.touches.length === 1) {
           e.preventDefault();
           e.stopPropagation();
-          
+
           const touch = e.touches[0];
-          
+
           gestureState = {
-            type: 'drag',
+            type: "drag",
             startClientX: touch.clientX,
             startClientY: touch.clientY,
             startX: backgroundElement.x,
             startY: backgroundElement.y,
           };
-          
-          elementDom.style.willChange = 'transform';
-          
-          console.log('👉 Drag started');
+
+          elementDom.style.willChange = "transform";
+
+          console.log("👉 Drag started");
         }
       };
 
@@ -839,13 +886,13 @@ function CanvasPreviewComponent({
         if (!gestureState) return;
 
         e.preventDefault();
-        e.stopPropagation();
+        e.stopImmediatePropagation();
 
         // Pinch zoom
-        if (gestureState.type === 'pinch' && e.touches.length === 2) {
+        if (gestureState.type === "pinch" && e.touches.length === 2) {
           const touch1 = e.touches[0];
           const touch2 = e.touches[1];
-          
+
           const currentDistance = Math.hypot(
             touch1.clientX - touch2.clientX,
             touch1.clientY - touch2.clientY
@@ -853,56 +900,62 @@ function CanvasPreviewComponent({
 
           const scale = currentDistance / gestureState.startDistance;
           gestureState.currentScale = scale;
-          
+
           // Calculate pinch center NOW (realtime - this is the key!)
           const centerX = (touch1.clientX + touch2.clientX) / 2;
           const centerY = (touch1.clientY + touch2.clientY) / 2;
-          
-          const canvasEl = document.getElementById('creator-canvas');
+
+          const canvasEl = document.getElementById("creator-canvas");
           if (!canvasEl) return;
-          
+
           const canvasRect = canvasEl.getBoundingClientRect();
           const pinchCenterX = (centerX - canvasRect.left) / previewScale;
           const pinchCenterY = (centerY - canvasRect.top) / previewScale;
-          
+
           // Calculate new dimensions
-          const aspectRatio = backgroundElement.data?.imageAspectRatio || (gestureState.startWidth / gestureState.startHeight);
+          const aspectRatio =
+            backgroundElement.data?.imageAspectRatio ||
+            gestureState.startWidth / gestureState.startHeight;
           const newWidth = gestureState.startWidth * scale;
           const newHeight = newWidth / aspectRatio;
-          
+
           // Calculate where pinch center is INSIDE the ORIGINAL element (at start)
-          const relativeX = (pinchCenterX - gestureState.startX) / gestureState.startWidth;
-          const relativeY = (pinchCenterY - gestureState.startY) / gestureState.startHeight;
-          
+          const relativeX =
+            (pinchCenterX - gestureState.startX) / gestureState.startWidth;
+          const relativeY =
+            (pinchCenterY - gestureState.startY) / gestureState.startHeight;
+
           // Keep pinch center at the same position
-          const newX = pinchCenterX - (newWidth * relativeX);
-          const newY = pinchCenterY - (newHeight * relativeY);
-          
+          const newX = pinchCenterX - newWidth * relativeX;
+          const newY = pinchCenterY - newHeight * relativeY;
+
           // Store final values
           gestureState.finalWidth = newWidth;
           gestureState.finalHeight = newHeight;
           gestureState.finalX = newX;
           gestureState.finalY = newY;
-          
+
           // Calculate transform
           const translateX = newX - gestureState.startX;
           const translateY = newY - gestureState.startY;
-          
+
           // Apply CSS transform
           elementDom.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
-          elementDom.style.transformOrigin = '0 0';
+          elementDom.style.transformOrigin = "0 0";
         }
         // Drag
-        else if (gestureState.type === 'drag' && e.touches.length === 1) {
+        else if (gestureState.type === "drag" && e.touches.length === 1) {
           const touch = e.touches[0];
-          
-          const deltaX = (touch.clientX - gestureState.startClientX) / previewScale;
-          const deltaY = (touch.clientY - gestureState.startClientY) / previewScale;
-          
+
+          const deltaX =
+            (touch.clientX - gestureState.startClientX) / previewScale;
+          const deltaY =
+            (touch.clientY - gestureState.startClientY) / previewScale;
+
           // Store final position
           gestureState.finalX = gestureState.startX + deltaX;
           gestureState.finalY = gestureState.startY + deltaY;
-          
+
           // Apply CSS transform
           elementDom.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
         }
@@ -910,77 +963,111 @@ function CanvasPreviewComponent({
 
       const handleTouchEnd = (e) => {
         if (!gestureState) return;
-        
-        console.log('✋ Touch end:', gestureState.type);
-        
+
+        console.log("✋ Touch end:", gestureState.type);
+
         // Use pre-calculated final values
         let finalUpdate = null;
-        
-        if (gestureState.type === 'pinch') {
+
+        if (gestureState.type === "pinch") {
           finalUpdate = {
             width: gestureState.finalWidth,
             height: gestureState.finalHeight,
             x: gestureState.finalX,
             y: gestureState.finalY,
           };
-        } else if (gestureState.type === 'drag') {
+        } else if (gestureState.type === "drag") {
           finalUpdate = {
             x: gestureState.finalX,
             y: gestureState.finalY,
           };
         }
-        
+
         // Update state
         if (finalUpdate) {
-          if (typeof finalUpdate.x === 'number' && typeof finalUpdate.y === 'number') {
+          if (
+            typeof finalUpdate.x === "number" &&
+            typeof finalUpdate.y === "number"
+          ) {
             meta.startX = finalUpdate.x;
             meta.startY = finalUpdate.y;
             if (meta?.rndRef?.updatePosition) {
-              meta.rndRef.updatePosition({ x: finalUpdate.x, y: finalUpdate.y });
+              meta.rndRef.updatePosition({
+                x: finalUpdate.x,
+                y: finalUpdate.y,
+              });
             }
           }
 
-          if (typeof finalUpdate.width === 'number' && typeof finalUpdate.height === 'number') {
+          if (
+            typeof finalUpdate.width === "number" &&
+            typeof finalUpdate.height === "number"
+          ) {
             meta.startWidth = finalUpdate.width;
             meta.startHeight = finalUpdate.height;
             if (meta?.rndRef?.updateSize) {
-              meta.rndRef.updateSize({ width: finalUpdate.width, height: finalUpdate.height });
+              meta.rndRef.updateSize({
+                width: finalUpdate.width,
+                height: finalUpdate.height,
+              });
             }
           }
 
           if (elementDom) {
-            elementDom.style.transform = '';
-            elementDom.style.transformOrigin = '';
-            elementDom.style.willChange = '';
+            elementDom.style.transform = "";
+            elementDom.style.transformOrigin = "";
+            elementDom.style.willChange = "";
           }
 
           onUpdate(backgroundElement.id, finalUpdate);
         }
-        
+
         gestureState = null;
         meta.pointerActive = false;
         meta.isDragging = false;
       };
 
-      elementDom.addEventListener('touchstart', handleTouchStart, { passive: false });
-      elementDom.addEventListener('touchmove', handleTouchMove, { passive: false });
-      elementDom.addEventListener('touchend', handleTouchEnd, { passive: false });
-      elementDom.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+      elementDom.addEventListener("touchstart", handleTouchStart, {
+        passive: false,
+        capture: true,
+      });
+      elementDom.addEventListener("touchmove", handleTouchMove, {
+        passive: false,
+        capture: true,
+      });
+      elementDom.addEventListener("touchend", handleTouchEnd, {
+        passive: false,
+        capture: true,
+      });
+      elementDom.addEventListener("touchcancel", handleTouchEnd, {
+        passive: false,
+        capture: true,
+      });
 
       // Store cleanup function
       cleanupFn = () => {
-        elementDom.removeEventListener('touchstart', handleTouchStart);
-        elementDom.removeEventListener('touchmove', handleTouchMove);
-        elementDom.removeEventListener('touchend', handleTouchEnd);
-        elementDom.removeEventListener('touchcancel', handleTouchEnd);
-        console.log('🔴 Touch listeners removed');
+        if (!elementDom) return;
+        elementDom.removeEventListener("touchstart", handleTouchStart, {
+          capture: true,
+        });
+        elementDom.removeEventListener("touchmove", handleTouchMove, {
+          capture: true,
+        });
+        elementDom.removeEventListener("touchend", handleTouchEnd, {
+          capture: true,
+        });
+        elementDom.removeEventListener("touchcancel", handleTouchEnd, {
+          capture: true,
+        });
+        console.log("🔴 Touch listeners removed");
       };
     }, 100);
 
     // Cleanup
     return () => {
+      isMounted = false;
       clearTimeout(timer);
-      if (cleanupFn) {
+      if (typeof cleanupFn === "function") {
         cleanupFn();
       }
     };
@@ -996,7 +1083,7 @@ function CanvasPreviewComponent({
         overflow: "hidden",
       }}
     >
-  <Motion.div
+      <Motion.div
         key={`canvas-${aspectRatio}-${canvasDimensions.width}-${canvasDimensions.height}`}
         id="creator-canvas"
         className="relative mx-auto overflow-hidden shadow-[0_42px_90px_rgba(58,38,32,0.28)]"
@@ -1029,7 +1116,7 @@ function CanvasPreviewComponent({
           event.preventDefault();
         }}
       >
-  {sortedElements.map((element) => {
+        {sortedElements.map((element) => {
           const isSelected = selectedElementId === element.id;
           const isBackgroundPhoto = element.type === "background-photo";
           const backgroundAspectRatio = isBackgroundPhoto
@@ -1039,20 +1126,23 @@ function CanvasPreviewComponent({
               ? element.width / element.height
               : 1
             : 1;
-          const safeAspectRatio = backgroundAspectRatio > 0 ? backgroundAspectRatio : 1;
-          
+          const safeAspectRatio =
+            backgroundAspectRatio > 0 ? backgroundAspectRatio : 1;
+
           // Check if upload element has aspect ratio
-          const isUploadElement = element.type === 'upload';
-          const uploadAspectRatio = isUploadElement && element.data?.imageAspectRatio 
-            ? element.data.imageAspectRatio 
-            : null;
-          
+          const isUploadElement = element.type === "upload";
+          const uploadAspectRatio =
+            isUploadElement && element.data?.imageAspectRatio
+              ? element.data.imageAspectRatio
+              : null;
+
           const baseClassName = isBackgroundPhoto
             ? "transition-colors"
             : "border border-transparent transition-colors";
 
           const isCapturedOverlayElement =
-            element.type === "upload" && element.data?.__capturedOverlay === true;
+            element.type === "upload" &&
+            element.data?.__capturedOverlay === true;
           const elementClassName = [
             baseClassName,
             "creator-element",
@@ -1062,7 +1152,7 @@ function CanvasPreviewComponent({
           ]
             .filter(Boolean)
             .join(" ");
-          
+
           // For background photo: calculate minimum size to COVER canvas
           // Image must always fill the entire canvas
           const canvasAspectRatio = CANVAS_WIDTH / CANVAS_HEIGHT;
@@ -1076,48 +1166,50 @@ function CanvasPreviewComponent({
               ? CANVAS_HEIGHT // wider image - height = canvas
               : Math.round(CANVAS_WIDTH / safeAspectRatio) // taller/same image - width = canvas, height > canvas
             : DEFAULT_ELEMENT_MIN;
-          
+
           const meta = getInteractionMeta(element.id);
           const elementBorderRadius = getElementBorderRadius(element);
 
           const handlePointerDown = (event) => {
             // Debug logging
             if (isBackgroundPhoto && event.touches) {
-              console.log('[Background Photo PointerDown]', {
+              console.log("[Background Photo PointerDown]", {
                 touchCount: event.touches.length,
                 isBackgroundPhoto,
-                eventType: event.type
+                eventType: event.type,
               });
             }
-            
+
             if (meta.pointerActive || meta.isResizing) {
               return;
             }
-            
+
             const targetClassList = event.target?.classList;
             const isHandle = Boolean(
               targetClassList &&
-              Array.from(targetClassList).some((className) =>
-                className.includes("react-rnd-handle") || className.includes("creator-resize-wrapper")
-              )
+                Array.from(targetClassList).some(
+                  (className) =>
+                    className.includes("react-rnd-handle") ||
+                    className.includes("creator-resize-wrapper")
+                )
             );
-            
+
             if (isHandle) {
               event.stopPropagation();
               return;
             }
-            
+
             event.stopPropagation();
-            
+
             // Background photo touch events handled by native listener
             // Skip React event handlers to avoid conflicts
             if (isBackgroundPhoto && event.touches) {
               return;
             }
-            
+
             const clientX = event.touches?.[0]?.clientX ?? event.clientX;
             const clientY = event.touches?.[0]?.clientY ?? event.clientY;
-            
+
             meta.pointerActive = true;
             meta.hadDrag = false;
             meta.didTriggerTap = false;
@@ -1131,11 +1223,11 @@ function CanvasPreviewComponent({
             meta.dragStartClientY = clientY;
             meta.dragStartElementX = element.x;
             meta.dragStartElementY = element.y;
-            
+
             // DISABLED: Auto bring-to-front on click
             // User must explicitly use layer control buttons to change z-index
             // This gives users full control over layering
-            
+
             if (!isSelected) {
               onSelect(element.id, { interaction: "pointerdown" });
               // Don't stop pointer tracking for background photo - allow drag immediately
@@ -1145,63 +1237,72 @@ function CanvasPreviewComponent({
               }
               // For background photo, continue to allow drag even on first click
             }
-            
+
             startHoldTimer(meta);
           };
-          
+
           const handlePointerMove = (event) => {
             if (meta.isResizing || element.isLocked) {
               return;
             }
-            
+
             // Background photo touch events handled by native listener
             if (isBackgroundPhoto && event.touches) {
               return;
             }
-            
+
             if (!meta.pointerActive) {
               return;
             }
-            
+
             // Allow drag for background photo even if not selected initially
             if (!isSelected && !isBackgroundPhoto) {
               return;
             }
-            
+
             event.preventDefault();
             event.stopPropagation();
-            
+
             const clientX = event.touches?.[0]?.clientX ?? event.clientX;
             const clientY = event.touches?.[0]?.clientY ?? event.clientY;
-            
-            if (meta.dragStartClientX === null || meta.dragStartClientY === null) {
+
+            if (
+              meta.dragStartClientX === null ||
+              meta.dragStartClientY === null
+            ) {
               return;
             }
-            
+
             const deltaX = (clientX - meta.dragStartClientX) / previewScale;
             const deltaY = (clientY - meta.dragStartClientY) / previewScale;
-            
+
             const totalDelta = Math.abs(deltaX) + Math.abs(deltaY);
             meta.totalDistance = totalDelta;
-            
+
             if (!meta.hadDrag && totalDelta >= DRAG_THRESHOLD_PX) {
               meta.hadDrag = true;
               meta.didTriggerTap = false;
               meta.isDragging = true;
               clearHoldTimer(meta);
             }
-            
+
             if (meta.isDragging) {
               const newX = meta.dragStartElementX + deltaX;
               const newY = meta.dragStartElementY + deltaY;
-              
+
               if (isBackgroundPhoto) {
                 // Background photo: completely free - can go anywhere
                 onUpdate(element.id, { x: newX, y: newY });
               } else {
                 // Regular elements: must stay within canvas bounds
-                const clampedX = Math.max(0, Math.min(canvasDimensions.width - element.width, newX));
-                const clampedY = Math.max(0, Math.min(canvasDimensions.height - element.height, newY));
+                const clampedX = Math.max(
+                  0,
+                  Math.min(canvasDimensions.width - element.width, newX)
+                );
+                const clampedY = Math.max(
+                  0,
+                  Math.min(canvasDimensions.height - element.height, newY)
+                );
                 onUpdate(element.id, { x: clampedX, y: clampedY });
               }
             }
@@ -1210,7 +1311,7 @@ function CanvasPreviewComponent({
           const handlePointerUp = (event) => {
             event.stopPropagation();
             clearHoldTimer(meta);
-            
+
             // End pinch gesture
             if (meta.isPinching) {
               meta.isPinching = false;
@@ -1221,11 +1322,11 @@ function CanvasPreviewComponent({
               meta.pinchStartY = null;
               return;
             }
-            
+
             if (!meta.pointerActive) {
               return;
             }
-            
+
             if (meta.hadDrag || meta.isDragging) {
               meta.pointerActive = false;
               meta.hadDrag = false;
@@ -1234,16 +1335,16 @@ function CanvasPreviewComponent({
               meta.isResizing = false;
               return;
             }
-            
+
             meta.pointerActive = false;
-            
+
             if (meta.hadHold) {
               meta.hadHold = false;
               meta.totalDistance = 0;
               meta.isResizing = false;
               return;
             }
-            
+
             meta.didTriggerTap = true;
             meta.totalDistance = 0;
             meta.isResizing = false;
@@ -1282,29 +1383,30 @@ function CanvasPreviewComponent({
             if (!isBackgroundPhoto || !isSelected) {
               return;
             }
-            
+
             event.preventDefault();
             event.stopPropagation();
-            
+
             const delta = -event.deltaY;
             // Increased zoom sensitivity for smoother feel
             const zoomFactor = delta > 0 ? 1.1 : 0.9;
-            
+
             // Maintain aspect ratio - smooth calculation
-            const aspectRatio = element.data?.imageAspectRatio || (element.width / element.height);
+            const aspectRatio =
+              element.data?.imageAspectRatio || element.width / element.height;
             const finalWidth = element.width * zoomFactor;
             const finalHeight = finalWidth / aspectRatio;
-            
+
             // Get mouse position relative to canvas
             const rect = event.currentTarget.getBoundingClientRect();
             const mouseX = (event.clientX - rect.left) / previewScale;
             const mouseY = (event.clientY - rect.top) / previewScale;
-            
+
             // Calculate new position to zoom towards mouse
             const scaleChange = finalWidth / element.width;
             const newX = element.x - (mouseX - element.x) * (scaleChange - 1);
             const newY = element.y - (mouseY - element.y) * (scaleChange - 1);
-            
+
             onUpdate(element.id, {
               width: finalWidth,
               height: finalHeight,
@@ -1336,24 +1438,46 @@ function CanvasPreviewComponent({
             <Rnd
               key={element.id}
               data-element-id={element.id}
-              data-element-zindex={Number.isFinite(element.zIndex) ? element.zIndex : undefined}
+              data-element-zindex={
+                Number.isFinite(element.zIndex) ? element.zIndex : undefined
+              }
               size={{ width: element.width, height: element.height }}
               position={{ x: element.x, y: element.y }}
               bounds="parent"
               scale={previewScale}
-              enableResizing={isSelected && !isBackgroundPhoto ? DEFAULT_RESIZE_CONFIG : false}
+              enableResizing={
+                isSelected && !isBackgroundPhoto ? DEFAULT_RESIZE_CONFIG : false
+              }
               disableDragging={true}
-              resizeHandleStyles={isSelected && !isBackgroundPhoto ? buildResizeHandleStyles(previewScale) : undefined}
+              resizeHandleStyles={
+                isSelected && !isBackgroundPhoto
+                  ? buildResizeHandleStyles(previewScale)
+                  : undefined
+              }
               resizeHandleWrapperClassName="creator-resize-wrapper"
               resizeHandleComponent={{
                 top: <div className="react-rnd-handle react-rnd-handle-top" />,
-                right: <div className="react-rnd-handle react-rnd-handle-right" />,
-                bottom: <div className="react-rnd-handle react-rnd-handle-bottom" />,
-                left: <div className="react-rnd-handle react-rnd-handle-left" />,
-                topRight: <div className="react-rnd-handle react-rnd-handle-topRight" />,
-                bottomRight: <div className="react-rnd-handle react-rnd-handle-bottomRight" />,
-                bottomLeft: <div className="react-rnd-handle react-rnd-handle-bottomLeft" />,
-                topLeft: <div className="react-rnd-handle react-rnd-handle-topLeft" />,
+                right: (
+                  <div className="react-rnd-handle react-rnd-handle-right" />
+                ),
+                bottom: (
+                  <div className="react-rnd-handle react-rnd-handle-bottom" />
+                ),
+                left: (
+                  <div className="react-rnd-handle react-rnd-handle-left" />
+                ),
+                topRight: (
+                  <div className="react-rnd-handle react-rnd-handle-topRight" />
+                ),
+                bottomRight: (
+                  <div className="react-rnd-handle react-rnd-handle-bottomRight" />
+                ),
+                bottomLeft: (
+                  <div className="react-rnd-handle react-rnd-handle-bottomLeft" />
+                ),
+                topLeft: (
+                  <div className="react-rnd-handle react-rnd-handle-topLeft" />
+                ),
               }}
               onResizeStart={(e) => {
                 if (e?.nativeEvent) {
@@ -1411,7 +1535,8 @@ function CanvasPreviewComponent({
                   event?.preventDefault?.();
                   return false;
                 }
-                meta.totalDistance += Math.abs(data.deltaX) + Math.abs(data.deltaY);
+                meta.totalDistance +=
+                  Math.abs(data.deltaX) + Math.abs(data.deltaY);
                 if (!meta.hadDrag && meta.totalDistance >= DRAG_THRESHOLD_PX) {
                   meta.hadDrag = true;
                   meta.didTriggerTap = false;
@@ -1453,18 +1578,21 @@ function CanvasPreviewComponent({
                 if (!meta.isResizing) {
                   return;
                 }
-                
+
                 applyResizeUpdate(ref, position);
-                
+
                 // Resize upload image from original for quality (only once when done)
                 if (isUploadElement && onResizeUpload) {
                   const nextWidth = parseFloat(ref.style.width);
                   const nextHeight = parseFloat(ref.style.height);
-                  if (Number.isFinite(nextWidth) && Number.isFinite(nextHeight)) {
+                  if (
+                    Number.isFinite(nextWidth) &&
+                    Number.isFinite(nextHeight)
+                  ) {
                     onResizeUpload(element.id, nextWidth, nextHeight);
                   }
                 }
-                
+
                 meta.isResizing = false;
                 meta.pointerActive = false;
                 meta.hadDrag = false;
@@ -1474,11 +1602,11 @@ function CanvasPreviewComponent({
               minHeight={DEFAULT_ELEMENT_MIN}
               dragMomentum={false}
               lockAspectRatio={
-                isBackgroundPhoto 
-                  ? backgroundAspectRatio 
-                  : uploadAspectRatio 
-                    ? uploadAspectRatio 
-                    : false
+                isBackgroundPhoto
+                  ? backgroundAspectRatio
+                  : uploadAspectRatio
+                  ? uploadAspectRatio
+                  : false
               }
               enableUserSelectHack={false}
               dragGrid={[1, 1]}
@@ -1502,8 +1630,12 @@ function CanvasPreviewComponent({
               onTouchMove={isBackgroundPhoto ? undefined : handlePointerMove}
               onPointerUp={isBackgroundPhoto ? undefined : handlePointerUp}
               onTouchEnd={isBackgroundPhoto ? undefined : handlePointerUp}
-              onPointerCancel={isBackgroundPhoto ? undefined : handlePointerCancel}
-              onTouchCancel={isBackgroundPhoto ? undefined : handlePointerCancel}
+              onPointerCancel={
+                isBackgroundPhoto ? undefined : handlePointerCancel
+              }
+              onTouchCancel={
+                isBackgroundPhoto ? undefined : handlePointerCancel
+              }
               onClick={isBackgroundPhoto ? undefined : handleClick}
               onDoubleClick={(e) => {
                 e.stopPropagation();
@@ -1549,22 +1681,32 @@ function CanvasPreviewComponent({
                         width: "64px",
                         height: "64px",
                         borderRadius: "14px",
-                        background: element.isLocked ? "linear-gradient(135deg, #f7a998 0%, #e89985 100%)" : "#ffffff",
-                        border: element.isLocked ? "2px solid #f7a998" : "2px solid #f7a998",
+                        background: element.isLocked
+                          ? "linear-gradient(135deg, #f7a998 0%, #e89985 100%)"
+                          : "#ffffff",
+                        border: element.isLocked
+                          ? "2px solid #f7a998"
+                          : "2px solid #f7a998",
                         cursor: "pointer",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        boxShadow: element.isLocked ? "0 4px 12px rgba(247, 169, 152, 0.4)" : "0 2px 8px rgba(0, 0, 0, 0.15)",
+                        boxShadow: element.isLocked
+                          ? "0 4px 12px rgba(247, 169, 152, 0.4)"
+                          : "0 2px 8px rgba(0, 0, 0, 0.15)",
                         transition: "all 0.2s ease",
                       }}
-                      onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1)"}
-                      onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+                      onMouseEnter={(e) =>
+                        (e.currentTarget.style.transform = "scale(1.1)")
+                      }
+                      onMouseLeave={(e) =>
+                        (e.currentTarget.style.transform = "scale(1)")
+                      }
                     >
-                      <img 
-                        src={element.isLocked ? lockIcon : unlockIcon} 
-                        alt={element.isLocked ? "Locked" : "Unlocked"} 
-                        style={{ width: "36px", height: "36px" }} 
+                      <img
+                        src={element.isLocked ? lockIcon : unlockIcon}
+                        alt={element.isLocked ? "Locked" : "Unlocked"}
+                        style={{ width: "36px", height: "36px" }}
                       />
                     </button>
                     <button
@@ -1585,12 +1727,20 @@ function CanvasPreviewComponent({
                         boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
                         transition: "transform 0.2s ease",
                       }}
-                      onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1)"}
-                      onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+                      onMouseEnter={(e) =>
+                        (e.currentTarget.style.transform = "scale(1.1)")
+                      }
+                      onMouseLeave={(e) =>
+                        (e.currentTarget.style.transform = "scale(1)")
+                      }
                     >
-                      <img src={duplicateIcon} alt="Duplicate" style={{ width: "36px", height: "36px" }} />
+                      <img
+                        src={duplicateIcon}
+                        alt="Duplicate"
+                        style={{ width: "36px", height: "36px" }}
+                      />
                     </button>
-                    
+
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1609,10 +1759,18 @@ function CanvasPreviewComponent({
                         boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
                         transition: "transform 0.2s ease",
                       }}
-                      onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1)"}
-                      onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+                      onMouseEnter={(e) =>
+                        (e.currentTarget.style.transform = "scale(1.1)")
+                      }
+                      onMouseLeave={(e) =>
+                        (e.currentTarget.style.transform = "scale(1)")
+                      }
                     >
-                      <img src={trashIcon} alt="Delete" style={{ width: "36px", height: "36px" }} />
+                      <img
+                        src={trashIcon}
+                        alt="Delete"
+                        style={{ width: "36px", height: "36px" }}
+                      />
                     </button>
                   </div>
                 </>
@@ -1646,7 +1804,7 @@ function CanvasPreviewComponent({
             </Rnd>
           );
         })}
-  </Motion.div>
+      </Motion.div>
     </div>
   );
 }

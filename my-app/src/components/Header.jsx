@@ -22,6 +22,21 @@ export default function Header() {
   const { pathname, hash } = useLocation();
   const { isAuthenticated, user, logout } = useAuth();
 
+  // Get profile photo from localStorage
+  const profilePhoto = user?.email
+    ? localStorage.getItem(`profilePhoto_${user.email}`)
+    : null;
+
+  // Get user initials for fallback
+  const getInitials = () => {
+    if (!user) return "U";
+    const first = user.firstName?.charAt(0) || "";
+    const last = user.lastName?.charAt(0) || "";
+    return (
+      (first + last).toUpperCase() || user.name?.charAt(0)?.toUpperCase() || "U"
+    );
+  };
+
   // Active state untuk section di homepage
   const isHomeActive = pathname === "/" && (hash === "" || hash === "#home");
   const isAboutActive = pathname === "/" && hash === "#about";
@@ -73,230 +88,259 @@ export default function Header() {
     <>
       <header ref={headerRef} className={`site-header ${open ? "open" : ""}`}>
         <div className="container header-bar">
-        {/* Left: Logo */}
-        <div className="logo">
-          <img src={logoSalem} alt="Fremio Logo" className="logo-image" />
-        </div>
-
-        {/* Center: Nav */}
-        <nav className="main-nav">
-          {/* Home & About: tetap hash-section */}
+          {/* Left: Logo */}
           <Link
-            to="/#home"
-            className={"nav-link" + (isHomeActive ? " active" : "")}
+            to="/"
+            className="logo"
+            style={{ textDecoration: "none", cursor: "pointer" }}
           >
-            <img src={homeIcon} alt="" className="nav-icon" />
-            <span>Home</span>
-          </Link>
-          <Link
-            to="/#about"
-            className={"nav-link" + (isAboutActive ? " active" : "")}
-          >
-            <img src={aboutIcon} alt="" className="nav-icon" />
-            <span>About</span>
+            <img src={logoSalem} alt="Fremio Logo" className="logo-image" />
           </Link>
 
-          {/* Route pages */}
-          <NavLink
-            to="/frames"
-            className={({ isActive }) =>
-              "nav-link" + (isActive ? " active" : "")
-            }
-          >
-            <img src={framesIcon} alt="" className="nav-icon" />
-            <span>Frames</span>
-          </NavLink>
-          <NavLink
-            to="/create"
-            className={({ isActive }) =>
-              "nav-link" + (isActive ? " active" : "")
-            }
-          >
-            <img src={createIcon} alt="" className="nav-icon" />
-            <span>Create</span>
-          </NavLink>
-        </nav>
+          {/* Center: Nav */}
+          <nav className="main-nav">
+            {/* Home & About: tetap hash-section */}
+            <Link
+              to="/#home"
+              className={"nav-link" + (isHomeActive ? " active" : "")}
+            >
+              <img src={homeIcon} alt="" className="nav-icon" />
+              <span>Home</span>
+            </Link>
+            <Link
+              to="/#about"
+              className={"nav-link" + (isAboutActive ? " active" : "")}
+            >
+              <img src={aboutIcon} alt="" className="nav-icon" />
+              <span>About</span>
+            </Link>
 
-        {/* Right: Action */}
-        <div className="header-actions">
-          {isAuthenticated ? (
-            <div style={{ position: "relative" }} ref={profileDropdownRef}>
-              <button
-                onClick={toggleProfileDropdown}
-                className="btn-login"
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  padding: "8px 16px",
-                  borderRadius: "999px",
-                  transition: "all 0.2s",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(224, 183, 169, 0.1)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "transparent";
-                }}
-              >
-                <span style={{ fontSize: "20px" }}>👤</span>
-                <span style={{ fontWeight: 600 }}>
-                  {user?.firstName || user?.name || "Profile"}
-                </span>
-                <span
+            {/* Route pages */}
+            <NavLink
+              to="/frames"
+              className={({ isActive }) =>
+                "nav-link" + (isActive ? " active" : "")
+              }
+            >
+              <img src={framesIcon} alt="" className="nav-icon" />
+              <span>Frames</span>
+            </NavLink>
+            <NavLink
+              to="/create"
+              className={({ isActive }) =>
+                "nav-link" + (isActive ? " active" : "")
+              }
+            >
+              <img src={createIcon} alt="" className="nav-icon" />
+              <span>Create</span>
+            </NavLink>
+          </nav>
+
+          {/* Right: Action */}
+          <div className="header-actions">
+            {isAuthenticated ? (
+              <div style={{ position: "relative" }} ref={profileDropdownRef}>
+                <button
+                  onClick={toggleProfileDropdown}
+                  className="btn-login"
                   style={{
-                    fontSize: "12px",
-                    transition: "transform 0.2s",
-                    transform: profileDropdownOpen
-                      ? "rotate(180deg)"
-                      : "rotate(0deg)",
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    padding: "6px 16px 6px 6px",
+                    borderRadius: "999px",
+                    transition: "all 0.2s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background =
+                      "rgba(224, 183, 169, 0.1)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "transparent";
                   }}
                 >
-                  ▼
-                </span>
-              </button>
-
-              {/* Dropdown Menu */}
-              {profileDropdownOpen && (
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "calc(100% + 8px)",
-                    right: 0,
-                    background: "white",
-                    borderRadius: "12px",
-                    boxShadow:
-                      "0 10px 40px rgba(0,0,0,0.1), 0 2px 8px rgba(0,0,0,0.06)",
-                    minWidth: "200px",
-                    padding: "8px",
-                    zIndex: 1000,
-                    border: "1px solid rgba(224, 183, 169, 0.2)",
-                  }}
-                >
-                  {/* Profile Option */}
-                  <Link
-                    to="/profile"
-                    onClick={() => setProfileDropdownOpen(false)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "12px",
-                      padding: "12px 16px",
-                      borderRadius: "8px",
-                      textDecoration: "none",
-                      color: "#333",
-                      transition: "all 0.2s",
-                      fontSize: "14px",
-                      fontWeight: 500,
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background =
-                        "rgba(224, 183, 169, 0.1)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "transparent";
-                    }}
-                  >
-                    <img src={profileIcon} alt="" style={{ width: "18px", height: "18px" }} />
-                    <span>Profile</span>
-                  </Link>
-
-                  {/* Settings Option */}
-                  <Link
-                    to="/settings"
-                    onClick={() => setProfileDropdownOpen(false)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "12px",
-                      padding: "12px 16px",
-                      borderRadius: "8px",
-                      textDecoration: "none",
-                      color: "#333",
-                      transition: "all 0.2s",
-                      fontSize: "14px",
-                      fontWeight: 500,
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background =
-                        "rgba(224, 183, 169, 0.1)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "transparent";
-                    }}
-                  >
-                    <img src={settingsIcon} alt="" style={{ width: "18px", height: "18px" }} />
-                    <span>Settings</span>
-                  </Link>
-
-                  {/* Divider */}
+                  {/* Profile Photo or Initials */}
                   <div
                     style={{
-                      height: "1px",
-                      background: "rgba(224, 183, 169, 0.2)",
-                      margin: "8px 0",
-                    }}
-                  />
-
-                  {/* Logout Option */}
-                  <button
-                    onClick={handleLogout}
-                    style={{
+                      width: "36px",
+                      height: "36px",
+                      borderRadius: "50%",
+                      background: profilePhoto
+                        ? `url(${profilePhoto})`
+                        : "#E0B7A9",
+                      backgroundSize: "cover",
+                      backgroundPosition: "center",
                       display: "flex",
                       alignItems: "center",
-                      gap: "12px",
-                      padding: "12px 16px",
-                      borderRadius: "8px",
-                      border: "none",
-                      background: "transparent",
-                      color: "#dc2626",
-                      transition: "all 0.2s",
+                      justifyContent: "center",
+                      color: "white",
+                      fontWeight: 600,
                       fontSize: "14px",
-                      fontWeight: 500,
-                      cursor: "pointer",
-                      width: "100%",
-                      textAlign: "left",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background =
-                        "rgba(220, 38, 38, 0.1)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "transparent";
+                      flexShrink: 0,
                     }}
                   >
-                    <img src={logoutIcon} alt="" style={{ width: "18px", height: "18px" }} />
-                    <span>Logout</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <NavLink to="/login" className="btn-login">
-              Login/Register
-            </NavLink>
-          )}
-        </div>
+                    {!profilePhoto && <span>{getInitials()}</span>}
+                  </div>
 
-        {/* Mobile menu toggle */}
-        <button
-          type="button"
-          className="menu-toggle"
-          aria-label={menuOpen ? "Close navigation" : "Open navigation"}
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((prev) => !prev)}
-        >
-          <img
-            src={burgerBarIcon}
-            alt="Menu"
-            className="menu-toggle-icon"
-            draggable={false}
-          />
-        </button>
-      </div>
+                  {/* Username */}
+                  <span style={{ fontWeight: 600, fontSize: "15px" }}>
+                    {user?.firstName || user?.name || "Profile"}
+                  </span>
+                </button>
+
+                {/* Dropdown Menu */}
+                {profileDropdownOpen && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 8px)",
+                      right: 0,
+                      background: "white",
+                      borderRadius: "12px",
+                      boxShadow:
+                        "0 10px 40px rgba(0,0,0,0.1), 0 2px 8px rgba(0,0,0,0.06)",
+                      minWidth: "200px",
+                      padding: "8px",
+                      zIndex: 1000,
+                      border: "1px solid rgba(224, 183, 169, 0.2)",
+                    }}
+                  >
+                    {/* Profile Option */}
+                    <Link
+                      to="/profile"
+                      onClick={() => setProfileDropdownOpen(false)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "12px",
+                        padding: "12px 16px",
+                        borderRadius: "8px",
+                        textDecoration: "none",
+                        color: "#333",
+                        transition: "all 0.2s",
+                        fontSize: "14px",
+                        fontWeight: 500,
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background =
+                          "rgba(224, 183, 169, 0.1)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "transparent";
+                      }}
+                    >
+                      <img
+                        src={profileIcon}
+                        alt=""
+                        style={{ width: "18px", height: "18px" }}
+                      />
+                      <span>Profile</span>
+                    </Link>
+
+                    {/* Settings Option */}
+                    <Link
+                      to="/settings"
+                      onClick={() => setProfileDropdownOpen(false)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "12px",
+                        padding: "12px 16px",
+                        borderRadius: "8px",
+                        textDecoration: "none",
+                        color: "#333",
+                        transition: "all 0.2s",
+                        fontSize: "14px",
+                        fontWeight: 500,
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background =
+                          "rgba(224, 183, 169, 0.1)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "transparent";
+                      }}
+                    >
+                      <img
+                        src={settingsIcon}
+                        alt=""
+                        style={{ width: "18px", height: "18px" }}
+                      />
+                      <span>Settings</span>
+                    </Link>
+
+                    {/* Divider */}
+                    <div
+                      style={{
+                        height: "1px",
+                        background: "rgba(224, 183, 169, 0.2)",
+                        margin: "8px 0",
+                      }}
+                    />
+
+                    {/* Logout Option */}
+                    <button
+                      onClick={handleLogout}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "12px",
+                        padding: "12px 16px",
+                        borderRadius: "8px",
+                        border: "none",
+                        background: "transparent",
+                        color: "#dc2626",
+                        transition: "all 0.2s",
+                        fontSize: "14px",
+                        fontWeight: 500,
+                        cursor: "pointer",
+                        width: "100%",
+                        textAlign: "left",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background =
+                          "rgba(220, 38, 38, 0.1)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "transparent";
+                      }}
+                    >
+                      <img
+                        src={logoutIcon}
+                        alt=""
+                        style={{ width: "18px", height: "18px" }}
+                      />
+                      <span>Logout</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <NavLink to="/login" className="btn-login">
+                Login/Register
+              </NavLink>
+            )}
+          </div>
+
+          {/* Mobile menu toggle */}
+          <button
+            type="button"
+            className="menu-toggle"
+            aria-label={menuOpen ? "Close navigation" : "Open navigation"}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((prev) => !prev)}
+          >
+            <img
+              src={burgerBarIcon}
+              alt="Menu"
+              className="menu-toggle-icon"
+              draggable={false}
+            />
+          </button>
+        </div>
       </header>
 
       {/* Overlay untuk menggelapkan background saat menu mobile terbuka */}
@@ -308,7 +352,12 @@ export default function Header() {
       {/* Mobile menu */}
       <div className={`mobile-menu ${menuOpen ? "open" : ""}`}>
         {/* Logo di dalam menu */}
-        <div style={{ padding: "24px", borderBottom: "1px solid rgba(224, 183, 169, 0.2)" }}>
+        <div
+          style={{
+            padding: "24px",
+            borderBottom: "1px solid rgba(224, 183, 169, 0.2)",
+          }}
+        >
           <img src={logoSalem} alt="Fremio Logo" style={{ height: "32px" }} />
         </div>
 
@@ -348,7 +397,15 @@ export default function Header() {
         </nav>
 
         {isAuthenticated ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "4px", padding: "0 24px", width: "100%" }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "4px",
+              padding: "0 24px",
+              width: "100%",
+            }}
+          >
             <NavLink
               to="/profile"
               onClick={() => setMenuOpen(false)}
@@ -357,7 +414,11 @@ export default function Header() {
               }
               style={{ width: "100%" }}
             >
-              <img src={profileIcon} alt="" style={{ width: "22px", height: "22px" }} />
+              <img
+                src={profileIcon}
+                alt=""
+                style={{ width: "22px", height: "22px" }}
+              />
               <span>Profile</span>
             </NavLink>
 
@@ -369,7 +430,11 @@ export default function Header() {
               }
               style={{ width: "100%" }}
             >
-              <img src={settingsIcon} alt="" style={{ width: "22px", height: "22px" }} />
+              <img
+                src={settingsIcon}
+                alt=""
+                style={{ width: "22px", height: "22px" }}
+              />
               <span>Settings</span>
             </NavLink>
 
@@ -402,7 +467,11 @@ export default function Header() {
                 textAlign: "left",
               }}
             >
-              <img src={logoutIcon} alt="" style={{ width: "22px", height: "22px" }} />
+              <img
+                src={logoutIcon}
+                alt=""
+                style={{ width: "22px", height: "22px" }}
+              />
               <span>Logout</span>
             </button>
           </div>

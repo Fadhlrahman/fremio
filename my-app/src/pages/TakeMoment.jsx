@@ -5,6 +5,7 @@ import React, {
   useMemo,
   useCallback,
 } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import frameProvider from "../utils/frameProvider.js";
 import safeStorage from "../utils/safeStorage.js";
@@ -60,6 +61,11 @@ const blobToDataURL = (blob) =>
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
+
+// Helper to detect mobile device
+const isMobileDevice = () => {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
+};
 
 const dataURLToBlob = (dataUrl) => {
   if (typeof dataUrl !== "string") return null;
@@ -486,12 +492,6 @@ export default function TakeMoment() {
   const filterModeRef = useRef('original');
   const backgroundModeRef = useRef('blur');
   const backgroundColorRef = useRef('#10B981');
-  const backgroundGradientRef = useRef({
-    enabled: false,
-    color1: '#8B5CF6',
-    color2: '#EC4899',
-    angle: 135
-  });
   const backgroundImageRef = useRef(null);
   const cachedImageRef = useRef(null); // Cache loaded Image object
   const hasInitialSegmentationRef = useRef(false);
@@ -512,12 +512,6 @@ export default function TakeMoment() {
   const [isLoadingBlur, setIsLoadingBlur] = useState(false);
   const [backgroundMode, setBackgroundMode] = useState('blur');
   const [backgroundColor, setBackgroundColor] = useState('#10B981');
-  const [backgroundGradient, setBackgroundGradient] = useState({
-    enabled: false,
-    color1: '#8B5CF6',
-    color2: '#EC4899',
-    angle: 135
-  });
   const [backgroundImage, setBackgroundImage] = useState(null);
   const [showBackgroundPanel, setShowBackgroundPanel] = useState(false);
 
@@ -577,6 +571,7 @@ export default function TakeMoment() {
   const [isVideoProcessing, setIsVideoProcessing] = useState(false);
   const [isEditorTransitioning, setIsEditorTransitioning] = useState(false);
   const [cameraError, setCameraError] = useState(null);
+  const [liveModeEnabled, setLiveModeEnabled] = useState(true); // Live mode: video + photo
 
   const pendingStorageIdleRef = useRef(null);
   const pendingStorageTimeoutRef = useRef(null);
@@ -1117,7 +1112,7 @@ export default function TakeMoment() {
   }, [capturedVideos]);
 
   const shouldMirrorVideo = useMemo(
-    () => !isUsingBackCamera,
+    () => isUsingBackCamera, // Flipped: back camera should be mirrored
     [isUsingBackCamera]
   );
 
@@ -1435,6 +1430,16 @@ export default function TakeMoment() {
     capturing || isVideoProcessing || hasReachedMaxPhotos;
 
   const determineVideoBitrate = (recordSeconds) => {
+    // Lower bitrate for mobile devices to prevent memory issues
+    if (isMobileDevice()) {
+      // Mobile: Use lower bitrates to prevent crashes after 4th photo
+      if (recordSeconds <= 4) return 1_200_000; // Reduced from 2.5M
+      if (recordSeconds <= 6) return 1_000_000; // Reduced from 2M
+      if (recordSeconds <= 8) return 800_000;   // Reduced from 1.5M
+      return 600_000;                            // Reduced from 1.2M
+    }
+    
+    // Desktop: Keep original higher bitrates
     if (recordSeconds <= 4) return 2_500_000;
     if (recordSeconds <= 6) return 2_000_000;
     if (recordSeconds <= 8) return 1_500_000;
@@ -1748,6 +1753,7 @@ export default function TakeMoment() {
           alignItems: "center",
           justifyContent: "center",
           borderRadius: "20px",
+          zIndex: 10,
         }}
       >
         <span
@@ -2132,6 +2138,7 @@ export default function TakeMoment() {
     const video = videoRef.current;
     const width = video?.videoWidth || 1280;
     const height = video?.videoHeight || 720;
+    
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
@@ -2152,7 +2159,9 @@ export default function TakeMoment() {
       ctx.drawImage(sourceElement, 0, 0, width, height);
     }
 
-    const blob = await canvasToBlob(canvas, "image/jpeg", 0.9);
+    // Use lower quality for mobile to reduce memory usage
+    const quality = isMobileDevice() ? 0.75 : 0.9;
+    const blob = await canvasToBlob(canvas, "image/jpeg", quality);
     const previewUrl = URL.createObjectURL(blob);
 
     // Convert blob to dataUrl for localStorage storage
@@ -2209,24 +2218,40 @@ export default function TakeMoment() {
       return;
     }
 
-    setCapturing(true);
-    setIsVideoProcessing(true);
-    replaceCurrentVideo(null);
+    // Wrap in try-catch to prevent crashes
+    try {
+      setCapturing(true);
+      replaceCurrentVideo(null);
 
-    const recordingController = startVideoRecording(effectiveTimer);
-    if (recordingController) {
-      recordingController.promise
-        .then((videoData) => {
-          replaceCurrentVideo(videoData);
-        })
-        .catch((error) => {
-          console.error("❌ Failed to record video", error);
-          alert("Perekaman video gagal. Silakan coba lagi.");
-        })
-        .finally(() => {
+      // Only record video if Live Mode is enabled
+      if (liveModeEnabled) {
+        setIsVideoProcessing(true);
+        
+        const recordingController = startVideoRecording(effectiveTimer);
+        if (recordingController) {
+          recordingController.promise
+            .then((videoData) => {
+              replaceCurrentVideo(videoData);
+            })
+            .catch((error) => {
+              console.error("❌ Failed to record video", error);
+              alert("Perekaman video gagal. Silakan coba lagi.");
+            })
+            .finally(() => {
+              setIsVideoProcessing(false);
+            });
+        } else {
           setIsVideoProcessing(false);
-        });
-    } else {
+        }
+      } else {
+        // Live Mode OFF: No video recording, just photo
+        console.log('📸 Live Mode OFF - Skipping video recording');
+        setIsVideoProcessing(false);
+      }
+    } catch (error) {
+      console.error("❌ Capture error:", error);
+      alert("Terjadi kesalahan saat mengambil foto. Silakan coba lagi.");
+      setCapturing(false);
       setIsVideoProcessing(false);
     }
 
@@ -2263,6 +2288,7 @@ export default function TakeMoment() {
     timer,
     isVideoProcessing,
     replaceCurrentVideo,
+    liveModeEnabled,
   ]);
 
   useEffect(() => {
@@ -2293,26 +2319,48 @@ export default function TakeMoment() {
       return;
     }
 
-    if (!currentVideo?.dataUrl && !(currentVideo?.blob instanceof Blob)) {
+    // Only check for video if Live Mode is enabled
+    if (liveModeEnabled && !currentVideo?.dataUrl && !(currentVideo?.blob instanceof Blob)) {
       alert(
         "Video tidak ditemukan. Silakan tunggu hingga proses selesai atau ambil ulang."
       );
       return;
     }
 
+    // Store current photo/video refs before clearing
+    const photoToSave = currentPhoto;
+    const videoToSave = currentVideo;
+    
+    // ✅ IMMEDIATELY hide modal with flushSync for instant update
+    flushSync(() => {
+      setShowConfirmation(false);
+      replaceCurrentPhoto(null);
+      replaceCurrentVideo(null);
+    });
+
     let willReachMax = false;
     let saveSucceeded = false;
 
     try {
-      if (!currentPhoto.blob) {
+      // Log memory info for mobile debugging
+      if (isMobileDevice() && performance.memory) {
+        console.log('📊 Memory before save:', {
+          used: `${(performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(2)}MB`,
+          total: `${(performance.memory.totalJSHeapSize / 1024 / 1024).toFixed(2)}MB`,
+          limit: `${(performance.memory.jsHeapSizeLimit / 1024 / 1024).toFixed(2)}MB`,
+          photoCount: capturedPhotos.length + 1
+        });
+      }
+      
+      if (!photoToSave.blob) {
         throw new Error("Current photo blob is missing");
       }
 
-      const previewUrl = URL.createObjectURL(currentPhoto.blob);
-      let resolvedPhotoDataUrl = currentPhoto.dataUrl;
-      if (!resolvedPhotoDataUrl && currentPhoto.blob instanceof Blob) {
+      const previewUrl = URL.createObjectURL(photoToSave.blob);
+      let resolvedPhotoDataUrl = photoToSave.dataUrl;
+      if (!resolvedPhotoDataUrl && photoToSave.blob instanceof Blob) {
         try {
-          resolvedPhotoDataUrl = await blobToDataURL(currentPhoto.blob);
+          resolvedPhotoDataUrl = await blobToDataURL(photoToSave.blob);
           console.log("📸 Photo dataUrl generated during save", {
             length: resolvedPhotoDataUrl?.length || 0,
           });
@@ -2326,19 +2374,19 @@ export default function TakeMoment() {
 
       const photoEntry = {
         id: generatePhotoEntryId(),
-        blob: currentPhoto.blob,
+        blob: photoToSave.blob,
         dataUrl:
           typeof resolvedPhotoDataUrl === "string"
           && resolvedPhotoDataUrl.startsWith("data:")
             ? resolvedPhotoDataUrl
             : null,
         previewUrl,
-        width: currentPhoto.width ?? null,
-        height: currentPhoto.height ?? null,
-        capturedAt: currentPhoto.capturedAt ?? Date.now(),
+        width: photoToSave.width ?? null,
+        height: photoToSave.height ?? null,
+        capturedAt: photoToSave.capturedAt ?? Date.now(),
         sizeBytes:
-          typeof currentPhoto.blob.size === "number"
-            ? currentPhoto.blob.size
+          typeof photoToSave.blob.size === "number"
+            ? photoToSave.blob.size
             : null,
         source: "camera",
       };
@@ -2366,13 +2414,15 @@ export default function TakeMoment() {
       );
 
       let preparedVideoEntry = null;
-      if (currentVideo?.blob || currentVideo?.dataUrl) {
-        let videoSource = currentVideo;
-        if (!currentVideo.dataUrl && currentVideo.blob instanceof Blob) {
+      
+      // Only process video if Live Mode is enabled
+      if (liveModeEnabled && (videoToSave?.blob || videoToSave?.dataUrl)) {
+        let videoSource = videoToSave;
+        if (!videoToSave.dataUrl && videoToSave.blob instanceof Blob) {
           try {
-            const dataUrl = await blobToDataURL(currentVideo.blob);
+            const dataUrl = await blobToDataURL(videoToSave.blob);
             videoSource = {
-              ...currentVideo,
+              ...videoToSave,
               dataUrl,
             };
             console.log("🎥 Video dataUrl generated from blob", {
@@ -2400,9 +2450,11 @@ export default function TakeMoment() {
           videoSource,
           Math.max(0, targetIndex)
         );
+      } else if (!liveModeEnabled) {
+        console.log('📸 Live Mode OFF - No video to save');
       }
 
-      if (!preparedVideoEntry) {
+      if (!preparedVideoEntry && liveModeEnabled) {
         console.warn("⚠️ No video entry prepared; captured video may be missing");
       }
 
@@ -2426,22 +2478,34 @@ export default function TakeMoment() {
       saveSucceeded = true;
 
       willReachMax = trimmedPhotos.length >= maxCaptures;
+      
+      // Aggressive memory cleanup for mobile devices
+      if (isMobileDevice() && trimmedPhotos.length > 0) {
+        console.log(`🧹 Mobile memory cleanup after photo ${trimmedPhotos.length}/${maxCaptures}`);
+        // Force garbage collection hint
+        setTimeout(() => {
+          if (window.gc) {
+            window.gc();
+            console.log('✅ Manual GC triggered');
+          }
+        }, 100);
+      }
     } catch (error) {
       console.error("❌ Error processing captured media", error);
       alert("Gagal memproses foto. Silakan coba lagi.");
+      // Restore state on error so user can retry
+      replaceCurrentPhoto(photoToSave);
+      replaceCurrentVideo(videoToSave);
+      setShowConfirmation(true);
       return;
     } finally {
       if (saveSucceeded) {
-        replaceCurrentPhoto(null);
-        replaceCurrentVideo(null);
-        setShowConfirmation(false);
         setIsVideoProcessing(false);
 
         if (cameraActive && willReachMax) {
           stopCamera();
         }
       } else {
-        // Keep modal open so user can retry once video is ready
         setIsVideoProcessing(false);
       }
     }
@@ -2459,6 +2523,7 @@ export default function TakeMoment() {
     cleanupCapturedPhotoPreview,
     scheduleStorageWrite,
     stopCamera,
+    liveModeEnabled,
   ]);
 
   const handleRetakePhoto = useCallback(() => {
@@ -3372,6 +3437,42 @@ export default function TakeMoment() {
                 </option>
               ))}
             </select>
+            
+            {/* Live Mode Toggle */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                marginLeft: isMobileVariant ? 0 : "0.5rem",
+              }}
+            >
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.4rem",
+                  cursor: "pointer",
+                  fontSize: isMobileVariant ? "0.88rem" : "0.95rem",
+                  fontWeight: isMobileVariant ? 600 : 500,
+                  color: isMobileVariant ? "#1E293B" : "#475569",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={liveModeEnabled}
+                  onChange={(e) => setLiveModeEnabled(e.target.checked)}
+                  disabled={capturing}
+                  style={{
+                    width: "18px",
+                    height: "18px",
+                    cursor: capturing ? "not-allowed" : "pointer",
+                    accentColor: "#E8A889",
+                  }}
+                />
+                <span>🎥 Live Mode</span>
+              </label>
+            </div>
           </div>
         ) : (
           <div

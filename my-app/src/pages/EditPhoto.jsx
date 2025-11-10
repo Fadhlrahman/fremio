@@ -1108,27 +1108,60 @@ export default function EditPhoto() {
                       
                       ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
                       ctx.fillStyle = element.data?.color || '#111827';
-                      ctx.textAlign = element.data?.align || 'left';
                       
                       const x = element.x || 0;
                       const y = element.y || 0;
                       const w = element.width || 100;
                       const h = element.height || 100;
                       const text = element.data?.text || '';
+                      const align = element.data?.align || 'left';
                       
-                      // Handle multi-line text (split by \n)
-                      const lines = text.split('\n');
-                      const lineHeight = fontSize * 1.2; // Standard line height
+                      // ✅ CRITICAL FIX: Proper text wrapping to prevent overflow
+                      // Split text into lines that fit within element width
+                      const wrapText = (context, text, maxWidth) => {
+                        const words = text.split(' ');
+                        const lines = [];
+                        let currentLine = '';
+
+                        for (let i = 0; i < words.length; i++) {
+                          const testLine = currentLine + (currentLine ? ' ' : '') + words[i];
+                          const metrics = context.measureText(testLine);
+                          const testWidth = metrics.width;
+
+                          if (testWidth > maxWidth && currentLine) {
+                            lines.push(currentLine);
+                            currentLine = words[i];
+                          } else {
+                            currentLine = testLine;
+                          }
+                        }
+                        
+                        if (currentLine) {
+                          lines.push(currentLine);
+                        }
+                        
+                        return lines;
+                      };
                       
-                      // Calculate starting position based on alignment
-                      let textX = x;
-                      if (element.data?.align === 'center') textX = x + w / 2;
-                      else if (element.data?.align === 'right') textX = x + w;
+                      // Handle manual line breaks first
+                      const manualLines = text.split('\n');
+                      const allLines = [];
+                      
+                      // Wrap each manual line to fit within width
+                      manualLines.forEach(line => {
+                        if (line.trim()) {
+                          const wrappedLines = wrapText(ctx, line, w - 20); // 20px padding
+                          allLines.push(...wrappedLines);
+                        } else {
+                          allLines.push(''); // Empty line
+                        }
+                      });
+                      
+                      const lineHeight = fontSize * 1.2;
+                      const totalTextHeight = allLines.length * lineHeight;
                       
                       // Calculate starting Y based on vertical alignment
                       let startY = y;
-                      const totalTextHeight = lines.length * lineHeight;
-                      
                       if (element.data?.verticalAlign === 'middle') {
                         startY = y + (h - totalTextHeight) / 2 + fontSize;
                       } else if (element.data?.verticalAlign === 'bottom') {
@@ -1137,10 +1170,24 @@ export default function EditPhoto() {
                         startY = y + fontSize;
                       }
                       
-                      // Draw each line
-                      lines.forEach((line, index) => {
+                      // Draw each line with proper alignment
+                      ctx.textBaseline = 'alphabetic';
+                      allLines.forEach((line, index) => {
                         const lineY = startY + (index * lineHeight);
-                        ctx.fillText(line, textX, lineY);
+                        
+                        // Calculate X position based on alignment
+                        let textX = x + 10; // Left padding
+                        if (align === 'center') {
+                          textX = x + w / 2;
+                          ctx.textAlign = 'center';
+                        } else if (align === 'right') {
+                          textX = x + w - 10; // Right padding
+                          ctx.textAlign = 'right';
+                        } else {
+                          ctx.textAlign = 'left';
+                        }
+                        
+                        ctx.fillText(line, textX, lineY, w - 20); // maxWidth with padding
                       });
                       
                       ctx.restore();
@@ -1353,11 +1400,14 @@ export default function EditPhoto() {
 
                   // Setup MediaRecorder
                   const stream = captureStreamFn.call(canvas, 25); // 25 fps
+                  
+                  // Prioritize MP4 and H.264 to avoid slow WebM to MP4 conversion
                   const mimeTypes = [
-                    'video/webm;codecs=vp9',
-                    'video/webm;codecs=vp8',
-                    'video/webm',
-                    'video/mp4'
+                    'video/mp4', // Best: Native MP4 (Chrome/Edge on some systems)
+                    'video/webm;codecs=h264', // Good: WebM container with H.264 codec (no conversion needed)
+                    'video/webm;codecs=vp9', // OK: VP9 codec (needs conversion)
+                    'video/webm;codecs=vp8', // OK: VP8 codec (needs conversion)
+                    'video/webm' // Fallback: Default WebM
                   ];
 
                   let mimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type));
@@ -1365,9 +1415,19 @@ export default function EditPhoto() {
                     throw new Error('Browser tidak mendukung perekaman video');
                   }
 
+                  // Adaptive bitrate: lower for mobile to reduce file size and processing time
+                  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                  const videoBitrate = isMobile ? 1500000 : 2500000; // Mobile: 1.5Mbps, Desktop: 2.5Mbps
+
+                  console.log('🎬 MediaRecorder settings:', {
+                    mimeType,
+                    bitrate: `${(videoBitrate / 1000000).toFixed(1)}Mbps`,
+                    device: isMobile ? 'mobile' : 'desktop'
+                  });
+
                   const recorder = new MediaRecorder(stream, {
                     mimeType,
-                    videoBitsPerSecond: 2500000 // 2.5 Mbps
+                    videoBitsPerSecond: videoBitrate
                   });
 
                   const chunks = [];
@@ -1755,18 +1815,64 @@ export default function EditPhoto() {
                           const fontFamily = element.data?.fontFamily || 'Inter';
                           ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
                           const align = element.data?.align || 'left';
-                          ctx.textAlign = align;
-                          ctx.textBaseline = 'alphabetic';
                           ctx.fillStyle = element.data?.color || '#111827';
 
-                          const lines = (element.data.text || '').split('\n');
+                          // Text wrapping function (same as photo download)
+                          const wrapText = (context, text, maxWidth) => {
+                            const words = text.split(' ');
+                            const lines = [];
+                            let currentLine = '';
+
+                            for (let i = 0; i < words.length; i++) {
+                              const testLine = currentLine + (currentLine ? ' ' : '') + words[i];
+                              const metrics = context.measureText(testLine);
+                              const testWidth = metrics.width;
+
+                              if (testWidth > maxWidth && currentLine) {
+                                lines.push(currentLine);
+                                currentLine = words[i];
+                              } else {
+                                currentLine = testLine;
+                              }
+                            }
+                            
+                            if (currentLine) {
+                              lines.push(currentLine);
+                            }
+                            
+                            return lines;
+                          };
+
+                          // Handle manual line breaks first
+                          const manualLines = (element.data.text || '').split('\n');
+                          const allLines = [];
+                          
+                          // Wrap each manual line to fit within width
+                          manualLines.forEach(line => {
+                            if (line.trim()) {
+                              const wrappedLines = wrapText(ctx, line, width - 20); // 20px padding
+                              allLines.push(...wrappedLines);
+                            } else {
+                              allLines.push(''); // Empty line
+                            }
+                          });
+
                           const lineHeight = fontSize * 1.2;
-                          const totalTextHeight = lines.length * lineHeight;
+                          const totalTextHeight = allLines.length * lineHeight;
 
-                          let textX = 0;
-                          if (align === 'center') textX = width / 2;
-                          else if (align === 'right') textX = width;
+                          // Calculate X position based on alignment
+                          let textX = 10; // Left padding
+                          if (align === 'center') {
+                            textX = width / 2;
+                            ctx.textAlign = 'center';
+                          } else if (align === 'right') {
+                            textX = width - 10; // Right padding
+                            ctx.textAlign = 'right';
+                          } else {
+                            ctx.textAlign = 'left';
+                          }
 
+                          // Calculate starting Y based on vertical alignment
                           let startY = fontSize;
                           const verticalAlign = element.data?.verticalAlign;
                           if (verticalAlign === 'middle') {
@@ -1775,8 +1881,10 @@ export default function EditPhoto() {
                             startY = height - totalTextHeight + fontSize;
                           }
 
-                          lines.forEach((line, index) => {
-                            ctx.fillText(line, textX, startY + index * lineHeight);
+                          ctx.textBaseline = 'alphabetic';
+                          allLines.forEach((line, index) => {
+                            const lineY = startY + (index * lineHeight);
+                            ctx.fillText(line, textX, lineY, width - 20); // maxWidth with padding
                           });
                         });
                         return;
@@ -1911,13 +2019,21 @@ export default function EditPhoto() {
                   });
 
                   let downloadBlob = videoBlob;
-                  let downloadExtension = videoBlob.type === 'video/mp4' ? 'mp4' : 'webm';
-                  let downloadMime = videoBlob.type || (downloadExtension === 'mp4' ? 'video/mp4' : 'video/webm');
+                  let downloadExtension = 'mp4'; // Default to MP4
+                  let downloadMime = videoBlob.type || 'video/mp4';
 
-                  const needsMp4Conversion = downloadBlob.type !== 'video/mp4';
+                  // Check if conversion is needed
+                  // Skip conversion for: MP4 format OR H.264 codec (even in WebM container)
+                  const needsConversion = !(
+                    videoBlob.type === 'video/mp4' || 
+                    videoBlob.type.includes('codecs=h264') ||
+                    videoBlob.type.includes('codecs=avc1')
+                  );
 
-                  if (needsMp4Conversion) {
-                    setSaveMessage('🔄 Mengonversi video ke MP4...');
+                  if (needsConversion) {
+                    console.log('⚠️ Video needs conversion:', videoBlob.type);
+                    setSaveMessage('🔄 Mengonversi video ke MP4 (ini memakan waktu)...');
+                    
                     try {
                       const mp4Blob = await convertBlobToMp4(videoBlob, {
                         frameRate: 25,
@@ -1930,16 +2046,34 @@ export default function EditPhoto() {
                         downloadExtension = 'mp4';
                         downloadMime = 'video/mp4';
                         console.log('✅ Video converted to MP4:', {
-                          sizeKB: (mp4Blob.size / 1024).toFixed(2),
+                          originalType: videoBlob.type,
+                          originalSizeKB: (videoBlob.size / 1024).toFixed(2),
+                          convertedSizeKB: (mp4Blob.size / 1024).toFixed(2),
                         });
                       } else {
                         console.warn('⚠️ MP4 conversion returned empty result, falling back to original blob');
+                        // Use WebM as fallback
+                        downloadExtension = 'webm';
                       }
                     } catch (conversionError) {
                       console.error('❌ MP4 conversion failed, using original recording:', conversionError);
+                      // Use WebM as fallback
+                      downloadExtension = 'webm';
                     }
                   } else {
-                    console.log('🎯 Skipping MP4 conversion — recorder already produced MP4 output.');
+                    console.log('✅ Video already in compatible format, skipping conversion!', {
+                      type: videoBlob.type,
+                      sizeKB: (videoBlob.size / 1024).toFixed(2)
+                    });
+                    
+                    // Keep appropriate extension
+                    if (videoBlob.type === 'video/mp4') {
+                      downloadExtension = 'mp4';
+                    } else if (videoBlob.type.includes('webm')) {
+                      // H.264 in WebM container - save as MP4 for better compatibility
+                      downloadExtension = 'mp4';
+                      downloadMime = 'video/mp4';
+                    }
                   }
 
                   // Download video

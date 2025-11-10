@@ -534,6 +534,7 @@ export default function Create() {
     maxHeight: 500,
   });
   const hasLoadedDraftRef = useRef(false);
+  const isLoadingDraftRef = useRef(false); // NEW: Track when actively loading a draft
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -602,6 +603,13 @@ export default function Create() {
   useEffect(() => {
     // Clear stale cache (older than 24 hours)
     clearStaleFrameCache();
+    
+    // ✅ CRITICAL FIX: Skip this effect while loading a draft
+    // This prevents interference with draft loading process
+    if (isLoadingDraftRef.current) {
+      console.log('⏭️ [useEffect] Skipping overlay injection - draft is loading');
+      return;
+    }
     
     const storedPhotos = safeStorage.getJSON('capturedPhotos');
     const hasStoredPhotos = Array.isArray(storedPhotos) && storedPhotos.length > 0;
@@ -925,7 +933,7 @@ export default function Create() {
   }, []);
 
   const loadDraftIntoEditor = useCallback(
-    (draftId, { notify = true } = {}) => {
+    async (draftId, { notify = true } = {}) => {
       console.log('🎬 [loadDraftIntoEditor] STARTED with draftId:', draftId);
       
       if (!draftId) {
@@ -933,7 +941,12 @@ export default function Create() {
         return false;
       }
 
-      const draft = draftStorage.getDraftById(draftId);
+      // ✅ CRITICAL FIX: Set loading flag to prevent useEffect interference
+      isLoadingDraftRef.current = true;
+      console.log('🔒 [loadDraftIntoEditor] Set loading flag to TRUE');
+
+      // ✅ CRITICAL FIX: getDraftById is async, must await it!
+      const draft = await draftStorage.getDraftById(draftId);
       console.log('📦 [loadDraftIntoEditor] Draft from storage:', {
         found: !!draft,
         id: draft?.id,
@@ -946,6 +959,7 @@ export default function Create() {
         if (notify) {
           showToast("error", "Draft tidak ditemukan.");
         }
+        isLoadingDraftRef.current = false; // Reset flag on error
         return false;
       }
 
@@ -974,46 +988,22 @@ export default function Create() {
         return el;
       });
 
-      // Add frame artwork if it was saved with the draft
-      // OR use the preview as frame artwork if no explicit artwork was saved
-      const hasFrameArtwork = !!draft.frameArtwork;
-      const shouldUsePreviewAsArtwork = !hasFrameArtwork && draft.preview && draft.capturedPhotos?.length > 0;
+      // ✅ FIX: Don't add frame artwork when loading draft!
+      // The draft.elements already contains all elements including frame artwork if it was saved
+      // Adding it again here causes DUPLICATION (frame appears 2x)
+      // 
+      // REMOVED CODE:
+      // - Check for draft.frameArtwork
+      // - Use draft.preview as fallback
+      // - Create and push artworkElement
+      //
+      // WHY: Draft should be self-contained with all elements
+      // Frame artwork was already saved in draft.elements when template was created
       
-      if (hasFrameArtwork || shouldUsePreviewAsArtwork) {
-        const artworkData = hasFrameArtwork ? draft.frameArtwork : {
-          image: draft.preview,
-          x: 0,
-          y: 0,
-          width: CANVAS_WIDTH,
-          height: CANVAS_HEIGHT,
-          zIndex: 1000,
-          rotation: 0,
-        };
-        
-        console.log('🖼️ [loadDraftIntoEditor] Adding frame artwork element', {
-          source: hasFrameArtwork ? 'saved' : 'preview',
-          hasPhotos: draft.capturedPhotos?.length || 0
-        });
-        
-        const artworkElement = {
-          id: `frame-artwork-${Date.now()}`,
-          type: 'upload',
-          x: artworkData.x || 0,
-          y: artworkData.y || 0,
-          width: artworkData.width || CANVAS_WIDTH,
-          height: artworkData.height || CANVAS_HEIGHT,
-          rotation: artworkData.rotation || 0,
-          zIndex: artworkData.zIndex || 1000,
-          isLocked: true,
-          data: {
-            image: artworkData.image,
-            objectFit: 'cover',
-            label: 'Frame Artwork',
-            __isFrameArtwork: true,
-          },
-        };
-        clonedElements.push(artworkElement);
-      }
+      console.log('📋 [loadDraftIntoEditor] Cloned elements (WITHOUT adding frame artwork separately):', {
+        count: clonedElements.length,
+        types: clonedElements.map(el => el.type),
+      });
 
   const targetAspectRatio = deriveAspectRatioFromDraft(draft);
       const targetDimensions = getCanvasDimensions(targetAspectRatio);
@@ -1031,12 +1021,33 @@ export default function Create() {
     ? scaledElements.filter((element) => element?.type !== 'transparent-area')
     : [];
   const normalizedElements = normalizePhotoLayering(withoutTransparentAreas);
-  const runtimeElements = injectCapturedPhotoOverlays(normalizedElements);
+  
+  // ✅ CRITICAL FIX: Don't inject overlays when loading draft
+  // The draft should already have all elements it needs
+  // Injecting overlays here causes issues with z-index and element visibility
+  // The useEffect will handle overlay injection later if needed (but we skip it with the loading flag)
+  console.log('✅ [loadDraftIntoEditor] Using normalized elements WITHOUT overlay injection:', {
+    elementsCount: normalizedElements.length,
+    types: normalizedElements.map(el => ({ type: el.type, zIndex: el.zIndex })),
+  });
+  
+  const runtimeElements = normalizedElements; // Don't inject overlays during load
 
   console.log('✅ [loadDraftIntoEditor] Setting elements:', {
     normalizedCount: normalizedElements.length,
     runtimeCount: runtimeElements.length,
     aspectRatio: targetAspectRatio,
+    detailedElements: runtimeElements.map(el => ({
+      id: el.id?.slice(0, 8),
+      type: el.type,
+      x: el.x,
+      y: el.y,
+      width: el.width,
+      height: el.height,
+      zIndex: el.zIndex,
+      hasImage: !!el.data?.image,
+      text: el.data?.text,
+    })),
   });
 
   setCanvasAspectRatio(targetAspectRatio);
@@ -1062,6 +1073,13 @@ export default function Create() {
       }
 
       hasLoadedDraftRef.current = true;
+
+      // ✅ CRITICAL FIX: Clear loading flag after elements are set
+      // Use setTimeout to allow React to complete the render cycle
+      setTimeout(() => {
+        isLoadingDraftRef.current = false;
+        console.log('🔓 [loadDraftIntoEditor] Cleared loading flag');
+      }, 100);
 
       if (notify) {
         showToast("success", "Draft dimuat. Lanjutkan edit sesuai kebutuhan.");
@@ -1099,8 +1117,14 @@ export default function Create() {
       // User clicked "Lihat Frame" from Drafts page - load the draft
       console.log('📂 [Create] Loading draft from Drafts page:', draftId);
       hasLoadedDraftRef.current = false; // Reset before loading
-      const success = loadDraftIntoEditor(draftId, { notify: true });
-      console.log('📂 [Create] loadDraftIntoEditor result:', success);
+      
+      // ✅ CRITICAL FIX: loadDraftIntoEditor is now async, must await it
+      loadDraftIntoEditor(draftId, { notify: true }).then((success) => {
+        console.log('📂 [Create] loadDraftIntoEditor result:', success);
+      }).catch((error) => {
+        console.error('❌ [Create] Failed to load draft:', error);
+      });
+      
       navigate(location.pathname, { replace: true, state: null });
     } else if (!hasLoadedDraftRef.current) {
       // User entered Create page directly - reset ONLY on first mount
@@ -1129,15 +1153,19 @@ export default function Create() {
       return;
     }
 
-    const loaded = loadDraftIntoEditor(storedDraftId, { notify: false });
-    if (loaded) {
-      const storedSignature = safeStorage.getItem("activeDraftSignature");
-      const draft = draftStorage.getDraftById(storedDraftId);
-      if (storedSignature && draft?.signature && storedSignature !== draft.signature) {
-        // Signature mismatch - update storage to reflect current draft state
-        safeStorage.setItem("activeDraftSignature", draft.signature);
+    // ✅ CRITICAL FIX: loadDraftIntoEditor is async
+    loadDraftIntoEditor(storedDraftId, { notify: false }).then(async (loaded) => {
+      if (loaded) {
+        const storedSignature = safeStorage.getItem("activeDraftSignature");
+        const draft = await draftStorage.getDraftById(storedDraftId);
+        if (storedSignature && draft?.signature && storedSignature !== draft.signature) {
+          // Signature mismatch - update storage to reflect current draft state
+          safeStorage.setItem("activeDraftSignature", draft.signature);
+        }
       }
-    }
+    }).catch((error) => {
+      console.error('❌ [Create] Failed to load stored draft:', error);
+    });
   }, [loadDraftIntoEditor]);
 
   useEffect(() => {
@@ -1666,27 +1694,17 @@ export default function Create() {
         });
       }
 
-      // Check if there's a frame artwork element (upload element with very high z-index and locked)
-      const frameArtworkElement = serializedElements.find(
-        (el) => 
-          el?.type === 'upload' && 
-          el?.isLocked === true && 
-          el?.data?.__isFrameArtwork === true
-      );
-
-      let frameArtwork = null;
-      if (frameArtworkElement) {
-        frameArtwork = {
-          image: frameArtworkElement.data.image,
-          x: frameArtworkElement.x,
-          y: frameArtworkElement.y,
-          width: frameArtworkElement.width,
-          height: frameArtworkElement.height,
-          zIndex: frameArtworkElement.zIndex,
-          rotation: frameArtworkElement.rotation,
-        };
-        console.log('🖼️ [SAVING DRAFT] Frame artwork found and saved');
-      }
+      // ✅ FIX: Don't save frameArtwork separately!
+      // Frame artwork is already included in compressedElements array
+      // Saving it separately causes duplication when loading
+      // 
+      // REMOVED CODE:
+      // - Find frameArtworkElement with __isFrameArtwork flag
+      // - Extract frame artwork data
+      // - Add frameArtwork property to draftDataToSave
+      //
+      // WHY: Elements array already contains all design elements including frame artwork
+      // No need to duplicate it in a separate property
 
       // Calculate total size before saving
       const draftDataToSave = {
@@ -1698,8 +1716,8 @@ export default function Create() {
         elements: compressedElements,
         preview: previewDataUrl,
         signature,
-  capturedPhotos: undefined,
-        frameArtwork: frameArtwork || undefined,
+        capturedPhotos: undefined,
+        // frameArtwork removed - already in elements array
       };
 
       const draftString = JSON.stringify(draftDataToSave);

@@ -444,30 +444,25 @@ const normalizeElementZOrder = (elements) => {
       return element;
     }
 
-    // Photo and upload elements can have z-index 0 or negative
-    // Don't force them to have minimum z-index
-    // IMPORTANT: Keep their current z-index if it's already set!
-    if (element.type === 'photo' || element.type === 'upload') {
-      // If element already has a valid z-index, KEEP IT!
-      if (Number.isFinite(element.zIndex)) {
-        return element;
-      }
-      
-      // Only set default if no z-index exists
-      const currentZ = PHOTO_SLOT_MIN_Z;
-      didMutate = true;
-      return { ...element, zIndex: currentZ };
-    }
-
-    // For text/shapes, keep existing z-index if it's already set
-    // Only assign new z-index if element doesn't have one
+    // ✅ CRITICAL FIX: ALL elements with existing z-index should be preserved!
+    // This includes photo, upload, text, shape - anything that already has z-index
+    // Only assign new z-index to elements that don't have one
     if (Number.isFinite(element.zIndex)) {
       // Element already has a z-index, KEEP IT!
+      // Update runningMax to track the highest z-index we've seen
       runningMax = element.zIndex > runningMax ? element.zIndex : runningMax;
       return element;
     }
 
-    // Only assign new z-index for elements without one
+    // Only elements WITHOUT z-index get assigned a new one
+    // Photo and upload elements default to PHOTO_SLOT_MIN_Z (0)
+    if (element.type === 'photo' || element.type === 'upload') {
+      const PHOTO_SLOT_MIN_Z = 0;
+      didMutate = true;
+      return { ...element, zIndex: PHOTO_SLOT_MIN_Z };
+    }
+
+    // Text/shapes without z-index get assigned incrementing values
     const nextZ = Math.max(runningMax + 1, NORMAL_ELEMENTS_MIN_Z);
     runningMax = nextZ;
     didMutate = true;

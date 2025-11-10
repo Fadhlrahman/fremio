@@ -595,10 +595,22 @@ function CanvasPreviewComponent({
     return interactionMetaRef.current.get(id);
   };
 
-  const sortedElements = useMemo(
-    () => [...elements].sort((a, b) => (a.zIndex ?? 1) - (b.zIndex ?? 1)),
-    [elements]
-  );
+  const sortedElements = useMemo(() => {
+    const sorted = [...elements].sort((a, b) => (a.zIndex ?? 1) - (b.zIndex ?? 1));
+    console.log('🎨 [CanvasPreview] sortedElements:', {
+      total: sorted.length,
+      elements: sorted.map(el => ({
+        id: el.id?.slice(0, 8),
+        type: el.type,
+        zIndex: el.zIndex,
+        x: el.x,
+        y: el.y,
+        width: el.width,
+        height: el.height,
+      }))
+    });
+    return sorted;
+  }, [elements]);
 
   const canvasDimensions = useMemo(() => {
     const defaultDimensions = { width: CANVAS_WIDTH, height: CANVAS_HEIGHT };

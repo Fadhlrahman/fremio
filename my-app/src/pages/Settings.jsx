@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import "../styles/profile.css";
 
 export default function Settings() {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const [activeTab, setActiveTab] = useState("account");
   const [savedPhoto, setSavedPhoto] = useState(null);
   const [tempPhoto, setTempPhoto] = useState(null);
@@ -15,6 +15,15 @@ export default function Settings() {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  // Profile edit state
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editedProfile, setEditedProfile] = useState({
+    firstName: "",
+    lastName: "",
+    username: "",
+    phone: "",
+  });
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -31,6 +40,18 @@ export default function Settings() {
       setSavedPhoto(savedPhotoData);
     }
   }, [user?.email]);
+
+  // Load profile data when entering edit mode
+  useEffect(() => {
+    if (isEditingProfile && user) {
+      setEditedProfile({
+        firstName: user.firstName || "",
+        lastName: user.lastName || "",
+        username: user.username || (user.email ? user.email.split("@")[0] : ""),
+        phone: user.phone || user.phoneNumber || "",
+      });
+    }
+  }, [isEditingProfile, user]);
 
   // Handle photo selection
   const handlePhotoChange = (e) => {
@@ -149,6 +170,53 @@ export default function Settings() {
       setIsEditing(false);
       localStorage.removeItem(`profilePhoto_${user?.email}`);
     }
+  };
+
+  // Handle profile edit
+  const handleEditProfile = () => {
+    setIsEditingProfile(true);
+  };
+
+  // Handle profile input change
+  const handleProfileChange = (field, value) => {
+    setEditedProfile((prev) => ({ ...prev, [field]: value }));
+  };
+
+  // Save profile changes
+  const handleSaveProfile = () => {
+    // Validate required fields
+    if (!editedProfile.firstName.trim()) {
+      alert("First name is required");
+      return;
+    }
+
+    // Save to localStorage and update context
+    const profileData = {
+      ...user,
+      firstName: editedProfile.firstName.trim(),
+      lastName: editedProfile.lastName.trim(),
+      username: editedProfile.username.trim(),
+      phone: editedProfile.phone.trim(),
+      phoneNumber: editedProfile.phone.trim(), // Keep both for compatibility
+      name: `${editedProfile.firstName.trim()} ${editedProfile.lastName.trim()}`.trim(),
+    };
+
+    // Update user in context (this will also save to localStorage)
+    updateUser(profileData);
+
+    alert("Profile updated successfully!");
+    setIsEditingProfile(false);
+  };
+
+  // Cancel profile edit
+  const handleCancelProfileEdit = () => {
+    setIsEditingProfile(false);
+    setEditedProfile({
+      firstName: "",
+      lastName: "",
+      username: "",
+      phone: "",
+    });
   };
 
   // Get display photo
@@ -558,50 +626,223 @@ export default function Settings() {
                     )}
                   </div>
 
-                  <div className="profile-row">
-                    <div className="label">Full Name</div>
-                    <div className="value">
-                      {user?.name ||
-                        `${user?.firstName || ""} ${
-                          user?.lastName || ""
-                        }`.trim() ||
-                        "-"}
-                    </div>
-                  </div>
-                  <div className="profile-row">
-                    <div className="label">Username</div>
-                    <div className="value">
-                      {user?.username ||
-                        (user?.email ? user.email.split("@")[0] : "-")}
-                    </div>
-                  </div>
-                  <div className="profile-row">
-                    <div className="label">Email Address</div>
-                    <div className="value">{user?.email || "-"}</div>
-                  </div>
-                  <div className="profile-row">
-                    <div className="label">Phone Number</div>
-                    <div className="value">
-                      {user?.phone || user?.phoneNumber || "-"}
-                    </div>
-                  </div>
+                  {!isEditingProfile ? (
+                    <>
+                      <div className="profile-row">
+                        <div className="label">Full Name</div>
+                        <div className="value">
+                          {user?.name ||
+                            `${user?.firstName || ""} ${
+                              user?.lastName || ""
+                            }`.trim() ||
+                            "-"}
+                        </div>
+                      </div>
+                      <div className="profile-row">
+                        <div className="label">Username</div>
+                        <div className="value">
+                          {user?.username ||
+                            (user?.email ? user.email.split("@")[0] : "-")}
+                        </div>
+                      </div>
+                      <div className="profile-row">
+                        <div className="label">Email Address</div>
+                        <div className="value">{user?.email || "-"}</div>
+                      </div>
+                      <div className="profile-row">
+                        <div className="label">Phone Number</div>
+                        <div className="value">
+                          {user?.phone || user?.phoneNumber || "-"}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* Edit Mode - Form Inputs */}
+                      <div className="profile-row">
+                        <div className="label">First Name *</div>
+                        <div className="value">
+                          <input
+                            type="text"
+                            value={editedProfile.firstName}
+                            onChange={(e) =>
+                              handleProfileChange("firstName", e.target.value)
+                            }
+                            placeholder="Enter first name"
+                            style={{
+                              width: "100%",
+                              padding: "10px 12px",
+                              border: "1px solid #ddd",
+                              borderRadius: "8px",
+                              fontSize: "14px",
+                              transition: "all 0.2s",
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div className="profile-row">
+                        <div className="label">Last Name</div>
+                        <div className="value">
+                          <input
+                            type="text"
+                            value={editedProfile.lastName}
+                            onChange={(e) =>
+                              handleProfileChange("lastName", e.target.value)
+                            }
+                            placeholder="Enter last name"
+                            style={{
+                              width: "100%",
+                              padding: "10px 12px",
+                              border: "1px solid #ddd",
+                              borderRadius: "8px",
+                              fontSize: "14px",
+                              transition: "all 0.2s",
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div className="profile-row">
+                        <div className="label">Username</div>
+                        <div className="value">
+                          <input
+                            type="text"
+                            value={editedProfile.username}
+                            onChange={(e) =>
+                              handleProfileChange("username", e.target.value)
+                            }
+                            placeholder="Enter username"
+                            style={{
+                              width: "100%",
+                              padding: "10px 12px",
+                              border: "1px solid #ddd",
+                              borderRadius: "8px",
+                              fontSize: "14px",
+                              transition: "all 0.2s",
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div className="profile-row">
+                        <div className="label">Email Address</div>
+                        <div
+                          className="value"
+                          style={{
+                            fontSize: "14px",
+                            color: "#999",
+                            fontStyle: "italic",
+                          }}
+                        >
+                          {user?.email || "-"} (Cannot be changed)
+                        </div>
+                      </div>
+                      <div className="profile-row">
+                        <div className="label">Phone Number</div>
+                        <div className="value">
+                          <input
+                            type="tel"
+                            value={editedProfile.phone}
+                            onChange={(e) =>
+                              handleProfileChange("phone", e.target.value)
+                            }
+                            placeholder="Enter phone number"
+                            style={{
+                              width: "100%",
+                              padding: "10px 12px",
+                              border: "1px solid #ddd",
+                              borderRadius: "8px",
+                              fontSize: "14px",
+                              transition: "all 0.2s",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
-                <div style={{ marginTop: "20px" }}>
-                  <button
-                    style={{
-                      padding: "12px 24px",
-                      background: "linear-gradient(to right, #e0b7a9, #c89585)",
-                      color: "#fff",
-                      border: "none",
-                      borderRadius: "10px",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      transition: "all 0.2s",
-                    }}
-                    onClick={() => alert("Edit profile feature coming soon!")}
-                  >
-                    Edit Profile
-                  </button>
+                <div
+                  style={{
+                    marginTop: "20px",
+                    display: "flex",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {!isEditingProfile ? (
+                    <button
+                      style={{
+                        padding: "12px 24px",
+                        background:
+                          "linear-gradient(to right, #e0b7a9, #c89585)",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: "10px",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        transition: "all 0.2s",
+                      }}
+                      onClick={handleEditProfile}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = "translateY(-2px)";
+                        e.currentTarget.style.boxShadow =
+                          "0 4px 12px rgba(224, 183, 169, 0.4)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = "translateY(0)";
+                        e.currentTarget.style.boxShadow = "none";
+                      }}
+                    >
+                      ✏️ Edit Profile
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        style={{
+                          padding: "12px 24px",
+                          background:
+                            "linear-gradient(to right, #10b981, #059669)",
+                          color: "#fff",
+                          border: "none",
+                          borderRadius: "10px",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          transition: "all 0.2s",
+                        }}
+                        onClick={handleSaveProfile}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow =
+                            "0 4px 12px rgba(16, 185, 129, 0.4)";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow = "none";
+                        }}
+                      >
+                        ✓ Save Changes
+                      </button>
+                      <button
+                        style={{
+                          padding: "12px 24px",
+                          background: "#fff",
+                          color: "#666",
+                          border: "1px solid #ddd",
+                          borderRadius: "10px",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          transition: "all 0.2s",
+                        }}
+                        onClick={handleCancelProfileEdit}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = "#f5f5f5";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = "#fff";
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )}

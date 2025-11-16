@@ -6,6 +6,7 @@ import {
   getAllFrames,
   preloadFrameConfigs,
 } from "../config/frameConfigManager.js";
+import { getCustomFrameConfig } from "../services/customFrameService.js";
 import safeStorage from "./safeStorage.js";
 import userStorage from "./userStorage.js";
 import { sanitizeFrameConfigForStorage } from "./frameConfigSanitizer.js";
@@ -20,6 +21,43 @@ export class FrameDataProvider {
     this.currentFrame = null;
     this.currentConfig = null;
     this.isLoading = false;
+  }
+
+  // Set custom frame from admin upload
+  async setCustomFrame(frameData) {
+    console.log(`🎨 setCustomFrame called with:`, frameData);
+
+    if (!frameData || !frameData.id) {
+      console.error("Frame data is required to set custom frame.");
+      return false;
+    }
+
+    this.isLoading = true;
+
+    try {
+      // Get the proper config format
+      const config = getCustomFrameConfig(frameData.id);
+
+      if (!config) {
+        throw new Error(`Custom frame config for "${frameData.id}" not found`);
+      }
+
+      this.currentFrame = frameData.id;
+      this.currentConfig = config;
+
+      console.log(`✅ Custom frame "${frameData.id}" set successfully`);
+      console.log("  - Max captures:", config.maxCaptures);
+      console.log("  - Slots count:", config.slots?.length);
+      console.log("  - Image path:", config.imagePath ? "✓" : "✗");
+
+      this.persistFrameSelection(frameData.id, config);
+      return true;
+    } catch (error) {
+      console.error(`❌ Error setting custom frame:`, error);
+      return false;
+    } finally {
+      this.isLoading = false;
+    }
   }
 
   // Set frame yang akan digunakan (now async)

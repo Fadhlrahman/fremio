@@ -1,56 +1,75 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
-import { isFirebaseConfigured } from '../../config/firebase';
-import { FRAME_STATUS } from '../../config/firebaseCollections';
-import { 
-  FileImage, 
-  CheckCircle, 
-  XCircle, 
-  AlertCircle, 
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../contexts/AuthContext";
+import { isFirebaseConfigured } from "../../config/firebase";
+import { FRAME_STATUS } from "../../config/firebaseCollections";
+import { getAllCustomFrames } from "../../services/customFrameService";
+import "../../styles/admin.css";
+import {
+  FileImage,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
   Eye,
   Download,
   Heart,
   Clock,
-} from 'lucide-react';
+} from "lucide-react";
 
 export default function AdminFrames() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
 
   const [frames, setFrames] = useState([]);
-  const [stats, setStats] = useState({ total: 0, pending: 0, approved: 0, rejected: 0, draft: 0 });
+  const [stats, setStats] = useState({
+    total: 0,
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+    draft: 0,
+  });
   const [loading, setLoading] = useState(false);
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStatus, setFilterStatus] = useState("all");
   const [selectedFrame, setSelectedFrame] = useState(null);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showChangesModal, setShowChangesModal] = useState(false);
-  const [feedback, setFeedback] = useState('');
+  const [feedback, setFeedback] = useState("");
   const [processing, setProcessing] = useState(false);
 
-  // Fetch frames (only if Firebase configured)
+  // Fetch frames (Firebase or LocalStorage custom frames)
   useEffect(() => {
     if (!isFirebaseConfigured) {
-      setFrames([]);
-      setStats({ total: 0, pending: 0, approved: 0, rejected: 0, draft: 0 });
+      // Load custom frames from localStorage
+      const customFrames = getAllCustomFrames(true); // includeAll = true for admin
+      setFrames(customFrames);
+
+      // Calculate stats from custom frames
+      const statsData = {
+        total: customFrames.length,
+        pending: customFrames.filter((f) => f.status === "PENDING_REVIEW")
+          .length,
+        approved: customFrames.filter((f) => f.status === "APPROVED").length,
+        rejected: customFrames.filter((f) => f.status === "REJECTED").length,
+        draft: customFrames.filter((f) => f.status === "DRAFT").length,
+      };
+      setStats(statsData);
       return;
     }
-    
+
     fetchData();
   }, [filterStatus]);
 
   const fetchData = async () => {
     if (!isFirebaseConfigured) return;
-    
+
     setLoading(true);
 
     try {
-      const {
-        getAllFrames,
-        getFrameStats,
-      } = await import('../../services/frameManagementService');
-      
-      const statusFilter = filterStatus === 'all' ? null : filterStatus;
+      const { getAllFrames, getFrameStats } = await import(
+        "../../services/frameManagementService"
+      );
+
+      const statusFilter = filterStatus === "all" ? null : filterStatus;
       const [framesData, statsData] = await Promise.all([
         getAllFrames(statusFilter),
         getFrameStats(),
@@ -59,37 +78,41 @@ export default function AdminFrames() {
       setFrames(framesData);
       setStats(statsData);
     } catch (error) {
-      console.error('Error fetching frames:', error);
+      console.error("Error fetching frames:", error);
     }
-    
+
     setLoading(false);
   };
 
   const handleApprove = async (frameId) => {
     if (!isFirebaseConfigured) {
-      alert('Firebase not configured. This feature requires Firebase setup.');
+      alert("Firebase not configured. This feature requires Firebase setup.");
       return;
     }
-    
-    if (!window.confirm('Approve this frame and publish it to the marketplace?')) {
+
+    if (
+      !window.confirm("Approve this frame and publish it to the marketplace?")
+    ) {
       return;
     }
 
     setProcessing(true);
-    
+
     try {
-      const { approveFrame } = await import('../../services/frameManagementService');
+      const { approveFrame } = await import(
+        "../../services/frameManagementService"
+      );
       const result = await approveFrame(frameId, currentUser.uid);
 
       if (result.success) {
-        alert('Frame approved and published!');
+        alert("Frame approved and published!");
         fetchData();
       } else {
-        alert(result.message || 'Failed to approve frame');
+        alert(result.message || "Failed to approve frame");
       }
     } catch (error) {
-      console.error('Error approving frame:', error);
-      alert('Failed to approve frame');
+      console.error("Error approving frame:", error);
+      alert("Failed to approve frame");
     }
 
     setProcessing(false);
@@ -97,21 +120,39 @@ export default function AdminFrames() {
 
   const handleReject = async () => {
     if (!feedback.trim()) {
-      alert('Please provide a rejection reason');
+      alert("Please provide a rejection reason");
+      return;
+    }
+
+    if (!isFirebaseConfigured) {
+      alert("Firebase not configured. This feature requires Firebase setup.");
       return;
     }
 
     setProcessing(true);
-    const result = await rejectFrame(selectedFrame.id, currentUser.uid, feedback);
 
-    if (result.success) {
-      alert('Frame rejected');
-      setShowRejectModal(false);
-      setFeedback('');
-      setSelectedFrame(null);
-      fetchData();
-    } else {
-      alert(result.message || 'Failed to reject frame');
+    try {
+      const { rejectFrame } = await import(
+        "../../services/frameManagementService"
+      );
+      const result = await rejectFrame(
+        selectedFrame.id,
+        currentUser.uid,
+        feedback
+      );
+
+      if (result.success) {
+        alert("Frame rejected");
+        setShowRejectModal(false);
+        setFeedback("");
+        setSelectedFrame(null);
+        fetchData();
+      } else {
+        alert(result.message || "Failed to reject frame");
+      }
+    } catch (error) {
+      console.error("Error rejecting frame:", error);
+      alert("Failed to reject frame");
     }
 
     setProcessing(false);
@@ -119,21 +160,39 @@ export default function AdminFrames() {
 
   const handleRequestChanges = async () => {
     if (!feedback.trim()) {
-      alert('Please provide feedback for changes');
+      alert("Please provide feedback for changes");
+      return;
+    }
+
+    if (!isFirebaseConfigured) {
+      alert("Firebase not configured. This feature requires Firebase setup.");
       return;
     }
 
     setProcessing(true);
-    const result = await requestFrameChanges(selectedFrame.id, currentUser.uid, feedback);
 
-    if (result.success) {
-      alert('Change request sent to kreator');
-      setShowChangesModal(false);
-      setFeedback('');
-      setSelectedFrame(null);
-      fetchData();
-    } else {
-      alert(result.message || 'Failed to request changes');
+    try {
+      const { requestFrameChanges } = await import(
+        "../../services/frameManagementService"
+      );
+      const result = await requestFrameChanges(
+        selectedFrame.id,
+        currentUser.uid,
+        feedback
+      );
+
+      if (result.success) {
+        alert("Change request sent to kreator");
+        setShowChangesModal(false);
+        setFeedback("");
+        setSelectedFrame(null);
+        fetchData();
+      } else {
+        alert(result.message || "Failed to request changes");
+      }
+    } catch (error) {
+      console.error("Error requesting changes:", error);
+      alert("Failed to request changes");
     }
 
     setProcessing(false);
@@ -152,86 +211,136 @@ export default function AdminFrames() {
   const closeModals = () => {
     setShowRejectModal(false);
     setShowChangesModal(false);
-    setFeedback('');
+    setFeedback("");
     setSelectedFrame(null);
   };
 
-  if (roleLoading || loading) {
+  if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-600 mb-4"></div>
-          <p className="text-gray-600">Loading frames...</p>
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <div
+            style={{
+              display: "inline-block",
+              width: "48px",
+              height: "48px",
+              border: "4px solid #f3f4f6",
+              borderTop: "4px solid var(--accent)",
+              borderRadius: "50%",
+              animation: "spin 1s linear infinite",
+              marginBottom: "16px",
+            }}
+          ></div>
+          <p style={{ color: "var(--text-secondary)" }}>Loading frames...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-7xl mx-auto">
+    <div
+      style={{
+        background:
+          "linear-gradient(180deg, #fdf7f4 0%, #fff 50%, #f7f1ed 100%)",
+        minHeight: "100vh",
+        padding: "32px 0 48px",
+      }}
+    >
+      <div style={{ maxWidth: "1120px", margin: "0 auto", padding: "0 16px" }}>
         {/* Firebase Warning Banner */}
         {!isFirebaseConfigured && (
-          <div className="mb-6 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg">
-            <div className="flex items-start gap-3">
-              <AlertCircle size={24} className="text-yellow-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <h3 className="text-sm font-semibold text-yellow-800 mb-1">
-                  LocalStorage Mode - UI Preview Only
-                </h3>
-                <p className="text-sm text-yellow-700">
-                  Firebase is not configured. Frames list and actions are disabled. 
-                  Setup Firebase to enable full functionality.
-                </p>
-              </div>
+          <div className="admin-alert">
+            <AlertCircle size={24} className="admin-alert-icon" />
+            <div>
+              <h3 className="admin-alert-title">
+                LocalStorage Mode - UI Preview Only
+              </h3>
+              <p className="admin-alert-message">
+                Firebase is not configured. Frames list and actions are
+                disabled. Setup Firebase to enable full functionality.
+              </p>
             </div>
           </div>
         )}
 
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Frame Management</h1>
-          <p className="text-gray-600">Review and manage community frames</p>
+        <div style={{ marginBottom: "32px" }}>
+          <h1
+            style={{
+              fontSize: "clamp(22px, 4vw, 34px)",
+              fontWeight: "800",
+              color: "#222",
+              margin: "0 0 8px",
+            }}
+          >
+            Frame Management
+          </h1>
+          <p style={{ color: "var(--text-secondary)", fontSize: "15px" }}>
+            Review and manage community-submitted frames
+          </p>
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-          <StatCard title="Total" value={stats.total} color="bg-blue-500" />
-          <StatCard title="Pending" value={stats.pending} color="bg-yellow-500" />
-          <StatCard title="Approved" value={stats.approved} color="bg-green-500" />
-          <StatCard title="Rejected" value={stats.rejected} color="bg-red-500" />
-          <StatCard title="Draft" value={stats.draft} color="bg-gray-500" />
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: "16px",
+            marginBottom: "32px",
+          }}
+        >
+          <StatCard title="Total" value={stats.total} color="#3b82f6" />
+          <StatCard title="Pending" value={stats.pending} color="#f59e0b" />
+          <StatCard title="Approved" value={stats.approved} color="#10b981" />
+          <StatCard title="Rejected" value={stats.rejected} color="#ef4444" />
+          <StatCard title="Draft" value={stats.draft} color="#6b7280" />
         </div>
 
         {/* Filter Tabs */}
-        <div className="bg-white rounded-lg shadow p-2 mb-6 flex flex-wrap gap-2">
+        <div
+          className="admin-card"
+          style={{
+            padding: "12px",
+            marginBottom: "24px",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "8px",
+          }}
+        >
           <FilterButton
-            active={filterStatus === 'all'}
-            onClick={() => setFilterStatus('all')}
+            active={filterStatus === "all"}
+            onClick={() => setFilterStatus("all")}
             label="All"
             count={stats.total}
           />
           <FilterButton
-            active={filterStatus === FRAME_STATUS.pending_review}
-            onClick={() => setFilterStatus(FRAME_STATUS.pending_review)}
+            active={filterStatus === FRAME_STATUS.PENDING_REVIEW}
+            onClick={() => setFilterStatus(FRAME_STATUS.PENDING_REVIEW)}
             label="Pending Review"
             count={stats.pending}
           />
           <FilterButton
-            active={filterStatus === FRAME_STATUS.approved}
-            onClick={() => setFilterStatus(FRAME_STATUS.approved)}
+            active={filterStatus === FRAME_STATUS.APPROVED}
+            onClick={() => setFilterStatus(FRAME_STATUS.APPROVED)}
             label="Approved"
             count={stats.approved}
           />
           <FilterButton
-            active={filterStatus === FRAME_STATUS.rejected}
-            onClick={() => setFilterStatus(FRAME_STATUS.rejected)}
+            active={filterStatus === FRAME_STATUS.REJECTED}
+            onClick={() => setFilterStatus(FRAME_STATUS.REJECTED)}
             label="Rejected"
             count={stats.rejected}
           />
           <FilterButton
-            active={filterStatus === FRAME_STATUS.draft}
-            onClick={() => setFilterStatus(FRAME_STATUS.draft)}
+            active={filterStatus === FRAME_STATUS.DRAFT}
+            onClick={() => setFilterStatus(FRAME_STATUS.DRAFT)}
             label="Draft"
             count={stats.draft}
           />
@@ -239,12 +348,25 @@ export default function AdminFrames() {
 
         {/* Frames Grid */}
         {frames.length === 0 ? (
-          <div className="bg-white rounded-lg shadow p-12 text-center">
-            <FileImage size={48} className="text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-600">No frames found</p>
+          <div
+            className="admin-card"
+            style={{
+              padding: "60px 20px",
+              textAlign: "center",
+            }}
+          >
+            <FileImage
+              size={48}
+              style={{ margin: "0 auto 16px", color: "var(--text-secondary)" }}
+            />
+            <p style={{ color: "var(--text-secondary)", fontSize: "15px" }}>
+              No frames found
+            </p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "16px" }}
+          >
             {frames.map((frame) => (
               <FrameCard
                 key={frame.id}
@@ -297,12 +419,42 @@ export default function AdminFrames() {
 // Stat Card Component
 function StatCard({ title, value, color }) {
   return (
-    <div className="bg-white rounded-lg shadow p-4">
-      <div className={`${color} text-white p-2 rounded-lg w-10 h-10 flex items-center justify-center mb-2`}>
+    <div className="admin-card" style={{ padding: "20px" }}>
+      <div
+        style={{
+          backgroundColor: color,
+          color: "white",
+          padding: "10px",
+          borderRadius: "10px",
+          width: "44px",
+          height: "44px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: "12px",
+        }}
+      >
         <FileImage size={20} />
       </div>
-      <p className="text-2xl font-bold text-gray-900 mb-1">{value}</p>
-      <p className="text-sm text-gray-600">{title}</p>
+      <p
+        style={{
+          fontSize: "28px",
+          fontWeight: "800",
+          color: "#2d1b14",
+          marginBottom: "6px",
+        }}
+      >
+        {value}
+      </p>
+      <p
+        style={{
+          fontSize: "14px",
+          color: "#8b7064",
+          fontWeight: "500",
+        }}
+      >
+        {title}
+      </p>
     </div>
   );
 }
@@ -312,9 +464,29 @@ function FilterButton({ active, onClick, label, count }) {
   return (
     <button
       onClick={onClick}
-      className={`px-4 py-2 rounded-md font-medium transition-colors ${
-        active ? 'bg-purple-600 text-white' : 'text-gray-700 hover:bg-gray-100'
-      }`}
+      style={{
+        padding: "10px 18px",
+        borderRadius: "10px",
+        fontWeight: "600",
+        fontSize: "14px",
+        transition: "all 0.3s ease",
+        border: "none",
+        cursor: "pointer",
+        backgroundColor: active ? "#e0b7a9" : "transparent",
+        color: active ? "white" : "#8b7064",
+        boxShadow: active ? "0 4px 8px rgba(224, 183, 169, 0.3)" : "none",
+        transform: active ? "translateY(-1px)" : "translateY(0)",
+      }}
+      onMouseEnter={(e) => {
+        if (!active) {
+          e.currentTarget.style.backgroundColor = "#faf6f5";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!active) {
+          e.currentTarget.style.backgroundColor = "transparent";
+        }
+      }}
     >
       {label} ({count})
     </button>
@@ -322,76 +494,206 @@ function FilterButton({ active, onClick, label, count }) {
 }
 
 // Frame Card Component
-function FrameCard({ frame, onApprove, onReject, onRequestChanges, processing }) {
+function FrameCard({
+  frame,
+  onApprove,
+  onReject,
+  onRequestChanges,
+  processing,
+}) {
   const getStatusBadge = (status) => {
     const configs = {
-      [FRAME_STATUS.draft]: { color: 'bg-gray-100 text-gray-800', label: 'Draft', icon: <Clock size={14} /> },
-      [FRAME_STATUS.pending_review]: { color: 'bg-yellow-100 text-yellow-800', label: 'Pending', icon: <Clock size={14} /> },
-      [FRAME_STATUS.approved]: { color: 'bg-green-100 text-green-800', label: 'Approved', icon: <CheckCircle size={14} /> },
-      [FRAME_STATUS.rejected]: { color: 'bg-red-100 text-red-800', label: 'Rejected', icon: <XCircle size={14} /> },
-      [FRAME_STATUS.request_changes]: { color: 'bg-orange-100 text-orange-800', label: 'Changes Requested', icon: <AlertCircle size={14} /> },
+      [FRAME_STATUS.DRAFT]: {
+        className: "admin-badge-secondary",
+        label: "Draft",
+        icon: <Clock size={14} />,
+      },
+      [FRAME_STATUS.PENDING_REVIEW]: {
+        className: "admin-badge-warning",
+        label: "Pending",
+        icon: <Clock size={14} />,
+      },
+      [FRAME_STATUS.APPROVED]: {
+        className: "admin-badge-success",
+        label: "Approved",
+        icon: <CheckCircle size={14} />,
+      },
+      [FRAME_STATUS.REJECTED]: {
+        className: "admin-badge-danger",
+        label: "Rejected",
+        icon: <XCircle size={14} />,
+      },
+      [FRAME_STATUS.REQUEST_CHANGES]: {
+        className: "admin-badge-warning",
+        label: "Changes Requested",
+        icon: <AlertCircle size={14} />,
+      },
     };
-    const config = configs[status] || configs.draft;
+    const config = configs[status] || configs[FRAME_STATUS.DRAFT];
     return (
-      <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${config.color}`}>
+      <div
+        className={config.className}
+        style={{ display: "flex", alignItems: "center", gap: "6px" }}
+      >
         {config.icon}
         {config.label}
       </div>
     );
   };
 
-  const isPending = frame.status === FRAME_STATUS.pending_review;
+  const isPending = frame.status === FRAME_STATUS.PENDING_REVIEW;
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <div className="flex gap-6">
+    <div className="admin-card" style={{ padding: "26px" }}>
+      <div style={{ display: "flex", gap: "24px" }}>
         {/* Thumbnail */}
-        <div className="flex-shrink-0 w-48 h-48 bg-gradient-to-br from-purple-100 to-blue-100 rounded-lg overflow-hidden">
+        <div
+          style={{
+            flexShrink: 0,
+            width: "200px",
+            height: "200px",
+            background: "linear-gradient(135deg, #fef3f0 0%, #f7ebe7 100%)",
+            borderRadius: "14px",
+            overflow: "hidden",
+            border: "2px solid var(--border)",
+          }}
+        >
           {frame.thumbnailUrl ? (
-            <img src={frame.thumbnailUrl} alt={frame.name} className="w-full h-full object-cover" />
+            <img
+              src={frame.thumbnailUrl}
+              alt={frame.name}
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+              }}
+            />
           ) : (
-            <div className="flex items-center justify-center h-full">
-              <FileImage size={48} className="text-gray-400" />
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                height: "100%",
+              }}
+            >
+              <FileImage size={48} style={{ color: "#c8b5ae" }} />
             </div>
           )}
         </div>
 
         {/* Content */}
-        <div className="flex-1">
-          <div className="flex items-start justify-between mb-3">
+        <div style={{ flex: 1 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              justifyContent: "space-between",
+              marginBottom: "16px",
+            }}
+          >
             <div>
-              <h3 className="text-xl font-bold text-gray-900 mb-1">{frame.name}</h3>
-              <p className="text-gray-600 mb-2">{frame.description || 'No description'}</p>
-              <p className="text-sm text-gray-500">
-                Created by: <span className="font-medium">{frame.creatorName || 'Unknown'}</span>
+              <h3
+                style={{
+                  fontSize: "22px",
+                  fontWeight: "800",
+                  color: "#2d1b14",
+                  marginBottom: "6px",
+                }}
+              >
+                {frame.name}
+              </h3>
+              <p
+                style={{
+                  color: "#8b7064",
+                  marginBottom: "10px",
+                  fontSize: "15px",
+                }}
+              >
+                {frame.description || "No description"}
+              </p>
+              <p
+                style={{
+                  fontSize: "14px",
+                  color: "#a89289",
+                  fontWeight: "500",
+                }}
+              >
+                Created by:{" "}
+                <span style={{ fontWeight: "700", color: "#6d5449" }}>
+                  {frame.creatorName || "Unknown"}
+                </span>
               </p>
             </div>
             {getStatusBadge(frame.status)}
           </div>
 
           {/* Stats */}
-          <div className="flex gap-6 mb-4">
-            <div className="flex items-center gap-2 text-gray-600">
+          <div
+            style={{
+              display: "flex",
+              gap: "24px",
+              marginBottom: "20px",
+              paddingTop: "12px",
+              borderTop: "1px solid var(--border)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                color: "#8b7064",
+              }}
+            >
               <Eye size={16} />
-              <span className="text-sm">{frame.views || 0} views</span>
+              <span style={{ fontSize: "14px", fontWeight: "600" }}>
+                {frame.views || 0} views
+              </span>
             </div>
-            <div className="flex items-center gap-2 text-gray-600">
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                color: "#8b7064",
+              }}
+            >
               <Download size={16} />
-              <span className="text-sm">{frame.uses || 0} uses</span>
+              <span style={{ fontSize: "14px", fontWeight: "600" }}>
+                {frame.uses || 0} uses
+              </span>
             </div>
-            <div className="flex items-center gap-2 text-gray-600">
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                color: "#8b7064",
+              }}
+            >
               <Heart size={16} />
-              <span className="text-sm">{frame.likes || 0} likes</span>
+              <span style={{ fontSize: "14px", fontWeight: "600" }}>
+                {frame.likes || 0} likes
+              </span>
             </div>
           </div>
 
           {/* Actions */}
           {isPending && (
-            <div className="flex gap-3">
+            <div
+              style={{
+                display: "flex",
+                gap: "12px",
+                paddingTop: "12px",
+                borderTop: "1px solid var(--border)",
+              }}
+            >
               <button
                 onClick={() => onApprove(frame.id)}
                 disabled={processing}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                className="admin-button-success"
+                style={{ display: "flex", alignItems: "center", gap: "8px" }}
               >
                 <CheckCircle size={18} />
                 Approve
@@ -399,7 +701,8 @@ function FrameCard({ frame, onApprove, onReject, onRequestChanges, processing })
               <button
                 onClick={() => onRequestChanges(frame)}
                 disabled={processing}
-                className="px-4 py-2 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                className="admin-button-warning"
+                style={{ display: "flex", alignItems: "center", gap: "8px" }}
               >
                 <AlertCircle size={18} />
                 Request Changes
@@ -407,7 +710,8 @@ function FrameCard({ frame, onApprove, onReject, onRequestChanges, processing })
               <button
                 onClick={() => onReject(frame)}
                 disabled={processing}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                className="admin-button-danger"
+                style={{ display: "flex", alignItems: "center", gap: "8px" }}
               >
                 <XCircle size={18} />
                 Reject
@@ -421,35 +725,97 @@ function FrameCard({ frame, onApprove, onReject, onRequestChanges, processing })
 }
 
 // Feedback Modal Component
-function FeedbackModal({ title, frame, feedback, setFeedback, onConfirm, onCancel, processing, buttonLabel, buttonColor, placeholder }) {
+function FeedbackModal({
+  title,
+  frame,
+  feedback,
+  setFeedback,
+  onConfirm,
+  onCancel,
+  processing,
+  buttonLabel,
+  buttonColor,
+  placeholder,
+}) {
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-        <h3 className="text-xl font-bold text-gray-900 mb-4">{title}</h3>
-        <p className="text-gray-600 mb-4">
-          Frame: <strong>{frame.name}</strong>
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(0, 0, 0, 0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "20px",
+        zIndex: 1000,
+      }}
+    >
+      <div
+        className="admin-card"
+        style={{
+          maxWidth: "500px",
+          width: "100%",
+          padding: "30px",
+          animation: "slideDown 0.3s ease",
+        }}
+      >
+        <h3
+          style={{
+            fontSize: "24px",
+            fontWeight: "800",
+            color: "#2d1b14",
+            marginBottom: "16px",
+          }}
+        >
+          {title}
+        </h3>
+        <p
+          style={{
+            color: "#8b7064",
+            marginBottom: "20px",
+            fontSize: "15px",
+          }}
+        >
+          Frame: <strong style={{ color: "#6d5449" }}>{frame.name}</strong>
         </p>
         <textarea
           value={feedback}
           onChange={(e) => setFeedback(e.target.value)}
           rows={4}
           placeholder={placeholder}
-          className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none mb-4"
+          className="admin-input"
+          style={{
+            width: "100%",
+            resize: "none",
+            marginBottom: "20px",
+            fontFamily: "inherit",
+          }}
         />
-        <div className="flex gap-3">
+        <div style={{ display: "flex", gap: "12px" }}>
           <button
             onClick={onCancel}
             disabled={processing}
-            className="flex-1 py-2 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-colors disabled:opacity-50"
+            className="admin-button-secondary"
+            style={{ flex: 1 }}
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
             disabled={processing || !feedback.trim()}
-            className={`flex-1 py-2 ${buttonColor} text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
+            className={
+              buttonColor.includes("red")
+                ? "admin-button-danger"
+                : "admin-button-warning"
+            }
+            style={{
+              flex: 1,
+              opacity: processing || !feedback.trim() ? 0.5 : 1,
+              cursor:
+                processing || !feedback.trim() ? "not-allowed" : "pointer",
+            }}
           >
-            {processing ? 'Processing...' : buttonLabel}
+            {processing ? "Processing..." : buttonLabel}
           </button>
         </div>
       </div>

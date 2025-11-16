@@ -6,7 +6,7 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const { authenticateUser } = useAuth();
-  
+
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -36,14 +36,29 @@ export default function Login() {
     }
 
     const result = authenticateUser(formData.email, formData.password);
-    
+
     if (result.success) {
-      const from = location.state?.from?.pathname || "/frames";
-      navigate(from, { replace: true });
+      // Check if user is admin and redirect accordingly
+      const storedUser = localStorage.getItem("fremio_user");
+      if (storedUser) {
+        const user = JSON.parse(storedUser);
+        if (user.role === "admin") {
+          // Admin goes to admin dashboard
+          navigate("/admin/dashboard", { replace: true });
+        } else {
+          // Regular users go to frames
+          const from = location.state?.from?.pathname || "/frames";
+          navigate(from, { replace: true });
+        }
+      } else {
+        // Fallback
+        const from = location.state?.from?.pathname || "/frames";
+        navigate(from, { replace: true });
+      }
     } else {
       setError(result.message);
     }
-    
+
     setLoading(false);
   };
 

@@ -1,0 +1,735 @@
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../contexts/AuthContext";
+import { isFirebaseConfigured } from "../../config/firebase";
+import "../../styles/admin.css";
+import {
+  Users,
+  Search,
+  Filter,
+  Mail,
+  Phone,
+  Calendar,
+  Shield,
+  User,
+  Ban,
+  CheckCircle,
+  AlertCircle,
+  Crown,
+  Trash2,
+  Edit,
+} from "lucide-react";
+
+export default function AdminUsers() {
+  const navigate = useNavigate();
+  const { currentUser } = useAuth();
+
+  const [users, setUsers] = useState([]);
+  const [filteredUsers, setFilteredUsers] = useState([]);
+  const [stats, setStats] = useState({
+    total: 0,
+    kreators: 0,
+    regular: 0,
+    active: 0,
+    banned: 0,
+  });
+  const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterRole, setFilterRole] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+
+  // Fetch users (only if Firebase configured)
+  useEffect(() => {
+    if (!isFirebaseConfigured) {
+      // Demo data for localStorage mode
+      const demoUsers = [
+        {
+          id: "1",
+          name: "Admin",
+          email: "admin@admin.com",
+          role: "admin",
+          status: "active",
+          createdAt: new Date().toISOString(),
+        },
+      ];
+      setUsers(demoUsers);
+      setFilteredUsers(demoUsers);
+      setStats({ total: 1, kreators: 0, regular: 0, active: 1, banned: 0 });
+      return;
+    }
+
+    fetchUsers();
+  }, []);
+
+  // Filter users based on search and filters
+  useEffect(() => {
+    let result = [...users];
+
+    // Search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(
+        (user) =>
+          user.name?.toLowerCase().includes(query) ||
+          user.email?.toLowerCase().includes(query) ||
+          user.phone?.toLowerCase().includes(query)
+      );
+    }
+
+    // Role filter
+    if (filterRole !== "all") {
+      result = result.filter((user) => user.role === filterRole);
+    }
+
+    // Status filter
+    if (filterStatus !== "all") {
+      result = result.filter((user) => user.status === filterStatus);
+    }
+
+    setFilteredUsers(result);
+  }, [searchQuery, filterRole, filterStatus, users]);
+
+  const fetchUsers = async () => {
+    if (!isFirebaseConfigured) return;
+
+    setLoading(true);
+
+    try {
+      const { getAllUsers, getUserStats } = await import(
+        "../../services/userService"
+      );
+      const usersData = await getAllUsers();
+      const statsData = await getUserStats();
+
+      setUsers(usersData);
+      setStats(statsData);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+    }
+
+    setLoading(false);
+  };
+
+  const handlePromoteToKreator = async (userId) => {
+    if (
+      !window.confirm(
+        "Promote this user to Kreator? They will be able to create and submit frames."
+      )
+    ) {
+      return;
+    }
+
+    if (!isFirebaseConfigured) {
+      alert("Firebase not configured. This feature requires Firebase setup.");
+      return;
+    }
+
+    try {
+      const { updateUserRole } = await import("../../services/userService");
+      const result = await updateUserRole(userId, "kreator", currentUser.uid);
+
+      if (result.success) {
+        alert("User promoted to Kreator!");
+        fetchUsers();
+      } else {
+        alert(result.message || "Failed to promote user");
+      }
+    } catch (error) {
+      console.error("Error promoting user:", error);
+      alert("Failed to promote user");
+    }
+  };
+
+  const handleBanUser = async (userId) => {
+    if (
+      !window.confirm(
+        "Ban this user? They will not be able to access the platform."
+      )
+    ) {
+      return;
+    }
+
+    if (!isFirebaseConfigured) {
+      alert("Firebase not configured. This feature requires Firebase setup.");
+      return;
+    }
+
+    try {
+      const { banUser } = await import("../../services/userService");
+      const result = await banUser(userId, currentUser.uid, "Banned by admin");
+
+      if (result.success) {
+        alert("User banned!");
+        fetchUsers();
+      } else {
+        alert(result.message || "Failed to ban user");
+      }
+    } catch (error) {
+      console.error("Error banning user:", error);
+      alert("Failed to ban user");
+    }
+  };
+
+  const handleUnbanUser = async (userId) => {
+    if (
+      !window.confirm(
+        "Unban this user? They will be able to access the platform again."
+      )
+    ) {
+      return;
+    }
+
+    if (!isFirebaseConfigured) {
+      alert("Firebase not configured. This feature requires Firebase setup.");
+      return;
+    }
+
+    try {
+      const { unbanUser } = await import("../../services/userService");
+      const result = await unbanUser(userId, currentUser.uid);
+
+      if (result.success) {
+        alert("User unbanned!");
+        fetchUsers();
+      } else {
+        alert(result.message || "Failed to unban user");
+      }
+    } catch (error) {
+      console.error("Error unbanning user:", error);
+      alert("Failed to unban user");
+    }
+  };
+
+  const handleDeleteUser = async (userId) => {
+    if (
+      !window.confirm(
+        "Delete this user permanently? This action cannot be undone. All their data will be deleted."
+      )
+    ) {
+      return;
+    }
+
+    if (!isFirebaseConfigured) {
+      alert("Firebase not configured. This feature requires Firebase setup.");
+      return;
+    }
+
+    try {
+      const { deleteUser } = await import("../../services/userService");
+      const result = await deleteUser(userId, currentUser.uid);
+
+      if (result.success) {
+        alert("User deleted!");
+        fetchUsers();
+      } else {
+        alert(result.message || "Failed to delete user");
+      }
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      alert("Failed to delete user");
+    }
+  };
+
+  if (loading) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <div
+            style={{
+              display: "inline-block",
+              width: "48px",
+              height: "48px",
+              border: "4px solid #f3f4f6",
+              borderTop: "4px solid var(--accent)",
+              borderRadius: "50%",
+              animation: "spin 1s linear infinite",
+              marginBottom: "16px",
+            }}
+          ></div>
+          <p style={{ color: "var(--text-secondary)" }}>Loading users...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        background:
+          "linear-gradient(180deg, #fdf7f4 0%, #fff 50%, #f7f1ed 100%)",
+        minHeight: "100vh",
+        padding: "32px 0 48px",
+      }}
+    >
+      <div style={{ maxWidth: "1120px", margin: "0 auto", padding: "0 16px" }}>
+        {/* Firebase Warning Banner */}
+        {!isFirebaseConfigured && (
+          <div className="admin-alert">
+            <AlertCircle size={24} className="admin-alert-icon" />
+            <div>
+              <h3 className="admin-alert-title">
+                LocalStorage Mode - UI Preview Only
+              </h3>
+              <p className="admin-alert-message">
+                Firebase is not configured. User management features are
+                disabled. Setup Firebase to enable full functionality.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Header */}
+        <div style={{ marginBottom: "32px" }}>
+          <h1
+            style={{
+              fontSize: "clamp(22px, 4vw, 34px)",
+              fontWeight: "800",
+              color: "#222",
+              margin: "0 0 8px",
+            }}
+          >
+            User Management
+          </h1>
+          <p
+            style={{
+              margin: 0,
+              color: "var(--text-secondary)",
+              fontSize: "14px",
+            }}
+          >
+            Manage users, roles, and permissions
+          </p>
+        </div>
+
+        {/* Stats Cards */}
+        <div
+          className="admin-stats-grid"
+          style={{
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            marginBottom: "32px",
+          }}
+        >
+          <StatCard
+            title="Total Users"
+            value={stats.total}
+            icon={<Users size={20} />}
+            color="#3b82f6"
+          />
+          <StatCard
+            title="Kreators"
+            value={stats.kreators}
+            icon={<Crown size={20} />}
+            color="#f59e0b"
+          />
+          <StatCard
+            title="Regular Users"
+            value={stats.regular}
+            icon={<User size={20} />}
+            color="#10b981"
+          />
+          <StatCard
+            title="Active"
+            value={stats.active}
+            icon={<CheckCircle size={20} />}
+            color="#06b6d4"
+          />
+          <StatCard
+            title="Banned"
+            value={stats.banned}
+            icon={<Ban size={20} />}
+            color="#ef4444"
+          />
+        </div>
+
+        {/* Search and Filters */}
+        <div className="admin-card" style={{ marginBottom: "24px" }}>
+          <div className="admin-card-body">
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr auto auto",
+                gap: "12px",
+                alignItems: "center",
+              }}
+            >
+              {/* Search */}
+              <div style={{ position: "relative" }}>
+                <Search
+                  size={18}
+                  style={{
+                    position: "absolute",
+                    left: "12px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    color: "var(--text-secondary)",
+                  }}
+                />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search by name, email, or phone..."
+                  style={{
+                    width: "100%",
+                    padding: "10px 14px 10px 40px",
+                    border: "1px solid var(--border)",
+                    borderRadius: "10px",
+                    fontSize: "14px",
+                  }}
+                />
+              </div>
+
+              {/* Role Filter */}
+              <select
+                value={filterRole}
+                onChange={(e) => setFilterRole(e.target.value)}
+                className="admin-select"
+                style={{ width: "160px" }}
+              >
+                <option value="all">All Roles</option>
+                <option value="admin">Admin</option>
+                <option value="kreator">Kreator</option>
+                <option value="user">User</option>
+              </select>
+
+              {/* Status Filter */}
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="admin-select"
+                style={{ width: "160px" }}
+              >
+                <option value="all">All Status</option>
+                <option value="active">Active</option>
+                <option value="banned">Banned</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Users List */}
+        {filteredUsers.length === 0 ? (
+          <div className="admin-card">
+            <div
+              className="admin-card-body"
+              style={{ textAlign: "center", padding: "48px 24px" }}
+            >
+              <Users
+                size={48}
+                style={{ color: "#d1d5db", margin: "0 auto 16px" }}
+              />
+              <p style={{ color: "var(--text-secondary)" }}>No users found</p>
+            </div>
+          </div>
+        ) : (
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "16px" }}
+          >
+            {filteredUsers.map((user) => (
+              <UserCard
+                key={user.id}
+                user={user}
+                currentUserId={currentUser?.uid}
+                onPromoteToKreator={handlePromoteToKreator}
+                onBan={handleBanUser}
+                onUnban={handleUnbanUser}
+                onDelete={handleDeleteUser}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Stat Card Component
+function StatCard({ title, value, icon, color }) {
+  return (
+    <div className="admin-card">
+      <div className="admin-card-body" style={{ padding: "16px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "12px",
+          }}
+        >
+          <div
+            style={{
+              background: color,
+              color: "white",
+              padding: "8px",
+              borderRadius: "8px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {icon}
+          </div>
+        </div>
+        <p className="admin-stat-value" style={{ color: color }}>
+          {value}
+        </p>
+        <p className="admin-stat-label">{title}</p>
+      </div>
+    </div>
+  );
+}
+
+// User Card Component
+function UserCard({
+  user,
+  currentUserId,
+  onPromoteToKreator,
+  onBan,
+  onUnban,
+  onDelete,
+}) {
+  const isCurrentUser = user.id === currentUserId;
+  const isBanned = user.status === "banned";
+
+  const getRoleBadge = (role) => {
+    const configs = {
+      admin: { color: "#dc2626", label: "Admin", icon: <Shield size={12} /> },
+      kreator: {
+        color: "#f59e0b",
+        label: "Kreator",
+        icon: <Crown size={12} />,
+      },
+      user: { color: "#6b7280", label: "User", icon: <User size={12} /> },
+    };
+    const config = configs[role] || configs.user;
+    return (
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "4px",
+          padding: "4px 10px",
+          borderRadius: "20px",
+          fontSize: "11px",
+          fontWeight: "600",
+          background: `${config.color}20`,
+          color: config.color,
+        }}
+      >
+        {config.icon}
+        {config.label}
+      </div>
+    );
+  };
+
+  const getStatusBadge = (status) => {
+    if (status === "banned") {
+      return <span className="admin-badge admin-badge-danger">Banned</span>;
+    }
+    return <span className="admin-badge admin-badge-success">Active</span>;
+  };
+
+  return (
+    <div className="admin-card">
+      <div className="admin-card-body">
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "auto 1fr auto",
+            gap: "20px",
+            alignItems: "center",
+          }}
+        >
+          {/* Avatar */}
+          <div
+            style={{
+              width: "60px",
+              height: "60px",
+              borderRadius: "50%",
+              background: "linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "white",
+              fontWeight: "800",
+              fontSize: "20px",
+            }}
+          >
+            {(user.name || user.email)?.[0]?.toUpperCase() || "U"}
+          </div>
+
+          {/* User Info */}
+          <div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                marginBottom: "6px",
+              }}
+            >
+              <h3
+                style={{
+                  fontSize: "16px",
+                  fontWeight: "700",
+                  color: "#222",
+                  margin: 0,
+                }}
+              >
+                {user.name || "Unknown User"}
+                {isCurrentUser && (
+                  <span
+                    style={{
+                      marginLeft: "8px",
+                      fontSize: "11px",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    (You)
+                  </span>
+                )}
+              </h3>
+              {getRoleBadge(user.role)}
+              {getStatusBadge(user.status)}
+            </div>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "12px",
+                fontSize: "13px",
+                color: "var(--text-secondary)",
+              }}
+            >
+              {user.email && (
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "4px" }}
+                >
+                  <Mail size={14} />
+                  <span>{user.email}</span>
+                </div>
+              )}
+              {user.phone && (
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "4px" }}
+                >
+                  <Phone size={14} />
+                  <span>{user.phone}</span>
+                </div>
+              )}
+              {user.createdAt && (
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "4px" }}
+                >
+                  <Calendar size={14} />
+                  <span>
+                    Joined {new Date(user.createdAt).toLocaleDateString()}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Actions */}
+          {!isCurrentUser && (
+            <div style={{ display: "flex", gap: "8px" }}>
+              {user.role === "user" && !isBanned && (
+                <button
+                  onClick={() => onPromoteToKreator(user.id)}
+                  style={{
+                    padding: "8px 12px",
+                    background: "#fef3c7",
+                    border: "1px solid #fde047",
+                    borderRadius: "8px",
+                    color: "#92400e",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                  }}
+                  title="Promote to Kreator"
+                >
+                  <Crown size={14} />
+                  Promote
+                </button>
+              )}
+              {isBanned ? (
+                <button
+                  onClick={() => onUnban(user.id)}
+                  style={{
+                    padding: "8px 12px",
+                    background: "#dcfce7",
+                    border: "1px solid #86efac",
+                    borderRadius: "8px",
+                    color: "#166534",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                  }}
+                  title="Unban User"
+                >
+                  <CheckCircle size={14} />
+                  Unban
+                </button>
+              ) : (
+                <button
+                  onClick={() => onBan(user.id)}
+                  style={{
+                    padding: "8px 12px",
+                    background: "#fee2e2",
+                    border: "1px solid #fca5a5",
+                    borderRadius: "8px",
+                    color: "#991b1b",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                  }}
+                  title="Ban User"
+                >
+                  <Ban size={14} />
+                  Ban
+                </button>
+              )}
+              <button
+                onClick={() => onDelete(user.id)}
+                style={{
+                  padding: "8px 12px",
+                  background: "#fef2f2",
+                  border: "1px solid #fdd8d8",
+                  borderRadius: "8px",
+                  color: "#b42318",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                }}
+                title="Delete User"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

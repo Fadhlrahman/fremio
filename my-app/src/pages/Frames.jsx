@@ -20,9 +20,10 @@ import InspiredByMenariDenganBayangan from "../assets/frames/InspiredBy/Menari d
 import InspiredByPSILOVEYOU from "../assets/frames/InspiredBy/PS. I LOVE YOU.png";
 
 import { useNavigate } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import frameProvider from "../utils/frameProvider.js";
 import safeStorage from "../utils/safeStorage.js";
+import { getAllCustomFrames } from "../services/customFrameService";
 
 const frames = [
   // FremioSeries Frames
@@ -135,25 +136,33 @@ const frames = [
 
 export default function Frames() {
   const navigate = useNavigate();
+  const [customFrames, setCustomFrames] = useState([]);
 
   // Clear old frameConfig when entering Frames page
   // This ensures user always gets fresh frame selection
   useEffect(() => {
-    console.log('🗑️ [Frames] Clearing old frame session to start fresh');
-    
+    console.log("🗑️ [Frames] Clearing old frame session to start fresh");
+
     // Clear frame-related data
-    safeStorage.removeItem('frameConfig');
-    safeStorage.removeItem('frameConfigTimestamp');
-    safeStorage.removeItem('selectedFrame');
-    
+    safeStorage.removeItem("frameConfig");
+    safeStorage.removeItem("frameConfigTimestamp");
+    safeStorage.removeItem("selectedFrame");
+
     // Clear captured media from previous session
-    safeStorage.removeItem('capturedPhotos');
-    safeStorage.removeItem('capturedVideos');
-    
+    safeStorage.removeItem("capturedPhotos");
+    safeStorage.removeItem("capturedVideos");
+
     // Don't clear activeDraftId - user might want to continue editing draft
     // Only clear frame-related data for fresh frame selection
-    
-    console.log('✅ [Frames] Old session cleared, ready for fresh frame selection');
+
+    console.log(
+      "✅ [Frames] Old session cleared, ready for fresh frame selection"
+    );
+
+    // Load custom frames from admin
+    const loadedCustomFrames = getAllCustomFrames();
+    console.log("📦 [Frames] Loaded custom frames:", loadedCustomFrames);
+    setCustomFrames(loadedCustomFrames);
   }, []);
 
   // Mock data untuk creator frames - nanti bisa diganti dengan data real
@@ -275,6 +284,102 @@ export default function Frames() {
         <div className="my-12 flex items-center justify-center">
           <div className="h-[2px] flex-1 bg-gradient-to-r from-transparent via-[#e0b7a9]/40 to-transparent" />
         </div>
+
+        {/* Custom Frames from Admin - if any */}
+        {customFrames.length > 0 && (
+          <>
+            <h3 className="mb-8 text-center text-2xl font-bold text-slate-900 sm:text-3xl">
+              Custom Frames
+              <span className="ml-2 inline-block rounded-full bg-gradient-to-r from-[#e0b7a9] to-[#c89585] px-3 py-1 text-sm font-semibold text-white">
+                Admin Upload
+              </span>
+            </h3>
+
+            <div
+              className="grid grid-cols-4 gap-4 px-2 mb-12"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(4, 1fr)",
+                gap: "1rem",
+              }}
+            >
+              {customFrames.map((frame) => (
+                <div
+                  key={frame.id}
+                  className="group relative flex flex-col gap-2 overflow-hidden rounded-lg border-2 border-[#e0b7a9] bg-gradient-to-br from-[#fef9f7] to-white p-3 shadow-md transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
+                >
+                  {/* Custom Badge */}
+                  <div className="absolute top-2 right-2 z-10 rounded-full bg-gradient-to-r from-[#e0b7a9] to-[#c89585] px-2 py-1 text-[9px] font-bold text-white shadow-md">
+                    CUSTOM
+                  </div>
+
+                  {/* Frame Image */}
+                  <div
+                    className="flex items-center justify-center overflow-hidden rounded-md bg-gradient-to-br from-gray-50 to-gray-100"
+                    style={{
+                      height: "200px",
+                      width: "100%",
+                    }}
+                  >
+                    <img
+                      src={frame.imagePath || frame.thumbnailUrl}
+                      alt={frame.name}
+                      className="object-contain transition-transform duration-300 group-hover:scale-105"
+                      style={{
+                        height: "100%",
+                        width: "100%",
+                        objectFit: "contain",
+                      }}
+                    />
+                  </div>
+
+                  {/* Frame Title */}
+                  <div className="text-center">
+                    <h4
+                      className="font-bold text-slate-900 truncate"
+                      style={{ fontSize: "12px" }}
+                    >
+                      {frame.name}
+                    </h4>
+                    <p
+                      className="mt-1 text-slate-500"
+                      style={{ fontSize: "10px" }}
+                    >
+                      {frame.maxCaptures} captures
+                    </p>
+                  </div>
+
+                  {/* Lihat Frame Button */}
+                  <div className="flex justify-center w-full">
+                    <button
+                      className="group/btn relative overflow-hidden rounded-md border-2 border-[#e0b7a9] bg-gradient-to-r from-[#e0b7a9] to-[#c89585] font-semibold text-white shadow-sm transition-all hover:shadow-lg active:scale-95"
+                      style={{ fontSize: "11px", padding: "8px 16px" }}
+                      onClick={async () => {
+                        // For custom frames, we need to register them first
+                        const success = await frameProvider.setCustomFrame(
+                          frame
+                        );
+                        if (success !== false) {
+                          navigate("/take-moment");
+                        } else {
+                          alert("Error: Gagal memilih frame");
+                        }
+                      }}
+                    >
+                      <span className="relative z-10">Lihat Frame</span>
+                      <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-500 group-hover/btn:translate-x-full" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Another Divider */}
+            <div className="my-12 flex items-center justify-center">
+              <div className="h-[2px] flex-1 bg-gradient-to-r from-transparent via-[#e0b7a9]/40 to-transparent" />
+            </div>
+          </>
+        )}
 
         {/* All Frames Section Title */}
         <h3 className="mb-8 text-center text-2xl font-bold text-slate-900 sm:text-3xl">

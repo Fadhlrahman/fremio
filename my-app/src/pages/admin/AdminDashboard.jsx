@@ -1,18 +1,20 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
-import { isFirebaseConfigured } from '../../config/firebase';
-import { 
-  Users, 
-  FileImage, 
-  CheckSquare, 
-  Clock, 
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../contexts/AuthContext";
+import { isFirebaseConfigured } from "../../config/firebase";
+import "../../styles/admin.css";
+import {
+  Users,
+  FileImage,
+  CheckSquare,
+  Clock,
   TrendingUp,
   Shield,
   Package,
   Settings,
   AlertCircle,
-} from 'lucide-react';
+  Upload,
+} from "lucide-react";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -36,25 +38,33 @@ export default function AdminDashboard() {
       });
       return;
     }
-    
+
     const fetchStats = async () => {
       setLoading(true);
-      
+
       try {
         // Import Firebase services only if configured
-        const { getApplicationStats } = await import('../../services/kreatorApplicationService');
+        const { getApplicationStats } = await import(
+          "../../services/kreatorApplicationService"
+        );
+        const { getFrameStats } = await import(
+          "../../services/frameManagementService"
+        );
+        const { getUserStats } = await import("../../services/userService");
+
         const applicationStats = await getApplicationStats();
-        
-        // TODO: Fetch frame and user stats when services are implemented
+        const frameStats = await getFrameStats();
+        const userStats = await getUserStats();
+
         setStats({
           applications: applicationStats,
-          frames: { total: 0, pending: 0, approved: 0, draft: 0 },
-          users: { total: 0, kreators: 0, regular: 0 },
+          frames: frameStats,
+          users: userStats,
         });
       } catch (error) {
-        console.error('Error fetching stats:', error);
+        console.error("Error fetching stats:", error);
       }
-      
+
       setLoading(false);
     };
 
@@ -73,101 +83,191 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-7xl mx-auto">
+    <div
+      style={{
+        background:
+          "linear-gradient(180deg, #fdf7f4 0%, #fff 50%, #f7f1ed 100%)",
+        minHeight: "100vh",
+        padding: "32px 0 48px",
+      }}
+    >
+      <div style={{ maxWidth: "1120px", margin: "0 auto", padding: "0 16px" }}>
         {/* Firebase Warning Banner */}
         {!isFirebaseConfigured && (
-          <div className="mb-6 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg">
-            <div className="flex items-start gap-3">
-              <AlertCircle size={24} className="text-yellow-600 flex-shrink-0 mt-0.5" />
+          <div
+            style={{
+              marginBottom: "24px",
+              background: "#fef9c3",
+              border: "1px solid #fde047",
+              borderRadius: "14px",
+              padding: "16px 18px",
+            }}
+          >
+            <div
+              style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}
+            >
+              <AlertCircle
+                size={24}
+                style={{ color: "#ca8a04", flexShrink: 0, marginTop: "2px" }}
+              />
               <div>
-                <h3 className="text-sm font-semibold text-yellow-800 mb-1">
+                <h3
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: "700",
+                    color: "#854d0e",
+                    marginBottom: "4px",
+                  }}
+                >
                   LocalStorage Mode - UI Preview Only
                 </h3>
-                <p className="text-sm text-yellow-700 mb-2">
-                  Firebase is not configured. You're viewing the admin UI with demo data. 
-                  To enable full functionality (data management, approvals, etc.), please setup Firebase.
+                <p
+                  style={{
+                    fontSize: "14px",
+                    color: "#a16207",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Firebase is not configured. You're viewing the admin UI with
+                  demo data. To enable full functionality (data management,
+                  approvals, etc.), please setup Firebase.
                 </p>
-                <p className="text-xs text-yellow-600">
-                  📖 See <code className="bg-yellow-100 px-1 py-0.5 rounded">QUICK_START_GUIDE.md</code> for setup instructions
+                <p style={{ fontSize: "12px", color: "#ca8a04" }}>
+                  📖 See{" "}
+                  <code
+                    style={{
+                      background: "#fef08a",
+                      padding: "2px 6px",
+                      borderRadius: "4px",
+                    }}
+                  >
+                    QUICK_START_GUIDE.md
+                  </code>{" "}
+                  for setup instructions
                 </p>
               </div>
             </div>
           </div>
         )}
 
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <Shield size={32} className="text-purple-600" />
-            <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-          </div>
-          <p className="text-gray-600">Manage your platform, users, and content</p>
-        </div>
-
         {/* Overview Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+            gap: "20px",
+            marginBottom: "32px",
+          }}
+        >
           <StatCard
             title="Total Users"
             value={stats.users.total}
             subtitle={`${stats.users.kreators} kreators`}
             icon={<Users size={24} />}
-            color="bg-blue-500"
-            onClick={() => navigate('/admin/users')}
+            color="#3b82f6"
+            onClick={() => navigate("/admin/users")}
           />
           <StatCard
             title="Total Frames"
             value={stats.frames.total}
             subtitle={`${stats.frames.approved} approved`}
             icon={<FileImage size={24} />}
-            color="bg-purple-500"
-            onClick={() => navigate('/admin/frames')}
+            color="#a855f7"
+            onClick={() => navigate("/admin/frames")}
           />
           <StatCard
             title="Pending Reviews"
             value={stats.applications.pending + stats.frames.pending}
             subtitle="Need attention"
             icon={<Clock size={24} />}
-            color="bg-yellow-500"
-            onClick={() => navigate('/admin/applications')}
+            color="#eab308"
+            onClick={() => navigate("/admin/applications")}
           />
           <StatCard
             title="Analytics"
             value="View"
             subtitle="Platform insights"
             icon={<TrendingUp size={24} />}
-            color="bg-green-500"
-            onClick={() => navigate('/admin/analytics')}
+            color="#10b981"
+            onClick={() => navigate("/admin/analytics")}
           />
         </div>
 
         {/* Applications Section */}
-        <section className="bg-white rounded-xl shadow mb-6">
-          <div className="p-6 border-b border-gray-200">
-            <h2 className="text-xl font-bold text-gray-900 mb-1">Kreator Applications</h2>
-            <p className="text-gray-600">Review and manage kreator applications</p>
+        <section
+          style={{
+            background: "#ffffff",
+            border: "1px solid #ecdeda",
+            borderRadius: "14px",
+            marginBottom: "24px",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              padding: "22px 24px",
+              borderBottom: "1px solid #f3ebe8",
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 4px",
+                fontSize: "20px",
+                fontWeight: "800",
+                color: "#333",
+              }}
+            >
+              Kreator Applications
+            </h2>
+            <p style={{ margin: 0, color: "#6b6b6b", fontSize: "14px" }}>
+              Review and manage kreator applications
+            </p>
           </div>
-          <div className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div style={{ padding: "22px 24px" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                gap: "16px",
+                marginBottom: "20px",
+              }}
+            >
               <MiniStatCard
                 label="Pending"
                 value={stats.applications.pending}
-                color="text-yellow-600"
+                color="#ca8a04"
               />
               <MiniStatCard
                 label="Approved"
                 value={stats.applications.approved}
-                color="text-green-600"
+                color="#16a34a"
               />
               <MiniStatCard
                 label="Rejected"
                 value={stats.applications.rejected}
-                color="text-red-600"
+                color="#dc2626"
               />
             </div>
             <button
-              onClick={() => navigate('/admin/applications')}
-              className="w-full py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors"
+              onClick={() => navigate("/admin/applications")}
+              style={{
+                width: "100%",
+                padding: "12px",
+                background: "var(--accent, #e0b7a9)",
+                color: "#231f1e",
+                border: "1px solid #d4a396",
+                borderRadius: "10px",
+                fontSize: "15px",
+                fontWeight: "700",
+                cursor: "pointer",
+                transition: "all 0.2s",
+              }}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.background = "#d4a396")
+              }
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.background = "var(--accent, #e0b7a9)")
+              }
             >
               Review Applications
             </button>
@@ -175,80 +275,210 @@ export default function AdminDashboard() {
         </section>
 
         {/* Frames Section */}
-        <section className="bg-white rounded-xl shadow mb-6">
-          <div className="p-6 border-b border-gray-200">
-            <h2 className="text-xl font-bold text-gray-900 mb-1">Frame Management</h2>
-            <p className="text-gray-600">Approve and manage community frames</p>
+        <section
+          style={{
+            background: "#ffffff",
+            border: "1px solid #ecdeda",
+            borderRadius: "14px",
+            marginBottom: "24px",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              padding: "22px 24px",
+              borderBottom: "1px solid #f3ebe8",
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 4px",
+                fontSize: "20px",
+                fontWeight: "800",
+                color: "#333",
+              }}
+            >
+              Frame Management
+            </h2>
+            <p style={{ margin: 0, color: "#6b6b6b", fontSize: "14px" }}>
+              Approve and manage community frames
+            </p>
           </div>
-          <div className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div style={{ padding: "22px 24px" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                gap: "16px",
+                marginBottom: "20px",
+              }}
+            >
               <MiniStatCard
                 label="Pending Review"
                 value={stats.frames.pending}
-                color="text-yellow-600"
+                color="#ca8a04"
               />
               <MiniStatCard
                 label="Approved"
                 value={stats.frames.approved}
-                color="text-green-600"
+                color="#16a34a"
               />
               <MiniStatCard
                 label="Draft"
                 value={stats.frames.draft}
-                color="text-gray-600"
+                color="#6b6b6b"
               />
             </div>
-            <button
-              onClick={() => navigate('/admin/frames')}
-              className="w-full py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors"
+
+            {/* Action Buttons */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "12px",
+              }}
             >
-              Manage Frames
-            </button>
+              <button
+                onClick={() => navigate("/admin/upload-frame")}
+                style={{
+                  padding: "12px",
+                  background:
+                    "linear-gradient(135deg, #e0b7a9 0%, #d4a396 100%)",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "10px",
+                  fontSize: "15px",
+                  fontWeight: "700",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px",
+                  boxShadow: "0 2px 8px rgba(224, 183, 169, 0.3)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "translateY(-2px)";
+                  e.currentTarget.style.boxShadow =
+                    "0 4px 12px rgba(224, 183, 169, 0.4)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow =
+                    "0 2px 8px rgba(224, 183, 169, 0.3)";
+                }}
+              >
+                <Upload size={18} />
+                Upload Frame
+              </button>
+
+              <button
+                onClick={() => navigate("/admin/frames")}
+                style={{
+                  padding: "12px",
+                  background: "white",
+                  color: "#231f1e",
+                  border: "2px solid #e0b7a9",
+                  borderRadius: "10px",
+                  fontSize: "15px",
+                  fontWeight: "700",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "#faf6f5";
+                  e.currentTarget.style.transform = "translateY(-2px)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "white";
+                  e.currentTarget.style.transform = "translateY(0)";
+                }}
+              >
+                Manage Frames
+              </button>
+            </div>
           </div>
         </section>
 
         {/* Quick Actions */}
-        <section className="bg-white rounded-xl shadow">
-          <div className="p-6 border-b border-gray-200">
-            <h2 className="text-xl font-bold text-gray-900 mb-1">Quick Actions</h2>
-            <p className="text-gray-600">Common administrative tasks</p>
+        <section
+          style={{
+            background: "#ffffff",
+            border: "1px solid #ecdeda",
+            borderRadius: "14px",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              padding: "22px 24px",
+              borderBottom: "1px solid #f3ebe8",
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 4px",
+                fontSize: "20px",
+                fontWeight: "800",
+                color: "#333",
+              }}
+            >
+              Quick Actions
+            </h2>
+            <p style={{ margin: 0, color: "#6b6b6b", fontSize: "14px" }}>
+              Common administrative tasks
+            </p>
           </div>
-          <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div
+            style={{
+              padding: "22px 24px",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+              gap: "16px",
+            }}
+          >
+            <ActionButton
+              icon={<Upload size={20} />}
+              label="Upload Frame"
+              description="Upload custom PNG frame"
+              onClick={() => navigate("/admin/upload-frame")}
+              highlight={true}
+            />
             <ActionButton
               icon={<Users size={20} />}
               label="Manage Users"
               description="View and manage user accounts"
-              onClick={() => navigate('/admin/users')}
+              onClick={() => navigate("/admin/users")}
             />
             <ActionButton
               icon={<CheckSquare size={20} />}
               label="Review Applications"
               description="Approve kreator applications"
-              onClick={() => navigate('/admin/applications')}
+              onClick={() => navigate("/admin/applications")}
             />
             <ActionButton
               icon={<FileImage size={20} />}
               label="Approve Frames"
               description="Review frame submissions"
-              onClick={() => navigate('/admin/frames')}
+              onClick={() => navigate("/admin/frames")}
             />
             <ActionButton
               icon={<Package size={20} />}
               label="Categories"
               description="Manage frame categories"
-              onClick={() => navigate('/admin/categories')}
+              onClick={() => navigate("/admin/categories")}
             />
             <ActionButton
               icon={<TrendingUp size={20} />}
               label="Analytics"
               description="View platform statistics"
-              onClick={() => navigate('/admin/analytics')}
+              onClick={() => navigate("/admin/analytics")}
             />
             <ActionButton
               icon={<Settings size={20} />}
               label="Settings"
               description="Platform configuration"
-              onClick={() => navigate('/admin/settings')}
+              onClick={() => navigate("/admin/settings")}
             />
           </div>
         </section>
@@ -262,16 +492,74 @@ function StatCard({ title, value, subtitle, icon, color, onClick }) {
   return (
     <div
       onClick={onClick}
-      className="bg-white rounded-xl shadow p-6 cursor-pointer hover:shadow-lg transition-shadow"
+      style={{
+        background: "#ffffff",
+        border: "1px solid #ecdeda",
+        borderRadius: "14px",
+        padding: "20px",
+        cursor: "pointer",
+        transition: "all 0.2s",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = "translateY(-2px)";
+        e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = "translateY(0)";
+        e.currentTarget.style.boxShadow = "none";
+      }}
     >
-      <div className="flex items-center justify-between mb-4">
-        <div className={`${color} text-white p-3 rounded-lg`}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "16px",
+        }}
+      >
+        <div
+          style={{
+            background: color,
+            color: "white",
+            padding: "10px",
+            borderRadius: "10px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
           {icon}
         </div>
       </div>
-      <h3 className="text-2xl font-bold text-gray-900 mb-1">{value}</h3>
-      <p className="text-sm font-medium text-gray-700 mb-1">{title}</p>
-      <p className="text-xs text-gray-500">{subtitle}</p>
+      <h3
+        style={{
+          fontSize: "28px",
+          fontWeight: "800",
+          color: "#222",
+          margin: "0 0 4px",
+        }}
+      >
+        {value}
+      </h3>
+      <p
+        style={{
+          fontSize: "14px",
+          fontWeight: "700",
+          color: "#333",
+          margin: "0 0 2px",
+        }}
+      >
+        {title}
+      </p>
+      <p
+        style={{
+          fontSize: "12px",
+          color: "#6b6b6b",
+          margin: 0,
+        }}
+      >
+        {subtitle}
+      </p>
     </div>
   );
 }
@@ -279,26 +567,133 @@ function StatCard({ title, value, subtitle, icon, color, onClick }) {
 // Mini Stat Card Component
 function MiniStatCard({ label, value, color }) {
   return (
-    <div className="bg-gray-50 rounded-lg p-4 text-center">
-      <p className="text-sm text-gray-600 mb-1">{label}</p>
-      <p className={`text-2xl font-bold ${color}`}>{value}</p>
+    <div
+      style={{
+        background: "#faf6f5",
+        border: "1px solid #f0e4e0",
+        borderRadius: "10px",
+        padding: "16px",
+        textAlign: "center",
+      }}
+    >
+      <p
+        style={{
+          fontSize: "12px",
+          color: "#6b6b6b",
+          margin: "0 0 6px",
+          fontWeight: "600",
+        }}
+      >
+        {label}
+      </p>
+      <p
+        style={{
+          fontSize: "24px",
+          fontWeight: "800",
+          color: color,
+          margin: 0,
+        }}
+      >
+        {value}
+      </p>
     </div>
   );
 }
 
 // Action Button Component
-function ActionButton({ icon, label, description, onClick }) {
+function ActionButton({
+  icon,
+  label,
+  description,
+  onClick,
+  highlight = false,
+}) {
   return (
     <button
       onClick={onClick}
-      className="flex items-start gap-3 p-4 rounded-lg border-2 border-gray-200 hover:border-purple-500 hover:bg-purple-50 transition-all text-left"
+      style={{
+        display: "flex",
+        alignItems: "flex-start",
+        gap: "12px",
+        padding: "16px",
+        borderRadius: "10px",
+        border: highlight ? "2px solid #e0b7a9" : "1px solid #ecdeda",
+        background: highlight
+          ? "linear-gradient(135deg, #fff5f2 0%, #ffffff 100%)"
+          : "#ffffff",
+        textAlign: "left",
+        cursor: "pointer",
+        transition: "all 0.2s",
+        width: "100%",
+        boxShadow: highlight ? "0 4px 12px rgba(224, 183, 169, 0.2)" : "none",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = highlight
+          ? "linear-gradient(135deg, #fff0ec 0%, #fef9f7 100%)"
+          : "#faf6f5";
+        e.currentTarget.style.borderColor = "#e0b7a9";
+        e.currentTarget.style.transform = "translateY(-2px)";
+        e.currentTarget.style.boxShadow =
+          "0 6px 16px rgba(224, 183, 169, 0.25)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = highlight
+          ? "linear-gradient(135deg, #fff5f2 0%, #ffffff 100%)"
+          : "#ffffff";
+        e.currentTarget.style.borderColor = highlight ? "#e0b7a9" : "#ecdeda";
+        e.currentTarget.style.transform = "translateY(0)";
+        e.currentTarget.style.boxShadow = highlight
+          ? "0 4px 12px rgba(224, 183, 169, 0.2)"
+          : "none";
+      }}
     >
-      <div className="flex-shrink-0 text-purple-600 mt-1">
-        {icon}
+      <div
+        style={{
+          color: highlight ? "#e0b7a9" : "var(--accent, #e0b7a9)",
+          flexShrink: 0,
+          marginTop: "2px",
+          background: highlight ? "#e0b7a9" : "transparent",
+          padding: highlight ? "8px" : "0",
+          borderRadius: highlight ? "8px" : "0",
+        }}
+      >
+        <div style={{ color: highlight ? "white" : "#e0b7a9" }}>{icon}</div>
       </div>
       <div>
-        <p className="font-medium text-gray-900 mb-1">{label}</p>
-        <p className="text-sm text-gray-600">{description}</p>
+        <p
+          style={{
+            fontWeight: "700",
+            color: highlight ? "#e0b7a9" : "#222",
+            margin: "0 0 4px",
+            fontSize: "15px",
+          }}
+        >
+          {label}
+          {highlight && (
+            <span
+              style={{
+                marginLeft: "8px",
+                fontSize: "11px",
+                fontWeight: "600",
+                background: "#e0b7a9",
+                color: "white",
+                padding: "2px 8px",
+                borderRadius: "6px",
+              }}
+            >
+              NEW
+            </span>
+          )}
+        </p>
+        <p
+          style={{
+            fontSize: "13px",
+            color: "#6b6b6b",
+            margin: 0,
+          }}
+        >
+          {description}
+        </p>
       </div>
     </button>
   );

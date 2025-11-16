@@ -1,0 +1,957 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../contexts/AuthContext";
+import {
+  Upload,
+  FileImage,
+  Plus,
+  Trash2,
+  Save,
+  Eye,
+  CheckCircle,
+} from "lucide-react";
+import { isFirebaseConfigured } from "../../config/firebase";
+import "../../styles/admin.css";
+import {
+  createFrameDocument,
+  uploadFrameThumbnail,
+} from "../../services/frameManagementService";
+import { saveCustomFrame } from "../../services/customFrameService";
+
+export default function AdminUploadFrame() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+
+  console.log("🎨 AdminUploadFrame component rendered");
+  console.log("👤 Current user:", user);
+
+  const [frameName, setFrameName] = useState("");
+  const [frameDescription, setFrameDescription] = useState("");
+  const [frameCategory, setFrameCategory] = useState("custom");
+  const [maxCaptures, setMaxCaptures] = useState(3);
+  const [duplicatePhotos, setDuplicatePhotos] = useState(false);
+
+  // Frame image
+  const [frameImageFile, setFrameImageFile] = useState(null);
+  const [frameImagePreview, setFrameImagePreview] = useState("");
+
+  // Slots configuration
+  const [slots, setSlots] = useState([]);
+
+  // UI State
+  const [showPreview, setShowPreview] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Handle frame image upload
+  const handleImageUpload = (e) => {
+    console.log("🖼️ handleImageUpload triggered");
+    const file = e.target.files[0];
+    console.log("📁 Selected file:", file);
+
+    if (!file) {
+      console.log("❌ No file selected");
+      return;
+    }
+
+    // Validate file type
+    if (!file.type.startsWith("image/png")) {
+      console.log("❌ Invalid file type:", file.type);
+      alert("Hanya file PNG yang diperbolehkan");
+      return;
+    }
+
+    console.log("✅ Valid PNG file:", file.name, "Size:", file.size);
+    setFrameImageFile(file);
+
+    // Create preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      console.log("✅ Preview created successfully");
+      setFrameImagePreview(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Add new slot
+  const addSlot = () => {
+    const newSlot = {
+      id: `slot_${slots.length + 1}`,
+      left: 0.1,
+      top: 0.1,
+      width: 0.4,
+      height: 0.3,
+      aspectRatio: "4:5",
+      zIndex: 2,
+      photoIndex: slots.length % maxCaptures,
+    };
+    setSlots([...slots, newSlot]);
+  };
+
+  // Update slot configuration
+  const updateSlot = (index, field, value) => {
+    const updatedSlots = [...slots];
+    updatedSlots[index] = {
+      ...updatedSlots[index],
+      [field]:
+        field === "left" ||
+        field === "top" ||
+        field === "width" ||
+        field === "height"
+          ? parseFloat(value)
+          : value,
+    };
+    setSlots(updatedSlots);
+  };
+
+  // Delete slot
+  const deleteSlot = (index) => {
+    setSlots(slots.filter((_, i) => i !== index));
+  };
+
+  // Save frame
+  const handleSaveFrame = async () => {
+    // Validation
+    if (!frameName.trim()) {
+      alert("Nama frame harus diisi");
+      return;
+    }
+
+    if (!frameImageFile) {
+      alert("Upload gambar frame terlebih dahulu");
+      return;
+    }
+
+    if (slots.length === 0) {
+      alert("Tambahkan minimal 1 slot foto");
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      // Create frame configuration object
+      const frameConfig = {
+        id: frameName.toLowerCase().replace(/\s+/g, "-"),
+        name: frameName,
+        description: frameDescription,
+        category: frameCategory,
+        maxCaptures: parseInt(maxCaptures),
+        duplicatePhotos,
+        slots: slots.map((slot) => ({
+          ...slot,
+          left: parseFloat(slot.left),
+          top: parseFloat(slot.top),
+          width: parseFloat(slot.width),
+          height: parseFloat(slot.height),
+          zIndex: parseInt(slot.zIndex),
+          photoIndex: parseInt(slot.photoIndex),
+        })),
+        layout: {
+          aspectRatio: "9:16",
+          orientation: "portrait",
+          backgroundColor: "#ffffff",
+        },
+      };
+
+      if (isFirebaseConfigured) {
+        // Upload to Firebase
+        const createResult = await createFrameDocument(
+          {
+            ...frameConfig,
+            imagePath: "", // Will be updated after upload
+            createdBy: user.uid,
+          },
+          user.uid
+        );
+
+        if (createResult.success) {
+          // Upload frame image
+          const imageUrl = await uploadFrameThumbnail(
+            frameImageFile,
+            createResult.frameId
+          );
+
+          alert("Frame berhasil diupload!");
+          navigate("/admin/frames");
+        } else {
+          throw new Error(createResult.message);
+        }
+      } else {
+        // LocalStorage mode - use customFrameService
+        const result = await saveCustomFrame(
+          {
+            ...frameConfig,
+            createdBy: user.email,
+          },
+          frameImageFile
+        );
+
+        if (result.success) {
+          alert("Frame berhasil disimpan! Frame sekarang tersedia untuk user.");
+          navigate("/admin/frames");
+        } else {
+          throw new Error(result.message);
+        }
+      }
+    } catch (error) {
+      console.error("Error saving frame:", error);
+      alert("Gagal menyimpan frame: " + error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        background:
+          "linear-gradient(180deg, #fdf7f4 0%, #fff 50%, #f7f1ed 100%)",
+        minHeight: "100vh",
+        padding: "32px 0 48px",
+      }}
+    >
+      {/* Debug Info */}
+      <div
+        style={{
+          maxWidth: "1120px",
+          margin: "0 auto 20px",
+          padding: "16px",
+          backgroundColor: "#fff3cd",
+          border: "2px solid #ffc107",
+          borderRadius: "8px",
+          fontSize: "14px",
+        }}
+      >
+        <strong>🔍 Debug Info:</strong>
+        <br />
+        Component: AdminUploadFrame ✅<br />
+        User: {user?.email || "Not logged in"}
+        <br />
+        Path: /admin/upload-frame
+      </div>
+
+      <div style={{ maxWidth: "1120px", margin: "0 auto", padding: "0 16px" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: "24px",
+          }}
+        >
+          {/* Left Column - Configuration */}
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "24px" }}
+          >
+            {/* Basic Info */}
+            <section className="admin-card">
+              <div className="admin-card-header">
+                <h2 className="admin-card-title">Informasi Frame</h2>
+              </div>
+
+              <div
+                className="admin-card-body"
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "16px",
+                }}
+              >
+                <div>
+                  <label className="admin-label">Nama Frame *</label>
+                  <input
+                    type="text"
+                    value={frameName}
+                    onChange={(e) => setFrameName(e.target.value)}
+                    className="admin-input"
+                    placeholder="contoh: FremioSeries-red-3"
+                  />
+                </div>
+
+                <div>
+                  <label className="admin-label">Deskripsi</label>
+                  <textarea
+                    value={frameDescription}
+                    onChange={(e) => setFrameDescription(e.target.value)}
+                    rows={3}
+                    className="admin-textarea"
+                    placeholder="Deskripsi frame..."
+                  />
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "16px",
+                  }}
+                >
+                  <div>
+                    <label className="admin-label">Kategori</label>
+                    <select
+                      value={frameCategory}
+                      onChange={(e) => setFrameCategory(e.target.value)}
+                      className="admin-select"
+                    >
+                      <option value="custom">Custom</option>
+                      <option value="fremio-series">Fremio Series</option>
+                      <option value="inspired-by">Inspired By</option>
+                      <option value="seasonal">Seasonal</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="admin-label">Jumlah Foto</label>
+                    <input
+                      type="number"
+                      value={maxCaptures}
+                      onChange={(e) => setMaxCaptures(e.target.value)}
+                      min="1"
+                      max="10"
+                      className="admin-input"
+                    />
+                  </div>
+                </div>
+
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "8px" }}
+                >
+                  <input
+                    type="checkbox"
+                    id="duplicatePhotos"
+                    checked={duplicatePhotos}
+                    onChange={(e) => setDuplicatePhotos(e.target.checked)}
+                    style={{ width: "16px", height: "16px" }}
+                  />
+                  <label
+                    htmlFor="duplicatePhotos"
+                    style={{
+                      fontSize: "14px",
+                      color: "var(--text-secondary)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Duplikat foto (2 copy per foto)
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            {/* Frame Image Upload */}
+            <section className="admin-card">
+              <div className="admin-card-header">
+                <h2 className="admin-card-title">Upload Frame (PNG)</h2>
+                <p
+                  style={{
+                    fontSize: "13px",
+                    color: "#a89289",
+                    marginTop: "4px",
+                  }}
+                >
+                  Upload gambar frame dalam format PNG dengan area transparan
+                  untuk foto
+                </p>
+              </div>
+
+              <div
+                className="admin-card-body"
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "20px",
+                }}
+              >
+                {/* Upload Area */}
+                {!frameImagePreview ? (
+                  <div
+                    onClick={() => {
+                      console.log("🖱️ Upload area clicked");
+                      document.getElementById("frame-upload").click();
+                    }}
+                    style={{
+                      border: "3px dashed #e0b7a9",
+                      borderRadius: "16px",
+                      padding: "48px 32px",
+                      textAlign: "center",
+                      cursor: "pointer",
+                      transition: "all 0.3s ease",
+                      backgroundColor: "#fefcfb",
+                      minHeight: "280px",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      position: "relative",
+                      overflow: "hidden",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "#d4a89a";
+                      e.currentTarget.style.backgroundColor = "#fff5f2";
+                      e.currentTarget.style.transform = "scale(1.01)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "#e0b7a9";
+                      e.currentTarget.style.backgroundColor = "#fefcfb";
+                      e.currentTarget.style.transform = "scale(1)";
+                    }}
+                  >
+                    <input
+                      type="file"
+                      accept="image/png"
+                      onChange={handleImageUpload}
+                      style={{ display: "none" }}
+                      id="frame-upload"
+                    />
+
+                    {/* Upload Icon */}
+                    <div
+                      style={{
+                        width: "80px",
+                        height: "80px",
+                        borderRadius: "50%",
+                        backgroundColor: "#fff0ec",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        marginBottom: "20px",
+                        border: "3px solid #e0b7a9",
+                      }}
+                    >
+                      <Upload size={40} style={{ color: "#e0b7a9" }} />
+                    </div>
+
+                    {/* Upload Text */}
+                    <h3
+                      style={{
+                        fontSize: "20px",
+                        fontWeight: "700",
+                        color: "#2d1b14",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      Klik atau Drag & Drop File PNG
+                    </h3>
+
+                    <p
+                      style={{
+                        color: "#8b7064",
+                        marginBottom: "16px",
+                        fontSize: "15px",
+                        lineHeight: "1.6",
+                      }}
+                    >
+                      Upload gambar frame photobooth Anda di sini
+                    </p>
+
+                    {/* File Info */}
+                    <div
+                      style={{
+                        backgroundColor: "#fff",
+                        padding: "16px 24px",
+                        borderRadius: "12px",
+                        border: "2px solid #ecdeda",
+                        maxWidth: "400px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "12px",
+                          marginBottom: "8px",
+                        }}
+                      >
+                        <FileImage size={20} style={{ color: "#e0b7a9" }} />
+                        <span
+                          style={{
+                            fontSize: "13px",
+                            fontWeight: "600",
+                            color: "#6d5449",
+                          }}
+                        >
+                          Spesifikasi File:
+                        </span>
+                      </div>
+                      <ul
+                        style={{
+                          fontSize: "12px",
+                          color: "#a89289",
+                          listStyle: "none",
+                          padding: 0,
+                          margin: 0,
+                          lineHeight: "1.8",
+                        }}
+                      >
+                        <li>✓ Format: PNG dengan transparency</li>
+                        <li>✓ Ukuran: 1080 × 1920 pixels (9:16)</li>
+                        <li>✓ Max size: 5MB</li>
+                      </ul>
+                    </div>
+
+                    {/* Decorative Background */}
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "-50%",
+                        right: "-50%",
+                        width: "200%",
+                        height: "200%",
+                        background:
+                          "radial-gradient(circle, rgba(224,183,169,0.05) 0%, transparent 70%)",
+                        pointerEvents: "none",
+                        zIndex: 0,
+                      }}
+                    />
+                  </div>
+                ) : (
+                  /* Preview with Edit Button */
+                  <div>
+                    <div style={{ position: "relative", marginBottom: "16px" }}>
+                      <img
+                        src={frameImagePreview}
+                        alt="Frame preview"
+                        style={{
+                          width: "100%",
+                          borderRadius: "14px",
+                          border: "3px solid #e0b7a9",
+                          boxShadow: "0 8px 24px rgba(224, 183, 169, 0.2)",
+                        }}
+                      />
+                      <div
+                        className="admin-badge-success"
+                        style={{
+                          position: "absolute",
+                          top: "16px",
+                          right: "16px",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                          padding: "8px 16px",
+                          fontSize: "14px",
+                          fontWeight: "600",
+                        }}
+                      >
+                        <CheckCircle size={18} />
+                        File Terupload
+                      </div>
+                    </div>
+
+                    {/* File Info Display */}
+                    {frameImageFile && (
+                      <div
+                        style={{
+                          backgroundColor: "#fefcfb",
+                          padding: "16px",
+                          borderRadius: "12px",
+                          border: "2px solid #ecdeda",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "12px",
+                          }}
+                        >
+                          <FileImage size={24} style={{ color: "#e0b7a9" }} />
+                          <div>
+                            <p
+                              style={{
+                                fontSize: "14px",
+                                fontWeight: "600",
+                                color: "#2d1b14",
+                                marginBottom: "2px",
+                              }}
+                            >
+                              {frameImageFile.name}
+                            </p>
+                            <p style={{ fontSize: "12px", color: "#a89289" }}>
+                              {(frameImageFile.size / 1024).toFixed(2)} KB
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setFrameImageFile(null);
+                            setFrameImagePreview("");
+                          }}
+                          className="admin-button-secondary"
+                          style={{ padding: "8px 16px", fontSize: "13px" }}
+                        >
+                          Ganti File
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* Slot Configuration */}
+            <section className="admin-card">
+              <div
+                className="admin-card-header"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <h2 className="admin-card-title">Slot Foto ({slots.length})</h2>
+                <button
+                  onClick={addSlot}
+                  className="admin-button-primary"
+                  style={{ display: "flex", alignItems: "center", gap: "8px" }}
+                >
+                  <Plus size={20} />
+                  Tambah Slot
+                </button>
+              </div>
+
+              <div
+                className="admin-card-body"
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "16px",
+                }}
+              >
+                {slots.length === 0 ? (
+                  <div
+                    style={{
+                      textAlign: "center",
+                      padding: "40px 20px",
+                      color: "#a89289",
+                    }}
+                  >
+                    <FileImage
+                      size={48}
+                      style={{ margin: "0 auto 12px", color: "#c8b5ae" }}
+                    />
+                    <p style={{ fontSize: "15px" }}>
+                      Belum ada slot. Klik "Tambah Slot"
+                    </p>
+                  </div>
+                ) : (
+                  slots.map((slot, index) => (
+                    <SlotConfig
+                      key={index}
+                      slot={slot}
+                      index={index}
+                      maxCaptures={maxCaptures}
+                      onUpdate={updateSlot}
+                      onDelete={deleteSlot}
+                    />
+                  ))
+                )}
+              </div>
+            </section>
+          </div>
+
+          {/* Right Column - Live Preview */}
+          <div
+            style={{ position: "sticky", top: "32px", alignSelf: "flex-start" }}
+          >
+            <section className="admin-card">
+              <div
+                className="admin-card-header"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <h2 className="admin-card-title">Live Preview</h2>
+                <button
+                  onClick={() => setShowPreview(!showPreview)}
+                  className="admin-button-secondary"
+                  style={{ display: "flex", alignItems: "center", gap: "8px" }}
+                >
+                  <Eye size={20} />
+                  {showPreview ? "Sembunyikan" : "Tampilkan"}
+                </button>
+              </div>
+
+              <div className="admin-card-body">
+                {showPreview && frameImagePreview && (
+                  <div
+                    style={{
+                      position: "relative",
+                      backgroundColor: "#f7f1ed",
+                      borderRadius: "14px",
+                      overflow: "hidden",
+                      aspectRatio: "9/16",
+                    }}
+                  >
+                    {/* Frame image */}
+                    <img
+                      src={frameImagePreview}
+                      alt="Frame"
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "contain",
+                        zIndex: 3,
+                      }}
+                    />
+
+                    {/* Photo slots overlay */}
+                    {slots.map((slot, index) => (
+                      <div
+                        key={index}
+                        style={{
+                          position: "absolute",
+                          border: "2px solid #3b82f6",
+                          backgroundColor: "rgba(59, 130, 246, 0.15)",
+                          left: `${slot.left * 100}%`,
+                          top: `${slot.top * 100}%`,
+                          width: `${slot.width * 100}%`,
+                          height: `${slot.height * 100}%`,
+                          zIndex: 1,
+                        }}
+                      >
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: "4px",
+                            left: "4px",
+                            backgroundColor: "#3b82f6",
+                            color: "white",
+                            fontSize: "11px",
+                            padding: "4px 8px",
+                            borderRadius: "6px",
+                            fontWeight: "600",
+                          }}
+                        >
+                          Slot {index + 1} (Foto {slot.photoIndex + 1})
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!showPreview && (
+                  <div
+                    style={{
+                      textAlign: "center",
+                      padding: "60px 20px",
+                      color: "#a89289",
+                    }}
+                  >
+                    <Eye
+                      size={48}
+                      style={{ margin: "0 auto 12px", color: "#c8b5ae" }}
+                    />
+                    <p style={{ fontSize: "15px" }}>
+                      Klik "Tampilkan" untuk preview
+                    </p>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* Action Buttons */}
+            <div style={{ marginTop: "24px", display: "flex", gap: "16px" }}>
+              <button
+                onClick={() => navigate("/admin/frames")}
+                className="admin-button-secondary"
+                style={{ flex: 1, padding: "14px" }}
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleSaveFrame}
+                disabled={saving}
+                className="admin-button-primary"
+                style={{
+                  flex: 1,
+                  padding: "14px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px",
+                  opacity: saving ? 0.5 : 1,
+                  cursor: saving ? "not-allowed" : "pointer",
+                }}
+              >
+                <Save size={20} />
+                {saving ? "Menyimpan..." : "Simpan Frame"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Slot Configuration Component
+function SlotConfig({ slot, index, maxCaptures, onUpdate, onDelete }) {
+  return (
+    <div
+      style={{
+        border: "2px solid var(--border)",
+        borderRadius: "12px",
+        padding: "16px",
+        backgroundColor: "#fdfbfa",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "12px",
+        }}
+      >
+        <h3 style={{ fontWeight: "700", color: "#2d1b14", fontSize: "15px" }}>
+          Slot {index + 1}
+        </h3>
+        <button
+          onClick={() => onDelete(index)}
+          style={{
+            color: "#dc2626",
+            padding: "6px",
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            borderRadius: "6px",
+            transition: "all 0.2s ease",
+          }}
+          onMouseEnter={(e) =>
+            (e.currentTarget.style.backgroundColor = "#fee2e2")
+          }
+          onMouseLeave={(e) =>
+            (e.currentTarget.style.backgroundColor = "transparent")
+          }
+        >
+          <Trash2 size={18} />
+        </button>
+      </div>
+
+      <div
+        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}
+      >
+        <div>
+          <label className="admin-label" style={{ fontSize: "12px" }}>
+            Kiri (0.0-1.0)
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            max="1"
+            value={slot.left}
+            onChange={(e) => onUpdate(index, "left", e.target.value)}
+            className="admin-input"
+            style={{ fontSize: "13px", padding: "8px 12px" }}
+          />
+        </div>
+
+        <div>
+          <label className="admin-label" style={{ fontSize: "12px" }}>
+            Atas (0.0-1.0)
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            max="1"
+            value={slot.top}
+            onChange={(e) => onUpdate(index, "top", e.target.value)}
+            className="admin-input"
+            style={{ fontSize: "13px", padding: "8px 12px" }}
+          />
+        </div>
+
+        <div>
+          <label className="admin-label" style={{ fontSize: "12px" }}>
+            Lebar (0.0-1.0)
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            max="1"
+            value={slot.width}
+            onChange={(e) => onUpdate(index, "width", e.target.value)}
+            className="admin-input"
+            style={{ fontSize: "13px", padding: "8px 12px" }}
+          />
+        </div>
+
+        <div>
+          <label className="admin-label" style={{ fontSize: "12px" }}>
+            Tinggi (0.0-1.0)
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            max="1"
+            value={slot.height}
+            onChange={(e) => onUpdate(index, "height", e.target.value)}
+            className="admin-input"
+            style={{ fontSize: "13px", padding: "8px 12px" }}
+          />
+        </div>
+
+        <div>
+          <label className="admin-label" style={{ fontSize: "12px" }}>
+            Aspect Ratio
+          </label>
+          <select
+            value={slot.aspectRatio}
+            onChange={(e) => onUpdate(index, "aspectRatio", e.target.value)}
+            className="admin-select"
+            style={{ fontSize: "13px", padding: "8px 12px" }}
+          >
+            <option value="4:5">4:5 (Portrait)</option>
+            <option value="1:1">1:1 (Square)</option>
+            <option value="16:9">16:9 (Landscape)</option>
+            <option value="3:4">3:4 (Portrait)</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="admin-label" style={{ fontSize: "12px" }}>
+            Index Foto
+          </label>
+          <select
+            value={slot.photoIndex}
+            onChange={(e) => onUpdate(index, "photoIndex", e.target.value)}
+            className="admin-select"
+            style={{ fontSize: "13px", padding: "8px 12px" }}
+          >
+            {Array.from({ length: maxCaptures }, (_, i) => (
+              <option key={i} value={i}>
+                Foto {i + 1}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div
+        style={{
+          fontSize: "12px",
+          color: "#8b7064",
+          backgroundColor: "#fff",
+          padding: "10px",
+          borderRadius: "8px",
+          marginTop: "12px",
+          border: "1px solid var(--border)",
+        }}
+      >
+        Posisi: ({(slot.left * 100).toFixed(1)}%, {(slot.top * 100).toFixed(1)}
+        %) • Ukuran: {(slot.width * 100).toFixed(1)}% ×{" "}
+        {(slot.height * 100).toFixed(1)}%
+      </div>
+    </div>
+  );
+}

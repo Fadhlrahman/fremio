@@ -4,6 +4,7 @@ import { ToastProvider } from "./contexts/ToastContext.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import { AdminOnly } from "./components/guards/RoleGuard.simple.jsx";
 import RootLayout from "./layouts/RootLayout.jsx";
+import AdminLayout from "./layouts/AdminLayout.jsx";
 import Home from "./pages/Home.jsx";
 import Frames from "./pages/Frames.jsx";
 import TakeMoment from "./pages/TakeMoment.jsx";
@@ -26,6 +27,11 @@ import Drafts from "./pages/Drafts.jsx";
 import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
 import KreatorApplications from "./pages/admin/KreatorApplications.jsx";
 import AdminFrames from "./pages/admin/AdminFrames.jsx";
+import AdminUploadFrame from "./pages/admin/AdminUploadFrame.jsx";
+import AdminUsers from "./pages/admin/AdminUsers.jsx";
+import AdminSettings from "./pages/admin/AdminSettings.jsx";
+import AdminCategories from "./pages/admin/AdminCategories.jsx";
+import AdminAnalytics from "./pages/admin/AdminAnalytics.jsx";
 
 import "./App.css";
 
@@ -119,34 +125,28 @@ export default function App() {
               }
             />
 
-            {/* Admin Routes */}
-            <Route
-              path="admin/dashboard"
-              element={
-                <AdminOnly>
-                  <AdminDashboard />
-                </AdminOnly>
-              }
-            />
-            <Route
-              path="admin/applications"
-              element={
-                <AdminOnly>
-                  <KreatorApplications />
-                </AdminOnly>
-              }
-            />
-            <Route
-              path="admin/frames"
-              element={
-                <AdminOnly>
-                  <AdminFrames />
-                </AdminOnly>
-              }
-            />
-
             {/* 404 untuk semua yang tidak match */}
             <Route path="*" element={<NotFound />} />
+          </Route>
+
+          {/* Admin Routes - Separate Layout */}
+          <Route
+            path="/admin"
+            element={
+              <AdminOnly>
+                <AdminLayout />
+              </AdminOnly>
+            }
+          >
+            <Route index element={<AdminDashboard />} />
+            <Route path="dashboard" element={<AdminDashboard />} />
+            <Route path="applications" element={<KreatorApplications />} />
+            <Route path="frames" element={<AdminFrames />} />
+            <Route path="upload-frame" element={<AdminUploadFrame />} />
+            <Route path="users" element={<AdminUsers />} />
+            <Route path="categories" element={<AdminCategories />} />
+            <Route path="analytics" element={<AdminAnalytics />} />
+            <Route path="settings" element={<AdminSettings />} />
           </Route>
 
           {/* Tablet Printer - Full Screen Route (No Layout) */}

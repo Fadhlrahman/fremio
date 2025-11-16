@@ -13,7 +13,21 @@ export function AuthProvider({ children }) {
     if (storedUser) {
       try {
         const parsedUser = JSON.parse(storedUser);
-        setUser(parsedUser);
+
+        // Check if there's an updated profile in localStorage
+        const userProfile = localStorage.getItem(
+          `userProfile_${parsedUser.email}`
+        );
+        if (userProfile) {
+          try {
+            const updatedProfile = JSON.parse(userProfile);
+            setUser(updatedProfile);
+          } catch (e) {
+            setUser(parsedUser);
+          }
+        } else {
+          setUser(parsedUser);
+        }
       } catch (error) {
         console.error("Failed to parse stored user:", error);
         localStorage.removeItem("fremio_user");
@@ -57,6 +71,18 @@ export function AuthProvider({ children }) {
   }
 
   function authenticateUser(email, password) {
+    // Hardcoded admin login - menggunakan email format
+    if (email === "admin@admin.com" && password === "admin") {
+      const adminUser = {
+        email: "admin@admin.com",
+        name: "Administrator",
+        role: "admin",
+        uid: "admin-uid-001",
+      };
+      login(adminUser);
+      return { success: true, message: "Admin login successful" };
+    }
+
     const users = JSON.parse(localStorage.getItem("fremio_users") || "[]");
     const user = users.find(
       (u) => u.email === email && u.password === password
@@ -72,6 +98,15 @@ export function AuthProvider({ children }) {
     return { success: false, message: "Invalid email or password" };
   }
 
+  function updateUser(updatedUserData) {
+    setUser(updatedUserData);
+    localStorage.setItem("fremio_user", JSON.stringify(updatedUserData));
+    localStorage.setItem(
+      `userProfile_${updatedUserData.email}`,
+      JSON.stringify(updatedUserData)
+    );
+  }
+
   const isAuthenticated = !!user;
 
   return (
@@ -82,6 +117,7 @@ export function AuthProvider({ children }) {
         logout,
         register,
         authenticateUser,
+        updateUser,
         isAuthenticated,
         loading,
       }}

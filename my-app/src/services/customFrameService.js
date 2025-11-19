@@ -4,18 +4,12 @@ import { isFirebaseConfigured } from "../config/firebase";
 const STORAGE_KEY = "custom_frames";
 
 /**
- * Get all custom frames (approved only untuk user, semua untuk admin)
+ * Get all custom frames (semua frame langsung approved oleh admin)
  */
-export const getAllCustomFrames = (includeAll = false) => {
+export const getAllCustomFrames = () => {
   try {
     const frames = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-
-    if (includeAll) {
-      return frames; // Return all untuk admin
-    }
-
-    // Return only approved untuk user
-    return frames.filter((frame) => frame.status === "APPROVED");
+    return frames;
   } catch (error) {
     console.error("Error getting custom frames:", error);
     return [];
@@ -27,7 +21,7 @@ export const getAllCustomFrames = (includeAll = false) => {
  */
 export const getCustomFrameById = (frameId) => {
   try {
-    const frames = getAllCustomFrames(true);
+    const frames = getAllCustomFrames();
     return frames.find((frame) => frame.id === frameId);
   } catch (error) {
     console.error("Error getting custom frame:", error);
@@ -36,11 +30,11 @@ export const getCustomFrameById = (frameId) => {
 };
 
 /**
- * Save new custom frame
+ * Save new custom frame (langsung tersedia untuk user)
  */
 export const saveCustomFrame = async (frameData, imageFile) => {
   try {
-    const frames = getAllCustomFrames(true);
+    const frames = getAllCustomFrames();
 
     // Check if frame ID already exists
     if (frames.some((f) => f.id === frameData.id)) {
@@ -56,7 +50,6 @@ export const saveCustomFrame = async (frameData, imageFile) => {
       thumbnailUrl: imageBase64,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      status: "APPROVED", // Auto approve untuk admin upload
       views: 0,
       uses: 0,
       likes: 0,
@@ -78,7 +71,7 @@ export const saveCustomFrame = async (frameData, imageFile) => {
  */
 export const updateCustomFrame = async (frameId, updates, imageFile = null) => {
   try {
-    const frames = getAllCustomFrames(true);
+    const frames = getAllCustomFrames();
     const index = frames.findIndex((f) => f.id === frameId);
 
     if (index === -1) {
@@ -113,7 +106,7 @@ export const updateCustomFrame = async (frameId, updates, imageFile = null) => {
  */
 export const deleteCustomFrame = (frameId) => {
   try {
-    const frames = getAllCustomFrames(true);
+    const frames = getAllCustomFrames();
     const filtered = frames.filter((f) => f.id !== frameId);
 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
@@ -130,7 +123,7 @@ export const deleteCustomFrame = (frameId) => {
  */
 export const incrementFrameStats = (frameId, stat = "uses") => {
   try {
-    const frames = getAllCustomFrames(true);
+    const frames = getAllCustomFrames();
     const index = frames.findIndex((f) => f.id === frameId);
 
     if (index === -1) return;

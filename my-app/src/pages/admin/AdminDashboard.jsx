@@ -6,8 +6,6 @@ import "../../styles/admin.css";
 import {
   Users,
   FileImage,
-  CheckSquare,
-  Clock,
   TrendingUp,
   Shield,
   Package,
@@ -21,21 +19,37 @@ export default function AdminDashboard() {
   const { currentUser } = useAuth();
 
   const [stats, setStats] = useState({
-    applications: { total: 0, pending: 0, approved: 0, rejected: 0 },
-    frames: { total: 0, pending: 0, approved: 0, draft: 0 },
-    users: { total: 0, kreators: 0, regular: 0 },
+    frames: { total: 0 },
+    users: { total: 0 },
   });
   const [loading, setLoading] = useState(false);
 
-  // Fetch dashboard stats (only if Firebase is configured)
+  // Fetch dashboard stats (Firebase or LocalStorage mode)
   useEffect(() => {
     if (!isFirebaseConfigured) {
-      // Show demo data in localStorage mode
-      setStats({
-        applications: { total: 0, pending: 0, approved: 0, rejected: 0 },
-        frames: { total: 0, pending: 0, approved: 0, draft: 0 },
-        users: { total: 0, kreators: 0, regular: 0 },
-      });
+      // Load stats from localStorage custom frames
+      const loadLocalStats = async () => {
+        try {
+          const { getAllCustomFrames } = await import(
+            "../../services/customFrameService"
+          );
+
+          const customFrames = getAllCustomFrames();
+
+          setStats({
+            frames: { total: customFrames.length },
+            users: { total: 0 },
+          });
+        } catch (error) {
+          console.error("Error loading local stats:", error);
+          setStats({
+            frames: { total: 0 },
+            users: { total: 0 },
+          });
+        }
+      };
+
+      loadLocalStats();
       return;
     }
 
@@ -44,21 +58,12 @@ export default function AdminDashboard() {
 
       try {
         // Import Firebase services only if configured
-        const { getApplicationStats } = await import(
-          "../../services/kreatorApplicationService"
-        );
-        const { getFrameStats } = await import(
-          "../../services/frameManagementService"
-        );
         const { getUserStats } = await import("../../services/userService");
 
-        const applicationStats = await getApplicationStats();
-        const frameStats = await getFrameStats();
         const userStats = await getUserStats();
 
         setStats({
-          applications: applicationStats,
-          frames: frameStats,
+          frames: { total: 0 },
           users: userStats,
         });
       } catch (error) {
@@ -162,7 +167,7 @@ export default function AdminDashboard() {
           <StatCard
             title="Total Users"
             value={stats.users.total}
-            subtitle={`${stats.users.kreators} kreators`}
+            subtitle="Registered users"
             icon={<Users size={24} />}
             color="#3b82f6"
             onClick={() => navigate("/admin/users")}
@@ -170,111 +175,15 @@ export default function AdminDashboard() {
           <StatCard
             title="Total Frames"
             value={stats.frames.total}
-            subtitle={`${stats.frames.approved} approved`}
+            subtitle="Custom frames"
             icon={<FileImage size={24} />}
             color="#a855f7"
             onClick={() => navigate("/admin/frames")}
           />
-          <StatCard
-            title="Pending Reviews"
-            value={stats.applications.pending + stats.frames.pending}
-            subtitle="Need attention"
-            icon={<Clock size={24} />}
-            color="#eab308"
-            onClick={() => navigate("/admin/applications")}
-          />
-          <StatCard
-            title="Analytics"
-            value="View"
-            subtitle="Platform insights"
-            icon={<TrendingUp size={24} />}
-            color="#10b981"
-            onClick={() => navigate("/admin/analytics")}
-          />
         </div>
 
-        {/* Applications Section */}
-        <section
-          style={{
-            background: "#ffffff",
-            border: "1px solid #ecdeda",
-            borderRadius: "14px",
-            marginBottom: "24px",
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              padding: "22px 24px",
-              borderBottom: "1px solid #f3ebe8",
-            }}
-          >
-            <h2
-              style={{
-                margin: "0 0 4px",
-                fontSize: "20px",
-                fontWeight: "800",
-                color: "#333",
-              }}
-            >
-              Kreator Applications
-            </h2>
-            <p style={{ margin: 0, color: "#6b6b6b", fontSize: "14px" }}>
-              Review and manage kreator applications
-            </p>
-          </div>
-          <div style={{ padding: "22px 24px" }}>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-                gap: "16px",
-                marginBottom: "20px",
-              }}
-            >
-              <MiniStatCard
-                label="Pending"
-                value={stats.applications.pending}
-                color="#ca8a04"
-              />
-              <MiniStatCard
-                label="Approved"
-                value={stats.applications.approved}
-                color="#16a34a"
-              />
-              <MiniStatCard
-                label="Rejected"
-                value={stats.applications.rejected}
-                color="#dc2626"
-              />
-            </div>
-            <button
-              onClick={() => navigate("/admin/applications")}
-              style={{
-                width: "100%",
-                padding: "12px",
-                background: "var(--accent, #e0b7a9)",
-                color: "#231f1e",
-                border: "1px solid #d4a396",
-                borderRadius: "10px",
-                fontSize: "15px",
-                fontWeight: "700",
-                cursor: "pointer",
-                transition: "all 0.2s",
-              }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.background = "#d4a396")
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.background = "var(--accent, #e0b7a9)")
-              }
-            >
-              Review Applications
-            </button>
-          </div>
-        </section>
-
-        {/* Frames Section */}
+        {/* Frame Management Section */}
+        {/* Frame Management Section */}
         <section
           style={{
             background: "#ffffff",
@@ -301,34 +210,57 @@ export default function AdminDashboard() {
               Frame Management
             </h2>
             <p style={{ margin: 0, color: "#6b6b6b", fontSize: "14px" }}>
-              Approve and manage community frames
+              Upload and manage custom frames
             </p>
           </div>
           <div style={{ padding: "22px 24px" }}>
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                gridTemplateColumns: "1fr",
                 gap: "16px",
                 marginBottom: "20px",
               }}
             >
               <MiniStatCard
-                label="Pending Review"
-                value={stats.frames.pending}
-                color="#ca8a04"
-              />
-              <MiniStatCard
-                label="Approved"
-                value={stats.frames.approved}
-                color="#16a34a"
-              />
-              <MiniStatCard
-                label="Draft"
-                value={stats.frames.draft}
-                color="#6b6b6b"
+                label="Total Frames"
+                value={stats.frames.total}
+                color="#3b82f6"
               />
             </div>
+
+            {/* Info Message when no frames */}
+            {stats.frames.total === 0 && (
+              <div
+                style={{
+                  backgroundColor: "#f0f9ff",
+                  border: "1px solid #bfdbfe",
+                  borderRadius: "10px",
+                  padding: "12px 16px",
+                  marginBottom: "16px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                }}
+              >
+                <FileImage
+                  size={20}
+                  style={{ color: "#3b82f6", flexShrink: 0 }}
+                />
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "13px",
+                    color: "#1e40af",
+                    lineHeight: "1.5",
+                  }}
+                >
+                  Belum ada frame yang diupload. Klik{" "}
+                  <strong>"Upload Frame"</strong> untuk menambahkan frame custom
+                  pertama Anda!
+                </p>
+              </div>
+            )}
 
             {/* Action Buttons */}
             <div
@@ -451,15 +383,9 @@ export default function AdminDashboard() {
               onClick={() => navigate("/admin/users")}
             />
             <ActionButton
-              icon={<CheckSquare size={20} />}
-              label="Review Applications"
-              description="Approve kreator applications"
-              onClick={() => navigate("/admin/applications")}
-            />
-            <ActionButton
               icon={<FileImage size={20} />}
-              label="Approve Frames"
-              description="Review frame submissions"
+              label="Manage Frames"
+              description="View and manage frames"
               onClick={() => navigate("/admin/frames")}
             />
             <ActionButton

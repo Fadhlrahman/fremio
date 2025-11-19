@@ -41,7 +41,7 @@ export default function AdminAnalytics() {
       usersTrend: 0,
     },
     topFrames: [],
-    topKreators: [],
+    topUsers: [],
     categoryStats: [],
     recentActivity: [],
   });
@@ -60,7 +60,6 @@ export default function AdminAnalytics() {
           totalLikes: 8934,
           totalFrames: 156,
           totalUsers: 1234,
-          totalKreators: 45,
         },
         trends: {
           viewsTrend: 12.5,
@@ -94,27 +93,30 @@ export default function AdminAnalytics() {
             likes: 567,
           },
         ],
-        topKreators: [
+        topUsers: [
           {
             id: "1",
-            name: "John Doe",
-            frames: 23,
-            totalViews: 5432,
-            totalLikes: 2345,
+            name: "Alice Johnson",
+            email: "alice@example.com",
+            framesUsed: 45,
+            totalViews: 1234,
+            lastActive: "2 hours ago",
           },
           {
             id: "2",
-            name: "Jane Smith",
-            frames: 19,
-            totalViews: 4321,
-            totalLikes: 1987,
+            name: "Bob Williams",
+            email: "bob@example.com",
+            framesUsed: 38,
+            totalViews: 987,
+            lastActive: "5 hours ago",
           },
           {
             id: "3",
-            name: "Mike Johnson",
-            frames: 15,
-            totalViews: 3456,
-            totalLikes: 1654,
+            name: "Carol Davis",
+            email: "carol@example.com",
+            framesUsed: 32,
+            totalViews: 876,
+            lastActive: "1 day ago",
           },
         ],
         categoryStats: [
@@ -536,7 +538,7 @@ export default function AdminAnalytics() {
           </div>
         </div>
 
-        {/* Top Kreators & Recent Activity */}
+        {/* Top Users & Recent Activity */}
         <div
           style={{
             display: "grid",
@@ -544,7 +546,7 @@ export default function AdminAnalytics() {
             gap: "20px",
           }}
         >
-          {/* Top Kreators */}
+          {/* Top Users by Frame Usage */}
           <div className="admin-card" style={{ padding: "24px" }}>
             <div
               style={{
@@ -566,7 +568,7 @@ export default function AdminAnalytics() {
                   color: "#3b82f6",
                 }}
               >
-                <BarChart3 size={20} />
+                <Users size={20} />
               </div>
               <h3
                 style={{
@@ -576,15 +578,15 @@ export default function AdminAnalytics() {
                   margin: 0,
                 }}
               >
-                Top Kreators
+                Top Users by Frame Usage
               </h3>
             </div>
             <div
               style={{ display: "flex", flexDirection: "column", gap: "12px" }}
             >
-              {analytics.topKreators.map((kreator, index) => (
+              {analytics.topUsers.map((user, index) => (
                 <div
-                  key={kreator.id}
+                  key={user.id}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -609,7 +611,7 @@ export default function AdminAnalytics() {
                       flexShrink: 0,
                     }}
                   >
-                    {kreator.name.charAt(0)}
+                    {user.name.charAt(0)}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div
@@ -620,7 +622,7 @@ export default function AdminAnalytics() {
                         marginBottom: "2px",
                       }}
                     >
-                      {kreator.name}
+                      {user.name}
                     </div>
                     <div
                       style={{
@@ -628,8 +630,8 @@ export default function AdminAnalytics() {
                         color: "var(--text-secondary)",
                       }}
                     >
-                      {kreator.frames} frames •{" "}
-                      {formatNumber(kreator.totalViews)} views
+                      {user.framesUsed} frames used •{" "}
+                      {formatNumber(user.totalViews)} views
                     </div>
                   </div>
                 </div>

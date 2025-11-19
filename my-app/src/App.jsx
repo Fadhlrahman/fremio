@@ -25,7 +25,6 @@ import Drafts from "./pages/Drafts.jsx";
 
 // Admin Pages
 import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
-import KreatorApplications from "./pages/admin/KreatorApplications.jsx";
 import AdminFrames from "./pages/admin/AdminFrames.jsx";
 import AdminUploadFrame from "./pages/admin/AdminUploadFrame.jsx";
 import AdminUsers from "./pages/admin/AdminUsers.jsx";
@@ -140,7 +139,6 @@ export default function App() {
           >
             <Route index element={<AdminDashboard />} />
             <Route path="dashboard" element={<AdminDashboard />} />
-            <Route path="applications" element={<KreatorApplications />} />
             <Route path="frames" element={<AdminFrames />} />
             <Route path="upload-frame" element={<AdminUploadFrame />} />
             <Route path="users" element={<AdminUsers />} />

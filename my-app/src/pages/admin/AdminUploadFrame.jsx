@@ -810,37 +810,57 @@ export default function AdminUploadFrame() {
                     />
 
                     {/* Photo slots overlay */}
-                    {slots.map((slot, index) => (
-                      <div
-                        key={index}
-                        style={{
-                          position: "absolute",
-                          border: "2px solid #3b82f6",
-                          backgroundColor: "rgba(59, 130, 246, 0.15)",
-                          left: `${slot.left * 100}%`,
-                          top: `${slot.top * 100}%`,
-                          width: `${slot.width * 100}%`,
-                          height: `${slot.height * 100}%`,
-                          zIndex: 1,
-                        }}
-                      >
+                    {slots.map((slot, index) => {
+                      // Convert aspect ratio string to CSS value
+                      const getAspectRatioCSS = (ratio) => {
+                        switch (ratio) {
+                          case "1:1":
+                            return "1/1";
+                          case "4:5":
+                            return "4/5";
+                          case "3:4":
+                            return "3/4";
+                          case "16:9":
+                            return "16/9";
+                          case "9:16":
+                            return "9/16";
+                          default:
+                            return "4/5";
+                        }
+                      };
+
+                      return (
                         <div
+                          key={index}
                           style={{
                             position: "absolute",
-                            top: "4px",
-                            left: "4px",
-                            backgroundColor: "#3b82f6",
-                            color: "white",
-                            fontSize: "11px",
-                            padding: "4px 8px",
-                            borderRadius: "6px",
-                            fontWeight: "600",
+                            border: "2px solid #3b82f6",
+                            backgroundColor: "rgba(59, 130, 246, 0.15)",
+                            left: `${slot.left * 100}%`,
+                            top: `${slot.top * 100}%`,
+                            width: `${slot.width * 100}%`,
+                            aspectRatio: getAspectRatioCSS(slot.aspectRatio),
+                            zIndex: 1,
                           }}
                         >
-                          Slot {index + 1} (Foto {slot.photoIndex + 1})
+                          <div
+                            style={{
+                              position: "absolute",
+                              top: "4px",
+                              left: "4px",
+                              backgroundColor: "#3b82f6",
+                              color: "white",
+                              fontSize: "11px",
+                              padding: "4px 8px",
+                              borderRadius: "6px",
+                              fontWeight: "600",
+                            }}
+                          >
+                            Slot {index + 1} (Foto {slot.photoIndex + 1})
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
 
@@ -1015,7 +1035,7 @@ function SlotConfig({ slot, index, maxCaptures, onUpdate, onDelete }) {
             Aspect Ratio
           </label>
           <select
-            value={slot.aspectRatio}
+            value={slot.aspectRatio || "4:5"}
             onChange={(e) => onUpdate(index, "aspectRatio", e.target.value)}
             className="admin-select"
             style={{ fontSize: "13px", padding: "8px 12px" }}
@@ -1024,6 +1044,7 @@ function SlotConfig({ slot, index, maxCaptures, onUpdate, onDelete }) {
             <option value="1:1">1:1 (Square)</option>
             <option value="16:9">16:9 (Landscape)</option>
             <option value="3:4">3:4 (Portrait)</option>
+            <option value="9:16">9:16 (Tall Portrait)</option>
           </select>
         </div>
 

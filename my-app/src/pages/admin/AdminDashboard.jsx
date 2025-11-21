@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { isFirebaseConfigured } from "../../config/firebase";
+import { getAllCustomFrames } from "../../services/customFrameService";
+import { initializeDemoData } from "../../utils/demoData";
 import "../../styles/admin.css";
 import {
   Users,
@@ -12,6 +14,9 @@ import {
   Settings,
   AlertCircle,
   Upload,
+  Eye,
+  Download,
+  Heart,
 } from "lucide-react";
 
 export default function AdminDashboard() {
@@ -19,61 +24,43 @@ export default function AdminDashboard() {
   const { currentUser } = useAuth();
 
   const [stats, setStats] = useState({
-    frames: { total: 0 },
-    users: { total: 0 },
+    totalFrames: 0,
+    totalUsers: 0,
+    totalViews: 0,
+    totalDownloads: 0,
+    totalLikes: 0,
   });
   const [loading, setLoading] = useState(false);
 
-  // Fetch dashboard stats (Firebase or LocalStorage mode)
-  useEffect(() => {
-    if (!isFirebaseConfigured) {
-      // Load stats from localStorage custom frames
-      const loadLocalStats = async () => {
-        try {
-          const { getAllCustomFrames } = await import(
-            "../../services/customFrameService"
-          );
+  // Load REAL stats from localStorage
+  const loadStats = () => {
+    try {
+      const frames = getAllCustomFrames();
+      const users = JSON.parse(localStorage.getItem("users") || "[]");
+      const usage = JSON.parse(localStorage.getItem("frame_usage") || "[]");
 
-          const customFrames = getAllCustomFrames();
+      const totalViews = usage.reduce((sum, u) => sum + (u.views || 0), 0);
+      const totalDownloads = usage.reduce(
+        (sum, u) => sum + (u.downloads || 0),
+        0
+      );
+      const totalLikes = usage.reduce((sum, u) => sum + (u.likes || 0), 0);
 
-          setStats({
-            frames: { total: customFrames.length },
-            users: { total: 0 },
-          });
-        } catch (error) {
-          console.error("Error loading local stats:", error);
-          setStats({
-            frames: { total: 0 },
-            users: { total: 0 },
-          });
-        }
-      };
-
-      loadLocalStats();
-      return;
+      setStats({
+        totalFrames: frames.length,
+        totalUsers: users.length,
+        totalViews,
+        totalDownloads,
+        totalLikes,
+      });
+    } catch (error) {
+      console.error("Error loading stats:", error);
     }
+  };
 
-    const fetchStats = async () => {
-      setLoading(true);
-
-      try {
-        // Import Firebase services only if configured
-        const { getUserStats } = await import("../../services/userService");
-
-        const userStats = await getUserStats();
-
-        setStats({
-          frames: { total: 0 },
-          users: userStats,
-        });
-      } catch (error) {
-        console.error("Error fetching stats:", error);
-      }
-
-      setLoading(false);
-    };
-
-    fetchStats();
+  // Fetch dashboard stats
+  useEffect(() => {
+    loadStats();
   }, []);
 
   if (loading) {
@@ -165,24 +152,47 @@ export default function AdminDashboard() {
           }}
         >
           <StatCard
-            title="Total Users"
-            value={stats.users.total}
-            subtitle="Registered users"
-            icon={<Users size={24} />}
+            title="Total Frames"
+            value={stats.totalFrames}
+            subtitle="Custom frames uploaded"
+            icon={<FileImage size={24} />}
             color="#3b82f6"
-            onClick={() => navigate("/admin/users")}
+            onClick={() => navigate("/admin/frames")}
           />
           <StatCard
-            title="Total Frames"
-            value={stats.frames.total}
-            subtitle="Custom frames"
-            icon={<FileImage size={24} />}
+            title="Total Users"
+            value={stats.totalUsers}
+            subtitle="Registered users"
+            icon={<Users size={24} />}
             color="#a855f7"
-            onClick={() => navigate("/admin/frames")}
+            onClick={() => navigate("/admin/analytics")}
+          />
+          <StatCard
+            title="Total Views"
+            value={stats.totalViews}
+            subtitle="Frame views"
+            icon={<Eye size={24} />}
+            color="#10b981"
+            onClick={() => navigate("/admin/analytics")}
+          />
+          <StatCard
+            title="Total Downloads"
+            value={stats.totalDownloads}
+            subtitle="Frame downloads"
+            icon={<Download size={24} />}
+            color="#f59e0b"
+            onClick={() => navigate("/admin/analytics")}
+          />
+          <StatCard
+            title="Total Likes"
+            value={stats.totalLikes}
+            subtitle="Frame likes"
+            icon={<Heart size={24} />}
+            color="#ef4444"
+            onClick={() => navigate("/admin/analytics")}
           />
         </div>
 
-        {/* Frame Management Section */}
         {/* Frame Management Section */}
         <section
           style={{
@@ -207,30 +217,15 @@ export default function AdminDashboard() {
                 color: "#333",
               }}
             >
-              Frame Management
+              Quick Actions
             </h2>
             <p style={{ margin: 0, color: "#6b6b6b", fontSize: "14px" }}>
-              Upload and manage custom frames
+              Manage frames and test with demo data
             </p>
           </div>
           <div style={{ padding: "22px 24px" }}>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr",
-                gap: "16px",
-                marginBottom: "20px",
-              }}
-            >
-              <MiniStatCard
-                label="Total Frames"
-                value={stats.frames.total}
-                color="#3b82f6"
-              />
-            </div>
-
             {/* Info Message when no frames */}
-            {stats.frames.total === 0 && (
+            {stats.totalFrames === 0 && (
               <div
                 style={{
                   backgroundColor: "#f0f9ff",
@@ -268,6 +263,7 @@ export default function AdminDashboard() {
                 display: "grid",
                 gridTemplateColumns: "1fr 1fr",
                 gap: "12px",
+                marginBottom: "16px",
               }}
             >
               <button
@@ -309,13 +305,17 @@ export default function AdminDashboard() {
                 style={{
                   padding: "12px",
                   background: "white",
-                  color: "#231f1e",
+                  color: "#333",
                   border: "2px solid #e0b7a9",
                   borderRadius: "10px",
                   fontSize: "15px",
                   fontWeight: "700",
                   cursor: "pointer",
                   transition: "all 0.2s",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px",
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = "#faf6f5";
@@ -326,9 +326,47 @@ export default function AdminDashboard() {
                   e.currentTarget.style.transform = "translateY(0)";
                 }}
               >
+                <FileImage size={18} />
                 Manage Frames
               </button>
             </div>
+
+            {/* Demo Data Button */}
+            <button
+              onClick={() => {
+                const result = initializeDemoData();
+                alert(result.message);
+                loadStats(); // Refresh stats
+              }}
+              style={{
+                padding: "12px",
+                background: "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)",
+                color: "white",
+                border: "none",
+                borderRadius: "10px",
+                fontSize: "14px",
+                fontWeight: "600",
+                cursor: "pointer",
+                transition: "all 0.2s",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px",
+                width: "100%",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = "translateY(-2px)";
+                e.currentTarget.style.boxShadow =
+                  "0 4px 12px rgba(59, 130, 246, 0.3)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = "translateY(0)";
+                e.currentTarget.style.boxShadow = "none";
+              }}
+            >
+              <TrendingUp size={16} />
+              Initialize Demo Data (for Testing)
+            </button>
           </div>
         </section>
 

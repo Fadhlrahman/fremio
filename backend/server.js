@@ -1,41 +1,114 @@
-const express = require('express');
-const cors = require('cors');
-const path = require('path');
-const dotenv = require('dotenv');
+import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import compression from "compression";
+import morgan from "morgan";
+import dotenv from "dotenv";
+import { initializeFirebase } from "./config/firebase.js";
+import storageService from "./services/storageService.js";
 
-const envPath = path.resolve(__dirname, '.env');
-dotenv.config({ path: envPath });
+// Routes
+import authRoutes from "./routes/auth.js";
+import framesRoutes from "./routes/frames.js";
+import draftsRoutes from "./routes/drafts.js";
+import uploadRoutes from "./routes/upload.js";
+import analyticsRoutes from "./routes/analytics.js";
+
+dotenv.config();
 
 const app = express();
-const PORT = parseInt(process.env.PORT || '3001', 10);
-const DEV_DEBUG_TOKEN = process.env.DEV_DEBUG_TOKEN || '031111';
+const PORT = process.env.PORT || 5000;
 
-app.use(cors({ origin: true, credentials: true }));
-app.use(express.json());
+// Middleware
+app.use(helmet());
+app.use(compression());
+app.use(morgan("dev"));
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    credentials: true,
+  })
+);
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', port: PORT, timestamp: new Date().toISOString() });
+// Health check
+app.get("/health", (req, res) => {
+  res.json({
+    success: true,
+    message: "Fremio Backend API is running",
+    timestamp: new Date().toISOString(),
+  });
 });
 
-app.post('/api/dev/debug-auth', (req, res) => {
-  const token = req.body?.token;
-
-  if (!token) {
-    return res.status(400).json({ success: false, error: 'Token tidak ditemukan pada request.' });
-  }
-
-  if (token !== DEV_DEBUG_TOKEN) {
-    return res.status(401).json({ success: false, error: 'Token developer tidak valid.' });
-  }
-
-  console.log(`✅ Developer debug diaktifkan menggunakan token ${token}`);
-  return res.json({ success: true, message: 'Developer debug mode granted.' });
+// Legacy health check (for compatibility)
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", port: PORT, timestamp: new Date().toISOString() });
 });
 
+// API Routes
+app.use("/api/auth", authRoutes);
+app.use("/api/frames", framesRoutes);
+app.use("/api/drafts", draftsRoutes);
+app.use("/api/upload", uploadRoutes);
+app.use("/api/analytics", analyticsRoutes);
+
+// 404 handler
 app.use((req, res) => {
-  res.status(404).json({ success: false, error: 'Endpoint tidak ditemukan.' });
+  res.status(404).json({
+    success: false,
+    message: "Route not found",
+  });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Fremio backend berjalan di http://localhost:${PORT}`);
+// Error handler
+app.use((err, req, res, next) => {
+  console.error("Server error:", err);
+  res.status(500).json({
+    success: false,
+    message: "Internal server error",
+    error: process.env.NODE_ENV === "development" ? err.message : undefined,
+  });
 });
+
+// Initialize Firebase and start server
+const startServer = async () => {
+  try {
+    // Initialize Firebase Admin
+    await initializeFirebase();
+
+    // Start cleanup cron for temp files (every 6 hours)
+    setInterval(() => {
+      const hours = parseInt(process.env.TEMP_FILE_CLEANUP_HOURS) || 24;
+      storageService.cleanupTempFiles(hours);
+    }, 6 * 60 * 60 * 1000);
+
+    // Start server
+    app.listen(PORT, () => {
+      console.log("");
+      console.log("🚀 ============================================");
+      console.log(`🚀 Fremio Backend API running on port ${PORT}`);
+      console.log(`🚀 Environment: ${process.env.NODE_ENV || "development"}`);
+      console.log(`🚀 Frontend URL: ${process.env.FRONTEND_URL}`);
+      console.log("🚀 ============================================");
+      console.log("");
+      console.log("📋 Available endpoints:");
+      console.log("   GET  /health");
+      console.log("   POST /api/auth/register");
+      console.log("   GET  /api/auth/me");
+      console.log("   GET  /api/frames");
+      console.log("   POST /api/frames");
+      console.log("   GET  /api/drafts");
+      console.log("   POST /api/upload/image");
+      console.log("   POST /api/analytics/track");
+      console.log("");
+    });
+  } catch (error) {
+    console.error("❌ Failed to start server:", error);
+    process.exit(1);
+  }
+};
+
+startServer();
+
+export default app;

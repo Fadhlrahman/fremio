@@ -81,12 +81,23 @@ export class FrameDataProvider {
       let config = providedConfig || null;
 
       if (!config) {
+        // Try built-in frames first
         if (isValidFrame(frameName)) {
           config = await getFrameConfig(frameName);
-        } else {
-          const cachedConfig = safeStorage.getJSON("frameConfig");
-          if (cachedConfig?.id === frameName) {
-            config = cachedConfig;
+        }
+        // Try custom frames from localStorage
+        else {
+          // Check if it's a custom frame from admin upload
+          const customConfig = getCustomFrameConfig(frameName);
+          if (customConfig) {
+            config = customConfig;
+            console.log(`✅ Found custom frame: ${frameName}`);
+          } else {
+            // Try cached frame config
+            const cachedConfig = safeStorage.getJSON("frameConfig");
+            if (cachedConfig?.id === frameName) {
+              config = cachedConfig;
+            }
           }
 
           if (!config) {
@@ -381,6 +392,17 @@ export class FrameDataProvider {
         console.log(
           "💾 [persistFrameSelection] Attempting to save FULL custom frame config..."
         );
+        console.log(
+          "  - Has designer.elements:",
+          !!configWithTimestamp.designer?.elements
+        );
+        console.log(
+          "  - Elements count:",
+          configWithTimestamp.designer?.elements?.length
+        );
+        console.log("  - Has frameImage:", !!configWithTimestamp.frameImage);
+        console.log("  - Has imagePath:", !!configWithTimestamp.imagePath);
+
         try {
           configSaved = safeStorage.setJSON("frameConfig", configWithTimestamp);
           if (configSaved) {

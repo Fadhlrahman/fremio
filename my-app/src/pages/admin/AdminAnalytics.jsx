@@ -52,100 +52,134 @@ export default function AdminAnalytics() {
 
   const loadAnalytics = async () => {
     if (!isFirebaseConfigured) {
-      // Demo data for localStorage mode
+      // Load REAL data from localStorage
+      const customFrames = JSON.parse(
+        localStorage.getItem("custom_frames") || "[]"
+      );
+      const frameUsage = JSON.parse(
+        localStorage.getItem("frame_usage") || "[]"
+      );
+      const users = JSON.parse(localStorage.getItem("users") || "[]");
+      const activities = JSON.parse(
+        localStorage.getItem("recent_activities") || "[]"
+      );
+
+      // Calculate totals
+      const totalViews = frameUsage.reduce(
+        (sum, usage) => sum + (usage.views || 0),
+        0
+      );
+      const totalDownloads = frameUsage.reduce(
+        (sum, usage) => sum + (usage.downloads || 0),
+        0
+      );
+      const totalLikes = frameUsage.reduce(
+        (sum, usage) => sum + (usage.likes || 0),
+        0
+      );
+
+      // Calculate top frames
+      const frameStats = {};
+      frameUsage.forEach((usage) => {
+        if (!frameStats[usage.frameId]) {
+          const frame = customFrames.find((f) => f.id === usage.frameId);
+          frameStats[usage.frameId] = {
+            id: usage.frameId,
+            name: frame?.name || `Frame ${usage.frameId}`,
+            kreator: frame?.kreatorName || "Unknown",
+            views: 0,
+            downloads: 0,
+            likes: 0,
+          };
+        }
+        frameStats[usage.frameId].views += usage.views || 0;
+        frameStats[usage.frameId].downloads += usage.downloads || 0;
+        frameStats[usage.frameId].likes += usage.likes || 0;
+      });
+
+      const topFrames = Object.values(frameStats)
+        .sort((a, b) => b.views - a.views)
+        .slice(0, 3);
+
+      // Calculate top users
+      const userStats = {};
+      frameUsage.forEach((usage) => {
+        if (!userStats[usage.userId]) {
+          const user = users.find((u) => u.id === usage.userId);
+          userStats[usage.userId] = {
+            id: usage.userId,
+            name: user?.name || `User ${usage.userId}`,
+            email: user?.email || "",
+            framesUsed: 0,
+            totalViews: 0,
+            lastActive: user?.lastActive || "Unknown",
+          };
+        }
+        userStats[usage.userId].framesUsed += 1;
+        userStats[usage.userId].totalViews += usage.views || 0;
+      });
+
+      const topUsers = Object.values(userStats)
+        .sort((a, b) => b.framesUsed - a.framesUsed)
+        .slice(0, 3);
+
+      // Calculate category stats
+      const categoryStats = {};
+      customFrames.forEach((frame) => {
+        const category = frame.category || "Other";
+        if (!categoryStats[category]) {
+          categoryStats[category] = { category, frames: 0, views: 0 };
+        }
+        categoryStats[category].frames += 1;
+
+        // Sum views for this frame
+        const frameViews = frameUsage
+          .filter((usage) => usage.frameId === frame.id)
+          .reduce((sum, usage) => sum + (usage.views || 0), 0);
+        categoryStats[category].views += frameViews;
+      });
+
+      const totalCategoryViews = Object.values(categoryStats).reduce(
+        (sum, cat) => sum + cat.views,
+        0
+      );
+      const categoryStatsArray = Object.values(categoryStats)
+        .map((cat) => ({
+          ...cat,
+          percentage:
+            totalCategoryViews > 0
+              ? Math.round((cat.views / totalCategoryViews) * 100)
+              : 0,
+        }))
+        .sort((a, b) => b.views - a.views)
+        .slice(0, 5);
+
+      // Get recent activities
+      const recentActivity = activities.slice(0, 10).map((activity) => ({
+        type: activity.type || "view",
+        user: activity.userName || `User ${activity.userId}`,
+        frame: activity.frameName || `Frame ${activity.frameId}`,
+        time: activity.time || "Just now",
+      }));
+
       setAnalytics({
         overview: {
-          totalViews: 12543,
-          totalDownloads: 3421,
-          totalLikes: 8934,
-          totalFrames: 156,
-          totalUsers: 1234,
+          totalViews,
+          totalDownloads,
+          totalLikes,
+          totalFrames: customFrames.length,
+          totalUsers: users.length,
         },
         trends: {
-          viewsTrend: 12.5,
-          downloadsTrend: -3.2,
-          likesTrend: 8.7,
-          usersTrend: 15.3,
+          viewsTrend: 0, // TODO: Calculate from historical data
+          downloadsTrend: 0,
+          likesTrend: 0,
+          usersTrend: 0,
         },
-        topFrames: [
-          {
-            id: "1",
-            name: "Birthday Celebration",
-            kreator: "John Doe",
-            views: 1234,
-            downloads: 456,
-            likes: 789,
-          },
-          {
-            id: "2",
-            name: "Wedding Memories",
-            kreator: "Jane Smith",
-            views: 1123,
-            downloads: 423,
-            likes: 678,
-          },
-          {
-            id: "3",
-            name: "Graduation Day",
-            kreator: "Mike Johnson",
-            views: 987,
-            downloads: 345,
-            likes: 567,
-          },
-        ],
-        topUsers: [
-          {
-            id: "1",
-            name: "Alice Johnson",
-            email: "alice@example.com",
-            framesUsed: 45,
-            totalViews: 1234,
-            lastActive: "2 hours ago",
-          },
-          {
-            id: "2",
-            name: "Bob Williams",
-            email: "bob@example.com",
-            framesUsed: 38,
-            totalViews: 987,
-            lastActive: "5 hours ago",
-          },
-          {
-            id: "3",
-            name: "Carol Davis",
-            email: "carol@example.com",
-            framesUsed: 32,
-            totalViews: 876,
-            lastActive: "1 day ago",
-          },
-        ],
-        categoryStats: [
-          { category: "Birthday", frames: 45, views: 3456, percentage: 28 },
-          { category: "Wedding", frames: 38, views: 2987, percentage: 24 },
-          { category: "Graduation", frames: 27, views: 2134, percentage: 17 },
-          { category: "Party", frames: 23, views: 1876, percentage: 15 },
-          { category: "Other", frames: 23, views: 2090, percentage: 16 },
-        ],
-        recentActivity: [
-          {
-            type: "view",
-            user: "User #1234",
-            frame: "Birthday Frame",
-            time: "2 min ago",
-          },
-          {
-            type: "download",
-            user: "User #5678",
-            frame: "Wedding Frame",
-            time: "5 min ago",
-          },
-          {
-            type: "like",
-            user: "User #9012",
-            frame: "Graduation Frame",
-            time: "10 min ago",
-          },
-        ],
+        topFrames,
+        topUsers,
+        categoryStats: categoryStatsArray,
+        recentActivity,
       });
       return;
     }
@@ -223,11 +257,11 @@ export default function AdminAnalytics() {
             <AlertCircle size={24} className="admin-alert-icon" />
             <div>
               <h3 className="admin-alert-title">
-                LocalStorage Mode - Demo Data
+                LocalStorage Mode - Real Data
               </h3>
               <p className="admin-alert-message">
-                Firebase is not configured. You're viewing demo analytics data.
-                Setup Firebase to see real analytics.
+                Firebase is not configured. You're viewing real analytics data
+                from localStorage. Setup Firebase for cloud-based analytics.
               </p>
             </div>
           </div>

@@ -43,14 +43,25 @@ export default function AdminCategories() {
 
   const loadCategories = async () => {
     if (!isFirebaseConfigured) {
-      // Load from predefined list
-      const localCategories = FRAME_CATEGORIES_LIST.map((cat, index) => ({
-        ...cat,
-        description: `${cat.name} themed photo frames`,
-        isActive: true,
-        order: index,
-        frameCount: Math.floor(Math.random() * 50), // Demo data
-      }));
+      // Load from predefined list with REAL frame counts
+      const customFrames = JSON.parse(
+        localStorage.getItem("custom_frames") || "[]"
+      );
+
+      const localCategories = FRAME_CATEGORIES_LIST.map((cat, index) => {
+        // Count REAL frames in this category
+        const frameCount = customFrames.filter(
+          (frame) => frame.category === cat.id
+        ).length;
+
+        return {
+          ...cat,
+          description: `${cat.name} themed photo frames`,
+          isActive: true,
+          order: index,
+          frameCount, // REAL count from localStorage
+        };
+      });
       setCategories(localCategories);
       return;
     }

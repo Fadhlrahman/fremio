@@ -17,6 +17,7 @@ import {
   uploadFrameThumbnail,
 } from "../../services/frameManagementService";
 import { saveCustomFrame } from "../../services/customFrameService";
+import { quickDetectSlots } from "../../utils/slotDetector";
 
 export default function AdminUploadFrame() {
   const navigate = useNavigate();
@@ -37,13 +38,14 @@ export default function AdminUploadFrame() {
 
   // Slots configuration
   const [slots, setSlots] = useState([]);
+  const [autoDetecting, setAutoDetecting] = useState(false);
 
   // UI State
   const [showPreview, setShowPreview] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Handle frame image upload
-  const handleImageUpload = (e) => {
+  // Handle frame image upload with auto slot detection
+  const handleImageUpload = async (e) => {
     console.log("🖼️ handleImageUpload triggered");
     const file = e.target.files[0];
     console.log("📁 Selected file:", file);
@@ -65,9 +67,41 @@ export default function AdminUploadFrame() {
 
     // Create preview
     const reader = new FileReader();
-    reader.onloadend = () => {
+    reader.onloadend = async () => {
       console.log("✅ Preview created successfully");
       setFrameImagePreview(reader.result);
+
+      // Auto-detect slots from transparent areas
+      console.log("🔍 Starting automatic slot detection...");
+      setAutoDetecting(true);
+
+      try {
+        const detectedSlots = await quickDetectSlots(reader.result);
+        console.log("✅ Auto-detected slots:", detectedSlots.length);
+
+        if (detectedSlots.length > 0) {
+          setSlots(detectedSlots);
+          setMaxCaptures(detectedSlots.length);
+          alert(
+            `🎯 Berhasil mendeteksi ${detectedSlots.length} slot foto secara otomatis!\n\n` +
+              `Anda dapat edit posisi slot jika perlu, atau langsung upload frame.`
+          );
+        } else {
+          console.log("⚠️ No slots detected, user can add manually");
+          alert(
+            "⚠️ Tidak ada area transparan yang terdeteksi.\n\n" +
+              "Gunakan tombol 'Add Slot' untuk menambah slot secara manual."
+          );
+        }
+      } catch (error) {
+        console.error("❌ Error detecting slots:", error);
+        alert(
+          "⚠️ Gagal mendeteksi slot otomatis.\n\n" +
+            "Gunakan tombol 'Add Slot' untuk menambah slot secara manual."
+        );
+      } finally {
+        setAutoDetecting(false);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -600,15 +634,74 @@ export default function AdminUploadFrame() {
                   justifyContent: "space-between",
                 }}
               >
-                <h2 className="admin-card-title">Slot Foto ({slots.length})</h2>
-                <button
-                  onClick={addSlot}
-                  className="admin-button-primary"
-                  style={{ display: "flex", alignItems: "center", gap: "8px" }}
-                >
-                  <Plus size={20} />
-                  Tambah Slot
-                </button>
+                <div>
+                  <h2 className="admin-card-title">
+                    Slot Foto ({slots.length})
+                  </h2>
+                  <p
+                    style={{
+                      fontSize: "12px",
+                      color: "#a89289",
+                      marginTop: "4px",
+                    }}
+                  >
+                    {autoDetecting
+                      ? "🔍 Mendeteksi slot otomatis..."
+                      : "Slot akan terdeteksi otomatis saat upload PNG"}
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: "12px" }}>
+                  {frameImagePreview && (
+                    <button
+                      onClick={async () => {
+                        setAutoDetecting(true);
+                        try {
+                          const detectedSlots = await quickDetectSlots(
+                            frameImagePreview
+                          );
+                          if (detectedSlots.length > 0) {
+                            setSlots(detectedSlots);
+                            setMaxCaptures(detectedSlots.length);
+                            alert(
+                              `✅ Berhasil mendeteksi ${detectedSlots.length} slot!`
+                            );
+                          } else {
+                            alert("⚠️ Tidak ada area transparan terdeteksi");
+                          }
+                        } catch (error) {
+                          console.error("❌ Error re-detecting slots:", error);
+                          alert("❌ Gagal mendeteksi slot");
+                        } finally {
+                          setAutoDetecting(false);
+                        }
+                      }}
+                      disabled={autoDetecting}
+                      className="admin-button-secondary"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        opacity: autoDetecting ? 0.6 : 1,
+                        cursor: autoDetecting ? "wait" : "pointer",
+                      }}
+                    >
+                      <Eye size={20} />
+                      {autoDetecting ? "Detecting..." : "Re-detect Slots"}
+                    </button>
+                  )}
+                  <button
+                    onClick={addSlot}
+                    className="admin-button-primary"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
+                    <Plus size={20} />
+                    Tambah Manual
+                  </button>
+                </div>
               </div>
 
               <div
@@ -625,14 +718,30 @@ export default function AdminUploadFrame() {
                       textAlign: "center",
                       padding: "40px 20px",
                       color: "#a89289",
+                      backgroundColor: "#fefcfb",
+                      borderRadius: "12px",
+                      border: "2px dashed #e0b7a9",
                     }}
                   >
                     <FileImage
                       size={48}
                       style={{ margin: "0 auto 12px", color: "#c8b5ae" }}
                     />
-                    <p style={{ fontSize: "15px" }}>
-                      Belum ada slot. Klik "Tambah Slot"
+                    <p
+                      style={{
+                        fontSize: "15px",
+                        fontWeight: "600",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      {frameImagePreview
+                        ? "🎯 Slot akan terdeteksi otomatis"
+                        : "Upload frame PNG untuk auto-detect slot"}
+                    </p>
+                    <p style={{ fontSize: "13px", color: "#b8a39d" }}>
+                      {frameImagePreview
+                        ? "Klik 'Re-detect Slots' atau 'Tambah Manual'"
+                        : "Area transparan pada PNG akan otomatis terdeteksi sebagai slot foto"}
                     </p>
                   </div>
                 ) : (

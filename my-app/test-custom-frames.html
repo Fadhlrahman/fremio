@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Test Custom Frames</title>
+  </head>
+  <body>
+    <h1>Custom Frames Test</h1>
+    <button onclick="checkFrames()">Check Custom Frames</button>
+    <button onclick="addSampleFrame()">Add Sample Frame</button>
+    <button onclick="clearFrames()">Clear All Frames</button>
+    <pre id="output"></pre>
+
+    <script>
+      function checkFrames() {
+        const frames = localStorage.getItem("custom_frames");
+        const parsed = frames ? JSON.parse(frames) : [];
+        document.getElementById("output").textContent =
+          "Custom Frames Count: " +
+          parsed.length +
+          "\n\n" +
+          JSON.stringify(parsed, null, 2);
+      }
+
+      function addSampleFrame() {
+        const frames = JSON.parse(
+          localStorage.getItem("custom_frames") || "[]"
+        );
+
+        const sampleFrame = {
+          id: "test-frame-" + Date.now(),
+          name: "Test Frame",
+          description: "Test frame for debugging",
+          category: "custom",
+          maxCaptures: 3,
+          duplicatePhotos: false,
+          imagePath:
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+          thumbnailUrl:
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+          slots: [
+            {
+              id: "slot_1",
+              left: 0.1,
+              top: 0.2,
+              width: 0.4,
+              height: 0.5,
+              aspectRatio: "4:5",
+              zIndex: 2,
+              photoIndex: 0,
+            },
+          ],
+          layout: {
+            aspectRatio: "9:16",
+            orientation: "portrait",
+            backgroundColor: "#ffffff",
+          },
+          views: 0,
+          uses: 0,
+          likes: 0,
+          createdBy: "test@test.com",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        frames.push(sampleFrame);
+        localStorage.setItem("custom_frames", JSON.stringify(frames));
+
+        alert("Sample frame added! ID: " + sampleFrame.id);
+        checkFrames();
+      }
+
+      function clearFrames() {
+        localStorage.removeItem("custom_frames");
+        alert("All custom frames cleared!");
+        checkFrames();
+      }
+
+      // Auto check on load
+      checkFrames();
+    </script>
+  </body>
+</html>

@@ -43,20 +43,24 @@ export default function AdminUsers() {
   // Fetch users (only if Firebase configured)
   useEffect(() => {
     if (!isFirebaseConfigured) {
-      // Demo data for localStorage mode
-      const demoUsers = [
-        {
-          id: "1",
-          name: "Admin",
-          email: "admin@admin.com",
-          role: "admin",
-          status: "active",
-          createdAt: new Date().toISOString(),
-        },
-      ];
-      setUsers(demoUsers);
-      setFilteredUsers(demoUsers);
-      setStats({ total: 1, kreators: 0, regular: 0, active: 1, banned: 0 });
+      // Load REAL users from localStorage
+      const storedUsers = JSON.parse(localStorage.getItem("users") || "[]");
+
+      // Calculate stats
+      const kreators = storedUsers.filter((u) => u.role === "kreator").length;
+      const regular = storedUsers.filter((u) => u.role === "user").length;
+      const active = storedUsers.filter((u) => u.status === "active").length;
+      const banned = storedUsers.filter((u) => u.status === "banned").length;
+
+      setUsers(storedUsers);
+      setFilteredUsers(storedUsers);
+      setStats({
+        total: storedUsers.length,
+        kreators,
+        regular,
+        active,
+        banned,
+      });
       return;
     }
 

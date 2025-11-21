@@ -34,31 +34,41 @@ const sanitizeDesigner = (designer) => {
     if (!element || typeof element !== "object") return element;
 
     const cloned = { ...element };
-    
-    // IMPORTANT: Preserve background-photo and upload images!
-    // These are essential for the frame to work in TakeMoment
-    const isBackgroundPhoto = element.type === 'background-photo';
-    const isUploadElement = element.type === 'upload';
-    
+
+    // IMPORTANT: Preserve background-photo, upload, and photo elements!
+    // These are essential for the frame to work properly
+    const isBackgroundPhoto = element.type === "background-photo";
+    const isUploadElement = element.type === "upload";
+    const isPhotoElement = element.type === "photo"; // ADD: Custom frame photo slots
+
     if (cloned.data && typeof cloned.data === "object") {
       const sanitizedData = { ...cloned.data };
 
       // Only remove base64 images for NON-critical elements
-      // Background photos and uploads MUST keep their images
-      if (!isBackgroundPhoto && !isUploadElement) {
-        if (typeof sanitizedData.image === "string" && sanitizedData.image.startsWith("data:")) {
+      // Background photos, uploads, and photo slots MUST keep their structure
+      if (!isBackgroundPhoto && !isUploadElement && !isPhotoElement) {
+        if (
+          typeof sanitizedData.image === "string" &&
+          sanitizedData.image.startsWith("data:")
+        ) {
           sanitizedData.image = null;
         }
 
-        if (typeof sanitizedData.originalImage === "string" && sanitizedData.originalImage.startsWith("data:")) {
+        if (
+          typeof sanitizedData.originalImage === "string" &&
+          sanitizedData.originalImage.startsWith("data:")
+        ) {
           sanitizedData.originalImage = null;
         }
 
-        if (typeof sanitizedData.preview === "string" && sanitizedData.preview.startsWith("data:")) {
+        if (
+          typeof sanitizedData.preview === "string" &&
+          sanitizedData.preview.startsWith("data:")
+        ) {
           sanitizedData.preview = null;
         }
       }
-      // For background-photo and upload elements, KEEP the images!
+      // For background-photo, upload, and photo elements, KEEP the structure!
       // They are essential for frame functionality
 
       cloned.data = sanitizedData;
@@ -87,8 +97,8 @@ export const sanitizeFrameConfigForStorage = (config) => {
 
   // For custom frames (from Create page), keep frameImage and preview!
   // They are essential for the frame to display correctly
-  const isCustomFrame = config.isCustom || config.id?.startsWith('custom-');
-  
+  const isCustomFrame = config.isCustom || config.id?.startsWith("custom-");
+
   if (!isCustomFrame) {
     // Only remove frameImage/preview for non-custom frames
     // (regular frames from Frames page can reload these from frameConfigs.js)

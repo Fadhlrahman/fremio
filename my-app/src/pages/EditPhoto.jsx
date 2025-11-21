@@ -9,6 +9,7 @@ import {
 } from "../utils/frameCacheCleaner.js";
 import { convertBlobToMp4 } from "../utils/videoTranscoder.js";
 import { useToast } from "../contexts/ToastContext";
+import { trackFrameDownload } from "../services/analyticsService";
 
 export default function EditPhoto() {
   console.log("🚀 EDITPHOTO RENDERING...");
@@ -238,13 +239,40 @@ export default function EditPhoto() {
           }
         }
 
-        // CRITICAL FIX: If no config at all, try to load from draft
+        // CRITICAL FIX: If no config at all, try multiple fallbacks
         if (!config) {
           console.log(
-            "⚠️ No frameConfig in localStorage, checking for activeDraftId..."
+            "⚠️ No frameConfig in localStorage, checking fallbacks..."
           );
 
-          if (activeDraftId) {
+          // Try to get selected frame ID
+          const selectedFrameId = safeStorage.getItem("selectedFrame");
+          console.log("  - Selected frame ID:", selectedFrameId);
+
+          // FALLBACK 1: Try custom frame service directly (for custom frames)
+          if (selectedFrameId?.startsWith("custom-")) {
+            console.log("🔄 Attempting to load custom frame from service...");
+            try {
+              const { getCustomFrameConfig } = await import(
+                "../services/customFrameService.js"
+              );
+              config = getCustomFrameConfig(selectedFrameId);
+              if (config) {
+                console.log(
+                  "✅ Successfully loaded custom frame from service:",
+                  config.id
+                );
+              }
+            } catch (error) {
+              console.error(
+                "❌ Failed to load from custom frame service:",
+                error
+              );
+            }
+          }
+
+          // FALLBACK 2: Try to load from draft (if exists)
+          if (!config && activeDraftId) {
             try {
               console.log("🔄 Loading frameConfig from draft:", activeDraftId);
               const draft = await loadDraftForRecovery();
@@ -273,13 +301,15 @@ export default function EditPhoto() {
                   );
                 }
               } else {
-                console.error("❌ Draft not found:", activeDraftId);
+                console.warn("⚠️ Draft not found:", activeDraftId);
               }
             } catch (error) {
-              console.error("❌ Failed to load from draft:", error);
+              console.warn("⚠️ Failed to load from draft:", error);
             }
-          } else {
-            console.warn("⚠️ No activeDraftId found");
+          }
+
+          if (!config) {
+            console.warn("⚠️ All fallbacks failed - no frameConfig available");
           }
         }
 
@@ -384,6 +414,58 @@ export default function EditPhoto() {
         // Log detail frameConfig untuk debug
         console.log("✅ Loaded frame config:", config.id);
         console.log("📋 Frame details:", config);
+
+        // Extra logging for custom frames
+        if (config.isCustom) {
+          console.log("🎨 CUSTOM FRAME DETECTED:");
+          console.log("  - Frame ID:", config.id);
+          console.log("  - Frame name:", config.name);
+          console.log("  - Max captures:", config.maxCaptures);
+          console.log("  - Has frameImage:", !!config.frameImage);
+          console.log("  - Has imagePath:", !!config.imagePath);
+          console.log(
+            "  - Frame image preview:",
+            config.frameImage?.substring(0, 50)
+          );
+          console.log("  - Slots count:", config.slots?.length);
+          console.log(
+            "  - Designer elements:",
+            config.designer?.elements?.length
+          );
+
+          // CRITICAL FIX: If custom frame missing designer.elements, rebuild from slots
+          if (!config.designer?.elements && config.slots?.length > 0) {
+            console.log(
+              "⚠️ Custom frame missing designer.elements, rebuilding from slots..."
+            );
+            const photoElements = config.slots.map((slot, index) => ({
+              id: slot.id || `photo_${index + 1}`,
+              type: "photo",
+              x: slot.left,
+              y: slot.top,
+              width: slot.width,
+              height: slot.height,
+              zIndex: slot.zIndex || 2,
+              data: {
+                photoIndex:
+                  slot.photoIndex !== undefined ? slot.photoIndex : index,
+                image: null,
+                aspectRatio: slot.aspectRatio || "4:5",
+              },
+            }));
+
+            config = {
+              ...config,
+              designer: {
+                ...config.designer,
+                elements: photoElements,
+              },
+            };
+
+            setFrameConfig(config);
+            console.log("✅ Rebuilt designer.elements:", photoElements.length);
+          }
+        }
 
         // Load designer elements (unified layering system)
         // Support both custom frames and regular frames (converted from slots)
@@ -1567,6 +1649,20 @@ export default function EditPhoto() {
                   link.href = canvas.toDataURL("image/png", 1.0);
                   link.click();
 
+                  // Track download analytics
+                  if (frameConfig?.id) {
+                    await trackFrameDownload(
+                      frameConfig.id,
+                      null,
+                      null,
+                      frameConfig.name || frameConfig.id
+                    );
+                    console.log(
+                      "📊 Tracked download for frame:",
+                      frameConfig.id
+                    );
+                  }
+
                   console.log("✅ Download selesai!");
                   showToast({
                     type: "success",
@@ -2720,6 +2816,20 @@ export default function EditPhoto() {
                   setTimeout(() => {
                     URL.revokeObjectURL(downloadUrl);
                   }, 1000);
+
+                  // Track download analytics
+                  if (frameConfig?.id) {
+                    await trackFrameDownload(
+                      frameConfig.id,
+                      null,
+                      null,
+                      frameConfig.name || frameConfig.id
+                    );
+                    console.log(
+                      "📊 Tracked video download for frame:",
+                      frameConfig.id
+                    );
+                  }
 
                   setSaveMessage(
                     downloadExtension === "mp4"

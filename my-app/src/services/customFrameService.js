@@ -175,6 +175,31 @@ export const getCustomFrameConfig = (frameId) => {
   };
 };
 
+/**
+ * Add custom frame directly (untuk testing/development)
+ */
+export const addCustomFrame = (frameData) => {
+  try {
+    const frames = getAllCustomFrames();
+
+    // Check if frame ID already exists
+    if (frames.some((f) => f.id === frameData.id)) {
+      console.warn(`Frame ${frameData.id} sudah ada, akan di-update`);
+      const filtered = frames.filter((f) => f.id !== frameData.id);
+      filtered.push(frameData);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    } else {
+      frames.push(frameData);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(frames));
+    }
+
+    return { success: true, frameId: frameData.id };
+  } catch (error) {
+    console.error("Error adding custom frame:", error);
+    return { success: false, message: error.message };
+  }
+};
+
 export default {
   getAllCustomFrames,
   getCustomFrameById,
@@ -183,4 +208,5 @@ export default {
   deleteCustomFrame,
   incrementFrameStats,
   getCustomFrameConfig,
+  addCustomFrame,
 };

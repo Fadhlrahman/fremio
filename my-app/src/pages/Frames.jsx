@@ -24,6 +24,7 @@ import { useEffect, useState } from "react";
 import frameProvider from "../utils/frameProvider.js";
 import safeStorage from "../utils/safeStorage.js";
 import { getAllCustomFrames } from "../services/customFrameService";
+import { trackFrameView } from "../services/analyticsService";
 
 const frames = [
   // FremioSeries Frames
@@ -141,8 +142,6 @@ export default function Frames() {
   // Clear old frameConfig when entering Frames page
   // This ensures user always gets fresh frame selection
   useEffect(() => {
-    console.log("🗑️ [Frames] Clearing old frame session to start fresh");
-
     // Clear frame-related data
     safeStorage.removeItem("frameConfig");
     safeStorage.removeItem("frameConfigTimestamp");
@@ -152,17 +151,17 @@ export default function Frames() {
     safeStorage.removeItem("capturedPhotos");
     safeStorage.removeItem("capturedVideos");
 
-    // Don't clear activeDraftId - user might want to continue editing draft
-    // Only clear frame-related data for fresh frame selection
-
-    console.log(
-      "✅ [Frames] Old session cleared, ready for fresh frame selection"
-    );
-
     // Load custom frames from admin
-    const loadedCustomFrames = getAllCustomFrames();
-    console.log("📦 [Frames] Loaded custom frames:", loadedCustomFrames);
-    setCustomFrames(loadedCustomFrames);
+    try {
+      const loadedCustomFrames = getAllCustomFrames();
+      console.log("🎨 Loading custom frames...");
+      console.log("  - Custom frames count:", loadedCustomFrames.length);
+      console.log("  - Custom frames data:", loadedCustomFrames);
+      setCustomFrames(loadedCustomFrames);
+    } catch (error) {
+      console.error("❌ Error loading custom frames:", error);
+      setCustomFrames([]);
+    }
   }, []);
 
   // Mock data untuk creator frames - nanti bisa diganti dengan data real
@@ -263,6 +262,11 @@ export default function Frames() {
                     style={{ fontSize: "11px", padding: "8px 16px" }}
                     onClick={async () => {
                       const frameId = frames[idx % frames.length].id;
+                      const frameTitle = frames[idx % frames.length].title;
+
+                      // Track view before navigating
+                      await trackFrameView(frameId, null, frameTitle);
+
                       const success = await frameProvider.setFrame(frameId);
                       if (success !== false) {
                         navigate("/take-moment");
@@ -285,16 +289,9 @@ export default function Frames() {
           <div className="h-[2px] flex-1 bg-gradient-to-r from-transparent via-[#e0b7a9]/40 to-transparent" />
         </div>
 
-        {/* Custom Frames from Admin - if any */}
-        {customFrames.length > 0 && (
+        {/* Custom Frames from Admin - Displayed like regular frames */}
+        {customFrames.length > 0 ? (
           <>
-            <h3 className="mb-8 text-center text-2xl font-bold text-slate-900 sm:text-3xl">
-              Custom Frames
-              <span className="ml-2 inline-block rounded-full bg-gradient-to-r from-[#e0b7a9] to-[#c89585] px-3 py-1 text-sm font-semibold text-white">
-                Admin Upload
-              </span>
-            </h3>
-
             <div
               className="grid grid-cols-4 gap-4 px-2 mb-12"
               style={{
@@ -306,16 +303,11 @@ export default function Frames() {
               {customFrames.map((frame) => (
                 <div
                   key={frame.id}
-                  className="group relative flex flex-col gap-2 overflow-hidden rounded-lg border-2 border-[#e0b7a9] bg-gradient-to-br from-[#fef9f7] to-white p-3 shadow-md transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
+                  className="group relative flex flex-col gap-2 overflow-hidden rounded-lg border border-[#e0b7a9]/40 bg-white p-3 shadow-md transition-all duration-300 hover:-translate-y-1 hover:border-[#e0b7a9] hover:shadow-lg"
                 >
-                  {/* Custom Badge */}
-                  <div className="absolute top-2 right-2 z-10 rounded-full bg-gradient-to-r from-[#e0b7a9] to-[#c89585] px-2 py-1 text-[9px] font-bold text-white shadow-md">
-                    CUSTOM
-                  </div>
-
                   {/* Frame Image */}
                   <div
-                    className="flex items-center justify-center overflow-hidden rounded-md bg-gradient-to-br from-gray-50 to-gray-100"
+                    className="flex items-center justify-center overflow-hidden rounded-md bg-gray-50"
                     style={{
                       height: "200px",
                       width: "100%",
@@ -352,9 +344,12 @@ export default function Frames() {
                   {/* Lihat Frame Button */}
                   <div className="flex justify-center w-full">
                     <button
-                      className="group/btn relative overflow-hidden rounded-md border-2 border-[#e0b7a9] bg-gradient-to-r from-[#e0b7a9] to-[#c89585] font-semibold text-white shadow-sm transition-all hover:shadow-lg active:scale-95"
+                      className="group/btn relative overflow-hidden rounded-md border-2 border-slate-300 bg-white font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-400 hover:shadow-md active:scale-95"
                       style={{ fontSize: "11px", padding: "8px 16px" }}
                       onClick={async () => {
+                        // Track view before navigating
+                        await trackFrameView(frame.id, null, frame.name);
+
                         // For custom frames, we need to register them first
                         const success = await frameProvider.setCustomFrame(
                           frame
@@ -367,7 +362,7 @@ export default function Frames() {
                       }}
                     >
                       <span className="relative z-10">Lihat Frame</span>
-                      <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-500 group-hover/btn:translate-x-full" />
+                      <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-slate-100 to-transparent transition-transform duration-500 group-hover/btn:translate-x-full" />
                     </button>
                   </div>
                 </div>
@@ -379,9 +374,32 @@ export default function Frames() {
               <div className="h-[2px] flex-1 bg-gradient-to-r from-transparent via-[#e0b7a9]/40 to-transparent" />
             </div>
           </>
+        ) : (
+          process.env.NODE_ENV === "development" && (
+            <div className="mb-12 p-6 bg-orange-50 border-2 border-orange-200 rounded-lg text-center">
+              <h3 className="text-lg font-bold text-orange-900 mb-2">
+                🎨 No Custom Frames Yet
+              </h3>
+              <p className="text-sm text-orange-800 mb-4">
+                Custom frames yang diupload admin akan muncul di sini.
+              </p>
+              <div className="text-xs text-orange-700 bg-white p-4 rounded border border-orange-200 text-left">
+                <strong>Quick Test:</strong>
+                <br />
+                1. Buka Console (F12)
+                <br />
+                2. Paste:{" "}
+                <code className="bg-orange-100 px-2 py-1 rounded">
+                  fetch('/add-test-frame.js').then(r=&gt;r.text()).then(eval)
+                </code>
+                <br />
+                3. Refresh halaman
+              </div>
+            </div>
+          )
         )}
 
-        {/* All Frames Section Title */}
+        {/* All Built-in Frames Section Title */}
         <h3 className="mb-8 text-center text-2xl font-bold text-slate-900 sm:text-3xl">
           Semua Frame
         </h3>
@@ -439,6 +457,9 @@ export default function Frames() {
                   className="group/btn relative overflow-hidden rounded-md border-2 border-slate-300 bg-white font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-400 hover:shadow-md active:scale-95"
                   style={{ fontSize: "11px", padding: "8px 16px" }}
                   onClick={async () => {
+                    // Track view before navigating
+                    await trackFrameView(frame.id, null, frame.title);
+
                     const success = await frameProvider.setFrame(frame.id);
                     if (success !== false) {
                       navigate("/take-moment");

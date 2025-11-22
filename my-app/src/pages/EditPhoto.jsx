@@ -211,7 +211,31 @@ export default function EditPhoto() {
         }
 
         // Load frame config
+        console.log("🔍 Step 4: Loading frame config...");
         let config = safeStorage.getJSON("frameConfig");
+        console.log("   frameConfig from localStorage:", !!config, config?.id);
+
+        // CRITICAL: For custom frames, always reload from service to get latest schema
+        const selectedFrameId = safeStorage.getItem("selectedFrame");
+        if (selectedFrameId?.startsWith("custom-") || config?.isCustom) {
+          console.log("🔄 Custom frame detected, reloading from service...");
+          try {
+            const { getCustomFrameConfig } = await import(
+              "../services/customFrameService.js"
+            );
+            const freshConfig = getCustomFrameConfig(
+              selectedFrameId || config?.id
+            );
+            if (freshConfig) {
+              config = freshConfig;
+              console.log(
+                "✅ Reloaded custom frame from service with pixel values"
+              );
+            }
+          } catch (error) {
+            console.warn("⚠️ Failed to reload from service:", error);
+          }
+        }
 
         // Validate frameConfig timestamp to prevent stale cache
         if (config) {
@@ -578,15 +602,11 @@ export default function EditPhoto() {
 
   // Fill photo elements with real captured photos
   useEffect(() => {
-    // Prevent infinite loop by using ref
-    if (photosFilled.current) {
-      return;
-    }
-
     if (designerElements.length === 0 || photos.length === 0) {
       console.log("⏭️ Skipping photo fill:", {
         hasElements: designerElements.length > 0,
         hasPhotos: photos.length > 0,
+        photosFilled: photosFilled.current,
       });
       return;
     }
@@ -617,6 +637,12 @@ export default function EditPhoto() {
       return;
     }
 
+    // Prevent infinite loop - only fill once
+    if (photosFilled.current) {
+      console.log("⏭️ Photos already filled, skipping to prevent loop...");
+      return;
+    }
+
     console.log("🔄 Filling photo elements with real images...");
     console.log(`   Found ${photoSlots.length} photo slots`);
 
@@ -643,8 +669,10 @@ export default function EditPhoto() {
       return el;
     });
 
+    console.log("📝 Setting updated elements with photos...");
     setDesignerElements(updatedElements);
     photosFilled.current = true;
+    console.log("✅ Photo fill complete!");
   }, [photos, designerElements]);
 
   // Debug log for videos state
@@ -993,7 +1021,7 @@ export default function EditPhoto() {
               boxShadow: "0 4px 20px rgba(0,0,0,0.1)",
               overflow: "hidden",
               width: "fit-content",
-              height: `${1920 * 0.25 + 32}px`, // scaled height + padding
+              height: `${1920 * 0.25 + 32}px`,
             }}
           >
             {/* Frame Canvas */}
@@ -1197,31 +1225,29 @@ export default function EditPhoto() {
                 })}
 
               {/* LAYER 4: Frame Overlay (frameImage) - Always on top */}
-              {frameConfig &&
-                !frameConfig.isCustom &&
-                frameConfig.frameImage && (
-                  <div
+              {frameConfig && frameConfig.frameImage && (
+                <div
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    width: "100%",
+                    height: "100%",
+                    zIndex: 9999,
+                    pointerEvents: "none",
+                  }}
+                >
+                  <img
+                    src={frameConfig.frameImage}
+                    alt="Frame Overlay"
                     style={{
-                      position: "absolute",
-                      left: 0,
-                      top: 0,
                       width: "100%",
                       height: "100%",
-                      zIndex: 9999,
-                      pointerEvents: "none",
+                      objectFit: "contain",
                     }}
-                  >
-                    <img
-                      src={frameConfig.frameImage}
-                      alt="Frame Overlay"
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "contain",
-                      }}
-                    />
-                  </div>
-                )}
+                  />
+                </div>
+              )}
             </div>
           </div>
 
@@ -1420,6 +1446,18 @@ export default function EditPhoto() {
                     const zIndexA = Number.isFinite(a?.zIndex) ? a.zIndex : 200;
                     const zIndexB = Number.isFinite(b?.zIndex) ? b.zIndex : 200;
                     return zIndexA - zIndexB;
+                  });
+
+                  console.log("🔍 DOWNLOAD DEBUG - Designer Elements:");
+                  designerElements.slice(0, 3).forEach((el, i) => {
+                    console.log(`  Slot ${i}:`, {
+                      type: el.type,
+                      x: el.x,
+                      y: el.y,
+                      width: el.width,
+                      height: el.height,
+                      hasImage: !!el.data?.image,
+                    });
                   });
 
                   console.log(
@@ -1621,17 +1659,53 @@ export default function EditPhoto() {
                     }
                   }
 
-                  // Draw frame overlay if exists
-                  if (
-                    frameConfig &&
-                    !frameConfig.isCustom &&
-                    frameConfig.frameImage
-                  ) {
+                  // Draw frame overlay if exists and get actual frame dimensions
+                  let finalCanvasWidth = 1080;
+                  let finalCanvasHeight = 1920;
+                  let frameOffsetX = 0;
+                  let frameOffsetY = 0;
+
+                  if (frameConfig && frameConfig.frameImage) {
                     const frameImg = new Image();
                     frameImg.crossOrigin = "anonymous";
                     await new Promise((resolve, reject) => {
                       frameImg.onload = () => {
-                        ctx.drawImage(frameImg, 0, 0, 1080, 1920);
+                        // Calculate actual frame dimensions maintaining aspect ratio
+                        const canvasWidth = 1080;
+                        const canvasHeight = 1920;
+                        const imgRatio = frameImg.width / frameImg.height;
+                        const canvasRatio = canvasWidth / canvasHeight;
+
+                        let drawWidth, drawHeight, drawX, drawY;
+
+                        if (imgRatio > canvasRatio) {
+                          // Image wider than canvas - fit to width
+                          drawWidth = canvasWidth;
+                          drawHeight = canvasWidth / imgRatio;
+                          drawX = 0;
+                          drawY = (canvasHeight - drawHeight) / 2;
+                        } else {
+                          // Image taller than canvas - fit to height
+                          drawHeight = canvasHeight;
+                          drawWidth = canvasHeight * imgRatio;
+                          drawX = (canvasWidth - drawWidth) / 2;
+                          drawY = 0;
+                        }
+
+                        ctx.drawImage(
+                          frameImg,
+                          drawX,
+                          drawY,
+                          drawWidth,
+                          drawHeight
+                        );
+
+                        // Store actual frame dimensions for cropping
+                        finalCanvasWidth = Math.round(drawWidth);
+                        finalCanvasHeight = Math.round(drawHeight);
+                        frameOffsetX = Math.round(drawX);
+                        frameOffsetY = Math.round(drawY);
+
                         resolve();
                       };
                       frameImg.onerror = reject;
@@ -1639,14 +1713,47 @@ export default function EditPhoto() {
                     });
                   }
 
+                  // Crop canvas to actual frame size (remove white space)
+                  let finalCanvas = canvas;
+                  if (
+                    frameOffsetX > 0 ||
+                    frameOffsetY > 0 ||
+                    finalCanvasWidth < 1080 ||
+                    finalCanvasHeight < 1920
+                  ) {
+                    console.log("✂️ Cropping canvas to frame size:", {
+                      from: "1080x1920",
+                      to: `${finalCanvasWidth}x${finalCanvasHeight}`,
+                      offset: `${frameOffsetX}, ${frameOffsetY}`,
+                    });
+
+                    finalCanvas = document.createElement("canvas");
+                    finalCanvas.width = finalCanvasWidth;
+                    finalCanvas.height = finalCanvasHeight;
+                    const finalCtx = finalCanvas.getContext("2d");
+
+                    // Copy cropped region from original canvas
+                    finalCtx.drawImage(
+                      canvas,
+                      frameOffsetX,
+                      frameOffsetY,
+                      finalCanvasWidth,
+                      finalCanvasHeight,
+                      0,
+                      0,
+                      finalCanvasWidth,
+                      finalCanvasHeight
+                    );
+                  }
+
                   // Download
                   console.log("Canvas created:", {
-                    width: canvas.width,
-                    height: canvas.height,
+                    width: finalCanvas.width,
+                    height: finalCanvas.height,
                   });
                   const link = document.createElement("a");
                   link.download = "fremio-photo.png";
-                  link.href = canvas.toDataURL("image/png", 1.0);
+                  link.href = finalCanvas.toDataURL("image/png", 1.0);
                   link.click();
 
                   // Track download analytics
@@ -1718,7 +1825,7 @@ export default function EditPhoto() {
                   setSaveMessage("🎬 Merender video dengan frame...");
                   setIsSaving(true);
 
-                  // Create off-screen canvas for video rendering
+                  // Create off-screen canvas for video rendering (same as photo - full 1080x1920)
                   const canvas = document.createElement("canvas");
                   canvas.width = 1080;
                   canvas.height = 1920;
@@ -2004,11 +2111,7 @@ export default function EditPhoto() {
 
                   // Preload frame overlay image
                   let frameImage = null;
-                  if (
-                    frameConfig &&
-                    !frameConfig.isCustom &&
-                    frameConfig.frameImage
-                  ) {
+                  if (frameConfig && frameConfig.frameImage) {
                     console.log("🖼️ Preloading frame overlay image...");
                     frameImage = new Image();
                     frameImage.crossOrigin = "anonymous";
@@ -2585,7 +2688,7 @@ export default function EditPhoto() {
                       }
                     });
 
-                    // Draw frame overlay (if not custom)
+                    // Draw frame overlay with aspect ratio preservation (same as photo download)
                     if (
                       frameImage &&
                       frameImage.complete &&
@@ -2595,12 +2698,35 @@ export default function EditPhoto() {
                         ctx.save();
                         ctx.filter = "none";
                         ctx.globalAlpha = 1;
+
+                        // Calculate actual frame dimensions maintaining aspect ratio
+                        const canvasWidth = 1080;
+                        const canvasHeight = 1920;
+                        const imgRatio = frameImage.width / frameImage.height;
+                        const canvasRatio = canvasWidth / canvasHeight;
+
+                        let drawWidth, drawHeight, drawX, drawY;
+
+                        if (imgRatio > canvasRatio) {
+                          // Image wider than canvas - fit to width
+                          drawWidth = canvasWidth;
+                          drawHeight = canvasWidth / imgRatio;
+                          drawX = 0;
+                          drawY = (canvasHeight - drawHeight) / 2;
+                        } else {
+                          // Image taller than canvas - fit to height
+                          drawHeight = canvasHeight;
+                          drawWidth = canvasHeight * imgRatio;
+                          drawX = (canvasWidth - drawWidth) / 2;
+                          drawY = 0;
+                        }
+
                         ctx.drawImage(
                           frameImage,
-                          0,
-                          0,
-                          canvas.width,
-                          canvas.height
+                          drawX,
+                          drawY,
+                          drawWidth,
+                          drawHeight
                         );
                         ctx.restore();
                       } catch (err) {

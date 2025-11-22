@@ -157,6 +157,28 @@ export const getCustomFrameConfig = (frameId) => {
 
   if (!frame) return null;
 
+  // Canvas size (standard for frames)
+  const CANVAS_WIDTH = 1080;
+  const CANVAS_HEIGHT = 1920;
+
+  // Build designer.elements from slots for EditPhoto compatibility
+  // Convert percentage/ratio (0-1) to pixel values
+  const designerElements =
+    frame.slots?.map((slot, index) => ({
+      id: slot.id || `photo_${index + 1}`,
+      type: "photo",
+      x: slot.left * CANVAS_WIDTH, // Convert ratio to pixels
+      y: slot.top * CANVAS_HEIGHT, // Convert ratio to pixels
+      width: slot.width * CANVAS_WIDTH, // Convert ratio to pixels
+      height: slot.height * CANVAS_HEIGHT, // Convert ratio to pixels
+      zIndex: slot.zIndex || 2,
+      data: {
+        photoIndex: slot.photoIndex !== undefined ? slot.photoIndex : index,
+        image: null,
+        aspectRatio: slot.aspectRatio || "4:5",
+      },
+    })) || [];
+
   return {
     id: frame.id,
     name: frame.name,
@@ -164,7 +186,12 @@ export const getCustomFrameConfig = (frameId) => {
     maxCaptures: frame.maxCaptures,
     duplicatePhotos: frame.duplicatePhotos || false,
     imagePath: frame.imagePath,
+    frameImage: frame.imagePath, // Add frameImage for EditPhoto compatibility
+    thumbnailUrl: frame.imagePath, // Add thumbnailUrl for frame list
     slots: frame.slots,
+    designer: {
+      elements: designerElements,
+    },
     layout: frame.layout || {
       aspectRatio: "9:16",
       orientation: "portrait",

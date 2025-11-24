@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { getUnreadMessagesCount } from "../services/contactMessageService";
+import { getAffiliateStats } from "../services/affiliateService";
 import {
   LayoutDashboard,
   FileImage,
@@ -15,6 +16,7 @@ import {
   FolderOpen,
   BarChart3,
   Mail,
+  Handshake,
 } from "lucide-react";
 
 export default function AdminLayout() {
@@ -23,16 +25,21 @@ export default function AdminLayout() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [pendingAffiliates, setPendingAffiliates] = useState(0);
 
   useEffect(() => {
-    const loadUnreadCount = async () => {
-      const count = await getUnreadMessagesCount();
-      setUnreadCount(count);
+    const loadCounts = async () => {
+      const [messagesCount, affiliateStats] = await Promise.all([
+        getUnreadMessagesCount(),
+        getAffiliateStats(),
+      ]);
+      setUnreadCount(messagesCount);
+      setPendingAffiliates(affiliateStats.pending);
     };
-    loadUnreadCount();
+    loadCounts();
 
     // Refresh every 30 seconds
-    const interval = setInterval(loadUnreadCount, 30000);
+    const interval = setInterval(loadCounts, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -53,6 +60,12 @@ export default function AdminLayout() {
       icon: Mail,
       label: "Messages",
       badge: unreadCount,
+    },
+    {
+      path: "/admin/affiliates",
+      icon: Handshake,
+      label: "Affiliates",
+      badge: pendingAffiliates,
     },
     { path: "/admin/settings", icon: Settings, label: "Settings" },
   ];

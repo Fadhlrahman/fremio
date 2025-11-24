@@ -30,7 +30,13 @@ export default function CallCenter() {
     setIsSubmitting(true);
 
     try {
-      await submitContactMessage(formData);
+      console.log("🚀 Submitting contact message:", formData);
+      const result = await submitContactMessage(formData);
+      console.log("✅ Message submitted successfully:", result);
+      console.log(
+        "📦 LocalStorage after submit:",
+        JSON.parse(localStorage.getItem("contact_messages") || "[]")
+      );
 
       showToast(
         "✅ Pesan berhasil dikirim! Tim kami akan menghubungi Anda segera.",
@@ -257,7 +263,7 @@ export default function CallCenter() {
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .call-center-wrap {
           min-height: calc(100vh - 200px);
           padding: 40px 0;

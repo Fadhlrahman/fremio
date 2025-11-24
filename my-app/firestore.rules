@@ -1,11 +1,7 @@
-// Firestore Security Rules for Fremio Platform
-// Copy these rules to Firebase Console -> Firestore Database -> Rules
-
-rules_version = '2';
+﻿rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper functions
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -15,128 +11,33 @@ service cloud.firestore {
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
     
-    function isKreator() {
-      return isAuthenticated() && 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'kreator';
-    }
-    
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-    
-    // Users collection
     match /users/{userId} {
-      // Anyone can read public user profiles
       allow read: if true;
-      
-      // Users can create their own profile
-      allow create: if isOwner(userId) && 
-                      request.resource.data.role == 'user'; // Default role
-      
-      // Users can update their own profile (except role)
-      allow update: if isOwner(userId) && 
-                      request.resource.data.role == resource.data.role;
-      
-      // Only admin can change roles
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated() && request.auth.uid == userId;
       allow update: if isAdmin();
-      
-      // Only admin can delete users
       allow delete: if isAdmin();
     }
     
-    // Kreator Applications
-    match /kreatorApplications/{applicationId} {
-      // Only authenticated users can read their own applications
-      allow read: if isOwner(resource.data.userId) || isAdmin();
-      
-      // Users can submit application (one per user)
-      allow create: if isAuthenticated() && 
-                      request.resource.data.userId == request.auth.uid &&
-                      request.resource.data.status == 'pending';
-      
-      // Users can update their pending applications
-      allow update: if isOwner(resource.data.userId) && 
-                      resource.data.status == 'pending';
-      
-      // Only admin can approve/reject
+    match /contactMessages/{messageId} {
+      allow create: if true;
+      allow read: if isAdmin();
       allow update: if isAdmin();
-      
-      // Only admin can delete
       allow delete: if isAdmin();
     }
     
-    // Frames collection
+    match /affiliate_applications/{applicationId} {
+      allow create: if true;
+      allow read: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
     match /frames/{frameId} {
-      // Public approved frames - anyone can read
-      allow read: if resource.data.status == 'approved' && 
-                    resource.data.isPublic == true;
-      
-      // Kreators can read their own frames (any status)
-      allow read: if isAuthenticated() && 
-                    resource.data.createdBy == request.auth.uid;
-      
-      // Admin can read all frames
-      allow read: if isAdmin();
-      
-      // Only kreators can create frames
-      allow create: if (isKreator() || isAdmin()) &&
-                      request.resource.data.createdBy == request.auth.uid &&
-                      request.resource.data.status in ['draft', 'pending_review'];
-      
-      // Kreators can update their own draft frames
-      allow update: if isOwner(resource.data.createdBy) && 
-                      resource.data.status in ['draft', 'request_changes'];
-      
-      // Kreators can submit for review (draft -> pending_review)
-      allow update: if isOwner(resource.data.createdBy) && 
-                      resource.data.status == 'draft' &&
-                      request.resource.data.status == 'pending_review';
-      
-      // Admin can update any frame (approve, reject, etc)
-      allow update: if isAdmin();
-      
-      // Only admin can delete frames
-      allow delete: if isAdmin();
-    }
-    
-    // Frame Categories
-    match /frameCategories/{categoryId} {
-      // Anyone can read categories
       allow read: if true;
-      
-      // Only admin can manage categories
-      allow create, update, delete: if isAdmin();
-    }
-    
-    // Notifications
-    match /notifications/{notificationId} {
-      // Users can read their own notifications
-      allow read: if isOwner(resource.data.userId);
-      
-      // System and admins can create notifications
       allow create: if isAdmin();
-      
-      // Users can update their own notifications (mark as read)
-      allow update: if isOwner(resource.data.userId);
-      
-      // Users can delete their own notifications
-      allow delete: if isOwner(resource.data.userId) || isAdmin();
-    }
-    
-    // Analytics
-    match /analytics/{analyticsId} {
-      // Only admin can read analytics
-      allow read: if isAdmin();
-      
-      // Kreators can read analytics for their frames
-      allow read: if isAuthenticated() && 
-                    resource.data.kreatorId == request.auth.uid;
-      
-      // System can create analytics
-      allow create: if isAuthenticated();
-      
-      // No one can update or delete analytics
-      allow update, delete: if false;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
     }
   }
 }

@@ -42,6 +42,7 @@ import AdminSettings from "./pages/admin/AdminSettings.jsx";
 import AdminCategories from "./pages/admin/AdminCategories.jsx";
 import AdminAnalytics from "./pages/admin/AdminAnalytics.jsx";
 import AdminMessages from "./pages/admin/AdminMessages.jsx";
+import AdminAffiliates from "./pages/admin/AdminAffiliates.jsx";
 
 import "./App.css";
 
@@ -173,6 +174,7 @@ export default function App() {
             <Route path="categories" element={<AdminCategories />} />
             <Route path="analytics" element={<AdminAnalytics />} />
             <Route path="messages" element={<AdminMessages />} />
+            <Route path="affiliates" element={<AdminAffiliates />} />
             <Route path="settings" element={<AdminSettings />} />
           </Route>
 

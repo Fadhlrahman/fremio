@@ -3,6 +3,22 @@
  * Supports thousands of frames with lazy loading, caching, and pagination
  */
 
+import { db } from '../config/firebase.js';
+import {
+  collection,
+  getDocs,
+  getDoc,
+  doc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  query,
+  where,
+  orderBy,
+  limit as fsLimit,
+  startAfter
+} from 'firebase/firestore';
+
 class FrameService {
   constructor() {
     this.cache = new Map();
@@ -15,6 +31,7 @@ class FrameService {
       'FremioSeries-maroon-3', 'FremioSeries-orange-3', 'FremioSeries-pink-3',
       'FremioSeries-purple-3', 'FremioSeries-white-3', 'FremioSeries-blue-4'
     ]); // Most common frames
+    this.lastVisible = null; // For pagination
   }
 
   /**
@@ -28,6 +45,7 @@ class FrameService {
    * @param {string} options.sortOrder - Sort order (asc, desc)
    * @returns {Promise<Object>} Paginated frame data
    */
+  // Get frames from Firestore with optional category, search, and pagination
   async getFrames(options = {}) {
     const {
       page = 1,
@@ -39,23 +57,56 @@ class FrameService {
     } = options;
 
     const cacheKey = this.generateCacheKey('frames', options);
-    
-    // Check cache first
     if (this.cache.has(cacheKey)) {
-      console.log(`📦 Frame cache hit: ${cacheKey}`);
       return this.cache.get(cacheKey);
     }
 
     try {
-      // For development, use mock data
-      const result = await this.getMockFrames(options);
-      
-      // Cache result
+      const framesCol = collection(db, 'frames');
+      let q = query(framesCol);
+      if (category) {
+        q = query(q, where('category', '==', category));
+      }
+      if (search) {
+        // Firestore doesn't support full text search, so we filter after fetch
+      }
+      q = query(q, orderBy(sortBy, sortOrder === 'desc' ? 'desc' : 'asc'), fsLimit(limit));
+
+      const snapshot = await getDocs(q);
+      const frames = [];
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        frames.push({ id: docSnap.id, ...data });
+      });
+
+      // Simple search filter (client-side)
+      let filteredFrames = frames;
+      if (search) {
+        filteredFrames = frames.filter(f =>
+          f.name?.toLowerCase().includes(search.toLowerCase()) ||
+          f.description?.toLowerCase().includes(search.toLowerCase())
+        );
+      }
+
+      // Pagination info (Firestore pagination is cursor-based, not page-based)
+      const pagination = {
+        page,
+        limit,
+        total: frames.length,
+        totalPages: 1,
+        hasNext: false,
+        hasPrev: page > 1
+      };
+
+      const result = {
+        frames: filteredFrames,
+        pagination,
+        filters: { category, search }
+      };
       this.cache.set(cacheKey, result);
-      
       return result;
     } catch (error) {
-      console.error('❌ Error fetching frames:', error);
+      console.error('❌ Error fetching frames from Firestore:', error);
       return this.getFallbackFrames();
     }
   }
@@ -65,28 +116,66 @@ class FrameService {
    * @param {string} frameId - Frame identifier
    * @returns {Promise<Object>} Frame configuration
    */
+  // Get single frame by ID from Firestore
   async getFrameById(frameId) {
     const cacheKey = `frame_${frameId}`;
-    
     if (this.cache.has(cacheKey)) {
       return this.cache.get(cacheKey);
     }
-
     try {
-      // Check if it's a preloaded frame
+      const frameRef = doc(db, 'frames', frameId);
+      const docSnap = await getDoc(frameRef);
+      if (docSnap.exists()) {
+        const frame = { id: docSnap.id, ...docSnap.data() };
+        this.cache.set(cacheKey, frame);
+        return frame;
+      }
+      // Fallback to preloaded frame if not found
       if (this.preloadedFrames.has(frameId)) {
         const frame = await this.getPreloadedFrame(frameId);
         this.cache.set(cacheKey, frame);
         return frame;
       }
-
-      // For development, return mock frame
-      const frame = await this.getMockFrameById(frameId);
-      this.cache.set(cacheKey, frame);
-      return frame;
-    } catch (error) {
-      console.error(`❌ Error fetching frame ${frameId}:`, error);
       return null;
+    } catch (error) {
+      console.error(`❌ Error fetching frame ${frameId} from Firestore:`, error);
+      return null;
+    }
+  }
+
+  // Add new frame to Firestore (admin only)
+  async addFrame(frameData) {
+    try {
+      const framesCol = collection(db, 'frames');
+      const docRef = await addDoc(framesCol, frameData);
+      return docRef.id;
+    } catch (error) {
+      console.error('❌ Error adding frame to Firestore:', error);
+      throw error;
+    }
+  }
+
+  // Update frame in Firestore (admin only)
+  async updateFrame(frameId, frameData) {
+    try {
+      const frameRef = doc(db, 'frames', frameId);
+      await updateDoc(frameRef, frameData);
+      return true;
+    } catch (error) {
+      console.error('❌ Error updating frame in Firestore:', error);
+      throw error;
+    }
+  }
+
+  // Delete frame from Firestore (admin only)
+  async deleteFrame(frameId) {
+    try {
+      const frameRef = doc(db, 'frames', frameId);
+      await deleteDoc(frameRef);
+      return true;
+    } catch (error) {
+      console.error('❌ Error deleting frame from Firestore:', error);
+      throw error;
     }
   }
 

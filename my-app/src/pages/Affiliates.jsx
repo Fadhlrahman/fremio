@@ -1,6 +1,9 @@
 import { useState } from "react";
+import { submitAffiliateApplication } from "../services/affiliateService";
+import { useToast } from "../hooks/useToast";
 
 export default function Affiliates() {
+  const { showToast } = useToast();
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -114,20 +117,38 @@ export default function Affiliates() {
     }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    alert(
-      "Terima kasih! Aplikasi Anda telah diterima. Kami akan menghubungi Anda dalam 2-3 hari kerja."
-    );
-    setFormData({
-      name: "",
-      email: "",
-      website: "",
-      platform: "",
-      followers: "",
-      niche: "",
-      message: "",
-    });
+
+    console.log("🚀 Form submitted with data:", formData);
+
+    try {
+      const result = await submitAffiliateApplication(formData);
+
+      console.log("📩 Submit result:", result);
+
+      if (result.success) {
+        showToast(
+          "Terima kasih! Aplikasi Anda telah diterima. Kami akan menghubungi Anda dalam 2-3 hari kerja.",
+          "success"
+        );
+        // Reset form
+        setFormData({
+          name: "",
+          email: "",
+          website: "",
+          platform: "",
+          followers: "",
+          niche: "",
+          message: "",
+        });
+      } else {
+        showToast("Gagal mengirim aplikasi. Silakan coba lagi.", "error");
+      }
+    } catch (error) {
+      console.error("Error submitting application:", error);
+      showToast("Terjadi kesalahan. Silakan coba lagi.", "error");
+    }
   };
 
   return (

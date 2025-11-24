@@ -5,7 +5,7 @@ import { isFirebaseConfigured } from "../../config/firebase";
 import { getAllCustomFrames } from "../../services/customFrameService";
 import { getUnreadMessagesCount } from "../../services/contactMessageService";
 import { getAllUsers } from "../../services/userService";
-import { initializeDemoData } from "../../utils/demoData";
+import { getAffiliateStats } from "../../services/affiliateService";
 import "../../styles/admin.css";
 import {
   Users,
@@ -20,6 +20,7 @@ import {
   Download,
   Heart,
   Mail,
+  Handshake,
 } from "lucide-react";
 
 export default function AdminDashboard() {
@@ -33,6 +34,8 @@ export default function AdminDashboard() {
     totalDownloads: 0,
     totalLikes: 0,
     unreadMessages: 0,
+    pendingAffiliates: 0,
+    totalAffiliates: 0,
   });
   const [loading, setLoading] = useState(false);
 
@@ -48,6 +51,7 @@ export default function AdminDashboard() {
 
       const usage = JSON.parse(localStorage.getItem("frame_usage") || "[]");
       const unreadMessages = await getUnreadMessagesCount();
+      const affiliateStats = await getAffiliateStats();
 
       const totalViews = usage.reduce((sum, u) => sum + (u.views || 0), 0);
       const totalDownloads = usage.reduce(
@@ -63,6 +67,8 @@ export default function AdminDashboard() {
         totalDownloads,
         totalLikes,
         unreadMessages,
+        pendingAffiliates: affiliateStats.pending,
+        totalAffiliates: affiliateStats.total,
       };
 
       console.log("📊 Final stats:", newStats);
@@ -214,6 +220,15 @@ export default function AdminDashboard() {
             onClick={() => navigate("/admin/messages")}
             badge={stats.unreadMessages > 0}
           />
+          <StatCard
+            title="Affiliate Apps"
+            value={stats.pendingAffiliates}
+            subtitle={`${stats.totalAffiliates} total aplikasi`}
+            icon={<Handshake size={24} />}
+            color="#06b6d4"
+            onClick={() => navigate("/admin/affiliates")}
+            badge={stats.pendingAffiliates > 0}
+          />
         </div>
 
         {/* Frame Management Section */}
@@ -353,43 +368,6 @@ export default function AdminDashboard() {
                 Manage Frames
               </button>
             </div>
-
-            {/* Demo Data Button */}
-            <button
-              onClick={() => {
-                const result = initializeDemoData();
-                alert(result.message);
-                loadStats(); // Refresh stats
-              }}
-              style={{
-                padding: "12px",
-                background: "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)",
-                color: "white",
-                border: "none",
-                borderRadius: "10px",
-                fontSize: "14px",
-                fontWeight: "600",
-                cursor: "pointer",
-                transition: "all 0.2s",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "8px",
-                width: "100%",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = "translateY(-2px)";
-                e.currentTarget.style.boxShadow =
-                  "0 4px 12px rgba(59, 130, 246, 0.3)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = "translateY(0)";
-                e.currentTarget.style.boxShadow = "none";
-              }}
-            >
-              <TrendingUp size={16} />
-              Initialize Demo Data (for Testing)
-            </button>
           </div>
         </section>
 

@@ -22,10 +22,33 @@ export default function Header() {
   const { pathname, hash } = useLocation();
   const { isAuthenticated, user, logout } = useAuth();
 
-  // Get profile photo from localStorage
-  const profilePhoto = user?.email
-    ? localStorage.getItem(`profilePhoto_${user.email}`)
-    : null;
+  // Get profile photo - try multiple keys for compatibility
+  const getProfilePhoto = () => {
+    if (!user) return null;
+
+    // Try Firebase UID first (new system)
+    if (user.uid) {
+      const photoByUid = localStorage.getItem(`profilePhoto_${user.uid}`);
+      if (photoByUid) return photoByUid;
+    }
+
+    // Fallback to email (old system)
+    if (user.email) {
+      const photoByEmail = localStorage.getItem(`profilePhoto_${user.email}`);
+      if (photoByEmail) {
+        // Migrate to UID-based key if user has UID
+        if (user.uid) {
+          localStorage.setItem(`profilePhoto_${user.uid}`, photoByEmail);
+          console.log("✅ Migrated profile photo from email to UID");
+        }
+        return photoByEmail;
+      }
+    }
+
+    return null;
+  };
+
+  const profilePhoto = getProfilePhoto();
 
   // Get user initials for fallback
   const getInitials = () => {
@@ -187,7 +210,11 @@ export default function Header() {
 
                   {/* Username */}
                   <span style={{ fontWeight: 600, fontSize: "15px" }}>
-                    {user?.firstName || user?.name || "Profile"}
+                    {user?.displayName ||
+                      user?.firstName ||
+                      user?.name ||
+                      user?.email?.split("@")[0] ||
+                      "Profile"}
                   </span>
                 </button>
 

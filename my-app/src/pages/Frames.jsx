@@ -8,6 +8,14 @@ import { trackFrameView } from "../services/analyticsService";
 export default function Frames() {
   const navigate = useNavigate();
   const [customFrames, setCustomFrames] = useState([]);
+  const [expandedDescriptions, setExpandedDescriptions] = useState({});
+
+  const toggleDescription = (frameId) => {
+    setExpandedDescriptions((prev) => ({
+      ...prev,
+      [frameId]: !prev[frameId],
+    }));
+  };
 
   // Clear old frameConfig when entering Frames page
   // This ensures user always gets fresh frame selection
@@ -95,6 +103,41 @@ export default function Frames() {
                     {frame.maxCaptures} captures
                   </p>
                 </div>
+
+                {/* Frame Description */}
+                {frame.description && (
+                  <div className="text-left px-1">
+                    <p
+                      className="text-slate-600 leading-relaxed"
+                      style={{
+                        fontSize: "10px",
+                        display: "-webkit-box",
+                        WebkitLineClamp: expandedDescriptions[frame.id]
+                          ? "unset"
+                          : 2,
+                        WebkitBoxOrient: "vertical",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {frame.description}
+                    </p>
+                    {frame.description.length > 80 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleDescription(frame.id);
+                        }}
+                        className="mt-1 text-[#c89585] hover:text-[#e0b7a9] font-medium transition-colors"
+                        style={{ fontSize: "9px" }}
+                      >
+                        {expandedDescriptions[frame.id]
+                          ? "Show Less"
+                          : "Show More"}
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {/* Lihat Frame Button */}
                 <div className="flex justify-center w-full">

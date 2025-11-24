@@ -5,7 +5,7 @@ import { useAuth } from "../contexts/AuthContext.jsx";
 export default function Register() {
   const navigate = useNavigate();
   const { register: registerUser } = useAuth();
-  
+
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
@@ -26,13 +26,19 @@ export default function Register() {
     setError("");
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
     // Validation
-    if (!formData.firstName || !formData.lastName || !formData.email || !formData.password || !formData.confirmPassword) {
+    if (
+      !formData.firstName ||
+      !formData.lastName ||
+      !formData.email ||
+      !formData.password ||
+      !formData.confirmPassword
+    ) {
       setError("Please fill in all fields");
       setLoading(false);
       return;
@@ -56,25 +62,37 @@ export default function Register() {
       return;
     }
 
-    // Register user
-    const userData = {
-      firstName: formData.firstName,
-      lastName: formData.lastName,
-      name: `${formData.firstName} ${formData.lastName}`,
-      email: formData.email,
-      password: formData.password,
-      createdAt: new Date().toISOString(),
-    };
+    try {
+      // Register user
+      const userData = {
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        name: `${formData.firstName} ${formData.lastName}`,
+        email: formData.email,
+        password: formData.password,
+        createdAt: new Date().toISOString(),
+      };
 
-    const result = registerUser(userData);
-    
-    if (result.success) {
-      navigate("/frames", { replace: true });
-    } else {
-      setError(result.message);
+      const result = await registerUser(userData);
+
+      if (result.success) {
+        // Redirect to login page after successful registration
+        navigate("/login", {
+          replace: true,
+          state: {
+            message:
+              "Registration successful! Please login with your credentials.",
+          },
+        });
+      } else {
+        setError(result.message);
+      }
+    } catch (error) {
+      console.error("Registration error:", error);
+      setError("Registration failed. Please try again.");
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   return (

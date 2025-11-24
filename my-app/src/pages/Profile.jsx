@@ -44,8 +44,10 @@ export default function Profile() {
       .map((s) => s[0]?.toUpperCase())
       .join("") || "U";
 
-  // Get profile photo from localStorage
-  const profilePhoto = localStorage.getItem(`profilePhoto_${user?.email}`);
+  // Get profile photo from localStorage (UID first, email fallback)
+  const profilePhoto =
+    localStorage.getItem(`profilePhoto_${user?.uid}`) ||
+    localStorage.getItem(`profilePhoto_${user?.email}`);
 
   return (
     <section className="profile-page">

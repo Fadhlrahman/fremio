@@ -1,8 +1,15 @@
 import safeStorage from "./safeStorage.js";
 import indexedDBStorage from "./indexedDBStorage.js";
+import {
+  saveDraftToCloud,
+  getDraftsFromCloud,
+  deleteDraftFromCloud,
+  syncLocalDraftsToCloud,
+} from "../services/draftCloudService.js";
 
 const STORAGE_KEY = "fremio-creator-drafts";
 const USE_INDEXEDDB = true; // Enable IndexedDB for larger storage capacity
+const USE_CLOUD_SYNC = true; // Enable Firestore cloud sync
 
 const ensureArray = (value) => (Array.isArray(value) ? value : []);
 
@@ -32,6 +39,31 @@ const generateId = () => {
 
 export const loadDrafts = async () => {
   const currentUserId = getCurrentUserId();
+
+  // Try to load from cloud first if user is logged in
+  if (USE_CLOUD_SYNC && currentUserId !== "guest") {
+    try {
+      console.log("☁️ Loading drafts from cloud for user:", currentUserId);
+      const cloudDrafts = await getDraftsFromCloud(currentUserId);
+
+      if (cloudDrafts.length > 0) {
+        console.log(`✅ Loaded ${cloudDrafts.length} drafts from cloud`);
+
+        // Also save to local storage for offline access
+        if (USE_INDEXEDDB) {
+          for (const draft of cloudDrafts) {
+            await indexedDBStorage.saveDraft(draft);
+          }
+        } else {
+          safeStorage.setJSON(STORAGE_KEY, cloudDrafts);
+        }
+
+        return cloudDrafts;
+      }
+    } catch (error) {
+      console.warn("⚠️ Failed to load from cloud, using local storage:", error);
+    }
+  }
 
   if (USE_INDEXEDDB) {
     try {
@@ -211,12 +243,29 @@ export const deleteDraft = async (id) => {
       const draft = await indexedDBStorage.getDraft(id);
       if (draft && draft.userId === currentUserId) {
         await indexedDBStorage.deleteDraft(id);
-        console.log(`✅ Deleted draft ${id} for user ${currentUserId}`);
+        console.log(
+          `✅ Deleted draft ${id} from IndexedDB for user ${currentUserId}`
+        );
       } else {
         console.warn(
           `⚠️ Cannot delete draft ${id} - belongs to different user`
         );
       }
+
+      // Delete from cloud if enabled
+      if (USE_CLOUD_SYNC && currentUserId !== "guest") {
+        try {
+          console.log("☁️ Deleting draft from cloud:", id);
+          await deleteDraftFromCloud(currentUserId, id);
+          console.log("✅ Deleted from cloud:", id);
+        } catch (cloudError) {
+          console.error(
+            "⚠️ Failed to delete from cloud (local delete succeeded):",
+            cloudError
+          );
+        }
+      }
+
       return await loadDrafts(); // Return updated list for current user
     } catch (error) {
       console.error("❌ Failed to delete from IndexedDB:", error);
@@ -226,6 +275,16 @@ export const deleteDraft = async (id) => {
         (draft) => draft.id !== id || draft.userId !== currentUserId
       );
       safeStorage.setJSON(STORAGE_KEY, nextDrafts);
+
+      // Delete from cloud if enabled
+      if (USE_CLOUD_SYNC && currentUserId !== "guest") {
+        try {
+          await deleteDraftFromCloud(currentUserId, id);
+        } catch (cloudError) {
+          console.error("⚠️ Failed to delete from cloud:", cloudError);
+        }
+      }
+
       return nextDrafts.filter((draft) => draft.userId === currentUserId);
     }
   } else {
@@ -234,6 +293,21 @@ export const deleteDraft = async (id) => {
       (draft) => draft.id !== id || draft.userId !== currentUserId
     );
     safeStorage.setJSON(STORAGE_KEY, nextDrafts);
+
+    // Delete from cloud if enabled
+    if (USE_CLOUD_SYNC && currentUserId !== "guest") {
+      try {
+        console.log("☁️ Deleting draft from cloud:", id);
+        await deleteDraftFromCloud(currentUserId, id);
+        console.log("✅ Deleted from cloud:", id);
+      } catch (cloudError) {
+        console.error(
+          "⚠️ Failed to delete from cloud (local delete succeeded):",
+          cloudError
+        );
+      }
+    }
+
     return nextDrafts.filter((draft) => draft.userId === currentUserId);
   }
 };
@@ -252,19 +326,40 @@ export const clearDrafts = async () => {
 export const saveDraft = async (inputDraft) => {
   const nowIso = new Date().toISOString();
   const incoming = { ...inputDraft };
+  const currentUserId = getCurrentUserId();
+
+  let savedDraft;
 
   if (USE_INDEXEDDB) {
     try {
-      return await saveDraftToIndexedDB(incoming, nowIso);
+      savedDraft = await saveDraftToIndexedDB(incoming, nowIso);
     } catch (error) {
       console.error(
         "❌ [saveDraft] Failed to save draft to IndexedDB, falling back to localStorage:",
         error
       );
+      savedDraft = await saveDraftToLocalStorage(incoming, nowIso);
+    }
+  } else {
+    savedDraft = await saveDraftToLocalStorage(incoming, nowIso);
+  }
+
+  // Save to cloud if enabled and user is logged in
+  if (USE_CLOUD_SYNC && currentUserId !== "guest") {
+    try {
+      console.log("☁️ Syncing draft to cloud:", savedDraft.id);
+      await saveDraftToCloud(currentUserId, savedDraft);
+      console.log("✅ Synced to cloud:", savedDraft.id);
+    } catch (cloudError) {
+      console.error(
+        "⚠️ Failed to sync to cloud (local save succeeded):",
+        cloudError
+      );
+      // Don't throw - local save succeeded
     }
   }
 
-  return saveDraftToLocalStorage(incoming, nowIso);
+  return savedDraft;
 };
 
 export default {

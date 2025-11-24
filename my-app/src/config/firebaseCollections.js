@@ -11,6 +11,8 @@ export const COLLECTIONS = {
   FRAME_CATEGORIES: "frameCategories",
   NOTIFICATIONS: "notifications",
   ANALYTICS: "analytics",
+  CONTACT_MESSAGES: "contactMessages",
+  contactMessages: "contactMessages", // Alias
 };
 
 // User Roles
@@ -219,4 +221,25 @@ export const AnalyticsSchema = {
   kreatorId: "string?",
   metadata: "object",
   timestamp: "timestamp",
+};
+
+/**
+ * Contact Message Schema
+ * Collection: contactMessages
+ */
+export const ContactMessageSchema = {
+  id: "string",
+  name: "string",
+  email: "string",
+  phone: "string",
+  topic: "technical|account|billing|general|feedback",
+  message: "string",
+  status: "new|read|replied|closed",
+  priority: "low|medium|high",
+  assignedTo: "string?", // Admin UID
+  reply: "string?",
+  repliedAt: "timestamp?",
+  repliedBy: "string?", // Admin UID
+  createdAt: "timestamp",
+  updatedAt: "timestamp",
 };

@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { isFirebaseConfigured } from "../../config/firebase";
 import { getAllCustomFrames } from "../../services/customFrameService";
+import { getUnreadMessagesCount } from "../../services/contactMessageService";
+import { getAllUsers } from "../../services/userService";
 import { initializeDemoData } from "../../utils/demoData";
 import "../../styles/admin.css";
 import {
@@ -17,6 +19,7 @@ import {
   Eye,
   Download,
   Heart,
+  Mail,
 } from "lucide-react";
 
 export default function AdminDashboard() {
@@ -29,15 +32,22 @@ export default function AdminDashboard() {
     totalViews: 0,
     totalDownloads: 0,
     totalLikes: 0,
+    unreadMessages: 0,
   });
   const [loading, setLoading] = useState(false);
 
   // Load REAL stats from localStorage
-  const loadStats = () => {
+  const loadStats = async () => {
     try {
+      console.log("📊 AdminDashboard - Loading stats...");
       const frames = getAllCustomFrames();
-      const users = JSON.parse(localStorage.getItem("users") || "[]");
+      console.log("📊 Frames loaded:", frames.length);
+
+      const usersData = await getAllUsers();
+      console.log("📊 Users loaded:", usersData.length, usersData);
+
       const usage = JSON.parse(localStorage.getItem("frame_usage") || "[]");
+      const unreadMessages = await getUnreadMessagesCount();
 
       const totalViews = usage.reduce((sum, u) => sum + (u.views || 0), 0);
       const totalDownloads = usage.reduce(
@@ -46,13 +56,17 @@ export default function AdminDashboard() {
       );
       const totalLikes = usage.reduce((sum, u) => sum + (u.likes || 0), 0);
 
-      setStats({
+      const newStats = {
         totalFrames: frames.length,
-        totalUsers: users.length,
+        totalUsers: usersData.length,
         totalViews,
         totalDownloads,
         totalLikes,
-      });
+        unreadMessages,
+      };
+
+      console.log("📊 Final stats:", newStats);
+      setStats(newStats);
     } catch (error) {
       console.error("Error loading stats:", error);
     }
@@ -190,6 +204,15 @@ export default function AdminDashboard() {
             icon={<Heart size={24} />}
             color="#ef4444"
             onClick={() => navigate("/admin/analytics")}
+          />
+          <StatCard
+            title="Pesan Baru"
+            value={stats.unreadMessages}
+            subtitle="Pesan belum dibaca"
+            icon={<Mail size={24} />}
+            color="#8b5cf6"
+            onClick={() => navigate("/admin/messages")}
+            badge={stats.unreadMessages > 0}
           />
         </div>
 
@@ -439,6 +462,13 @@ export default function AdminDashboard() {
               onClick={() => navigate("/admin/analytics")}
             />
             <ActionButton
+              icon={<Mail size={20} />}
+              label="Messages"
+              description="View contact messages"
+              onClick={() => navigate("/admin/messages")}
+              badge={stats.unreadMessages}
+            />
+            <ActionButton
               icon={<Settings size={20} />}
               label="Settings"
               description="Platform configuration"
@@ -452,7 +482,15 @@ export default function AdminDashboard() {
 }
 
 // Stat Card Component
-function StatCard({ title, value, subtitle, icon, color, onClick }) {
+function StatCard({
+  title,
+  value,
+  subtitle,
+  icon,
+  color,
+  onClick,
+  badge = false,
+}) {
   return (
     <div
       onClick={onClick}
@@ -463,6 +501,7 @@ function StatCard({ title, value, subtitle, icon, color, onClick }) {
         padding: "20px",
         cursor: "pointer",
         transition: "all 0.2s",
+        position: "relative",
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.transform = "translateY(-2px)";
@@ -473,6 +512,24 @@ function StatCard({ title, value, subtitle, icon, color, onClick }) {
         e.currentTarget.style.boxShadow = "none";
       }}
     >
+      {badge && value > 0 && (
+        <div
+          style={{
+            position: "absolute",
+            top: "12px",
+            right: "12px",
+            background: "#ef4444",
+            color: "white",
+            borderRadius: "12px",
+            padding: "4px 10px",
+            fontSize: "0.75rem",
+            fontWeight: "700",
+            animation: "pulse 2s infinite",
+          }}
+        >
+          NEW
+        </div>
+      )}
       <div
         style={{
           display: "flex",
@@ -571,6 +628,7 @@ function ActionButton({
   description,
   onClick,
   highlight = false,
+  badge = 0,
 }) {
   return (
     <button
@@ -590,6 +648,7 @@ function ActionButton({
         transition: "all 0.2s",
         width: "100%",
         boxShadow: highlight ? "0 4px 12px rgba(224, 183, 169, 0.2)" : "none",
+        position: "relative",
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.background = highlight
@@ -611,6 +670,25 @@ function ActionButton({
           : "none";
       }}
     >
+      {badge > 0 && (
+        <div
+          style={{
+            position: "absolute",
+            top: "8px",
+            right: "8px",
+            background: "#ef4444",
+            color: "white",
+            borderRadius: "12px",
+            padding: "4px 8px",
+            fontSize: "0.7rem",
+            fontWeight: "700",
+            minWidth: "20px",
+            textAlign: "center",
+          }}
+        >
+          {badge}
+        </div>
+      )}
       <div
         style={{
           color: highlight ? "#e0b7a9" : "var(--accent, #e0b7a9)",

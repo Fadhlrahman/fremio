@@ -42,28 +42,6 @@ export default function AdminUsers() {
 
   // Fetch users (only if Firebase configured)
   useEffect(() => {
-    if (!isFirebaseConfigured) {
-      // Load REAL users from localStorage
-      const storedUsers = JSON.parse(localStorage.getItem("users") || "[]");
-
-      // Calculate stats
-      const kreators = storedUsers.filter((u) => u.role === "kreator").length;
-      const regular = storedUsers.filter((u) => u.role === "user").length;
-      const active = storedUsers.filter((u) => u.status === "active").length;
-      const banned = storedUsers.filter((u) => u.status === "banned").length;
-
-      setUsers(storedUsers);
-      setFilteredUsers(storedUsers);
-      setStats({
-        total: storedUsers.length,
-        kreators,
-        regular,
-        active,
-        banned,
-      });
-      return;
-    }
-
     fetchUsers();
   }, []);
 
@@ -96,18 +74,21 @@ export default function AdminUsers() {
   }, [searchQuery, filterRole, filterStatus, users]);
 
   const fetchUsers = async () => {
-    if (!isFirebaseConfigured) return;
-
     setLoading(true);
 
     try {
+      console.log("🔄 AdminUsers - Fetching users...");
       const { getAllUsers, getUserStats } = await import(
         "../../services/userService"
       );
       const usersData = await getAllUsers();
       const statsData = await getUserStats();
 
+      console.log("✅ Users fetched:", usersData);
+      console.log("✅ Stats:", statsData);
+
       setUsers(usersData);
+      setFilteredUsers(usersData);
       setStats(statsData);
     } catch (error) {
       console.error("Error fetching users:", error);
@@ -116,17 +97,42 @@ export default function AdminUsers() {
     setLoading(false);
   };
 
+  const handleInitializeCurrentUser = async () => {
+    try {
+      console.log("🔄 Initializing current user...");
+      const { saveUserToStorage } = await import("../../services/userService");
+
+      if (!currentUser) {
+        alert("No user logged in!");
+        return;
+      }
+
+      const result = saveUserToStorage({
+        id: currentUser.uid,
+        uid: currentUser.uid,
+        email: currentUser.email,
+        name: currentUser.displayName || currentUser.email?.split("@")[0],
+        displayName: currentUser.displayName,
+        role: currentUser.role || "admin",
+        status: "active",
+        createdAt: new Date().toISOString(),
+      });
+
+      console.log("✅ User initialized:", result);
+      alert("Current user initialized successfully!");
+      fetchUsers();
+    } catch (error) {
+      console.error("Error initializing user:", error);
+      alert("Failed to initialize user");
+    }
+  };
+
   const handlePromoteToKreator = async (userId) => {
     if (
       !window.confirm(
         "Promote this user to Kreator? They will be able to create and submit frames."
       )
     ) {
-      return;
-    }
-
-    if (!isFirebaseConfigured) {
-      alert("Firebase not configured. This feature requires Firebase setup.");
       return;
     }
 
@@ -155,11 +161,6 @@ export default function AdminUsers() {
       return;
     }
 
-    if (!isFirebaseConfigured) {
-      alert("Firebase not configured. This feature requires Firebase setup.");
-      return;
-    }
-
     try {
       const { banUser } = await import("../../services/userService");
       const result = await banUser(userId, currentUser.uid, "Banned by admin");
@@ -185,11 +186,6 @@ export default function AdminUsers() {
       return;
     }
 
-    if (!isFirebaseConfigured) {
-      alert("Firebase not configured. This feature requires Firebase setup.");
-      return;
-    }
-
     try {
       const { unbanUser } = await import("../../services/userService");
       const result = await unbanUser(userId, currentUser.uid);
@@ -212,11 +208,6 @@ export default function AdminUsers() {
         "Delete this user permanently? This action cannot be undone. All their data will be deleted."
       )
     ) {
-      return;
-    }
-
-    if (!isFirebaseConfigured) {
-      alert("Firebase not configured. This feature requires Firebase setup.");
       return;
     }
 
@@ -431,7 +422,84 @@ export default function AdminUsers() {
                 size={48}
                 style={{ color: "#d1d5db", margin: "0 auto 16px" }}
               />
-              <p style={{ color: "var(--text-secondary)" }}>No users found</p>
+              <p
+                style={{ color: "var(--text-secondary)", marginBottom: "16px" }}
+              >
+                No users found
+              </p>
+
+              {/* Debug Info */}
+              <div
+                style={{
+                  background: "#f0f9ff",
+                  border: "1px solid #bfdbfe",
+                  borderRadius: "8px",
+                  padding: "16px",
+                  marginBottom: "16px",
+                  textAlign: "left",
+                  fontSize: "13px",
+                }}
+              >
+                <p
+                  style={{
+                    margin: "0 0 8px",
+                    fontWeight: "600",
+                    color: "#1e40af",
+                  }}
+                >
+                  🔍 Debug Info:
+                </p>
+                <p style={{ margin: "4px 0", color: "#1e3a8a" }}>
+                  Total users in state: {users.length}
+                </p>
+                <p style={{ margin: "4px 0", color: "#1e3a8a" }}>
+                  Filtered users: {filteredUsers.length}
+                </p>
+                <p style={{ margin: "4px 0", color: "#1e3a8a" }}>
+                  Current user: {currentUser?.email || "Not logged in"}
+                </p>
+                <p
+                  style={{
+                    margin: "4px 0",
+                    color: "#1e3a8a",
+                    fontSize: "11px",
+                  }}
+                >
+                  Check browser console (F12) for detailed logs
+                </p>
+              </div>
+
+              {/* Initialize Button */}
+              <button
+                onClick={handleInitializeCurrentUser}
+                style={{
+                  padding: "12px 24px",
+                  background:
+                    "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "translateY(-2px)";
+                  e.currentTarget.style.boxShadow =
+                    "0 4px 12px rgba(59, 130, 246, 0.3)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow = "none";
+                }}
+              >
+                <Shield size={16} />
+                Initialize Current User as Admin
+              </button>
             </div>
           </div>
         ) : (

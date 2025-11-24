@@ -18,10 +18,20 @@ import Create from "./pages/Create.jsx";
 import NotFound from "./pages/NotFound.jsx";
 import Login from "./pages/Login.jsx";
 import Register from "./pages/Register.jsx";
+import ResetPassword from "./pages/ResetPassword.jsx";
 import Profile from "./pages/Profile.jsx";
 import Settings from "./pages/Settings.jsx";
+import ChangePassword from "./pages/ChangePassword.jsx";
 import Wishlist from "./pages/Wishlist.jsx";
 import Drafts from "./pages/Drafts.jsx";
+
+// Footer Pages
+import HelpCenter from "./pages/HelpCenter.jsx";
+import CallCenter from "./pages/CallCenter.jsx";
+import OrderStatus from "./pages/OrderStatus.jsx";
+import AboutUs from "./pages/AboutUs.jsx";
+import Investor from "./pages/Investor.jsx";
+import Affiliates from "./pages/Affiliates.jsx";
 
 // Admin Pages
 import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
@@ -31,6 +41,7 @@ import AdminUsers from "./pages/admin/AdminUsers.jsx";
 import AdminSettings from "./pages/admin/AdminSettings.jsx";
 import AdminCategories from "./pages/admin/AdminCategories.jsx";
 import AdminAnalytics from "./pages/admin/AdminAnalytics.jsx";
+import AdminMessages from "./pages/admin/AdminMessages.jsx";
 
 import "./App.css";
 
@@ -47,6 +58,15 @@ export default function App() {
             {/* Public routes */}
             <Route path="login" element={<Login />} />
             <Route path="register" element={<Register />} />
+            <Route path="reset-password" element={<ResetPassword />} />
+
+            {/* Footer pages */}
+            <Route path="help-center" element={<HelpCenter />} />
+            <Route path="call-center" element={<CallCenter />} />
+            <Route path="order-status" element={<OrderStatus />} />
+            <Route path="about-us" element={<AboutUs />} />
+            <Route path="investor" element={<Investor />} />
+            <Route path="affiliates" element={<Affiliates />} />
 
             {/* Protected routes */}
             <Route
@@ -86,6 +106,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <Settings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="change-password"
+              element={
+                <ProtectedRoute>
+                  <ChangePassword />
                 </ProtectedRoute>
               }
             />
@@ -144,6 +172,7 @@ export default function App() {
             <Route path="users" element={<AdminUsers />} />
             <Route path="categories" element={<AdminCategories />} />
             <Route path="analytics" element={<AdminAnalytics />} />
+            <Route path="messages" element={<AdminMessages />} />
             <Route path="settings" element={<AdminSettings />} />
           </Route>
 

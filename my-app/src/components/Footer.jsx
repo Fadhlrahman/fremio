@@ -1,4 +1,5 @@
 // src/components/Footer.jsx
+import { Link } from "react-router-dom";
 import { FaYoutube, FaInstagram, FaTiktok, FaXTwitter } from "react-icons/fa6";
 
 export default function Footer() {
@@ -50,13 +51,13 @@ export default function Footer() {
           <h4>Support</h4>
           <ul className="links">
             <li>
-              <a href="#">Help Center</a>
+              <Link to="/help-center">Help Center</Link>
             </li>
             <li>
-              <a href="#">Call Center</a>
+              <Link to="/call-center">Call Center</Link>
             </li>
             <li>
-              <a href="#">Order Status</a>
+              <Link to="/order-status">Order Status</Link>
             </li>
           </ul>
         </div>
@@ -66,13 +67,13 @@ export default function Footer() {
           <h4>Company</h4>
           <ul className="links">
             <li>
-              <a href="#">About Us</a>
+              <Link to="/about-us">About Us</Link>
             </li>
             <li>
-              <a href="#">Investor</a>
+              <Link to="/investor">Investor</Link>
             </li>
             <li>
-              <a href="#">Affiliates</a>
+              <Link to="/affiliates">Affiliates</Link>
             </li>
           </ul>
         </div>

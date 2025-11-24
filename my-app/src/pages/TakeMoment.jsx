@@ -574,6 +574,44 @@ export default function TakeMoment() {
   }, []);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [videoAspectRatio, setVideoAspectRatio] = useState(4 / 3);
+  const [slotAspectRatio, setSlotAspectRatio] = useState(null);
+
+  // Helper to calculate and set slot aspect ratio from frame config
+  const updateSlotAspectRatio = useCallback((frameConfig) => {
+    if (frameConfig?.slots && frameConfig.slots.length > 0) {
+      const firstSlot = frameConfig.slots[0];
+
+      // Use aspectRatio string if available (e.g., "4:5")
+      if (firstSlot.aspectRatio && typeof firstSlot.aspectRatio === "string") {
+        const [w, h] = firstSlot.aspectRatio.split(":").map(Number);
+        if (w && h) {
+          const slotRatio = w / h;
+          setSlotAspectRatio(slotRatio);
+          console.log(
+            "📐 Slot aspect ratio from string:",
+            slotRatio,
+            `(${w}:${h})`
+          );
+          return;
+        }
+      }
+
+      // Fallback: calculate from width/height (already normalized 0-1)
+      if (firstSlot.width && firstSlot.height) {
+        const slotRatio = firstSlot.width / firstSlot.height;
+        setSlotAspectRatio(slotRatio);
+        console.log(
+          "📐 Slot aspect ratio from dimensions:",
+          slotRatio,
+          `(${firstSlot.width} / ${firstSlot.height})`
+        );
+        return;
+      }
+    }
+
+    setSlotAspectRatio(null);
+    console.log("📐 No slots found, using default aspect ratio");
+  }, []);
   const [maxCaptures, setMaxCaptures] = useState(4);
   const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
   const [isUsingBackCamera, setIsUsingBackCamera] = useState(false);
@@ -965,6 +1003,7 @@ export default function TakeMoment() {
               customFrameConfig.maxCaptures || 1
             );
 
+            updateSlotAspectRatio(customFrameConfig);
             persistLayerPlan(customFrameConfig);
           } else {
             console.error("❌ Draft not found:", activeDraftId);
@@ -1001,6 +1040,7 @@ export default function TakeMoment() {
           } else {
             setMaxCaptures(4);
           }
+          updateSlotAspectRatio(frameConfig);
           persistLayerPlan(frameConfig);
         });
       return;
@@ -1025,6 +1065,7 @@ export default function TakeMoment() {
       } else {
         setMaxCaptures(4);
       }
+      updateSlotAspectRatio(existingConfig);
       persistLayerPlan(existingConfig);
     } else {
       // Priority 3: No frame anywhere, load from storage
@@ -1041,10 +1082,21 @@ export default function TakeMoment() {
           } else {
             setMaxCaptures(4);
           }
+          updateSlotAspectRatio(frameConfig);
           persistLayerPlan(frameConfig);
         });
     }
-  }, [clearCapturedMedia, persistLayerPlan]);
+  }, [clearCapturedMedia, persistLayerPlan, updateSlotAspectRatio]);
+
+  // Force camera container re-render when slot aspect ratio changes
+  useEffect(() => {
+    if (slotAspectRatio !== null) {
+      console.log(
+        "🔄 Slot aspect ratio changed, container will update:",
+        slotAspectRatio
+      );
+    }
+  }, [slotAspectRatio]);
 
   useEffect(() => {
     if (!capturedPhotos.length) return;
@@ -1683,6 +1735,23 @@ export default function TakeMoment() {
               {isVideoProcessing ? "⏳ Sedang menyiapkan..." : "✓ Pilih"}
             </button>
             <button
+              onClick={handleSaveAsDraft}
+              disabled={isVideoProcessing}
+              style={{
+                flex: "1 1 120px",
+                padding: "0.85rem 1.5rem",
+                borderRadius: "999px",
+                border: "none",
+                background: isVideoProcessing ? "#6c757d" : "#E8A889",
+                color: "#fff",
+                fontWeight: 600,
+                cursor: isVideoProcessing ? "not-allowed" : "pointer",
+                boxShadow: "0 16px 32px rgba(232,168,137,0.35)",
+              }}
+            >
+              💾 Draft
+            </button>
+            <button
               onClick={handleRetakePhoto}
               style={{
                 flex: "1 1 120px",
@@ -1709,16 +1778,60 @@ export default function TakeMoment() {
       setCameraError(null);
       setIsSwitchingCamera(true);
 
-      const constraints = {
-        audio: false,
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: desiredFacingMode,
-        },
-      };
+      // Check if mediaDevices is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Browser tidak mendukung akses kamera");
+      }
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      // First, enumerate devices to see what's available
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(
+          (device) => device.kind === "videoinput"
+        );
+        console.log("📹 Available cameras:", videoDevices.length, videoDevices);
+
+        if (videoDevices.length === 0) {
+          throw new Error("Tidak ada kamera yang terdeteksi di perangkat ini");
+        }
+      } catch (enumError) {
+        console.warn("⚠️ Could not enumerate devices:", enumError);
+      }
+
+      let stream;
+
+      // Strategy 1: Just ask for video - simplest approach
+      try {
+        console.log("🎥 Trying basic video request");
+        const constraints = { audio: false, video: true };
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        console.log("✅ Camera started with basic constraints");
+      } catch (err1) {
+        console.error("❌ Basic video failed:", err1.name, err1.message);
+
+        // Strategy 2: Try with specific resolution
+        try {
+          console.log("🎥 Trying with resolution constraints");
+          const constraints = {
+            audio: false,
+            video: { width: 640, height: 480 },
+          };
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          console.log("✅ Camera started with resolution");
+        } catch (err2) {
+          console.error(
+            "❌ Resolution constraints failed:",
+            err2.name,
+            err2.message
+          );
+          throw err2;
+        }
+      }
+
+      if (!stream) {
+        throw new Error("Gagal mendapatkan stream kamera");
+      }
+
       cameraStreamRef.current = stream;
       setCameraActive(true);
 
@@ -1727,7 +1840,9 @@ export default function TakeMoment() {
           videoRef.current.srcObject = stream;
           videoRef.current
             .play()
-            .then(() => {})
+            .then(() => {
+              console.log("✅ Video playing");
+            })
             .catch((error) => {
               console.error("❌ video play failed", error);
             });
@@ -2748,6 +2863,59 @@ export default function TakeMoment() {
     setShowConfirmation(false);
   }, [replaceCurrentPhoto, replaceCurrentVideo]);
 
+  const handleSaveAsDraft = useCallback(async () => {
+    try {
+      const { default: draftStorage } = await import(
+        "../utils/draftStorage.js"
+      );
+
+      // Get current frame config
+      const frameConfig = frameProvider.getCurrentConfig();
+      if (!frameConfig) {
+        showToast({
+          type: "error",
+          title: "Gagal Menyimpan",
+          message: "Frame tidak ditemukan.",
+        });
+        return;
+      }
+
+      const draftData = {
+        frameConfig: frameConfig,
+        capturedPhotos: [...capturedPhotos],
+        capturedVideos: [...capturedVideos],
+        title: `Draft ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await draftStorage.saveDraft(draftData);
+
+      showToast({
+        type: "success",
+        title: "Draft Tersimpan",
+        message: "Draft berhasil disimpan! Bisa dilanjutkan nanti.",
+      });
+
+      setShowConfirmation(false);
+      replaceCurrentPhoto(null);
+      replaceCurrentVideo(null);
+    } catch (error) {
+      console.error("Failed to save draft:", error);
+      showToast({
+        type: "error",
+        title: "Gagal Menyimpan",
+        message: "Terjadi kesalahan saat menyimpan draft.",
+      });
+    }
+  }, [
+    capturedPhotos,
+    capturedVideos,
+    showToast,
+    replaceCurrentPhoto,
+    replaceCurrentVideo,
+  ]);
+
   const handleDeletePhoto = useCallback(
     (indexToDelete) => {
       const removedPhoto = capturedPhotos[indexToDelete];
@@ -3497,7 +3665,9 @@ export default function TakeMoment() {
                   key={id}
                   style={{
                     position: "relative",
-                    aspectRatio: videoAspectRatio.toString(),
+                    aspectRatio: slotAspectRatio
+                      ? `${slotAspectRatio} / 1`
+                      : "4 / 3",
                     borderRadius: "12px",
                     overflow: "hidden",
                     boxShadow: isMobileVariant
@@ -3837,12 +4007,18 @@ export default function TakeMoment() {
             borderRadius: isMobileVariant ? "18px" : "20px",
             overflow: "hidden",
             position: "relative",
-            minHeight: isMobileVariant ? "min(320px, 56vh)" : "320px",
-            height: isMobileVariant ? "min(320px, 56vh)" : undefined,
-            maxWidth: isMobileVariant ? "100%" : "640px",
-            width: "100%",
+            height: isMobileVariant
+              ? "min(400px, 60vh)"
+              : slotAspectRatio
+              ? "500px"
+              : "400px",
+            width: slotAspectRatio
+              ? `${500 * slotAspectRatio}px`
+              : isMobileVariant
+              ? "100%"
+              : "640px",
+            maxWidth: "100%",
             margin: "0 auto",
-            aspectRatio: isMobileVariant ? undefined : "4 / 3",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",

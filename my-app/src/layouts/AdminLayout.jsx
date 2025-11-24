@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { getUnreadMessagesCount } from "../services/contactMessageService";
 import {
   LayoutDashboard,
   FileImage,
@@ -13,6 +14,7 @@ import {
   Shield,
   FolderOpen,
   BarChart3,
+  Mail,
 } from "lucide-react";
 
 export default function AdminLayout() {
@@ -20,6 +22,19 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    const loadUnreadCount = async () => {
+      const count = await getUnreadMessagesCount();
+      setUnreadCount(count);
+    };
+    loadUnreadCount();
+
+    // Refresh every 30 seconds
+    const interval = setInterval(loadUnreadCount, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -33,6 +48,12 @@ export default function AdminLayout() {
     { path: "/admin/users", icon: Users, label: "Users" },
     { path: "/admin/categories", icon: FolderOpen, label: "Categories" },
     { path: "/admin/analytics", icon: BarChart3, label: "Analytics" },
+    {
+      path: "/admin/messages",
+      icon: Mail,
+      label: "Messages",
+      badge: unreadCount,
+    },
     { path: "/admin/settings", icon: Settings, label: "Settings" },
   ];
 
@@ -153,6 +174,7 @@ export default function AdminLayout() {
                 boxShadow: isActive(item.path)
                   ? "0 2px 4px rgba(0,0,0,0.1)"
                   : "none",
+                position: "relative",
               }}
               onMouseEnter={(e) => {
                 if (!isActive(item.path)) {
@@ -167,6 +189,23 @@ export default function AdminLayout() {
             >
               <item.icon size={18} />
               <span>{item.label}</span>
+              {item.badge > 0 && (
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    background: isActive(item.path) ? "#ffffff" : "#ef4444",
+                    color: isActive(item.path) ? "#ec4899" : "white",
+                    borderRadius: "12px",
+                    padding: "2px 8px",
+                    fontSize: "0.7rem",
+                    fontWeight: "700",
+                    minWidth: "20px",
+                    textAlign: "center",
+                  }}
+                >
+                  {item.badge}
+                </span>
+              )}
             </Link>
           ))}
         </nav>

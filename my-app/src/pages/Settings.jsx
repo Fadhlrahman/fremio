@@ -35,11 +35,22 @@ export default function Settings() {
 
   // Load saved profile photo from localStorage
   useEffect(() => {
-    const savedPhotoData = localStorage.getItem(`profilePhoto_${user?.email}`);
-    if (savedPhotoData) {
-      setSavedPhoto(savedPhotoData);
+    if (!user) return;
+
+    // Try UID first (new system), fallback to email (old system)
+    const photoKey = user.uid
+      ? `profilePhoto_${user.uid}`
+      : user.email
+      ? `profilePhoto_${user.email}`
+      : null;
+
+    if (photoKey) {
+      const savedPhotoData = localStorage.getItem(photoKey);
+      if (savedPhotoData) {
+        setSavedPhoto(savedPhotoData);
+      }
     }
-  }, [user?.email]);
+  }, [user]);
 
   // Load profile data when entering edit mode
   useEffect(() => {
@@ -139,7 +150,14 @@ export default function Settings() {
       ctx.drawImage(img, offsetX, offsetY, imgSize, imgSize, 0, 0, size, size);
 
       const croppedImage = canvas.toDataURL("image/jpeg", 0.9);
-      localStorage.setItem(`profilePhoto_${user?.email}`, croppedImage);
+
+      // Save with UID (preferred) and email (fallback) for compatibility
+      if (user?.uid) {
+        localStorage.setItem(`profilePhoto_${user.uid}`, croppedImage);
+      }
+      if (user?.email) {
+        localStorage.setItem(`profilePhoto_${user.email}`, croppedImage);
+      }
 
       // Update state and close editor
       setIsEditing(false);
@@ -168,7 +186,14 @@ export default function Settings() {
       setSavedPhoto(null);
       setTempPhoto(null);
       setIsEditing(false);
-      localStorage.removeItem(`profilePhoto_${user?.email}`);
+
+      // Remove from both UID and email keys
+      if (user?.uid) {
+        localStorage.removeItem(`profilePhoto_${user.uid}`);
+      }
+      if (user?.email) {
+        localStorage.removeItem(`profilePhoto_${user.email}`);
+      }
     }
   };
 
@@ -236,11 +261,11 @@ export default function Settings() {
       .map((s) => s[0]?.toUpperCase())
       .join("") || "U";
 
-  // Open tab from URL hash: #account | #preferences | #privacy
+  // Open tab from URL hash: #account | #preferences | #privacy | #security
   useEffect(() => {
     const hash = location.hash?.replace("#", "");
     if (!hash) return;
-    const allowed = ["account", "preferences", "privacy"];
+    const allowed = ["account", "preferences", "privacy", "security"];
     if (allowed.includes(hash)) setActiveTab(hash);
   }, [location.hash]);
 
@@ -358,6 +383,26 @@ export default function Settings() {
                 }}
               >
                 Privacy
+              </button>
+              <button
+                onClick={() => setActiveTab("security")}
+                style={{
+                  flex: 1,
+                  padding: "10px 16px",
+                  fontWeight: 600,
+                  border: "none",
+                  borderRadius: "8px",
+                  background: activeTab === "security" ? "#fff" : "transparent",
+                  color: activeTab === "security" ? "#a2665a" : "#666",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  boxShadow:
+                    activeTab === "security"
+                      ? "0 1px 3px rgba(0,0,0,0.1)"
+                      : "none",
+                }}
+              >
+                Security
               </button>
             </div>
 
@@ -929,7 +974,7 @@ export default function Settings() {
                     style={{ display: "block", padding: "18px 0" }}
                   >
                     <div className="label" style={{ marginBottom: "8px" }}>
-                      Change Password
+                      Data Privacy
                     </div>
                     <div className="value" style={{ marginBottom: "12px" }}>
                       <p
@@ -939,62 +984,15 @@ export default function Settings() {
                           marginBottom: "12px",
                         }}
                       >
-                        Update your password regularly to keep your account
-                        secure
+                        Control who can see your profile and activity
                       </p>
-                      <button
-                        style={{
-                          padding: "10px 20px",
-                          background:
-                            "linear-gradient(to right, #e0b7a9, #c89585)",
-                          color: "#fff",
-                          border: "none",
-                          borderRadius: "8px",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          transition: "all 0.2s",
-                        }}
-                        onClick={() =>
-                          alert("Change password feature coming soon!")
-                        }
-                      >
-                        Change Password
-                      </button>
-                    </div>
-                  </div>
-                  <div
-                    className="profile-row"
-                    style={{ display: "block", padding: "18px 0" }}
-                  >
-                    <div className="label" style={{ marginBottom: "8px" }}>
-                      Two-Factor Authentication
-                    </div>
-                    <div className="value" style={{ marginBottom: "12px" }}>
-                      <p
-                        style={{
-                          fontSize: "14px",
-                          color: "#666",
-                          marginBottom: "12px",
-                        }}
-                      >
-                        Add an extra layer of security to your account
-                      </p>
-                      <button
-                        style={{
-                          padding: "10px 20px",
-                          background:
-                            "linear-gradient(to right, #e0b7a9, #c89585)",
-                          color: "#fff",
-                          border: "none",
-                          borderRadius: "8px",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          transition: "all 0.2s",
-                        }}
-                        onClick={() => alert("2FA feature coming soon!")}
-                      >
-                        Enable 2FA
-                      </button>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" className="sr-only peer" />
+                        <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[#e0b7a9]/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#e0b7a9]"></div>
+                        <span className="ml-3 text-sm font-medium text-gray-700">
+                          Make profile private
+                        </span>
+                      </label>
                     </div>
                   </div>
                   <div
@@ -1015,17 +1013,17 @@ export default function Settings() {
                       <p
                         style={{
                           fontSize: "14px",
-                          color: "#991b1b",
+                          color: "#666",
                           marginBottom: "12px",
                         }}
                       >
-                        Permanently delete your account and all associated data.
-                        This action cannot be undone.
+                        Permanently delete your account and all your data. This
+                        action cannot be undone.
                       </p>
                       <button
                         style={{
                           padding: "10px 20px",
-                          background: "#dc2626",
+                          background: "#b91c1c",
                           color: "#fff",
                           border: "none",
                           borderRadius: "8px",
@@ -1033,17 +1031,105 @@ export default function Settings() {
                           cursor: "pointer",
                           transition: "all 0.2s",
                         }}
-                        onClick={() => {
-                          if (
-                            window.confirm(
-                              "Are you sure you want to delete your account? This action cannot be undone."
-                            )
-                          ) {
-                            alert("Account deletion feature coming soon!");
-                          }
-                        }}
+                        onClick={() =>
+                          alert(
+                            "Please contact support to delete your account."
+                          )
+                        }
                       >
                         Delete Account
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "security" && (
+              <div>
+                <div className="profile-details">
+                  <div
+                    className="profile-row"
+                    style={{ display: "block", padding: "18px 0" }}
+                  >
+                    <div
+                      className="label"
+                      style={{
+                        marginBottom: "16px",
+                        fontSize: "18px",
+                        fontWeight: "600",
+                      }}
+                    >
+                      Password & Security
+                    </div>
+
+                    <div className="value" style={{ marginBottom: "24px" }}>
+                      <p
+                        style={{
+                          fontSize: "14px",
+                          color: "#666",
+                          marginBottom: "16px",
+                        }}
+                      >
+                        Keep your account secure by regularly updating your
+                        password
+                      </p>
+                      <button
+                        onClick={() => navigate("/change-password")}
+                        style={{
+                          padding: "12px 24px",
+                          background:
+                            "linear-gradient(to right, #e0b7a9, #c89585)",
+                          color: "#fff",
+                          border: "none",
+                          borderRadius: "8px",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          transition: "all 0.2s",
+                          fontSize: "14px",
+                        }}
+                      >
+                        Change Password →
+                      </button>
+                    </div>
+                  </div>
+
+                  <div
+                    className="profile-row"
+                    style={{
+                      display: "block",
+                      padding: "18px 0",
+                      borderBottom: "none",
+                    }}
+                  >
+                    <div className="label" style={{ marginBottom: "8px" }}>
+                      Two-Factor Authentication
+                    </div>
+                    <div className="value" style={{ marginBottom: "12px" }}>
+                      <p
+                        style={{
+                          fontSize: "14px",
+                          color: "#666",
+                          marginBottom: "12px",
+                        }}
+                      >
+                        Add an extra layer of security to your account (Coming
+                        Soon)
+                      </p>
+                      <button
+                        style={{
+                          padding: "10px 20px",
+                          background: "#e5e5e5",
+                          color: "#999",
+                          border: "none",
+                          borderRadius: "8px",
+                          fontWeight: 600,
+                          cursor: "not-allowed",
+                          transition: "all 0.2s",
+                        }}
+                        disabled
+                      >
+                        Enable 2FA
                       </button>
                     </div>
                   </div>

@@ -1364,9 +1364,10 @@ export default function EditPhoto() {
         throw new Error("Preview canvas not found");
       }
 
-      // Capture with html2canvas
+      // Capture with html2canvas - use adaptive scale for better quality
+      const dpr = window.devicePixelRatio || 2;
       const canvas = await html2canvas(previewCanvas, {
-        scale: 2,
+        scale: Math.max(2, dpr),
         backgroundColor: frameConfig.designer?.canvasBackground || "#ffffff",
         logging: false,
         useCORS: true,

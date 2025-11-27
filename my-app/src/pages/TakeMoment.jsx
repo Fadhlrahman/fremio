@@ -232,7 +232,7 @@ const loadImageSourceFromBlob = async (blob) => {
 
 const generateScaledPhotoVariant = async (
   inputBlob,
-  { maxWidth = 600, maxHeight = 600, quality = 0.8 }
+  { maxWidth = 2048, maxHeight = 2048, quality = 0.85 }
 ) => {
   const { source, width, height, cleanup } = await loadImageSourceFromBlob(
     inputBlob
@@ -429,7 +429,7 @@ const useIsMobile = () => {
 
 const compressImage = (
   dataUrl,
-  { quality = 0.8, maxWidth = 600, maxHeight = 600 } = {}
+  { quality = 0.85, maxWidth = 2048, maxHeight = 2048 } = {}
 ) =>
   new Promise((resolve, reject) => {
     try {
@@ -713,24 +713,28 @@ export default function TakeMoment() {
   }, []);
 
   const getFrameCompressionProfile = useCallback((frameName) => {
+    // All frames use high-quality settings to prevent blurry photos
+    // Primary: Full quality for normal use
+    // Moderate: Still good quality for slightly large files
+    // Emergency: Minimum acceptable quality (only when localStorage is critically full)
     switch (frameName) {
       case "Testframe4":
         return {
-          primary: { quality: 0.85, maxWidth: 700, maxHeight: 500 },
-          moderate: { quality: 0.75, maxWidth: 600, maxHeight: 450 },
-          emergency: { quality: 0.5, maxWidth: 360, maxHeight: 360 },
+          primary: { quality: 0.9, maxWidth: 2048, maxHeight: 2048 },
+          moderate: { quality: 0.85, maxWidth: 1600, maxHeight: 1600 },
+          emergency: { quality: 0.8, maxWidth: 1200, maxHeight: 1200 },
         };
       case "Testframe2":
         return {
-          primary: { quality: 0.95, maxWidth: 800, maxHeight: 800 },
-          moderate: { quality: 0.6, maxWidth: 400, maxHeight: 400 },
-          emergency: { quality: 0.5, maxWidth: 360, maxHeight: 360 },
+          primary: { quality: 0.95, maxWidth: 2048, maxHeight: 2048 },
+          moderate: { quality: 0.85, maxWidth: 1600, maxHeight: 1600 },
+          emergency: { quality: 0.8, maxWidth: 1200, maxHeight: 1200 },
         };
       default:
         return {
-          primary: { quality: 0.75, maxWidth: 500, maxHeight: 500 },
-          moderate: { quality: 0.6, maxWidth: 400, maxHeight: 400 },
-          emergency: { quality: 0.5, maxWidth: 360, maxHeight: 360 },
+          primary: { quality: 0.9, maxWidth: 2048, maxHeight: 2048 },
+          moderate: { quality: 0.85, maxWidth: 1600, maxHeight: 1600 },
+          emergency: { quality: 0.8, maxWidth: 1200, maxHeight: 1200 },
         };
     }
   }, []);
@@ -3319,9 +3323,9 @@ export default function TakeMoment() {
     const frameName = frameProvider.getCurrentFrameName();
     const compressionProfile = getFrameCompressionProfile(frameName);
     const primaryPhotoProfile = compressionProfile?.primary ?? {
-      quality: 0.8,
-      maxWidth: 600,
-      maxHeight: 600,
+      quality: 0.9,
+      maxWidth: 2048,
+      maxHeight: 2048,
     };
     const fallbackPhotoProfile =
       compressionProfile?.moderate ?? primaryPhotoProfile;
@@ -3610,9 +3614,9 @@ export default function TakeMoment() {
         const emergencyCompressedBase = await compressPhotosArray(
           photoPayloadSource,
           {
-            quality: frameName === "Testframe4" ? 0.7 : 0.6,
-            maxWidth: frameName === "Testframe4" ? 500 : 400,
-            maxHeight: frameName === "Testframe4" ? 400 : 400,
+            quality: 0.8,
+            maxWidth: 1200,
+            maxHeight: 1200,
           }
         );
         const emergencyPayload = preparePayload(

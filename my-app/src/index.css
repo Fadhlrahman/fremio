@@ -1065,3 +1065,19 @@ line[stroke-dasharray] {
   opacity: 0 !important;
   visibility: hidden !important;
 }
+
+/* Image rendering optimization for sharper photos */
+.photo-slot img,
+.canvas-preview img,
+.preview-canvas img,
+[data-photo-slot] img,
+[data-canvas] img {
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: optimizeQuality;
+}
+
+/* For canvas elements */
+canvas {
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: optimizeQuality;
+}

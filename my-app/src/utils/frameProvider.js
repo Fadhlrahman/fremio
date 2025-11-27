@@ -95,10 +95,14 @@ export class FrameDataProvider {
             backgroundColor: "#ffffff",
           },
           category: frameData.category || "custom",
-          isCustom: true,
+          // IMPORTANT: Only set isCustom if frameData explicitly has it
+          // Admin frames should NOT have isCustom: true (so frameImage overlay shows)
+          // User-created custom frames (from Creator) have isCustom: true
+          ...(frameData.isCustom !== undefined && { isCustom: frameData.isCustom }),
         };
         
         console.log("✅ Config built successfully from frameData");
+        console.log("   isCustom:", config.isCustom, "(from frameData.isCustom:", frameData.isCustom, ")");
       } else {
         // Incomplete data, try to fetch from service
         console.log("📦 Incomplete data, trying to fetch from service");

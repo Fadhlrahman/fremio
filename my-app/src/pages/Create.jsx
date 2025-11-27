@@ -579,6 +579,7 @@ export default function Create() {
   const [activeDraftId, setActiveDraftId] = useState(null);
   const [justSavedDraft, setJustSavedDraft] = useState(false); // Track if draft was just saved
   const [isBackgroundLocked, setIsBackgroundLocked] = useState(false); // Lock background to prevent accidental edits
+  const [pendingPhotoTool, setPendingPhotoTool] = useState(false); // Show photo tool properties without adding element
   const previewFrameRef = useRef(null);
   const [previewConstraints, setPreviewConstraints] = useState({
     maxWidth: 280,
@@ -2353,9 +2354,11 @@ export default function Create() {
         icon: ImageIcon,
         onClick: () => {
           setShowCanvasSizeInProperties(false);
-          addToolElement("photo");
+          // Don't add element immediately - show properties panel first
+          clearSelection();
+          setPendingPhotoTool(true);
         },
-        isActive: selectedElement?.type === "photo",
+        isActive: pendingPhotoTool || selectedElement?.type === "photo",
       },
       {
         id: "text",
@@ -2402,6 +2405,8 @@ export default function Create() {
     triggerBackgroundUpload,
     isMobileView,
     showCanvasSizeInProperties,
+    pendingPhotoTool,
+    clearSelection,
   ]);
 
   useEffect(() => {
@@ -3433,6 +3438,58 @@ export default function Create() {
                 setGradientColor2={setGradientColor2}
                 isBackgroundLocked={isBackgroundLocked}
                 onToggleBackgroundLock={toggleBackgroundLock}
+                pendingPhotoTool={pendingPhotoTool}
+                onConfirmAddPhoto={(rows = 1, cols = 1) => {
+                  setPendingPhotoTool(false);
+                  
+                  // Canvas dimensions from constants
+                  const canvasW = 1080;
+                  const canvasH = 1920;
+                  
+                  // Calculate grid dimensions based on rows/cols
+                  // Gap between elements (in canvas units)
+                  const gapX = 30;
+                  const gapY = 30;
+                  
+                  // Margins from canvas edges
+                  const marginX = 65;
+                  const marginY = 140;
+                  
+                  // Calculate available space
+                  const availableWidth = canvasW - (2 * marginX) - ((cols - 1) * gapX);
+                  const availableHeight = canvasH - (2 * marginY) - ((rows - 1) * gapY);
+                  
+                  // Calculate individual photo area dimensions
+                  const photoWidth = Math.floor(availableWidth / cols);
+                  const photoHeight = Math.floor(availableHeight / rows);
+                  
+                  // Add photo elements in grid pattern
+                  let lastAddedId = null;
+                  for (let row = 0; row < rows; row++) {
+                    for (let col = 0; col < cols; col++) {
+                      // Calculate position with symmetry around center
+                      const x = marginX + (col * (photoWidth + gapX));
+                      const y = marginY + (row * (photoHeight + gapY));
+                      
+                      const newId = addElement("photo", {
+                        x,
+                        y,
+                        width: photoWidth,
+                        height: photoHeight,
+                      });
+                      
+                      if (newId) {
+                        lastAddedId = newId;
+                      }
+                    }
+                  }
+                  
+                  // Select the last added element
+                  if (lastAddedId) {
+                    selectElement(lastAddedId);
+                  }
+                }}
+                onCancelPhotoTool={() => setPendingPhotoTool(false)}
               />
             </div>
           </Motion.aside>

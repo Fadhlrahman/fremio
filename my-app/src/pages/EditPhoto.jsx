@@ -663,6 +663,16 @@ export default function EditPhoto() {
         console.log("✅ Loaded frame config:", config.id);
         console.log("📋 Frame details:", config);
 
+        // Log admin vs custom frame detection
+        if (!config.isCustom) {
+          console.log("🖼️ ADMIN FRAME DETECTED (isCustom is false/undefined):");
+          console.log("  - Frame ID:", config.id);
+          console.log("  - Frame name:", config.name);
+          console.log("  - Has frameImage:", !!config.frameImage);
+          console.log("  - frameImage preview:", config.frameImage?.substring(0, 80));
+          console.log("  → Frame overlay WILL be displayed on canvas");
+        }
+
         // Extra logging for custom frames
         if (config.isCustom) {
           console.log("🎨 CUSTOM FRAME DETECTED:");
@@ -1939,7 +1949,7 @@ export default function EditPhoto() {
                   });
 
                   console.log("🔍 DOWNLOAD DEBUG - Designer Elements:");
-                  designerElements.slice(0, 3).forEach((el, i) => {
+                  designerElements.forEach((el, i) => {
                     console.log(`  Slot ${i}:`, {
                       type: el.type,
                       x: el.x,
@@ -1947,6 +1957,8 @@ export default function EditPhoto() {
                       width: el.width,
                       height: el.height,
                       hasImage: !!el.data?.image,
+                      imagePreview: el.data?.image ? el.data.image.substring(0, 50) + '...' : 'none',
+                      photoIndex: el.data?.photoIndex,
                     });
                   });
 
@@ -1964,12 +1976,16 @@ export default function EditPhoto() {
                   for (const element of sortedElements) {
                     if (!element || !element.type) continue;
 
+                    console.log(`🎨 DOWNLOAD: Drawing element type=${element.type}, hasImage=${!!element.data?.image}`);
+
                     // Support both "upload" and "photo" types for custom frames
                     if ((element.type === "upload" || element.type === "photo") && element.data?.image) {
+                      console.log(`  ✅ Drawing photo/upload at x=${element.x}, y=${element.y}, w=${element.width}, h=${element.height}`);
                       const img = new Image();
                       img.crossOrigin = "anonymous";
                       await new Promise((resolve, reject) => {
                         img.onload = () => {
+                          console.log(`  📸 Image loaded successfully, drawing to canvas...`);
                           ctx.save();
 
                           // ✅ Reset context for proper transparency handling
@@ -2010,10 +2026,22 @@ export default function EditPhoto() {
                           // Use cover - transparency preserved in PNG format from Create page
                           drawImageCover(ctx, img, x, y, w, h);
                           ctx.restore();
+                          console.log(`  ✅ Image drawn successfully!`);
                           resolve();
                         };
-                        img.onerror = reject;
+                        img.onerror = (err) => {
+                          console.error(`  ❌ Image load error:`, err);
+                          resolve(); // Continue with other elements even if one fails
+                        };
                         img.src = element.data.image;
+                      });
+                    } else if (element.type === "upload" || element.type === "photo") {
+                      // Photo/upload element but NO image data
+                      console.warn(`  ⚠️ Photo/upload element has NO image data!`, {
+                        type: element.type,
+                        hasDataObject: !!element.data,
+                        imageType: typeof element.data?.image,
+                        imageLength: element.data?.image?.length || 0,
                       });
                     } else if (element.type === "shape") {
                       ctx.save();
@@ -2151,12 +2179,14 @@ export default function EditPhoto() {
                   }
 
                   // Draw frame overlay if exists and get actual frame dimensions
+                  // ✅ CRITICAL: Skip frameImage for custom frames - they use designerElements instead
+                  // frameImage for custom frames is just a JPEG preview thumbnail, not a transparent overlay
                   let finalCanvasWidth = 1080;
                   let finalCanvasHeight = 1920;
                   let frameOffsetX = 0;
                   let frameOffsetY = 0;
 
-                  if (frameConfig && frameConfig.frameImage) {
+                  if (frameConfig && frameConfig.frameImage && !frameConfig.isCustom) {
                     const frameImg = new Image();
                     frameImg.crossOrigin = "anonymous";
                     await new Promise((resolve, reject) => {
@@ -2588,7 +2618,13 @@ export default function EditPhoto() {
                   const videoBySlotId = new Map();
                   const videoByPhotoIndex = new Map();
 
-                  videoElements.forEach(({ video, slot }) => {
+                  videoElements.forEach(({ video, slot }, idx) => {
+                    console.log(`🔗 Mapping video ${idx}:`, {
+                      slotId: slot?.id?.slice(0, 8),
+                      photoIndex: slot?.data?.photoIndex,
+                      videoReady: video.readyState >= 2,
+                    });
+                    
                     if (slot?.id) {
                       videoBySlotId.set(slot.id, { video, slot });
                     }
@@ -2599,6 +2635,12 @@ export default function EditPhoto() {
                     ) {
                       videoByPhotoIndex.set(photoIndex, { video, slot });
                     }
+                  });
+                  
+                  console.log(`📊 Video mapping summary:`, {
+                    bySlotId: videoBySlotId.size,
+                    byPhotoIndex: videoByPhotoIndex.size,
+                    photoIndices: Array.from(videoByPhotoIndex.keys()),
                   });
 
                   // Calculate max duration from actual video duration
@@ -2697,8 +2739,9 @@ export default function EditPhoto() {
                   }
 
                   // Preload frame overlay image
+                  // ✅ CRITICAL: Skip frameImage for custom frames - they use designerElements instead
                   let frameImage = null;
-                  if (frameConfig && frameConfig.frameImage) {
+                  if (frameConfig && frameConfig.frameImage && !frameConfig.isCustom) {
                     console.log("🖼️ Preloading frame overlay image...");
                     frameImage = new Image();
                     frameImage.crossOrigin = "anonymous";
@@ -3062,6 +3105,15 @@ export default function EditPhoto() {
                           videoByPhotoIndex.get(element.data.photoIndex);
 
                         if (!slotVideoEntry) {
+                          // Log missing video only once per element
+                          if (!element._loggedMissing) {
+                            console.warn(`⚠️ No video for slot:`, {
+                              elementId: element.id?.slice(0, 8),
+                              photoIndex: element.data.photoIndex,
+                              availableIndices: Array.from(videoByPhotoIndex.keys()),
+                            });
+                            element._loggedMissing = true;
+                          }
                           return;
                         }
 
@@ -3277,10 +3329,12 @@ export default function EditPhoto() {
                     });
 
                     // Draw frame overlay with aspect ratio preservation (same as photo download)
+                    // ✅ CRITICAL: Skip frameImage for custom frames - they use designerElements instead
                     if (
                       frameImage &&
                       frameImage.complete &&
-                      frameImage.naturalWidth > 0
+                      frameImage.naturalWidth > 0 &&
+                      !frameConfig?.isCustom
                     ) {
                       try {
                         ctx.save();

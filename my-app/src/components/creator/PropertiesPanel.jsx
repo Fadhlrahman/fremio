@@ -98,6 +98,9 @@ export default function PropertiesPanel({
   gradientColor2 = '#764ba2',
   setGradientColor1 = () => {},
   setGradientColor2 = () => {},
+  pendingPhotoTool = false,
+  onConfirmAddPhoto = () => {},
+  onCancelPhotoTool = () => {},
 }) {
   // Local state for dimension inputs
   const [localWidth, setLocalWidth] = useState("");
@@ -862,6 +865,89 @@ export default function PropertiesPanel({
                 {canvasAspectRatio}
               </div>
             </div>
+          </div>
+        </CollapsibleSection>
+      </motion.div>
+    );
+  }
+
+  // Pending Photo Tool Mode - Show confirmation panel before adding photo area
+  if (pendingPhotoTool) {
+    return (
+      <motion.div
+        variants={panelVariant}
+        initial="hidden"
+        animate="visible"
+        className="flex h-full w-full flex-col gap-4"
+      >
+        <CollapsibleSection 
+          title="Area Foto" 
+          isOpen={true}
+          onToggle={() => {}}
+        >
+          <div className="flex flex-col gap-4">
+            {/* Description */}
+            <div className="bg-gradient-to-br from-[#fdf7f4] to-[#f5e5df] rounded-xl p-4 border border-[#e0b7a9]/20">
+              <p className="text-sm text-slate-600 leading-relaxed">
+                Area Foto adalah tempat dimana foto yang diambil di halaman <strong>TakeMoment</strong> akan ditampilkan dalam frame.
+              </p>
+            </div>
+            
+            {/* Grid Selection */}
+            <div className="flex flex-col gap-3">
+              <label className="text-xs font-bold uppercase tracking-wider text-[#e0b7a9]">
+                Pilih Layout Grid
+              </label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { rows: 1, cols: 1, label: "1×1" },
+                  { rows: 2, cols: 1, label: "2×1" },
+                  { rows: 2, cols: 2, label: "2×2" },
+                  { rows: 3, cols: 2, label: "3×2" },
+                ].map((grid) => (
+                  <button
+                    key={grid.label}
+                    type="button"
+                    onClick={() => onConfirmAddPhoto(grid.rows, grid.cols)}
+                    className="flex flex-col items-center justify-center gap-1 rounded-xl border-2 border-[#e0b7a9]/30 bg-white p-3 transition-all hover:border-[#e0b7a9] hover:bg-[#fdf7f4] hover:shadow-md active:scale-95"
+                  >
+                    {/* Grid Preview */}
+                    <div 
+                      className="grid gap-0.5 w-10 h-12 p-0.5"
+                      style={{
+                        gridTemplateRows: `repeat(${grid.rows}, 1fr)`,
+                        gridTemplateColumns: `repeat(${grid.cols}, 1fr)`,
+                      }}
+                    >
+                      {Array.from({ length: grid.rows * grid.cols }).map((_, i) => (
+                        <div
+                          key={i}
+                          className="bg-[#d1e3f0] rounded-sm border border-[#a8c8e0]"
+                        />
+                      ))}
+                    </div>
+                    <span className="text-xs font-semibold text-slate-600">{grid.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Tips */}
+            <div className="bg-blue-50 rounded-xl p-3 border border-blue-200">
+              <p className="text-xs text-blue-700 font-medium">
+                💡 <strong>Tips:</strong> Pilih layout grid untuk menambahkan beberapa area foto sekaligus dengan susunan simetris.
+              </p>
+            </div>
+
+            {/* Cancel Button */}
+            <button
+              type="button"
+              onClick={onCancelPhotoTool}
+              className="flex items-center justify-center gap-2 rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-600 transition-all hover:border-slate-300 hover:bg-slate-50 active:scale-95"
+            >
+              <X size={16} />
+              Batal
+            </button>
           </div>
         </CollapsibleSection>
       </motion.div>

@@ -379,7 +379,10 @@ export const getCustomFrameConfig = async (frameId) => {
       backgroundColor: "#ffffff",
     },
     category: frame.category,
-    isCustom: true,
+    // IMPORTANT: Admin frames should NOT have isCustom: true
+    // This allows the frameImage overlay to be displayed in EditPhoto
+    // Only user-created frames (from Creator page) should have isCustom: true
+    isCustom: frame.isCustom || false,
   };
 };
 

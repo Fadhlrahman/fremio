@@ -11,6 +11,13 @@ import frameProvider from "../utils/frameProvider.js";
 import safeStorage from "../utils/safeStorage.js";
 import { deriveFrameLayerPlan } from "../utils/frameLayerPlan.js";
 import { clearStaleFrameCache } from "../utils/frameCacheCleaner.js";
+import {
+  storeVideoBlob,
+  getVideoBlob,
+  convertAllVideosToDataUrl,
+  cleanupAllVideoBlobs,
+  getMemoryUsage,
+} from "../utils/videoMemoryManager.js";
 import flipIcon from "../assets/flip.png";
 import fremioLogo from "../assets/logo.svg";
 import { useToast } from "../contexts/ToastContext";
@@ -494,6 +501,11 @@ export default function TakeMoment() {
   const captureSectionRef = useRef(null);
   const previewSectionRef = useRef(null);
 
+  // ✅ PRE-INITIALIZED RECORDER refs for instant recording start
+  const preInitializedRecorderRef = useRef(null);
+  const recordingChunksRef = useRef([]);
+  const isRecorderReadyRef = useRef(false);
+
   // Background replacement refs
   const canvasRef = useRef(null);
   const segmentationRef = useRef(null);
@@ -570,6 +582,19 @@ export default function TakeMoment() {
     const previewUrl = entry.previewUrl;
     if (previewUrl && isBlobUrl(previewUrl)) {
       revokeObjectURL(previewUrl);
+    }
+  }, []);
+
+  // ✅ Cleanup video preview URLs and blobs to free memory
+  const cleanupCapturedVideoPreview = useCallback((entry) => {
+    if (!entry || typeof entry === "string") return;
+    const previewUrl = entry.previewUrl;
+    if (previewUrl && isBlobUrl(previewUrl)) {
+      revokeObjectURL(previewUrl);
+    }
+    // Clear blob reference to help garbage collection
+    if (entry.blob) {
+      entry.blob = null;
     }
   }, []);
   const [showConfirmation, setShowConfirmation] = useState(false);
@@ -867,6 +892,12 @@ export default function TakeMoment() {
       : [];
     existingPhotos.forEach((entry) => cleanupCapturedPhotoPreview(entry));
 
+    // ✅ Also cleanup video URLs and blobs
+    const existingVideos = Array.isArray(capturedVideosRef.current)
+      ? capturedVideosRef.current
+      : [];
+    existingVideos.forEach((entry) => cleanupCapturedVideoPreview(entry));
+
     setCapturedPhotos([]);
     setCapturedVideos([]);
 
@@ -876,7 +907,7 @@ export default function TakeMoment() {
     latestStoragePayloadRef.current = { photos: null, videos: null };
     safeStorage.removeItem("capturedPhotos");
     safeStorage.removeItem("capturedVideos");
-  }, [cleanupCapturedPhotoPreview, clearScheduledStorage]);
+  }, [cleanupCapturedPhotoPreview, cleanupCapturedVideoPreview, clearScheduledStorage]);
 
   const cleanUpStorage = useCallback(() => {
     try {
@@ -1239,6 +1270,81 @@ export default function TakeMoment() {
   useEffect(() => {
     capturedVideosRef.current = capturedVideos;
   }, [capturedVideos]);
+
+  // ✅ PRE-INITIALIZE MediaRecorder when camera is active and live mode is ON
+  // This eliminates the 3-second delay when user clicks capture button!
+  useEffect(() => {
+    // Only pre-init when camera is active and live mode is enabled
+    if (!cameraActive || !liveModeEnabled || capturing) {
+      preInitializedRecorderRef.current = null;
+      isRecorderReadyRef.current = false;
+      return;
+    }
+
+    const stream = cameraStreamRef.current;
+    if (!stream) {
+      console.log("⚠️ No stream available for pre-init");
+      return;
+    }
+
+    // Check if stream tracks are active
+    const videoTrack = stream.getVideoTracks()[0];
+    if (!videoTrack || videoTrack.readyState !== 'live') {
+      console.log("⚠️ Video track not ready for pre-init");
+      return;
+    }
+
+    const initRecorder = () => {
+      try {
+        // Get adaptive bitrate based on how many videos captured
+        const videoIndex = capturedVideosRef.current?.filter(v => v).length || 0;
+        const baseBitrate = 600000; // 600kbps base - lower for smoother performance
+        const qualityFactors = [1.0, 0.9, 0.7, 0.5, 0.4, 0.35];
+        const factor = qualityFactors[Math.min(videoIndex, qualityFactors.length - 1)];
+        const bitrate = Math.round(baseBitrate * factor);
+
+        // Find supported mime type
+        const mimeTypes = ["video/webm;codecs=vp8", "video/webm", "video/mp4"];
+        const mimeType = mimeTypes.find(t => {
+          try { return MediaRecorder.isTypeSupported(t); } catch { return false; }
+        }) || "";
+        
+        if (!mimeType) {
+          console.warn("❌ No supported video mime type found");
+          return;
+        }
+
+        // Create recorder with EXISTING stream (NO CLONE - saves memory and CPU!)
+        const recorder = new MediaRecorder(stream, {
+          mimeType,
+          videoBitsPerSecond: bitrate,
+        });
+
+        preInitializedRecorderRef.current = recorder;
+        recordingChunksRef.current = [];
+        isRecorderReadyRef.current = true;
+
+        console.log(`✅ MediaRecorder PRE-INITIALIZED (instant start ready):`, {
+          mimeType,
+          bitrate: `${bitrate / 1000}kbps`,
+          videoIndex: videoIndex + 1,
+          quality: `${Math.round(factor * 100)}%`,
+        });
+
+      } catch (error) {
+        console.error("❌ Pre-init failed:", error);
+        isRecorderReadyRef.current = false;
+      }
+    };
+
+    // Small delay to ensure stream is stable
+    const timer = setTimeout(initRecorder, 300);
+    
+    return () => {
+      clearTimeout(timer);
+      // Don't cleanup recorder here - let it be reused
+    };
+  }, [cameraActive, liveModeEnabled, capturing, capturedVideos.length]);
 
   const shouldMirrorVideo = useMemo(
     () => !isUsingBackCamera, // Front camera should be mirrored (like a mirror), back camera should NOT be mirrored
@@ -1623,13 +1729,29 @@ export default function TakeMoment() {
     capturing || isVideoProcessing || hasReachedMaxPhotos;
 
   const determineVideoBitrate = (recordSeconds) => {
-    // Lower bitrate for mobile devices to prevent memory issues
+    // Get current video count to reduce quality as more videos are captured
+    const currentVideoCount = capturedVideosRef.current?.length || 0;
+    
+    // ✅ AGGRESSIVE MEMORY OPTIMIZATION for mobile
+    // Use very low bitrates to keep video files small
     if (isMobileDevice()) {
-      // Mobile: Use lower bitrates to prevent crashes after 4th photo
-      if (recordSeconds <= 4) return 1_200_000; // Reduced from 2.5M
-      if (recordSeconds <= 6) return 1_000_000; // Reduced from 2M
-      if (recordSeconds <= 8) return 800_000; // Reduced from 1.5M
-      return 600_000; // Reduced from 1.2M
+      // Progressive quality reduction - MUCH more aggressive
+      // Video 1: 100%, Video 2: 80%, Video 3: 60%, Video 4+: 40%
+      const qualityMultiplier = 
+        currentVideoCount === 0 ? 1.0 :
+        currentVideoCount === 1 ? 0.8 :
+        currentVideoCount === 2 ? 0.6 :
+        0.4; // 40% bitrate for video 4, 5, 6
+      
+      // Base bitrate already reduced significantly
+      let baseBitrate;
+      if (recordSeconds <= 4) baseBitrate = 800_000;  // Reduced from 1.2M
+      else if (recordSeconds <= 6) baseBitrate = 600_000; // Reduced from 1M
+      else baseBitrate = 500_000; // Reduced
+      
+      const finalBitrate = Math.round(baseBitrate * qualityMultiplier);
+      console.log(`🎬 Video ${currentVideoCount + 1} bitrate: ${(finalBitrate / 1000).toFixed(0)}kbps (${(qualityMultiplier * 100).toFixed(0)}% quality)`);
+      return finalBitrate;
     }
 
     // Desktop: Keep original higher bitrates
@@ -1645,11 +1767,28 @@ export default function TakeMoment() {
     const id = videoSource.id || generateVideoEntryId();
     const blob = videoSource.blob instanceof Blob ? videoSource.blob : null;
     const mimeType = videoSource.mimeType || blob?.type || "video/webm";
+    const hasDataUrl = videoSource.dataUrl && videoSource.dataUrl.length > 0;
 
+    // ✅ MEMORY OPTIMIZATION: Store blob in memory manager, NOT in React state!
+    // This prevents React from holding onto large blobs and causing memory issues
+    let previewUrl = videoSource.previewUrl || null;
+    
+    if (blob && !hasDataUrl) {
+      // Store blob externally and get preview URL
+      previewUrl = storeVideoBlob(id, blob);
+      console.log(`📹 Video blob stored externally: ${id.slice(-8)}`);
+      
+      // Log memory usage
+      const memUsage = getMemoryUsage();
+      console.log(`💾 Total video memory: ${memUsage.totalMB}MB (${memUsage.count} videos)`);
+    }
+
+    // Return lightweight entry - blob is stored in memory manager, NOT in state!
     return {
       id,
-      blob,
+      blob: null, // ✅ NEVER store blob in React state - use memory manager instead!
       dataUrl: videoSource.dataUrl ?? null,
+      previewUrl: previewUrl, // For preview display
       mimeType,
       duration: Number.isFinite(videoSource.duration)
         ? videoSource.duration
@@ -1664,9 +1803,7 @@ export default function TakeMoment() {
       baseVideoIndex: videoSource.baseVideoIndex ?? videoIndex,
       recordedAt:
         videoSource.recordedAt ?? videoSource.capturedAt ?? Date.now(),
-      isConverting: Boolean(
-        blob && !(videoSource.dataUrl && videoSource.dataUrl.length > 0)
-      ),
+      isConverting: false,
       conversionError: false,
     };
   };
@@ -2074,62 +2211,105 @@ export default function TakeMoment() {
         desiredStopSeconds - recordSeconds
       );
 
-      const recordingStream = baseStream.clone();
+      // ✅ OPTIMIZATION: Use pre-initialized recorder if available (INSTANT START!)
+      let recorder = null;
+      let recordingStream = null;
+      let stopRecordingStream = () => {};
+      let usePreInitialized = false;
 
-      const stopRecordingStream = () => {
-        recordingStream.getTracks().forEach((track) => {
-          try {
-            track.stop();
-          } catch (stopError) {
-            console.warn("⚠️ Failed to stop recording track", stopError);
-          }
-        });
-      };
+      if (preInitializedRecorderRef.current && isRecorderReadyRef.current) {
+        console.log("✅ Using PRE-INITIALIZED recorder - INSTANT START!");
+        recorder = preInitializedRecorderRef.current;
+        recordingStream = baseStream; // Use original stream, no clone needed
+        usePreInitialized = true;
+        
+        // Clear pre-initialized refs (will be re-initialized after recording)
+        preInitializedRecorderRef.current = null;
+        isRecorderReadyRef.current = false;
+        
+        // No need to stop stream since we're using the original
+        stopRecordingStream = () => {
+          console.log("🛑 Recording stream cleanup (using original stream)");
+        };
+      } else {
+        // Fallback: Create new recorder (slower path)
+        console.log("⚠️ No pre-initialized recorder, creating new one...");
+        recordingStream = baseStream.clone();
 
-      const mimeCandidates = [
-        "video/webm;codecs=vp9",
-        "video/webm;codecs=vp8",
-        "video/webm",
-        "video/mp4;codecs=h264",
-      ];
-
-      const supportedMimeType =
-        mimeCandidates.find((candidate) => {
-          try {
-            return candidate && MediaRecorder.isTypeSupported(candidate);
-          } catch {
-            return false;
-          }
-        }) || "";
-
-      const tunedBitrate = determineVideoBitrate(recordSeconds);
-      const hasAudioTrack = recordingStream.getAudioTracks().length > 0;
-
-      let recorder;
-      try {
-        const options = supportedMimeType
-          ? {
-              mimeType: supportedMimeType,
-              videoBitsPerSecond: tunedBitrate,
-              ...(hasAudioTrack ? { audioBitsPerSecond: 64_000 } : {}),
+        // ✅ MEMORY OPTIMIZATION: Reduce video track resolution for mobile
+        if (isMobileDevice()) {
+          const videoTrack = recordingStream.getVideoTracks()[0];
+          if (videoTrack) {
+            const currentVideoCount = capturedVideosRef.current?.length || 0;
+            const targetWidth = currentVideoCount >= 2 ? 480 : 640;
+            const targetHeight = currentVideoCount >= 2 ? 360 : 480;
+            
+            try {
+              videoTrack.applyConstraints({
+                width: { ideal: targetWidth },
+                height: { ideal: targetHeight },
+              });
+              console.log(`📐 Video ${currentVideoCount + 1} resolution: ${targetWidth}x${targetHeight}`);
+            } catch (constraintErr) {
+              console.warn("⚠️ Could not apply resolution constraints:", constraintErr);
             }
-          : {
-              videoBitsPerSecond: tunedBitrate,
-              ...(hasAudioTrack ? { audioBitsPerSecond: 64_000 } : {}),
-            };
-        recorder = new MediaRecorder(recordingStream, options);
-      } catch (error) {
-        console.warn("⚠️ Failed to create tuned MediaRecorder", error);
+          }
+        }
+
+        stopRecordingStream = () => {
+          recordingStream.getTracks().forEach((track) => {
+            try {
+              track.stop();
+            } catch (stopError) {
+              console.warn("⚠️ Failed to stop recording track", stopError);
+            }
+          });
+        };
+
+        const mimeCandidates = [
+          "video/webm;codecs=vp9",
+          "video/webm;codecs=vp8",
+          "video/webm",
+          "video/mp4;codecs=h264",
+        ];
+
+        const supportedMimeType =
+          mimeCandidates.find((candidate) => {
+            try {
+              return candidate && MediaRecorder.isTypeSupported(candidate);
+            } catch {
+              return false;
+            }
+          }) || "";
+
+        const tunedBitrate = determineVideoBitrate(recordSeconds);
+        const hasAudioTrack = recordingStream.getAudioTracks().length > 0;
+
         try {
-          recorder = supportedMimeType
-            ? new MediaRecorder(recordingStream, {
+          const options = supportedMimeType
+            ? {
                 mimeType: supportedMimeType,
-              })
-            : new MediaRecorder(recordingStream);
-        } catch (fallbackError) {
-          console.error("❌ Failed to create MediaRecorder", fallbackError);
-          stopRecordingStream();
-          return null;
+                videoBitsPerSecond: tunedBitrate,
+                ...(hasAudioTrack ? { audioBitsPerSecond: 64_000 } : {}),
+              }
+            : {
+                videoBitsPerSecond: tunedBitrate,
+                ...(hasAudioTrack ? { audioBitsPerSecond: 64_000 } : {}),
+              };
+          recorder = new MediaRecorder(recordingStream, options);
+        } catch (error) {
+          console.warn("⚠️ Failed to create tuned MediaRecorder", error);
+          try {
+            recorder = supportedMimeType
+              ? new MediaRecorder(recordingStream, {
+                  mimeType: supportedMimeType,
+                })
+              : new MediaRecorder(recordingStream);
+          } catch (fallbackError) {
+            console.error("❌ Failed to create MediaRecorder", fallbackError);
+            stopRecordingStream();
+            return null;
+          }
         }
       }
 
@@ -2305,32 +2485,14 @@ export default function TakeMoment() {
                 Number.isFinite(validationResult.actualDuration),
             });
 
-            // Convert blob to dataUrl for localStorage storage
-            console.log("🔄 Converting video blob to dataUrl...");
-            const reader = new FileReader();
-            const dataUrlPromise = new Promise((resolveDataUrl) => {
-              reader.onloadend = () => {
-                const dataUrl = reader.result;
-                console.log("✅ Video dataUrl created:", {
-                  length: dataUrl?.length || 0,
-                  preview: dataUrl?.substring(0, 50) || "none",
-                });
-                resolveDataUrl(dataUrl);
-              };
-              reader.onerror = () => {
-                console.warn(
-                  "⚠️ Failed to convert blob to dataUrl, using blob only"
-                );
-                resolveDataUrl(null);
-              };
-              reader.readAsDataURL(blob);
-            });
-
-            const dataUrl = await dataUrlPromise;
+            // ✅ OPTIMIZED: Skip dataUrl conversion during recording
+            // dataUrl will be created lazily when needed (handleChoosePhoto)
+            // This reduces memory pressure during rapid video captures
+            console.log("✅ Video blob ready (dataUrl will be created lazily)");
 
             resolve({
               blob,
-              dataUrl, // Add dataUrl for storage
+              dataUrl: null, // Will be converted lazily when needed
               previewUrl,
               mimeType:
                 blob.type ||
@@ -2520,6 +2682,18 @@ export default function TakeMoment() {
     if (activeRecordingRef.current) {
       console.warn("⚠️ A recording is already in progress");
       return;
+    }
+
+    // ✅ Memory check for mobile devices before recording
+    const currentVideoCount = capturedVideosRef.current?.length || 0;
+    if (isMobileDevice() && currentVideoCount >= 4) {
+      // Log memory warning for video 5+
+      console.log(`⚠️ Recording video ${currentVideoCount + 1} - memory optimization active`);
+      
+      // Try to trigger garbage collection by clearing old references
+      if (typeof window !== 'undefined' && window.gc) {
+        try { window.gc(); } catch (e) { /* ignore */ }
+      }
     }
 
     // Wrap in try-catch to prevent crashes
@@ -2772,6 +2946,12 @@ export default function TakeMoment() {
             console.log("🎥 Video dataUrl generated from blob", {
               length: dataUrl?.length || 0,
             });
+            
+            // ✅ MEMORY OPTIMIZATION: Revoke blob URL and clear blob after conversion
+            if (videoToSave.previewUrl && isBlobUrl(videoToSave.previewUrl)) {
+              revokeObjectURL(videoToSave.previewUrl);
+              console.log("🧹 Revoked video blob URL after conversion");
+            }
           } catch (videoConversionError) {
             console.error(
               "❌ Failed to convert recorded video blob to dataUrl",
@@ -2857,11 +3037,24 @@ export default function TakeMoment() {
 
       saveSucceeded = true;
 
-      // Aggressive memory cleanup for mobile devices
-      if (isMobileDevice() && trimmedPhotos.length > 0) {
+      // ✅ AGGRESSIVE MEMORY CLEANUP for mobile devices
+      if (isMobileDevice()) {
         console.log(
           `🧹 Mobile memory cleanup after photo ${trimmedPhotos.length}/${maxCaptures}`
         );
+        
+        // Clean up old video blobs that are no longer needed (we have dataUrl)
+        trimmedVideos.forEach((video, idx) => {
+          if (video?.blob && video?.dataUrl) {
+            console.log(`   🗑️ Clearing blob for video ${idx} (dataUrl exists)`);
+            video.blob = null;
+          }
+          if (video?.previewUrl && isBlobUrl(video.previewUrl)) {
+            revokeObjectURL(video.previewUrl);
+            video.previewUrl = null;
+          }
+        });
+        
         // Force garbage collection hint
         setTimeout(() => {
           if (window.gc) {
@@ -3237,53 +3430,40 @@ export default function TakeMoment() {
     };
 
     const convertVideosForEditing = async (entries) => {
-      const results = [];
-      for (let index = 0; index < entries.length; index += 1) {
-        const entry = entries[index];
-        if (!entry) {
-          results.push(null);
-          continue;
+      // ✅ MEMORY OPTIMIZATION: Use videoMemoryManager for sequential conversion
+      // This prevents memory spikes when converting 6 videos at once
+      console.log("🎬 Converting videos for editing (using memory manager)...");
+      console.log(`📊 Total videos to convert: ${entries.length}`);
+      
+      // Use the memory manager's sequential conversion
+      const convertedVideos = await convertAllVideosToDataUrl(
+        entries,
+        (current, total, id) => {
+          console.log(`🎬 Progress: ${current}/${total} (${id?.slice(-8) || 'unknown'})`);
         }
-
-        if (entry.dataUrl) {
-          results.push({
-            ...entry,
-            blob: null,
-            isConverting: false,
-            conversionError: false,
-            sizeBytes:
-              typeof entry.sizeBytes === "number" &&
-              Number.isFinite(entry.sizeBytes)
-                ? entry.sizeBytes
-                : entry.dataUrl.length * 2,
-          });
-          continue;
-        }
-
-        if (!entry.blob) {
-          throw new Error(
-            `Video ${index + 1} tidak memiliki data untuk diproses.`
-          );
-        }
-
-        try {
-          const dataUrl = await blobToDataURL(entry.blob);
-          results.push({
-            ...entry,
-            dataUrl,
-            blob: null,
-            isConverting: false,
-            conversionError: false,
-            sizeBytes:
-              typeof entry.sizeBytes === "number"
-                ? entry.sizeBytes
-                : entry.blob.size ?? null,
-          });
-        } catch (error) {
-          console.error("❌ Gagal mengonversi video untuk editor", error);
-          throw new Error(`Video ${index + 1} gagal diproses.`);
-        }
-      }
+      );
+      
+      // Cleanup all blobs from memory manager after conversion
+      cleanupAllVideoBlobs();
+      console.log("✅ All video blobs cleaned up from memory manager");
+      
+      // Map to the expected format
+      const results = convertedVideos.map((entry, index) => {
+        if (!entry) return null;
+        
+        return {
+          ...entry,
+          blob: null, // Already cleaned up
+          isConverting: false,
+          conversionError: false,
+          sizeBytes:
+            typeof entry.sizeBytes === "number" && Number.isFinite(entry.sizeBytes)
+              ? entry.sizeBytes
+              : entry.dataUrl ? entry.dataUrl.length * 2 : null,
+        };
+      });
+      
+      console.log(`✅ Video conversion complete: ${results.filter(r => r?.dataUrl).length}/${entries.length} videos`);
       return results;
     };
 

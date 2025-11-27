@@ -11,6 +11,7 @@ import {
 import { convertBlobToMp4 } from "../utils/videoTranscoder.js";
 import { useToast } from "../contexts/ToastContext";
 import { trackFrameDownload } from "../services/analyticsService";
+import { imagePresets, getOriginalUrl } from "../utils/imageOptimizer";
 
 export default function EditPhoto() {
   console.log("🚀 EDITPHOTO RENDERING...");
@@ -1550,8 +1551,9 @@ export default function EditPhoto() {
               {/* LAYER 1: Background Photo */}
               {backgroundPhotoElement && backgroundPhotoElement.data?.image && (
                 <img
-                  src={backgroundPhotoElement.data.image}
+                  src={imagePresets.full(backgroundPhotoElement.data.image)}
                   alt="Background"
+                  loading="eager"
                   style={{
                     position: "absolute",
                     top: 0,
@@ -1561,6 +1563,13 @@ export default function EditPhoto() {
                     objectFit: "cover",
                     zIndex: BACKGROUND_PHOTO_Z,
                     ...getFilterStyle(),
+                  }}
+                  onError={(e) => {
+                    // Fallback to original if CDN fails
+                    if (!e.target.dataset.fallback) {
+                      e.target.dataset.fallback = 'true';
+                      e.target.src = backgroundPhotoElement.data.image;
+                    }
                   }}
                 />
               )}
@@ -1961,7 +1970,8 @@ export default function EditPhoto() {
                         resolve();
                       };
                       bgImg.onerror = reject;
-                      bgImg.src = backgroundPhotoElement.data.image;
+                      // Use original URL for download (full quality)
+                      bgImg.src = getOriginalUrl(backgroundPhotoElement.data.image);
                     });
                   }
 
@@ -2756,7 +2766,8 @@ export default function EditPhoto() {
                         backgroundImage = null;
                         resolve();
                       };
-                      backgroundImage.src = backgroundPhotoElement.data.image;
+                      // Use original URL for video export (full quality)
+                      backgroundImage.src = getOriginalUrl(backgroundPhotoElement.data.image);
                       // Timeout after 3 seconds
                       setTimeout(() => resolve(), 3000);
                     });

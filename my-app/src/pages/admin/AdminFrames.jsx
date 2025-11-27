@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { getAllCustomFrames, deleteCustomFrame } from "../../services/customFrameService";
+import { imagePresets } from "../../utils/imageOptimizer";
 
 const AdminFrames = () => {
   console.log("AdminFrames component rendering...");
@@ -102,11 +103,18 @@ const AdminFrames = () => {
               }}>
                 {frame.imagePath ? (
                   <img 
-                    src={frame.imagePath} 
+                    src={imagePresets.thumbnail(frame.imagePath)}
                     alt={frame.name}
+                    loading="lazy"
                     style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
                     onError={(e) => {
-                      e.target.style.display = "none";
+                      // Fallback to original if CDN fails
+                      if (!e.target.dataset.fallback) {
+                        e.target.dataset.fallback = 'true';
+                        e.target.src = frame.imagePath;
+                      } else {
+                        e.target.style.display = "none";
+                      }
                     }}
                   />
                 ) : (

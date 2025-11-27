@@ -4,6 +4,7 @@ import frameProvider from "../utils/frameProvider.js";
 import safeStorage from "../utils/safeStorage.js";
 import { getAllCustomFrames } from "../services/customFrameService";
 import { trackFrameView } from "../services/analyticsService";
+import { imagePresets } from "../utils/imageOptimizer";
 
 export default function Frames() {
   const navigate = useNavigate();
@@ -102,15 +103,24 @@ export default function Frames() {
                     </div>
                   ) : (
                     <img
-                      src={frame.imagePath || frame.thumbnailUrl}
+                      src={imagePresets.card(frame.imagePath || frame.thumbnailUrl)}
                       alt={frame.name}
+                      loading="lazy"
                       className="object-contain transition-transform duration-300 group-hover:scale-105"
                       style={{
                         height: "100%",
                         width: "100%",
                         objectFit: "contain",
                       }}
-                      onError={() => handleImageError(frame.id)}
+                      onError={(e) => {
+                        // Fallback to original if CDN fails
+                        if (!e.target.dataset.fallback) {
+                          e.target.dataset.fallback = 'true';
+                          e.target.src = frame.imagePath || frame.thumbnailUrl;
+                        } else {
+                          handleImageError(frame.id);
+                        }
+                      }}
                     />
                   )}
                 </div>

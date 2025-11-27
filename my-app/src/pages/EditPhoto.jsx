@@ -889,7 +889,31 @@ export default function EditPhoto() {
                 id: el.id,
               }))
             );
-            setBackgroundPhotoElement(null);
+            
+            // FALLBACK: Try to create background-photo from frameImage or imagePath
+            const fallbackImageUrl = config.frameImage || config.imagePath || config.thumbnailUrl || config.image_url;
+            if (fallbackImageUrl) {
+              console.log("🔄 Creating background-photo from fallback URL:", fallbackImageUrl.substring(0, 80) + "...");
+              const fallbackBackgroundPhoto = {
+                id: "background-photo-fallback",
+                type: "background-photo",
+                x: 0,
+                y: 0,
+                width: 1080,
+                height: 1920,
+                zIndex: 0,
+                data: {
+                  image: fallbackImageUrl,
+                  objectFit: "cover",
+                  label: "Frame Background (fallback)",
+                }
+              };
+              setBackgroundPhotoElement(fallbackBackgroundPhoto);
+              console.log("✅ Created fallback background-photo element");
+            } else {
+              console.warn("⚠️ No fallback image URL available (frameImage, imagePath, thumbnailUrl, image_url)");
+              setBackgroundPhotoElement(null);
+            }
           }
         } else {
           console.warn("⚠️ No designer.elements found in frameConfig");

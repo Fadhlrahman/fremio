@@ -120,7 +120,7 @@ const AdminFrames = () => {
                 </p>
                 <div style={{ display: "flex", gap: "8px" }}>
                   <Link 
-                    to={"/fremio/admin/edit-frame/" + frame.id}
+                    to={"/admin/upload-frame?edit=" + frame.id}
                     style={{
                       flex: 1,
                       padding: "6px",

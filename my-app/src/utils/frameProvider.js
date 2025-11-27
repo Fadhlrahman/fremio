@@ -62,19 +62,35 @@ export class FrameDataProvider {
         // Frame data is complete, use it directly!
         console.log("✅ Frame data is complete, building config directly from frameData");
         
-        // Build config from frameData (don't rely on localStorage)
-        config = {
-          id: frameData.id,
-          name: frameData.name,
-          description: frameData.description || "",
-          maxCaptures: frameData.maxCaptures || 3,
-          duplicatePhotos: frameData.duplicatePhotos || false,
-          imagePath: frameData.imagePath || frameData.thumbnailUrl,
-          frameImage: frameData.imagePath || frameData.thumbnailUrl,
-          thumbnailUrl: frameData.thumbnailUrl || frameData.imagePath,
-          slots: frameData.slots,
-          designer: frameData.designer || { 
-            elements: frameData.slots?.map((slot, index) => ({
+        // Get the frame image URL
+        const frameImageUrl = frameData.imagePath || frameData.thumbnailUrl || frameData.image_url;
+        
+        // Build designer elements: start with background-photo, then add photo slots
+        const designerElements = [];
+        
+        // Add background-photo element (the frame overlay image)
+        if (frameImageUrl) {
+          designerElements.push({
+            id: "background-photo-1",
+            type: "background-photo",
+            x: 0,
+            y: 0,
+            width: 1080,
+            height: 1920,
+            zIndex: 0,
+            data: {
+              image: frameImageUrl,
+              objectFit: "cover",
+              label: "Frame Background",
+            }
+          });
+          console.log("✅ Added background-photo element with image:", frameImageUrl.substring(0, 80) + "...");
+        }
+        
+        // Add photo slot elements
+        if (frameData.slots && Array.isArray(frameData.slots)) {
+          frameData.slots.forEach((slot, index) => {
+            designerElements.push({
               id: slot.id || `photo_${index + 1}`,
               type: "photo",
               x: slot.left * 1080,
@@ -87,7 +103,46 @@ export class FrameDataProvider {
                 image: null,
                 aspectRatio: slot.aspectRatio || "4:5",
               },
-            })) || []
+            });
+          });
+        }
+        
+        // Also restore other elements (upload, text, shape) from layout.elements if available
+        if (frameData.layout?.elements && Array.isArray(frameData.layout.elements)) {
+          console.log("📦 Restoring other elements from layout.elements:", frameData.layout.elements.length);
+          frameData.layout.elements.forEach((el) => {
+            // Convert normalized positions back to absolute positions
+            const restoredElement = {
+              ...el,
+              x: el.xNorm !== undefined ? el.xNorm * 1080 : el.x,
+              y: el.yNorm !== undefined ? el.yNorm * 1920 : el.y,
+              width: el.widthNorm !== undefined ? el.widthNorm * 1080 : el.width,
+              height: el.heightNorm !== undefined ? el.heightNorm * 1920 : el.height,
+            };
+            // Remove normalized properties
+            delete restoredElement.xNorm;
+            delete restoredElement.yNorm;
+            delete restoredElement.widthNorm;
+            delete restoredElement.heightNorm;
+            designerElements.push(restoredElement);
+          });
+        }
+        
+        // Build config from frameData (don't rely on localStorage)
+        config = {
+          id: frameData.id,
+          name: frameData.name,
+          description: frameData.description || "",
+          maxCaptures: frameData.maxCaptures || 3,
+          duplicatePhotos: frameData.duplicatePhotos || false,
+          imagePath: frameImageUrl,
+          frameImage: frameImageUrl,
+          thumbnailUrl: frameData.thumbnailUrl || frameData.imagePath,
+          slots: frameData.slots,
+          designer: frameData.designer || { 
+            elements: designerElements,
+            canvasWidth: 1080,
+            canvasHeight: 1920,
           },
           layout: frameData.layout || {
             aspectRatio: "9:16",

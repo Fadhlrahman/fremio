@@ -17,15 +17,27 @@ import {
   BarChart3,
   Mail,
   Handshake,
+  PanelLeftClose,
+  PanelLeft,
 } from "lucide-react";
 
 export default function AdminLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  
+  // Sidebar collapsed by default, saved in localStorage
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    const saved = localStorage.getItem("adminSidebarCollapsed");
+    return saved !== null ? JSON.parse(saved) : true;
+  });
   const [unreadCount, setUnreadCount] = useState(0);
   const [pendingAffiliates, setPendingAffiliates] = useState(0);
+
+  // Save sidebar preference
+  useEffect(() => {
+    localStorage.setItem("adminSidebarCollapsed", JSON.stringify(sidebarCollapsed));
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     const loadCounts = async () => {
@@ -38,7 +50,6 @@ export default function AdminLayout() {
     };
     loadCounts();
 
-    // Refresh every 30 seconds
     const interval = setInterval(loadCounts, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -46,6 +57,10 @@ export default function AdminLayout() {
   const handleLogout = () => {
     logout();
     navigate("/login");
+  };
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed(!sidebarCollapsed);
   };
 
   const menuItems = [
@@ -80,7 +95,21 @@ export default function AdminLayout() {
         backgroundColor: "#f9fafb",
       }}
     >
-      {/* Sidebar */}
+      {/* Overlay when sidebar is open */}
+      {!sidebarCollapsed && (
+        <div
+          onClick={() => setSidebarCollapsed(true)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.3)",
+            zIndex: 40,
+            transition: "opacity 0.3s ease",
+          }}
+        />
+      )}
+
+      {/* Sidebar - Popup/Collapsible */}
       <aside
         style={{
           position: "fixed",
@@ -90,10 +119,12 @@ export default function AdminLayout() {
           width: "256px",
           backgroundColor: "white",
           borderRight: "1px solid #e5e7eb",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+          boxShadow: sidebarCollapsed ? "none" : "4px 0 20px rgba(0,0,0,0.15)",
           zIndex: 50,
           display: "flex",
           flexDirection: "column",
+          transform: sidebarCollapsed ? "translateX(-100%)" : "translateX(0)",
+          transition: "transform 0.3s ease, box-shadow 0.3s ease",
         }}
       >
         {/* Logo Section */}
@@ -139,18 +170,22 @@ export default function AdminLayout() {
             </div>
           </div>
           <button
-            onClick={() => setSidebarOpen(false)}
+            onClick={() => setSidebarCollapsed(true)}
             style={{
-              padding: "6px",
+              padding: "8px",
               border: "none",
               background: "transparent",
               cursor: "pointer",
               borderRadius: "6px",
-              display: "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
             }}
-            className="lg:hidden block"
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#f3f4f6")}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+            title="Close sidebar"
           >
-            <X size={20} color="#6b7280" />
+            <PanelLeftClose size={20} color="#6b7280" />
           </button>
         </div>
 
@@ -166,7 +201,7 @@ export default function AdminLayout() {
             <Link
               key={item.path}
               to={item.path}
-              onClick={() => setSidebarOpen(false)}
+              onClick={() => setSidebarCollapsed(true)}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -304,27 +339,14 @@ export default function AdminLayout() {
         </div>
       </aside>
 
-      {/* Mobile Overlay */}
-      {sidebarOpen && (
-        <div
-          onClick={() => setSidebarOpen(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            backgroundColor: "rgba(0, 0, 0, 0.5)",
-            zIndex: 40,
-          }}
-          className="lg:hidden"
-        />
-      )}
-
-      {/* Main Content Area */}
+      {/* Main Content Area - Full width now */}
       <div
         style={{
           flex: 1,
           display: "flex",
           flexDirection: "column",
-          marginLeft: "256px",
+          marginLeft: 0,
+          transition: "margin-left 0.3s ease",
         }}
       >
         {/* Top Header */}
@@ -349,41 +371,78 @@ export default function AdminLayout() {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              {/* Menu Toggle Button - Always visible */}
               <button
-                onClick={() => setSidebarOpen(true)}
+                onClick={toggleSidebar}
                 style={{
-                  padding: "8px",
-                  border: "none",
-                  background: "transparent",
+                  padding: "10px",
+                  border: "1px solid #e5e7eb",
+                  background: sidebarCollapsed ? "linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%)" : "#f9fafb",
                   cursor: "pointer",
-                  borderRadius: "6px",
-                  display: "none",
+                  borderRadius: "8px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "all 0.2s ease",
+                  boxShadow: sidebarCollapsed ? "0 2px 8px rgba(236, 72, 153, 0.3)" : "none",
                 }}
-                className="lg:hidden block"
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.backgroundColor = "#f3f4f6")
-                }
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.backgroundColor = "transparent")
-                }
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "scale(1.05)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "scale(1)";
+                }}
+                title={sidebarCollapsed ? "Open menu" : "Close menu"}
               >
-                <Menu size={20} color="#374151" />
+                {sidebarCollapsed ? (
+                  <PanelLeft size={20} color="white" />
+                ) : (
+                  <PanelLeftClose size={20} color="#374151" />
+                )}
               </button>
+              
+              {/* Logo when sidebar is collapsed */}
+              {sidebarCollapsed && (
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <div
+                    style={{
+                      width: "32px",
+                      height: "32px",
+                      background: "linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%)",
+                      borderRadius: "6px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "white",
+                      fontWeight: "bold",
+                      fontSize: "14px",
+                    }}
+                  >
+                    F
+                  </div>
+                  <span style={{ fontWeight: "600", color: "#111827", fontSize: "15px" }}>
+                    Fremio
+                  </span>
+                </div>
+              )}
+              
               <h1
                 style={{
-                  fontSize: "20px",
+                  fontSize: "18px",
                   fontWeight: "bold",
                   color: "#111827",
                   margin: 0,
+                  marginLeft: sidebarCollapsed ? "16px" : "0",
+                  paddingLeft: sidebarCollapsed ? "16px" : "0",
+                  borderLeft: sidebarCollapsed ? "1px solid #e5e7eb" : "none",
                 }}
               >
-                {menuItems.find((item) => item.path === location.pathname)
-                  ?.label || "Admin Panel"}
+                {menuItems.find((item) => item.path === location.pathname)?.label || "Admin Panel"}
               </h1>
             </div>
             <div
               style={{
-                display: "none",
+                display: "flex",
                 alignItems: "center",
                 gap: "8px",
                 padding: "8px 12px",
@@ -391,7 +450,6 @@ export default function AdminLayout() {
                 borderRadius: "8px",
                 border: "1px solid #e9d5ff",
               }}
-              className="md:flex"
             >
               <Shield size={16} color="#8b5cf6" />
               <span

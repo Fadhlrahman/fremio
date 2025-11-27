@@ -37,6 +37,7 @@ import Affiliates from "./pages/Affiliates.jsx";
 import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
 import AdminFrames from "./pages/admin/AdminFrames.jsx";
 import AdminUploadFrame from "./pages/admin/AdminUploadFrame.jsx";
+import AdminFrameCreator from "./pages/admin/AdminFrameCreator.jsx";
 import AdminUsers from "./pages/admin/AdminUsers.jsx";
 import AdminSettings from "./pages/admin/AdminSettings.jsx";
 import AdminCategories from "./pages/admin/AdminCategories.jsx";
@@ -169,7 +170,8 @@ export default function App() {
             <Route index element={<AdminDashboard />} />
             <Route path="dashboard" element={<AdminDashboard />} />
             <Route path="frames" element={<AdminFrames />} />
-            <Route path="upload-frame" element={<AdminUploadFrame />} />
+            <Route path="upload-frame" element={<AdminFrameCreator />} />
+            <Route path="upload-frame-old" element={<AdminUploadFrame />} />
             <Route path="users" element={<AdminUsers />} />
             <Route path="categories" element={<AdminCategories />} />
             <Route path="analytics" element={<AdminAnalytics />} />

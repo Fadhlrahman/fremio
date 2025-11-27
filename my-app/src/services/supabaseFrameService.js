@@ -9,9 +9,9 @@ const FRAMES_TABLE = 'frames';
 const FRAMES_BUCKET = 'frames';
 
 /**
- * Compress image before upload
+ * Compress image before upload - keep high quality for frame images
  */
-const compressImage = (file, maxWidth = 1080, maxHeight = 1920, quality = 0.8) => {
+const compressImage = (file, maxWidth = 1080, maxHeight = 1920, quality = 0.95) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = reject;
@@ -23,10 +23,11 @@ const compressImage = (file, maxWidth = 1080, maxHeight = 1920, quality = 0.8) =
         let width = img.width;
         let height = img.height;
         
+        // Only resize if larger than max dimensions
         if (width > maxWidth || height > maxHeight) {
           const ratio = Math.min(maxWidth / width, maxHeight / height);
-          width = width * ratio;
-          height = height * ratio;
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
         }
         
         canvas.width = width;
@@ -36,13 +37,19 @@ const compressImage = (file, maxWidth = 1080, maxHeight = 1920, quality = 0.8) =
         
         canvas.toBlob(
           (blob) => blob ? resolve(blob) : reject(new Error('Compression failed')),
-          'image/png',
+          'image/png', // Use PNG to preserve transparency
           quality
         );
       };
       img.src = e.target.result;
     };
-    reader.readAsDataURL(file);
+    
+    // Handle both File and Blob
+    if (file instanceof Blob) {
+      reader.readAsDataURL(file);
+    } else {
+      reject(new Error('Invalid file type'));
+    }
   });
 };
 
@@ -238,16 +245,19 @@ export const updateCustomFrame = async (frameId, updates, imageFile = null) => {
   }
 
   try {
+    // Only include fields that exist in the database schema
     const updateData = {
-      ...updates,
       updated_at: new Date().toISOString()
     };
 
-    // Handle max_captures conversion
-    if (updates.maxCaptures) {
-      updateData.max_captures = parseInt(updates.maxCaptures);
-      delete updateData.maxCaptures;
-    }
+    // Map allowed fields to database columns
+    if (updates.name) updateData.name = updates.name;
+    if (updates.description !== undefined) updateData.description = updates.description;
+    if (updates.category) updateData.category = updates.category;
+    if (updates.maxCaptures) updateData.max_captures = parseInt(updates.maxCaptures);
+    if (updates.slots) updateData.slots = updates.slots;
+    if (updates.layout) updateData.layout = updates.layout;
+    if (updates.is_active !== undefined) updateData.is_active = updates.is_active;
 
     // Upload new image if provided
     if (imageFile) {
@@ -257,6 +267,8 @@ export const updateCustomFrame = async (frameId, updates, imageFile = null) => {
       updateData.storage_path = result.path;
     }
 
+    console.log('📝 Updating frame in Supabase:', frameId, updateData);
+
     const { error } = await supabase
       .from(FRAMES_TABLE)
       .update(updateData)
@@ -264,6 +276,7 @@ export const updateCustomFrame = async (frameId, updates, imageFile = null) => {
 
     if (error) throw error;
 
+    console.log('✅ Frame updated successfully');
     return { success: true };
   } catch (error) {
     console.error('Error updating frame:', error);

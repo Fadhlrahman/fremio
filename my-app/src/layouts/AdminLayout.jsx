@@ -84,19 +84,17 @@ export default function AdminLayout() {
       <aside
         style={{
           position: "fixed",
-          left: sidebarOpen ? 0 : "-256px",
+          left: 0,
           top: 0,
           bottom: 0,
           width: "256px",
           backgroundColor: "white",
           borderRight: "1px solid #e5e7eb",
           boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-          transition: "left 0.3s ease",
           zIndex: 50,
           display: "flex",
           flexDirection: "column",
         }}
-        className="lg:left-0 lg:static"
       >
         {/* Logo Section */}
         <div
@@ -326,9 +324,8 @@ export default function AdminLayout() {
           flex: 1,
           display: "flex",
           flexDirection: "column",
-          marginLeft: "0",
+          marginLeft: "256px",
         }}
-        className="lg:ml-0"
       >
         {/* Top Header */}
         <header

@@ -390,9 +390,16 @@ export const activateDraftFrame = (draft) => {
     id: frameConfig.id,
     hasDesignerElements: !!frameConfig.designer?.elements,
     elementsCount: frameConfig.designer?.elements?.length,
+    elementTypes: frameConfig.designer?.elements?.map(el => el?.type) || [],
     hasBackgroundPhoto: !!frameConfig.designer?.elements?.find(
       (el) => el.type === "background-photo"
     ),
+    hasPhotoElements: !!frameConfig.designer?.elements?.find(
+      (el) => el.type === "photo"
+    ),
+    photoElementsCount: frameConfig.designer?.elements?.filter(
+      (el) => el.type === "photo"
+    ).length || 0,
   });
 
   // Store to localStorage (small data: just IDs and flags)

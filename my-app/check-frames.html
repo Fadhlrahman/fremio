@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Check Frames Debug</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 20px; background: #f5f5f5; }
+    .frame-card { background: white; padding: 16px; margin: 12px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .frame-image { max-width: 200px; max-height: 300px; border: 1px solid #ddd; }
+    .error { color: #dc2626; }
+    .success { color: #059669; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 4px; overflow-x: auto; }
+    button { padding: 8px 16px; margin: 4px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; }
+    .btn-danger { background: #dc2626; color: white; }
+    .btn-primary { background: #3b82f6; color: white; }
+  </style>
+</head>
+<body>
+  <h1>🔍 Frame Debug Tool</h1>
+  
+  <div style="margin-bottom: 20px;">
+    <button class="btn-primary" onclick="checkFrames()">Check Frames</button>
+    <button class="btn-danger" onclick="clearAllFrames()">Clear All Frames</button>
+  </div>
+  
+  <div id="storage-info"></div>
+  <div id="frames-list"></div>
+  
+  <script>
+    function checkFrames() {
+      const storageInfo = document.getElementById('storage-info');
+      const framesList = document.getElementById('frames-list');
+      
+      try {
+        // Check localStorage
+        const rawData = localStorage.getItem('custom_frames');
+        const frames = JSON.parse(rawData || '[]');
+        
+        // Calculate storage usage
+        let totalSize = 0;
+        for (let key in localStorage) {
+          if (localStorage.hasOwnProperty(key)) {
+            totalSize += (localStorage[key].length * 2);
+          }
+        }
+        
+        storageInfo.innerHTML = `
+          <div class="frame-card">
+            <h3>📊 Storage Info</h3>
+            <p><strong>Total localStorage:</strong> ${(totalSize / 1024 / 1024).toFixed(2)} MB</p>
+            <p><strong>custom_frames size:</strong> ${rawData ? (rawData.length * 2 / 1024 / 1024).toFixed(2) : 0} MB</p>
+            <p><strong>Total frames:</strong> ${frames.length}</p>
+          </div>
+        `;
+        
+        if (frames.length === 0) {
+          framesList.innerHTML = '<p class="error">❌ No frames found in localStorage</p>';
+          return;
+        }
+        
+        let html = '';
+        frames.forEach((frame, idx) => {
+          const hasImage = !!frame.imagePath;
+          const imageLength = frame.imagePath?.length || 0;
+          const imageStartsWith = frame.imagePath?.substring(0, 50) || 'N/A';
+          
+          html += `
+            <div class="frame-card">
+              <h3>${idx + 1}. ${frame.name || 'Unnamed'} (ID: ${frame.id})</h3>
+              <p><strong>Category:</strong> ${frame.category || 'N/A'}</p>
+              <p><strong>Max Captures:</strong> ${frame.maxCaptures || 'N/A'}</p>
+              <p><strong>Slots:</strong> ${frame.slots?.length || 0}</p>
+              <p><strong>Has imagePath:</strong> ${hasImage ? '<span class="success">✅ YES</span>' : '<span class="error">❌ NO</span>'}</p>
+              <p><strong>imagePath length:</strong> ${imageLength} chars (${(imageLength / 1024).toFixed(2)} KB)</p>
+              <p><strong>imagePath starts with:</strong> <code>${imageStartsWith}...</code></p>
+              
+              ${hasImage ? `
+                <p><strong>Preview:</strong></p>
+                <img src="${frame.imagePath}" class="frame-image" onerror="this.onerror=null; this.src=''; this.alt='❌ Image failed to load'; this.style.border='2px solid red'; this.style.padding='20px';" />
+              ` : '<p class="error">⚠️ No image data stored for this frame!</p>'}
+              
+              <br/>
+              <button class="btn-danger" onclick="deleteFrame('${frame.id}')">🗑️ Delete This Frame</button>
+            </div>
+          `;
+        });
+        
+        framesList.innerHTML = html;
+        
+      } catch (error) {
+        storageInfo.innerHTML = `<p class="error">❌ Error: ${error.message}</p>`;
+        console.error(error);
+      }
+    }
+    
+    function deleteFrame(frameId) {
+      if (!confirm('Delete frame: ' + frameId + '?')) return;
+      
+      try {
+        const frames = JSON.parse(localStorage.getItem('custom_frames') || '[]');
+        const filtered = frames.filter(f => f.id !== frameId);
+        localStorage.setItem('custom_frames', JSON.stringify(filtered));
+        alert('Frame deleted!');
+        checkFrames();
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+    
+    function clearAllFrames() {
+      if (!confirm('⚠️ Delete ALL frames? This cannot be undone!')) return;
+      
+      try {
+        localStorage.removeItem('custom_frames');
+        alert('All frames cleared!');
+        checkFrames();
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+    
+    // Auto-check on load
+    checkFrames();
+  </script>
+</body>
+</html>

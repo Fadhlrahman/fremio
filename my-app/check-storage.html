@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head><title>Storage Check</title></head>
+<body>
+<h1>Storage Debug</h1>
+<pre id="output"></pre>
+<script>
+const output = document.getElementById('output');
+let result = '';
+
+// Check localStorage
+result += '=== LOCALSTORAGE ===\n';
+result += 'Total keys: ' + localStorage.length + '\n\n';
+for (let i = 0; i < localStorage.length; i++) {
+  const key = localStorage.key(i);
+  const value = localStorage.getItem(key);
+  result += `Key: ${key}\n`;
+  result += `Size: ${(value.length / 1024).toFixed(2)} KB\n`;
+  if (key === 'custom_frames') {
+    try {
+      const frames = JSON.parse(value);
+      result += `Frames: ${frames.length}\n`;
+      frames.forEach((f, idx) => {
+        result += `  ${idx + 1}. ID: ${f.id}, Name: ${f.name}\n`;
+      });
+    } catch (e) {
+      result += 'Error parsing: ' + e.message + '\n';
+    }
+  }
+  result += '\n';
+}
+
+output.textContent = result;
+</script>
+</body>
+</html>

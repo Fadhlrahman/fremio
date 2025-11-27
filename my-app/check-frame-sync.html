@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Frame Sync Checker</title>
+  <style>
+    body { font-family: Arial; padding: 20px; background: #f5f5f5; }
+    .box { background: white; padding: 20px; margin: 10px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    h1 { color: #333; }
+    .status { padding: 10px; margin: 10px 0; border-radius: 4px; }
+    .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+    button { padding: 10px 20px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #0056b3; }
+    pre { background: #f4f4f4; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+    code { background: #e9ecef; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <h1>🔍 Frame Synchronization Checker</h1>
+  
+  <div class="box">
+    <h2>Current Status</h2>
+    <div id="status"></div>
+  </div>
+
+  <div class="box">
+    <h2>Actions</h2>
+    <button onclick="checkFrames()">🔍 Check Frames</button>
+    <button onclick="showExportImport()">📤 Export/Import</button>
+    <button onclick="clearLocalStorage()">🗑️ Clear localStorage</button>
+  </div>
+
+  <div class="box" id="details" style="display:none;">
+    <h2>Frame Details</h2>
+    <pre id="frameData"></pre>
+  </div>
+
+  <div class="box" id="export-import" style="display:none;">
+    <h2>Export/Import Frames</h2>
+    <h3>Export (Admin Browser)</h3>
+    <button onclick="exportFrames()">📤 Export Frames</button>
+    <pre id="exportData"></pre>
+    
+    <h3>Import (User Browser)</h3>
+    <p>Paste exported JSON below:</p>
+    <textarea id="importData" rows="10" style="width:100%; font-family:monospace; padding:10px;"></textarea>
+    <br>
+    <button onclick="importFrames()">📥 Import Frames</button>
+  </div>
+
+  <script>
+    function checkFrames() {
+      const status = document.getElementById('status');
+      const details = document.getElementById('details');
+      const frameData = document.getElementById('frameData');
+      
+      try {
+        const raw = localStorage.getItem('custom_frames');
+        const frames = JSON.parse(raw || '[]');
+        
+        if (frames.length === 0) {
+          status.innerHTML = `
+            <div class="error">
+              <strong>❌ NO FRAMES FOUND</strong><br><br>
+              Possible reasons:<br>
+              1. Admin has not uploaded any frames yet<br>
+              2. localStorage was cleared<br>
+              3. You're in a different browser than admin<br>
+              4. You're in incognito/private mode<br><br>
+              <strong>Solution:</strong><br>
+              - If you're admin: Upload a frame at <code>/admin/upload-frame</code><br>
+              - If you're user: Ask admin to upload in THIS browser, or use Export/Import
+            </div>
+          `;
+          details.style.display = 'none';
+        } else {
+          // Check if frames have required data
+          let hasIssues = false;
+          let issueDetails = [];
+          
+          frames.forEach((f, i) => {
+            const issues = [];
+            
+            if (!f.slots || !Array.isArray(f.slots)) {
+              issues.push('Missing slots array');
+              hasIssues = true;
+            } else if (f.slots.length === 0) {
+              issues.push('Empty slots array (0 slots)');
+              hasIssues = true;
+            }
+            
+            if (!f.imagePath) {
+              issues.push('Missing imagePath');
+              hasIssues = true;
+            }
+            
+            if (!f.id) {
+              issues.push('Missing ID');
+              hasIssues = true;
+            }
+            
+            if (issues.length > 0) {
+              issueDetails.push(`${f.name || 'Unknown'}: ${issues.join(', ')}`);
+            }
+          });
+          
+          if (hasIssues) {
+            status.innerHTML = `
+              <div class="warning">
+                <strong>⚠️ FRAMES FOUND BUT HAVE ISSUES: ${frames.length}</strong><br><br>
+                Some frames are missing required data:<br>
+                ${issueDetails.map(i => '• ' + i).join('<br>')}<br><br>
+                <strong>Solution:</strong> Delete problematic frames and re-upload with auto-detected slots.
+              </div>
+            `;
+          } else {
+            status.innerHTML = `
+              <div class="success">
+                <strong>✅ FRAMES FOUND: ${frames.length}</strong><br><br>
+                All frames have required data (slots + imagePath)!
+              </div>
+            `;
+          }
+          
+          let data = '=== FRAMES IN LOCALSTORAGE ===\n\n';
+          frames.forEach((f, i) => {
+            const hasSlots = f.slots && Array.isArray(f.slots) && f.slots.length > 0;
+            const slotsOk = hasSlots ? '✅' : '❌';
+            const imageOk = f.imagePath ? '✅' : '❌';
+            
+            data += `${i+1}. ${f.name || 'NO NAME'}\n`;
+            data += `   ID: ${f.id || 'NO ID'}\n`;
+            data += `   Max Captures: ${f.maxCaptures || 0}\n`;
+            data += `   Slots: ${slotsOk} ${f.slots?.length || 0} slots\n`;
+            
+            // Show slot details
+            if (hasSlots) {
+              f.slots.forEach((slot, si) => {
+                data += `      └ Slot ${si+1}: left=${slot.left?.toFixed(2)}, top=${slot.top?.toFixed(2)}, w=${slot.width?.toFixed(2)}, h=${slot.height?.toFixed(2)}\n`;
+              });
+            }
+            
+            data += `   Has Image: ${imageOk} ${f.imagePath ? '(' + (f.imagePath.length/1024).toFixed(1) + ' KB)' : 'MISSING!'}\n`;
+            data += `   Created: ${f.createdAt || 'Unknown'}\n`;
+            data += `   Category: ${f.category || 'custom'}\n\n`;
+          });
+          
+          frameData.textContent = data;
+          details.style.display = 'block';
+        }
+      } catch (error) {
+        status.innerHTML = `
+          <div class="error">
+            <strong>❌ ERROR</strong><br>
+            ${error.message}
+          </div>
+        `;
+      }
+    }
+
+    function showExportImport() {
+      const box = document.getElementById('export-import');
+      box.style.display = box.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function exportFrames() {
+      const exportData = document.getElementById('exportData');
+      try {
+        const frames = JSON.parse(localStorage.getItem('custom_frames') || '[]');
+        if (frames.length === 0) {
+          exportData.textContent = '❌ No frames to export';
+          return;
+        }
+        
+        const json = JSON.stringify(frames, null, 2);
+        exportData.textContent = json;
+        
+        // Auto-download
+        const blob = new Blob([json], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'fremio_custom_frames.json';
+        a.click();
+        
+        alert('✅ Frames exported!\n\nJSON shown below and downloaded.');
+      } catch (error) {
+        exportData.textContent = '❌ ERROR: ' + error.message;
+      }
+    }
+
+    function importFrames() {
+      const importData = document.getElementById('importData');
+      try {
+        const json = importData.value.trim();
+        if (!json) {
+          alert('❌ Please paste exported JSON first');
+          return;
+        }
+        
+        const frames = JSON.parse(json);
+        if (!Array.isArray(frames)) {
+          throw new Error('Invalid format - must be an array');
+        }
+        
+        localStorage.setItem('custom_frames', JSON.stringify(frames));
+        alert(`✅ Successfully imported ${frames.length} frame(s)!\n\nRefreshing page...`);
+        location.reload();
+      } catch (error) {
+        alert('❌ Import failed:\n\n' + error.message);
+      }
+    }
+
+    function clearLocalStorage() {
+      if (confirm('⚠️ Are you sure you want to clear ALL custom frames?\n\nThis cannot be undone!')) {
+        localStorage.removeItem('custom_frames');
+        alert('✅ localStorage cleared!\n\nRefreshing page...');
+        location.reload();
+      }
+    }
+
+    // Auto-check on load
+    window.onload = checkFrames;
+  </script>
+</body>
+</html>

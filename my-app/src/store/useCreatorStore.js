@@ -488,10 +488,21 @@ export const useCreatorStore = create((set, get) => ({
   lastZIndex: 1,
   addElement: (type, extra = {}) => {
     const defaults = defaultPropsByType(type);
-    const mergedData = {
+    
+    // For photo elements, auto-assign photoIndex based on existing photo count
+    let mergedData = {
       ...(defaults.data || {}),
       ...(extra.data || {})
     };
+    
+    // CRITICAL FIX: Auto-assign photoIndex for photo elements
+    if (type === 'photo' && typeof mergedData.photoIndex !== 'number') {
+      const state = get();
+      const existingPhotoCount = state.elements.filter(el => el.type === 'photo').length;
+      mergedData.photoIndex = existingPhotoCount;
+      console.log(`📸 [addElement] Auto-assigned photoIndex ${existingPhotoCount} to new photo element`);
+    }
+    
     const currentLastZ = get().lastZIndex;
     const defaultZ = resolveDefaultZIndex(type, defaults, currentLastZ);
     const desiredZ = typeof extra.zIndex === 'number' ? extra.zIndex : defaultZ;

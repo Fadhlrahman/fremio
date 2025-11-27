@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
+import { ArrowLeft } from "lucide-react";
 import {
   getAllAffiliateApplications,
   updateApplicationStatus,
@@ -8,6 +10,7 @@ import {
 } from "../../services/affiliateService";
 
 export default function AdminAffiliates() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [applications, setApplications] = useState([]);
   const [stats, setStats] = useState({
@@ -135,6 +138,37 @@ export default function AdminAffiliates() {
 
   return (
     <div className="admin-affiliates">
+      {/* Back Button */}
+      <button
+        onClick={() => navigate("/admin")}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "8px",
+          marginBottom: "16px",
+          padding: "10px 16px",
+          backgroundColor: "#fff",
+          border: "2px solid #e2e8f0",
+          borderRadius: "8px",
+          fontSize: "14px",
+          fontWeight: "600",
+          color: "#475569",
+          cursor: "pointer",
+          transition: "all 0.2s",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = "#f8fafc";
+          e.currentTarget.style.borderColor = "#cbd5e1";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = "#fff";
+          e.currentTarget.style.borderColor = "#e2e8f0";
+        }}
+      >
+        <ArrowLeft size={18} />
+        Kembali ke Dashboard
+      </button>
+
       {/* Header & Stats */}
       <div className="page-header">
         <h1>🤝 Affiliate Applications</h1>

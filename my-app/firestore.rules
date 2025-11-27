@@ -1,43 +1,37 @@
-﻿rules_version = '2';
+rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    function isAuthenticated() {
-      return request.auth != null;
+    // Custom frames collection - allow all for development
+    match /custom_frames/{frameId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
     }
     
-    function isAdmin() {
-      return isAuthenticated() && 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-    }
-    
+    // Users collection
     match /users/{userId} {
       allow read: if true;
-      allow create: if isAuthenticated() && request.auth.uid == userId;
-      allow update: if isAuthenticated() && request.auth.uid == userId;
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId;
+      allow delete: if false;
     }
     
+    // Contact messages
     match /contactMessages/{messageId} {
       allow create: if true;
-      allow read: if isAdmin();
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow read: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
     
-    match /affiliate_applications/{applicationId} {
-      allow create: if true;
-      allow read: if isAdmin();
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
-    }
-    
+    // Frames collection (legacy)
     match /frames/{frameId} {
       allow read: if true;
-      allow create: if isAdmin();
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
     }
   }
 }

@@ -590,6 +590,13 @@ export default function Create() {
   const location = useLocation();
   const navigate = useNavigate();
 
+  // CRITICAL: Reset hasLoadedDraftRef on component unmount so storage clears on re-entry
+  useEffect(() => {
+    return () => {
+      hasLoadedDraftRef.current = false;
+    };
+  }, []);
+
   const showToast = useCallback((type, message, duration = 3200) => {
     if (toastTimeoutRef.current) {
       clearTimeout(toastTimeoutRef.current);
@@ -1261,7 +1268,10 @@ export default function Create() {
       clearSelection();
       userStorage.removeItem("activeDraftId");
       userStorage.removeItem("activeDraftSignature");
+      // Clear capturedPhotos from BOTH storage systems to ensure clean state
       userStorage.removeItem("capturedPhotos");
+      safeStorage.removeItem("capturedPhotos");
+      safeStorage.removeItem("capturedVideos");
       userStorage.removeItem("draftFrameArtwork");
       hasLoadedDraftRef.current = true; // Mark as initialized
     }

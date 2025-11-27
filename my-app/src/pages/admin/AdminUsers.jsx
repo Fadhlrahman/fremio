@@ -18,6 +18,7 @@ import {
   Crown,
   Trash2,
   Edit,
+  ArrowLeft,
 } from "lucide-react";
 
 export default function AdminUsers() {
@@ -266,6 +267,22 @@ export default function AdminUsers() {
       }}
     >
       <div style={{ maxWidth: "1120px", margin: "0 auto", padding: "0 16px" }}>
+        {/* Back Button */}
+        <button
+          onClick={() => navigate("/admin")}
+          className="admin-button-secondary"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            marginBottom: "16px",
+            padding: "10px 16px",
+          }}
+        >
+          <ArrowLeft size={18} />
+          Kembali ke Dashboard
+        </button>
+
         {/* Firebase Warning Banner */}
         {!isFirebaseConfigured && (
           <div className="admin-alert">

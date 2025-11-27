@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import safeStorage from "../utils/safeStorage.js";
+import userStorage from "../utils/userStorage.js";
 import { BACKGROUND_PHOTO_Z } from "../constants/layers.js";
 import html2canvas from "html2canvas";
 import {
@@ -45,13 +46,29 @@ export default function EditPhoto() {
 
   useEffect(() => {
     console.log("📦 Loading data from localStorage...");
+    
+    // DEBUG: Check raw localStorage
+    console.log("🔍 [DEBUG] Raw localStorage check:");
+    const rawPhotos = localStorage.getItem("capturedPhotos");
+    console.log("   - capturedPhotos raw:", rawPhotos ? `Found (${rawPhotos.length} chars)` : "NOT FOUND");
+    if (rawPhotos) {
+      try {
+        const parsed = JSON.parse(rawPhotos);
+        console.log("   - Parsed photos count:", parsed?.length || 0);
+        console.log("   - First photo preview:", parsed?.[0]?.substring?.(0, 50) || "N/A");
+      } catch (e) {
+        console.log("   - Parse error:", e.message);
+      }
+    }
 
     // Clear stale cache (older than 24 hours)
     clearStaleFrameCache();
 
     const loadFrameData = async () => {
       try {
-        const activeDraftId = safeStorage.getItem("activeDraftId");
+        // CRITICAL FIX: Use userStorage for activeDraftId (Create.jsx uses userStorage which prefixes with user email)
+        const activeDraftId = userStorage.getItem("activeDraftId");
+        console.log("🔍 activeDraftId from userStorage:", activeDraftId);
         let recoveryDraft;
         const loadDraftForRecovery = async () => {
           if (recoveryDraft !== undefined || !activeDraftId) {
@@ -73,11 +90,112 @@ export default function EditPhoto() {
           return recoveryDraft;
         };
 
-        // Load photos
-        let photosFromStorage = safeStorage.getJSON("capturedPhotos");
+        // Load photos - try direct localStorage first, then safeStorage
+        let photosFromStorage = null;
+        
+        // DEBUG: Dump all localStorage keys
+        console.log("🔍 [DEBUG] ======= PHOTO LOADING START =======");
+        console.log("🔍 [DEBUG] All localStorage keys:");
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          const val = localStorage.getItem(key);
+          console.log(`   ${key}: ${val ? val.length + ' chars' : 'null'}`);
+        }
+        
+        // Check window backup first
+        if (window.__fremio_photos && window.__fremio_photos.length > 0) {
+          console.log("🆘 [BACKUP] Found photos in window.__fremio_photos:", window.__fremio_photos.length);
+          console.log("🆘 [BACKUP] First photo type:", typeof window.__fremio_photos[0]);
+          console.log("🆘 [BACKUP] First photo preview:", window.__fremio_photos[0]?.substring?.(0, 50) || "not string");
+          photosFromStorage = window.__fremio_photos;
+        }
+        
+        // Try direct localStorage
+        if (!photosFromStorage || photosFromStorage.length === 0) {
+          try {
+            const rawPhotos = localStorage.getItem("capturedPhotos");
+            console.log("📸 [DEBUG] Raw capturedPhotos:", rawPhotos ? `Found (${rawPhotos.length} chars)` : "NOT FOUND");
+            
+            if (rawPhotos) {
+              // Check if data is compressed (starts with __cmp__:)
+              const isCompressed = rawPhotos.startsWith("__cmp__:");
+              console.log("📸 [DEBUG] Is compressed:", isCompressed);
+              
+              if (isCompressed) {
+                // Use safeStorage to decompress
+                console.log("📸 [DEBUG] Data is compressed, using safeStorage to read...");
+                photosFromStorage = safeStorage.getJSON("capturedPhotos");
+              } else {
+                photosFromStorage = JSON.parse(rawPhotos);
+              }
+              
+              console.log("📸 [DEBUG] Parsed photos count:", photosFromStorage?.length || 0);
+              console.log("📸 [DEBUG] Parsed photos isArray:", Array.isArray(photosFromStorage));
+              if (photosFromStorage?.length > 0) {
+                console.log("📸 [DEBUG] First photo type:", typeof photosFromStorage[0]);
+                console.log("📸 [DEBUG] First photo preview:", 
+                  typeof photosFromStorage[0] === 'string' 
+                    ? photosFromStorage[0].substring(0, 50) 
+                    : JSON.stringify(photosFromStorage[0]).substring(0, 100));
+              }
+            }
+          } catch (directError) {
+            console.warn("⚠️ Direct localStorage read failed:", directError);
+          }
+        }
+        
+        // Fallback to safeStorage (for compressed data)
+        if (!photosFromStorage || !Array.isArray(photosFromStorage) || photosFromStorage.length === 0) {
+          photosFromStorage = safeStorage.getJSON("capturedPhotos");
+          console.log("📸 Loaded photos from safeStorage:", photosFromStorage?.length || 0);
+        }
+        
         let resolvedPhotos = Array.isArray(photosFromStorage)
           ? [...photosFromStorage]
           : [];
+
+        // If photos not found, try sessionStorage backup
+        if (resolvedPhotos.length === 0) {
+          try {
+            const sessionBackup = sessionStorage.getItem("capturedPhotos_backup");
+            if (sessionBackup) {
+              const parsed = JSON.parse(sessionBackup);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                console.log("🆘 [BACKUP] Found photos in sessionStorage backup:", parsed.length);
+                resolvedPhotos = parsed;
+                // Copy to localStorage for consistency
+                localStorage.setItem("capturedPhotos", sessionBackup);
+              }
+            }
+          } catch (sessionErr) {
+            console.warn("⚠️ sessionStorage backup read failed:", sessionErr);
+          }
+        }
+
+        // If still no photos, wait a bit and retry (storage might be delayed)
+        if (resolvedPhotos.length === 0) {
+          console.log("⏳ [RETRY] No photos found, waiting 300ms and retrying...");
+          await new Promise(resolve => setTimeout(resolve, 300));
+          
+          const retryRaw = localStorage.getItem("capturedPhotos");
+          if (retryRaw) {
+            try {
+              const retryParsed = JSON.parse(retryRaw);
+              if (Array.isArray(retryParsed) && retryParsed.length > 0) {
+                console.log("✅ [RETRY] Found photos after delay:", retryParsed.length);
+                resolvedPhotos = retryParsed;
+              }
+            } catch (retryErr) {
+              console.warn("⚠️ Retry parse failed:", retryErr);
+            }
+          }
+          
+          // Also check window backup again
+          if (resolvedPhotos.length === 0 && window.__fremio_photos?.length > 0) {
+            console.log("✅ [RETRY] Found photos in window.__fremio_photos:", window.__fremio_photos.length);
+            resolvedPhotos = window.__fremio_photos;
+          }
+        }
 
         if (resolvedPhotos.length === 0 && activeDraftId) {
           const draft = await loadDraftForRecovery();
@@ -99,8 +217,51 @@ export default function EditPhoto() {
         }
 
         if (resolvedPhotos.length > 0) {
-          setPhotos(resolvedPhotos);
-          console.log("✅ Loaded photos:", resolvedPhotos.length);
+          // CRITICAL FIX: Normalize photos to ensure they are strings (dataUrl format)
+          // Photos can come as strings or objects with {dataUrl, previewUrl, blob, ...}
+          const normalizedPhotos = resolvedPhotos.map((photo, idx) => {
+            // Already a data URL string
+            if (typeof photo === 'string' && photo.startsWith('data:')) {
+              console.log(`📸 Photo ${idx}: Already a data URL string`);
+              return photo;
+            }
+            // Object with dataUrl property
+            if (photo?.dataUrl && typeof photo.dataUrl === 'string' && photo.dataUrl.startsWith('data:')) {
+              console.log(`📸 Photo ${idx}: Extracted dataUrl from object`);
+              return photo.dataUrl;
+            }
+            // Object with previewUrl that is a data URL (not blob URL)
+            if (photo?.previewUrl && typeof photo.previewUrl === 'string' && photo.previewUrl.startsWith('data:')) {
+              console.log(`📸 Photo ${idx}: Using previewUrl (data URL)`);
+              return photo.previewUrl;
+            }
+            // Unknown format - log warning
+            console.warn(`⚠️ Photo ${idx}: Unknown format, skipping:`, {
+              type: typeof photo,
+              hasDataUrl: !!photo?.dataUrl,
+              hasPreviewUrl: !!photo?.previewUrl,
+              preview: typeof photo === 'string' ? photo.substring(0, 50) : JSON.stringify(photo).substring(0, 100),
+            });
+            return null;
+          }).filter(Boolean);
+
+          console.log("✅ Loaded and normalized photos:", {
+            original: resolvedPhotos.length,
+            normalized: normalizedPhotos.length,
+          });
+          
+          if (normalizedPhotos.length > 0) {
+            console.log("📸 [NORMALIZED] First photo type:", typeof normalizedPhotos[0]);
+            console.log("📸 [NORMALIZED] First photo preview:", normalizedPhotos[0]?.substring?.(0, 50) || "empty");
+          } else {
+            console.error("❌ [NORMALIZED] No photos after normalization!");
+          }
+          
+          setPhotos(normalizedPhotos);
+          
+          // Also update resolvedPhotos for use later in frame config loading
+          resolvedPhotos = normalizedPhotos;
+          console.log("📸 [RESOLVED] resolvedPhotos updated to normalizedPhotos, length:", resolvedPhotos.length);
         } else {
           setPhotos([]);
           console.log("ℹ️ No captured photos found in storage or draft");
@@ -214,16 +375,46 @@ export default function EditPhoto() {
         console.log("🔍 Step 4: Loading frame config...");
         let config = safeStorage.getJSON("frameConfig");
         console.log("   frameConfig from localStorage:", !!config, config?.id);
+        
+        // CRITICAL DEBUG: Check what's in the loaded config
+        if (config) {
+          console.log("🔍 [DEBUG] Loaded frameConfig structure:", {
+            id: config.id,
+            isCustom: config.isCustom,
+            hasDesigner: !!config.designer,
+            hasDesignerElements: !!config.designer?.elements,
+            designerElementsCount: config.designer?.elements?.length || 0,
+            designerElementTypes: config.designer?.elements?.map(el => el?.type) || [],
+            slotsCount: config.slots?.length || 0,
+          });
+        }
 
         // CRITICAL: For custom frames, always reload from service to get latest schema
         const selectedFrameId = safeStorage.getItem("selectedFrame");
-        if (selectedFrameId?.startsWith("custom-") || config?.isCustom) {
-          console.log("🔄 Custom frame detected, reloading from service...");
+        
+        // Helper to detect UUID (Supabase custom frames)
+        const isUUID = (str) => {
+          if (typeof str !== 'string') return false;
+          return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+        };
+        
+        // Custom frame detection: either "custom-" prefix OR UUID OR isCustom flag
+        const isCustomFrame = selectedFrameId?.startsWith("custom-") || 
+                              isUUID(selectedFrameId) || 
+                              config?.isCustom;
+        
+        // For draft-based custom frames (custom-xxx), DON'T try to load from service
+        // They don't exist in Supabase - they're stored locally
+        const isDraftBasedCustomFrame = selectedFrameId?.startsWith("custom-");
+        
+        if (isCustomFrame && !isDraftBasedCustomFrame) {
+          // Only try service for UUID-based frames (Supabase frames)
+          console.log("🔄 Supabase custom frame detected, reloading from service...");
           try {
             const { getCustomFrameConfig } = await import(
               "../services/customFrameService.js"
             );
-            const freshConfig = getCustomFrameConfig(
+            const freshConfig = await getCustomFrameConfig(
               selectedFrameId || config?.id
             );
             if (freshConfig) {
@@ -235,6 +426,9 @@ export default function EditPhoto() {
           } catch (error) {
             console.warn("⚠️ Failed to reload from service:", error);
           }
+        } else if (isDraftBasedCustomFrame) {
+          console.log("🎨 Draft-based custom frame detected (custom-xxx), will load from draft...");
+          // Keep existing config from localStorage, or it will be loaded from draft in fallback
         }
 
         // Validate frameConfig timestamp to prevent stale cache
@@ -272,15 +466,45 @@ export default function EditPhoto() {
           // Try to get selected frame ID
           const selectedFrameId = safeStorage.getItem("selectedFrame");
           console.log("  - Selected frame ID:", selectedFrameId);
+          
+          // Helper to detect UUID (Supabase custom frames)
+          const isUUIDCheck = (str) => {
+            if (typeof str !== 'string') return false;
+            return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+          };
+          
+          // Check if it's a draft-based custom frame (custom-xxx) vs Supabase frame (UUID)
+          const isDraftBased = selectedFrameId?.startsWith("custom-");
+          const isSupabaseFrame = isUUIDCheck(selectedFrameId);
 
-          // FALLBACK 1: Try custom frame service directly (for custom frames)
-          if (selectedFrameId?.startsWith("custom-")) {
-            console.log("🔄 Attempting to load custom frame from service...");
+          // FALLBACK 1: For draft-based frames, ALWAYS try draft first
+          if (isDraftBased && activeDraftId) {
+            console.log("🔄 Draft-based custom frame, loading from draft first...");
+            try {
+              const draft = await loadDraftForRecovery();
+              if (draft) {
+                const { buildFrameConfigFromDraft } = await import(
+                  "../utils/draftHelpers.js"
+                );
+                config = buildFrameConfigFromDraft(draft);
+                console.log(
+                  "✅ Successfully loaded frameConfig from draft:",
+                  config.id
+                );
+              }
+            } catch (error) {
+              console.warn("⚠️ Failed to load from draft:", error);
+            }
+          }
+          
+          // FALLBACK 2: For Supabase frames, try custom frame service
+          if (!config && isSupabaseFrame) {
+            console.log("🔄 Attempting to load Supabase frame from service...");
             try {
               const { getCustomFrameConfig } = await import(
                 "../services/customFrameService.js"
               );
-              config = getCustomFrameConfig(selectedFrameId);
+              config = await getCustomFrameConfig(selectedFrameId);
               if (config) {
                 console.log(
                   "✅ Successfully loaded custom frame from service:",
@@ -295,8 +519,8 @@ export default function EditPhoto() {
             }
           }
 
-          // FALLBACK 2: Try to load from draft (if exists)
-          if (!config && activeDraftId) {
+          // FALLBACK 3: Try to load from draft (if exists and not already tried)
+          if (!config && activeDraftId && !isDraftBased) {
             try {
               console.log("🔄 Loading frameConfig from draft:", activeDraftId);
               const draft = await loadDraftForRecovery();
@@ -494,6 +718,51 @@ export default function EditPhoto() {
         // Load designer elements (unified layering system)
         // Support both custom frames and regular frames (converted from slots)
         if (Array.isArray(config.designer?.elements)) {
+          // Log resolvedPhotos status BEFORE using it
+          console.log("📸 [PHOTO FILL] resolvedPhotos available:", resolvedPhotos.length);
+          if (resolvedPhotos.length > 0) {
+            console.log("📸 [PHOTO FILL] First photo preview:", resolvedPhotos[0]?.substring?.(0, 50) || "not a string");
+          } else {
+            // EMERGENCY: Try to reload from localStorage one more time
+            console.warn("⚠️ [EMERGENCY RELOAD] resolvedPhotos is empty, trying localStorage again...");
+            try {
+              const emergencyRaw = localStorage.getItem("capturedPhotos");
+              if (emergencyRaw) {
+                const emergencyPhotos = JSON.parse(emergencyRaw);
+                if (Array.isArray(emergencyPhotos) && emergencyPhotos.length > 0) {
+                  console.log("✅ [EMERGENCY RELOAD] Found photos:", emergencyPhotos.length);
+                  // Normalize them
+                  resolvedPhotos = emergencyPhotos.map((photo) => {
+                    if (typeof photo === 'string' && photo.startsWith('data:')) return photo;
+                    if (photo?.dataUrl && typeof photo.dataUrl === 'string') return photo.dataUrl;
+                    return null;
+                  }).filter(Boolean);
+                  console.log("✅ [EMERGENCY RELOAD] Normalized to:", resolvedPhotos.length, "photos");
+                  // Also update state
+                  if (resolvedPhotos.length > 0) {
+                    setPhotos(resolvedPhotos);
+                  }
+                }
+              }
+            } catch (err) {
+              console.error("❌ [EMERGENCY RELOAD] Failed:", err);
+            }
+          }
+          
+          // DEBUG: Log ALL elements in config.designer.elements
+          console.log("🔍 ALL designer elements from config:", {
+            total: config.designer.elements.length,
+            elements: config.designer.elements.map((el, i) => ({
+              index: i,
+              type: el?.type,
+              id: el?.id?.slice(0, 8),
+              x: el?.x,
+              y: el?.y,
+              width: el?.width,
+              height: el?.height,
+            })),
+          });
+          
           // Extract photo elements and convert to uploads
           const photoElements = config.designer.elements.filter(
             (el) => el?.type === "photo"
@@ -512,18 +781,45 @@ export default function EditPhoto() {
             });
           });
 
-          const photoAsUploadElements = photoElements.map((photoEl, idx) => ({
-            ...photoEl,
-            type: "upload", // Convert to upload for unified rendering
-            data: {
-              ...photoEl.data,
-              image: null, // Will be filled later
-              photoIndex:
-                photoEl.data?.photoIndex !== undefined
-                  ? photoEl.data.photoIndex
-                  : idx,
-            },
-          }));
+          const photoAsUploadElements = photoElements.map((photoEl, idx) => {
+            // CRITICAL FIX: Use idx as fallback when photoIndex is out of range
+            // This handles buggy slot data where photoIndex might be wrong (e.g., 2,3 instead of 0,1)
+            let photoIndex = photoEl.data?.photoIndex;
+            
+            // Validate photoIndex - if it's undefined or out of range, use idx instead
+            if (photoIndex === undefined || photoIndex >= resolvedPhotos.length) {
+              console.warn(`⚠️ Invalid photoIndex ${photoIndex} for slot ${idx}, using idx as fallback`);
+              photoIndex = idx;
+            }
+            
+            // Try to get photo data directly from resolvedPhotos (loaded earlier)
+            let photoData = resolvedPhotos[photoIndex];
+            
+            // Extra safety: ensure photoData is a string
+            if (photoData && typeof photoData !== 'string') {
+              if (photoData.dataUrl && typeof photoData.dataUrl === 'string') {
+                photoData = photoData.dataUrl;
+              } else if (photoData.previewUrl && typeof photoData.previewUrl === 'string' && photoData.previewUrl.startsWith('data:')) {
+                photoData = photoData.previewUrl;
+              } else {
+                console.warn(`⚠️ Photo slot ${idx}: Data is not a string, skipping:`, typeof photoData);
+                photoData = null;
+              }
+            }
+            
+            // DEBUG: Log original element coordinates as plain string for easy reading
+            console.log(`🖼️ Setting up photo slot ${idx}: photoIndex=${photoIndex}, hasPhotoData=${!!photoData}, originalX=${photoEl.x}, originalY=${photoEl.y}, originalWidth=${photoEl.width}, originalHeight=${photoEl.height}, originalZIndex=${photoEl.zIndex}`);
+            
+            return {
+              ...photoEl,
+              type: "upload", // Convert to upload for unified rendering
+              data: {
+                ...photoEl.data,
+                image: photoData || null, // Fill with actual photo data!
+                photoIndex,
+              },
+            };
+          });
 
           // Get other designer elements (text, shapes, uploads)
           const otherDesignerElems = config.designer.elements.filter(
@@ -588,6 +884,56 @@ export default function EditPhoto() {
         } else {
           console.warn("⚠️ No designer.elements found in frameConfig");
           console.log("📋 Available properties:", Object.keys(config));
+          
+          // FALLBACK: Create designer elements from config.slots if available
+          if (Array.isArray(config.slots) && config.slots.length > 0) {
+            console.log("🔄 Creating designer elements from slots...");
+            const canvasWidth = config.layout?.canvasWidth || config.designer?.canvasWidth || 1080;
+            const canvasHeight = config.layout?.canvasHeight || config.designer?.canvasHeight || 1920;
+            
+            const photoElementsFromSlots = config.slots.map((slot, idx) => {
+              // Convert normalized coordinates (0-1) to pixels
+              const x = (slot.left || 0) * canvasWidth;
+              const y = (slot.top || 0) * canvasHeight;
+              const width = (slot.width || 0.5) * canvasWidth;
+              const height = (slot.height || 0.5) * canvasHeight;
+              
+              // Get photo data
+              const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : idx;
+              let photoData = resolvedPhotos[photoIndex];
+              
+              // Normalize photo data
+              if (photoData && typeof photoData !== 'string') {
+                if (photoData.dataUrl) photoData = photoData.dataUrl;
+                else if (photoData.previewUrl) photoData = photoData.previewUrl;
+                else photoData = null;
+              }
+              
+              console.log(`   Slot ${idx}: x=${x.toFixed(0)}, y=${y.toFixed(0)}, w=${width.toFixed(0)}, h=${height.toFixed(0)}, photoIndex=${photoIndex}, hasPhoto=${!!photoData}`);
+              
+              return {
+                id: slot.id || `photo_slot_${idx}`,
+                type: "upload", // Use upload type for rendering
+                x,
+                y,
+                width,
+                height,
+                zIndex: slot.zIndex || 2,
+                rotation: slot.rotation || 0,
+                data: {
+                  photoIndex,
+                  image: photoData || null,
+                  aspectRatio: slot.aspectRatio || "4:5",
+                  borderRadius: slot.borderRadius || 24,
+                },
+              };
+            });
+            
+            setDesignerElements(photoElementsFromSlots);
+            console.log("✅ Created", photoElementsFromSlots.length, "designer elements from slots");
+          } else {
+            console.warn("⚠️ No slots found either - frame may be incomplete");
+          }
         }
 
         setLoading(false);
@@ -602,6 +948,11 @@ export default function EditPhoto() {
 
   // Fill photo elements with real captured photos
   useEffect(() => {
+    console.log("🔄 [FILL PHOTOS] useEffect triggered");
+    console.log("   - designerElements.length:", designerElements.length);
+    console.log("   - photos.length:", photos.length);
+    console.log("   - photosFilled.current:", photosFilled.current);
+    
     if (designerElements.length === 0 || photos.length === 0) {
       console.log("⏭️ Skipping photo fill:", {
         hasElements: designerElements.length > 0,
@@ -624,12 +975,13 @@ export default function EditPhoto() {
       }))
     );
 
-    // Check if any elements need filling
+    // Check if any elements need filling - support both "upload" and "photo" types
+    // CRITICAL FIX: Also include photo elements WITHOUT photoIndex (they will get auto-assigned)
     const photoSlots = designerElements.filter(
-      (el) => el.type === "upload" && typeof el.data?.photoIndex === "number"
+      (el) => el.type === "upload" || el.type === "photo"
     );
 
-    const needsFilling = photoSlots.some((el) => !el.data.image);
+    const needsFilling = photoSlots.some((el) => !el.data?.image);
 
     if (!needsFilling) {
       console.log("✅ All photo elements already filled");
@@ -646,23 +998,64 @@ export default function EditPhoto() {
     console.log("🔄 Filling photo elements with real images...");
     console.log(`   Found ${photoSlots.length} photo slots`);
 
-    const updatedElements = designerElements.map((el) => {
-      if (el.type === "upload" && typeof el.data?.photoIndex === "number") {
-        const photoData = photos[el.data.photoIndex];
-        if (photoData) {
-          console.log(`✅ Filling photo slot ${el.data.photoIndex} with image`);
+    // Build a map of photo slots for auto-index assignment
+    let photoSlotCounter = 0;
+    
+    const updatedElements = designerElements.map((el, idx) => {
+      // Support both "upload" (built-in frames) and "photo" (custom frames) types
+      if (el.type === "upload" || el.type === "photo") {
+        // CRITICAL FIX: Auto-assign photoIndex if not defined, using sequential counter
+        let photoIndex = el.data?.photoIndex;
+        
+        // If photoIndex is not defined or not a number, use the sequential counter
+        if (typeof photoIndex !== "number") {
+          photoIndex = photoSlotCounter;
+          console.log(`📌 Auto-assigning photoIndex ${photoIndex} to slot (no photoIndex defined)`);
+        }
+        
+        // If photoIndex is out of range, use the sequential counter
+        if (photoIndex >= photos.length) {
+          console.warn(`⚠️ photoIndex ${photoIndex} out of range (max: ${photos.length - 1}), using counter ${photoSlotCounter}`);
+          photoIndex = photoSlotCounter;
+        }
+        
+        // Increment counter for next photo slot
+        photoSlotCounter++;
+        
+        // Skip if no more photos available
+        if (photoIndex >= photos.length) {
+          console.warn(`⚠️ No photo available for slot ${photoIndex}`);
+          return el;
+        }
+        
+        let photoData = photos[photoIndex];
+        
+        // Extra normalization in case photos weren't normalized at load time
+        if (photoData && typeof photoData !== 'string') {
+          if (photoData.dataUrl && typeof photoData.dataUrl === 'string') {
+            photoData = photoData.dataUrl;
+          } else if (photoData.previewUrl && typeof photoData.previewUrl === 'string' && photoData.previewUrl.startsWith('data:')) {
+            photoData = photoData.previewUrl;
+          } else {
+            console.warn(`⚠️ Photo slot ${photoIndex}: Invalid format, not a string or object with dataUrl`);
+            photoData = null;
+          }
+        }
+        
+        if (photoData && typeof photoData === 'string') {
+          console.log(`✅ Filling photo slot ${photoIndex} with image`);
           console.log(`   Photo data length: ${photoData.length}`);
           console.log(
             `   Photo data preview: ${photoData.substring(0, 50)}...`
           );
           return {
             ...el,
-            data: { ...el.data, image: photoData },
+            data: { ...el.data, image: photoData, photoIndex }, // Update photoIndex to corrected value
           };
         } else {
-          console.warn(`⚠️ No photo data found for slot ${el.data.photoIndex}`);
+          console.warn(`⚠️ No photo data found for slot ${photoIndex}`);
           console.warn(
-            `   Available photos: ${photos.length}, requested index: ${el.data.photoIndex}`
+            `   Available photos: ${photos.length}, requested index: ${photoIndex}`
           );
         }
       }
@@ -674,6 +1067,83 @@ export default function EditPhoto() {
     photosFilled.current = true;
     console.log("✅ Photo fill complete!");
   }, [photos, designerElements]);
+
+  // EMERGENCY: Retry loading photos if designerElements exist but photos are empty
+  useEffect(() => {
+    // Only run if we have elements but no photos
+    if (designerElements.length === 0 || photos.length > 0) {
+      return;
+    }
+    
+    // Only retry once
+    if (photosFilled.current) {
+      return;
+    }
+    
+    console.log("🆘 [EMERGENCY PHOTO RETRY] designerElements exist but photos empty, retrying...");
+    
+    const retryLoadPhotos = async () => {
+      // Wait a bit for storage to settle
+      await new Promise(r => setTimeout(r, 500));
+      
+      // Try multiple sources
+      let foundPhotos = [];
+      
+      // Source 1: Direct localStorage
+      try {
+        const raw = localStorage.getItem("capturedPhotos");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            console.log("🆘 [RETRY] Found photos in localStorage:", parsed.length);
+            foundPhotos = parsed.map(p => {
+              if (typeof p === 'string' && p.startsWith('data:')) return p;
+              if (p?.dataUrl?.startsWith?.('data:')) return p.dataUrl;
+              return null;
+            }).filter(Boolean);
+          }
+        }
+      } catch (e) {
+        console.warn("🆘 [RETRY] localStorage parse failed:", e);
+      }
+      
+      // Source 2: safeStorage (compressed)
+      if (foundPhotos.length === 0) {
+        try {
+          const safePhotos = safeStorage.getJSON("capturedPhotos");
+          if (Array.isArray(safePhotos) && safePhotos.length > 0) {
+            console.log("🆘 [RETRY] Found photos in safeStorage:", safePhotos.length);
+            foundPhotos = safePhotos.map(p => {
+              if (typeof p === 'string' && p.startsWith('data:')) return p;
+              if (p?.dataUrl?.startsWith?.('data:')) return p.dataUrl;
+              return null;
+            }).filter(Boolean);
+          }
+        } catch (e) {
+          console.warn("🆘 [RETRY] safeStorage read failed:", e);
+        }
+      }
+      
+      // Source 3: window backup
+      if (foundPhotos.length === 0 && window.__fremio_photos?.length > 0) {
+        console.log("🆘 [RETRY] Found photos in window.__fremio_photos:", window.__fremio_photos.length);
+        foundPhotos = window.__fremio_photos.map(p => {
+          if (typeof p === 'string' && p.startsWith('data:')) return p;
+          if (p?.dataUrl?.startsWith?.('data:')) return p.dataUrl;
+          return null;
+        }).filter(Boolean);
+      }
+      
+      if (foundPhotos.length > 0) {
+        console.log("✅ [RETRY] Successfully recovered", foundPhotos.length, "photos!");
+        setPhotos(foundPhotos);
+      } else {
+        console.warn("❌ [RETRY] Still no photos found after retry");
+      }
+    };
+    
+    retryLoadPhotos();
+  }, [designerElements, photos]);
 
   // Debug log for videos state
   useEffect(() => {
@@ -1066,6 +1536,20 @@ export default function EditPhoto() {
                 designerElements.length > 0 &&
                 designerElements.map((element, idx) => {
                   if (!element || !element.type) return null;
+                  
+                  // DEBUG: Log each element being rendered
+                  console.log(`🎨 Rendering element ${idx}:`, {
+                    type: element.type,
+                    id: element.id?.slice(0, 8),
+                    x: element.x,
+                    y: element.y,
+                    width: element.width,
+                    height: element.height,
+                    zIndex: element.zIndex,
+                    hasImage: !!element.data?.image,
+                    photoIndex: element.data?.photoIndex,
+                  });
+                  
                   const elemZIndex = Number.isFinite(element.zIndex)
                     ? element.zIndex
                     : 200 + idx;
@@ -1135,11 +1619,14 @@ export default function EditPhoto() {
                     );
                   }
 
-                  // Render upload (including converted photos)
-                  if (element.type === "upload") {
+                  // Render upload (including converted photos) - support both "upload" and "photo" types
+                  if (element.type === "upload" || element.type === "photo") {
                     const hasImage = !!element.data?.image;
                     const isPhotoSlot =
                       typeof element.data?.photoIndex === "number";
+
+                    // DEBUG: Log photo slot rendering - print values directly for easy reading
+                    console.log(`📷 Photo slot render: hasImage=${hasImage}, isPhotoSlot=${isPhotoSlot}, x=${element.x}, y=${element.y}, width=${element.width}, height=${element.height}, zIndex=${elemZIndex}`);
 
                     if (!hasImage && isPhotoSlot) {
                       console.warn(
@@ -1225,7 +1712,10 @@ export default function EditPhoto() {
                 })}
 
               {/* LAYER 4: Frame Overlay (frameImage) - Always on top */}
-              {frameConfig && frameConfig.frameImage && (
+              {/* For custom frames (isCustom=true), DON'T render frameImage as overlay */}
+              {/* because frameImage is just a JPEG preview/thumbnail, not a transparent overlay */}
+              {/* Custom frames use designerElements to render text/shapes/etc instead */}
+              {frameConfig && frameConfig.frameImage && !frameConfig.isCustom && (
                 <div
                   style={{
                     position: "absolute",
@@ -1474,7 +1964,8 @@ export default function EditPhoto() {
                   for (const element of sortedElements) {
                     if (!element || !element.type) continue;
 
-                    if (element.type === "upload" && element.data?.image) {
+                    // Support both "upload" and "photo" types for custom frames
+                    if ((element.type === "upload" || element.type === "photo") && element.data?.image) {
                       const img = new Image();
                       img.crossOrigin = "anonymous";
                       await new Promise((resolve, reject) => {
@@ -1746,15 +2237,111 @@ export default function EditPhoto() {
                     );
                   }
 
-                  // Download
+                  // Download - Mobile compatible approach
                   console.log("Canvas created:", {
                     width: finalCanvas.width,
                     height: finalCanvas.height,
                   });
-                  const link = document.createElement("a");
-                  link.download = "fremio-photo.png";
-                  link.href = finalCanvas.toDataURL("image/png", 1.0);
-                  link.click();
+                  
+                  const dataUrl = finalCanvas.toDataURL("image/png", 1.0);
+                  
+                  // Check if on mobile/iOS
+                  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+                  
+                  if (isIOS) {
+                    // For iOS: Open in new tab so user can long-press to save
+                    // Also try Web Share API if available
+                    if (navigator.share && navigator.canShare) {
+                      try {
+                        // Convert dataUrl to Blob for sharing
+                        const response = await fetch(dataUrl);
+                        const blob = await response.blob();
+                        const file = new File([blob], "fremio-photo.png", { type: "image/png" });
+                        
+                        if (navigator.canShare({ files: [file] })) {
+                          await navigator.share({
+                            files: [file],
+                            title: "Fremio Photo",
+                            text: "Photo created with Fremio"
+                          });
+                          console.log("✅ Shared via Web Share API");
+                        } else {
+                          // Fallback: open in new tab
+                          const newTab = window.open();
+                          if (newTab) {
+                            newTab.document.write(`
+                              <html>
+                                <head><title>Fremio Photo</title></head>
+                                <body style="margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#000;">
+                                  <img src="${dataUrl}" style="max-width:100%;max-height:100vh;" />
+                                  <p style="position:fixed;bottom:20px;color:white;text-align:center;width:100%;">Tekan dan tahan gambar untuk menyimpan</p>
+                                </body>
+                              </html>
+                            `);
+                          }
+                        }
+                      } catch (shareError) {
+                        console.log("Share failed, opening in new tab:", shareError);
+                        const newTab = window.open();
+                        if (newTab) {
+                          newTab.document.write(`
+                            <html>
+                              <head><title>Fremio Photo</title></head>
+                              <body style="margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#000;">
+                                <img src="${dataUrl}" style="max-width:100%;max-height:100vh;" />
+                                <p style="position:fixed;bottom:20px;color:white;text-align:center;width:100%;">Tekan dan tahan gambar untuk menyimpan</p>
+                              </body>
+                            </html>
+                          `);
+                        }
+                      }
+                    } else {
+                      // No Web Share API, open in new tab
+                      const newTab = window.open();
+                      if (newTab) {
+                        newTab.document.write(`
+                          <html>
+                            <head><title>Fremio Photo</title></head>
+                            <body style="margin:0;display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:100vh;background:#000;">
+                              <img src="${dataUrl}" style="max-width:100%;max-height:90vh;" />
+                              <p style="color:white;text-align:center;padding:10px;">Tekan dan tahan gambar untuk menyimpan</p>
+                            </body>
+                          </html>
+                        `);
+                      }
+                    }
+                  } else if (isMobile && navigator.share) {
+                    // For Android with Web Share API
+                    try {
+                      const response = await fetch(dataUrl);
+                      const blob = await response.blob();
+                      const file = new File([blob], "fremio-photo.png", { type: "image/png" });
+                      
+                      await navigator.share({
+                        files: [file],
+                        title: "Fremio Photo"
+                      });
+                      console.log("✅ Shared via Web Share API (Android)");
+                    } catch (shareError) {
+                      console.log("Share failed, using download link:", shareError);
+                      // Fallback to download link
+                      const link = document.createElement("a");
+                      link.download = "fremio-photo.png";
+                      link.href = dataUrl;
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                    }
+                  } else {
+                    // Desktop: Standard download
+                    const link = document.createElement("a");
+                    link.download = "fremio-photo.png";
+                    link.href = dataUrl;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                  }
 
                   // Track download analytics
                   if (frameConfig?.id) {
@@ -1856,7 +2443,7 @@ export default function EditPhoto() {
                   const videoElements = [];
                   const photoSlots = designerElements.filter(
                     (el) =>
-                      el.type === "upload" &&
+                      (el.type === "upload" || el.type === "photo") &&
                       typeof el.data?.photoIndex === "number"
                   );
 
@@ -2466,7 +3053,7 @@ export default function EditPhoto() {
                       if (!element) return;
 
                       const isPhotoSlot =
-                        element.type === "upload" &&
+                        (element.type === "upload" || element.type === "photo") &&
                         typeof element?.data?.photoIndex === "number";
 
                       if (isPhotoSlot) {
@@ -2656,7 +3243,8 @@ export default function EditPhoto() {
                         return;
                       }
 
-                      if (element.type === "upload") {
+                      // Support both "upload" and "photo" types
+                      if (element.type === "upload" || element.type === "photo") {
                         const overlayImage =
                           overlayImagesByElement.get(element);
                         if (

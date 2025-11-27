@@ -62,6 +62,24 @@ export function AuthProvider({ children }) {
 
   // Listen to Firebase auth state changes
   useEffect(() => {
+    // If Firebase auth is not available, just use localStorage
+    if (!auth) {
+      console.warn("⚠️ Firebase auth not available, using localStorage only");
+      const storedUser = localStorage.getItem("fremio_user");
+      if (storedUser) {
+        try {
+          const userData = JSON.parse(storedUser);
+          console.log("✅ Restored user from localStorage:", userData.email);
+          setUser(userData);
+        } catch (error) {
+          console.error("Error parsing stored user:", error);
+          localStorage.removeItem("fremio_user");
+        }
+      }
+      setLoading(false);
+      return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       if (firebaseUser) {
         // User is signed in with Firebase

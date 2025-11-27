@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Debug Custom Frames</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #f5f5f5; }
+    .section { background: white; padding: 20px; margin: 10px 0; border-radius: 8px; }
+    pre { background: #f0f0f0; padding: 10px; border-radius: 4px; overflow-x: auto; }
+    button { padding: 10px 20px; margin: 5px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
+    .success { color: green; }
+    .error { color: red; }
+  </style>
+</head>
+<body>
+  <h1>🔍 Custom Frames Debug Console</h1>
+  
+  <div class="section">
+    <h2>1. Check localStorage</h2>
+    <button onclick="checkLocalStorage()">Check Frames</button>
+    <pre id="localStorage-output"></pre>
+  </div>
+
+  <div class="section">
+    <h2>2. Frame Details</h2>
+    <pre id="frame-details"></pre>
+  </div>
+
+  <div class="section">
+    <h2>3. Actions</h2>
+    <button onclick="clearFrames()">Clear All Frames</button>
+    <button onclick="exportFrames()">Export Frames</button>
+    <pre id="actions-output"></pre>
+  </div>
+
+  <script>
+    function checkLocalStorage() {
+      const output = document.getElementById('localStorage-output');
+      const details = document.getElementById('frame-details');
+      
+      try {
+        const raw = localStorage.getItem('custom_frames');
+        const frames = JSON.parse(raw || '[]');
+        
+        let result = '=== LOCALSTORAGE CHECK ===\n\n';
+        result += `Key exists: ${raw !== null}\n`;
+        result += `Total frames: ${frames.length}\n\n`;
+        
+        if (frames.length > 0) {
+          result += 'FRAMES:\n';
+          frames.forEach((f, idx) => {
+            result += `\n${idx + 1}. ${f.name}\n`;
+            result += `   ID: ${f.id}\n`;
+            result += `   Max Captures: ${f.maxCaptures}\n`;
+            result += `   Slots: ${f.slots?.length || 0}\n`;
+            result += `   Has Image: ${f.imagePath ? 'YES (' + (f.imagePath.length/1024).toFixed(2) + ' KB)' : 'NO'}\n`;
+            result += `   Created: ${f.createdAt}\n`;
+          });
+          
+          // Show detailed info of first frame
+          let detailResult = '=== FIRST FRAME DETAIL ===\n\n';
+          detailResult += JSON.stringify(frames[0], null, 2);
+          details.textContent = detailResult;
+        } else {
+          result += '❌ NO FRAMES FOUND!\n\n';
+          result += 'Possible reasons:\n';
+          result += '1. Admin has not uploaded any frames yet\n';
+          result += '2. localStorage was cleared\n';
+          result += '3. Wrong browser/incognito mode\n';
+          details.textContent = '❌ No frames to show details';
+        }
+        
+        output.textContent = result;
+      } catch (error) {
+        output.textContent = '❌ ERROR: ' + error.message;
+      }
+    }
+
+    function clearFrames() {
+      const output = document.getElementById('actions-output');
+      if (confirm('Are you sure you want to clear all custom frames?')) {
+        localStorage.removeItem('custom_frames');
+        output.textContent = '✅ All frames cleared!\n\nRefresh page to verify.';
+      }
+    }
+
+    function exportFrames() {
+      const output = document.getElementById('actions-output');
+      try {
+        const frames = JSON.parse(localStorage.getItem('custom_frames') || '[]');
+        const json = JSON.stringify(frames, null, 2);
+        
+        // Create download
+        const blob = new Blob([json], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'custom_frames_backup.json';
+        a.click();
+        
+        output.textContent = '✅ Frames exported!\n\nCheck your Downloads folder.';
+      } catch (error) {
+        output.textContent = '❌ ERROR: ' + error.message;
+      }
+    }
+
+    // Auto-run on load
+    window.onload = checkLocalStorage;
+  </script>
+</body>
+</html>

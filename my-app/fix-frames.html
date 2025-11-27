@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Fix Frames - Fremio</title>
+  <style>
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+      padding: 20px; 
+      background: linear-gradient(135deg, #fdf7f4 0%, #fff 50%, #f7f1ed 100%);
+      min-height: 100vh;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    .box { 
+      background: white; 
+      padding: 24px; 
+      margin: 16px 0; 
+      border-radius: 12px; 
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08); 
+    }
+    h1 { color: #333; margin-bottom: 8px; }
+    h2 { color: #666; margin-top: 0; }
+    .subtitle { color: #888; font-size: 14px; margin-bottom: 24px; }
+    .status { padding: 16px; margin: 12px 0; border-radius: 8px; }
+    .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+    .info { background: #e7f1ff; color: #004085; border: 1px solid #b8daff; }
+    button { 
+      padding: 12px 24px; 
+      margin: 8px 8px 8px 0; 
+      background: linear-gradient(135deg, #e0b7a9 0%, #c89585 100%);
+      color: white; 
+      border: none; 
+      border-radius: 8px; 
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    button:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(200,149,133,0.4); }
+    button.danger { background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); }
+    button.secondary { background: #6c757d; }
+    pre { 
+      background: #f4f4f4; 
+      padding: 16px; 
+      border-radius: 8px; 
+      overflow-x: auto; 
+      font-size: 12px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    code { background: #e9ecef; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
+    .frame-card {
+      border: 1px solid #e0e0e0;
+      padding: 16px;
+      margin: 12px 0;
+      border-radius: 8px;
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .frame-card img {
+      width: 120px;
+      height: 200px;
+      object-fit: contain;
+      background: #f5f5f5;
+      border-radius: 4px;
+    }
+    .frame-info { flex: 1; }
+    .frame-info h4 { margin: 0 0 8px 0; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      margin-right: 4px;
+    }
+    .badge-success { background: #d4edda; color: #155724; }
+    .badge-error { background: #f8d7da; color: #721c24; }
+    .badge-warning { background: #fff3cd; color: #856404; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔧 Frame Repair Tool</h1>
+    <p class="subtitle">Diagnose and fix frames with missing slots or image data</p>
+    
+    <div class="box">
+      <h2>📊 Frame Status</h2>
+      <div id="status"></div>
+      <div id="frameList"></div>
+    </div>
+
+    <div class="box">
+      <h2>🛠️ Repair Actions</h2>
+      <button onclick="diagnoseFrames()">🔍 Diagnose Frames</button>
+      <button onclick="fixBrokenFrames()">🔧 Auto-Fix Missing Slots</button>
+      <button onclick="removeInvalidFrames()" class="danger">🗑️ Remove Invalid Frames</button>
+      <button onclick="clearAllFrames()" class="secondary">⚠️ Clear All Frames</button>
+    </div>
+
+    <div class="box" id="logBox" style="display: none;">
+      <h2>📋 Action Log</h2>
+      <pre id="log"></pre>
+    </div>
+  </div>
+
+  <script>
+    let log = [];
+
+    function addLog(message) {
+      log.push(`[${new Date().toLocaleTimeString()}] ${message}`);
+      document.getElementById('log').textContent = log.join('\n');
+      document.getElementById('logBox').style.display = 'block';
+    }
+
+    function diagnoseFrames() {
+      const status = document.getElementById('status');
+      const frameList = document.getElementById('frameList');
+      log = [];
+      
+      try {
+        addLog('Starting frame diagnosis...');
+        
+        const raw = localStorage.getItem('custom_frames');
+        addLog(`Raw localStorage: ${raw ? raw.length + ' characters' : 'NOT FOUND'}`);
+        
+        const frames = JSON.parse(raw || '[]');
+        addLog(`Parsed ${frames.length} frame(s)`);
+        
+        if (frames.length === 0) {
+          status.innerHTML = `
+            <div class="error">
+              <strong>❌ NO FRAMES FOUND</strong><br>
+              localStorage key "custom_frames" is empty or doesn't exist.
+            </div>
+          `;
+          frameList.innerHTML = '';
+          return;
+        }
+        
+        let validCount = 0;
+        let invalidCount = 0;
+        let html = '';
+        
+        frames.forEach((frame, index) => {
+          addLog(`\nAnalyzing frame ${index + 1}: ${frame.name || 'NO NAME'}`);
+          
+          const issues = [];
+          
+          // Check slots
+          if (!frame.slots) {
+            issues.push('Missing slots property');
+            addLog('  ❌ Missing slots property');
+          } else if (!Array.isArray(frame.slots)) {
+            issues.push('slots is not an array');
+            addLog('  ❌ slots is not an array');
+          } else if (frame.slots.length === 0) {
+            issues.push('slots array is empty (0 slots)');
+            addLog('  ❌ slots array is empty');
+          } else {
+            addLog(`  ✅ Has ${frame.slots.length} slot(s)`);
+            
+            // Check slot structure
+            frame.slots.forEach((slot, si) => {
+              const hasRequired = typeof slot.left === 'number' && 
+                                  typeof slot.top === 'number' &&
+                                  typeof slot.width === 'number' &&
+                                  typeof slot.height === 'number';
+              if (!hasRequired) {
+                issues.push(`Slot ${si + 1} missing position data`);
+                addLog(`  ⚠️ Slot ${si + 1} missing position data`);
+              }
+            });
+          }
+          
+          // Check imagePath
+          if (!frame.imagePath) {
+            issues.push('Missing imagePath');
+            addLog('  ❌ Missing imagePath');
+          } else {
+            const sizeKB = (frame.imagePath.length / 1024).toFixed(1);
+            addLog(`  ✅ Has imagePath (${sizeKB} KB)`);
+          }
+          
+          // Check ID
+          if (!frame.id) {
+            issues.push('Missing ID');
+            addLog('  ❌ Missing ID');
+          } else {
+            addLog(`  ✅ Has ID: ${frame.id}`);
+          }
+          
+          // Check maxCaptures
+          if (!frame.maxCaptures || frame.maxCaptures < 1) {
+            issues.push('Invalid maxCaptures');
+            addLog('  ⚠️ Invalid maxCaptures');
+          }
+          
+          const isValid = issues.length === 0;
+          if (isValid) validCount++;
+          else invalidCount++;
+          
+          html += `
+            <div class="frame-card">
+              ${frame.imagePath ? `<img src="${frame.imagePath}" alt="${frame.name}">` : '<div style="width:120px;height:200px;background:#f0f0f0;display:flex;align-items:center;justify-content:center;color:#999;">No Image</div>'}
+              <div class="frame-info">
+                <h4>${frame.name || 'Unnamed Frame'}</h4>
+                <p style="margin: 4px 0; color: #666; font-size: 12px;">ID: ${frame.id || 'none'}</p>
+                <p style="margin: 4px 0;">
+                  <span class="badge ${frame.slots?.length > 0 ? 'badge-success' : 'badge-error'}">
+                    ${frame.slots?.length || 0} slots
+                  </span>
+                  <span class="badge ${frame.imagePath ? 'badge-success' : 'badge-error'}">
+                    ${frame.imagePath ? 'Has Image' : 'No Image'}
+                  </span>
+                  <span class="badge ${frame.maxCaptures > 0 ? 'badge-success' : 'badge-warning'}">
+                    Max: ${frame.maxCaptures || '?'}
+                  </span>
+                </p>
+                ${issues.length > 0 ? `
+                  <p style="margin: 8px 0 0 0; color: #721c24; font-size: 12px;">
+                    ⚠️ Issues: ${issues.join(', ')}
+                  </p>
+                ` : `
+                  <p style="margin: 8px 0 0 0; color: #155724; font-size: 12px;">
+                    ✅ Frame is valid and ready to use
+                  </p>
+                `}
+              </div>
+            </div>
+          `;
+        });
+        
+        if (invalidCount > 0) {
+          status.innerHTML = `
+            <div class="warning">
+              <strong>⚠️ FOUND ${invalidCount} FRAME(S) WITH ISSUES</strong><br>
+              ${validCount} valid, ${invalidCount} need repair
+            </div>
+          `;
+        } else {
+          status.innerHTML = `
+            <div class="success">
+              <strong>✅ ALL ${validCount} FRAME(S) ARE VALID</strong><br>
+              All frames have required slots and image data
+            </div>
+          `;
+        }
+        
+        frameList.innerHTML = html;
+        addLog(`\nDiagnosis complete: ${validCount} valid, ${invalidCount} invalid`);
+        
+      } catch (error) {
+        status.innerHTML = `
+          <div class="error">
+            <strong>❌ ERROR</strong><br>
+            ${error.message}
+          </div>
+        `;
+        addLog(`ERROR: ${error.message}`);
+      }
+    }
+
+    function fixBrokenFrames() {
+      try {
+        addLog('\n=== AUTO-FIX STARTING ===');
+        
+        const raw = localStorage.getItem('custom_frames');
+        const frames = JSON.parse(raw || '[]');
+        
+        if (frames.length === 0) {
+          alert('❌ No frames found to fix');
+          return;
+        }
+        
+        let fixedCount = 0;
+        
+        const fixedFrames = frames.map((frame, index) => {
+          const issues = [];
+          
+          // Fix missing/empty slots
+          if (!frame.slots || !Array.isArray(frame.slots) || frame.slots.length === 0) {
+            issues.push('added default slots');
+            
+            // Create default slots based on maxCaptures (or 3 if not set)
+            const numSlots = frame.maxCaptures || 3;
+            const slots = [];
+            
+            // Create evenly distributed slots
+            for (let i = 0; i < numSlots; i++) {
+              slots.push({
+                id: `slot_${i + 1}`,
+                left: 0.15,  // 15% from left
+                top: 0.15 + (i * 0.25),  // Start at 15%, each slot 25% down
+                width: 0.7,  // 70% width
+                height: 0.2, // 20% height
+                zIndex: 2,
+                photoIndex: i,
+                aspectRatio: "4:5"
+              });
+            }
+            
+            frame.slots = slots;
+            addLog(`  Frame ${index + 1}: Added ${numSlots} default slots`);
+          }
+          
+          // Fix missing maxCaptures
+          if (!frame.maxCaptures || frame.maxCaptures < 1) {
+            frame.maxCaptures = frame.slots?.length || 3;
+            issues.push('fixed maxCaptures');
+            addLog(`  Frame ${index + 1}: Set maxCaptures to ${frame.maxCaptures}`);
+          }
+          
+          // Ensure maxCaptures matches slots
+          if (frame.maxCaptures !== frame.slots?.length) {
+            frame.maxCaptures = frame.slots.length;
+            issues.push('synced maxCaptures with slots');
+            addLog(`  Frame ${index + 1}: Synced maxCaptures to ${frame.maxCaptures}`);
+          }
+          
+          // Fix missing ID
+          if (!frame.id) {
+            frame.id = 'custom-' + Date.now() + '-' + index;
+            issues.push('generated ID');
+            addLog(`  Frame ${index + 1}: Generated ID ${frame.id}`);
+          }
+          
+          if (issues.length > 0) {
+            fixedCount++;
+            addLog(`Frame "${frame.name}": ${issues.join(', ')}`);
+          }
+          
+          return frame;
+        });
+        
+        // Save fixed frames
+        localStorage.setItem('custom_frames', JSON.stringify(fixedFrames));
+        
+        addLog(`\n=== FIX COMPLETE ===`);
+        addLog(`Fixed ${fixedCount} frame(s)`);
+        
+        if (fixedCount > 0) {
+          alert(`✅ Fixed ${fixedCount} frame(s)!\n\nNote: Default slots were added. You may want to re-upload frames to get accurate slot detection.`);
+        } else {
+          alert('✅ All frames are already valid, no fixes needed.');
+        }
+        
+        // Re-diagnose
+        diagnoseFrames();
+        
+      } catch (error) {
+        alert('❌ Error fixing frames:\n\n' + error.message);
+        addLog(`ERROR: ${error.message}`);
+      }
+    }
+
+    function removeInvalidFrames() {
+      if (!confirm('⚠️ This will PERMANENTLY DELETE all frames with missing slots or images.\n\nContinue?')) {
+        return;
+      }
+      
+      try {
+        const frames = JSON.parse(localStorage.getItem('custom_frames') || '[]');
+        
+        const validFrames = frames.filter(frame => {
+          const hasSlots = frame.slots && Array.isArray(frame.slots) && frame.slots.length > 0;
+          const hasImage = !!frame.imagePath;
+          const hasId = !!frame.id;
+          return hasSlots && hasImage && hasId;
+        });
+        
+        const removedCount = frames.length - validFrames.length;
+        
+        localStorage.setItem('custom_frames', JSON.stringify(validFrames));
+        
+        addLog(`\nRemoved ${removedCount} invalid frame(s)`);
+        addLog(`Kept ${validFrames.length} valid frame(s)`);
+        
+        alert(`✅ Removed ${removedCount} invalid frame(s)\n\nKept ${validFrames.length} valid frame(s)`);
+        
+        diagnoseFrames();
+        
+      } catch (error) {
+        alert('❌ Error:\n\n' + error.message);
+      }
+    }
+
+    function clearAllFrames() {
+      if (!confirm('⚠️⚠️⚠️ THIS WILL DELETE ALL FRAMES!\n\nAre you absolutely sure?')) {
+        return;
+      }
+      
+      localStorage.removeItem('custom_frames');
+      addLog('\n=== ALL FRAMES CLEARED ===');
+      
+      alert('✅ All frames have been deleted.');
+      diagnoseFrames();
+    }
+
+    // Auto-diagnose on load
+    window.onload = diagnoseFrames;
+  </script>
+</body>
+</html>

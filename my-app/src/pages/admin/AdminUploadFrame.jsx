@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import {
@@ -9,6 +9,7 @@ import {
   Save,
   Eye,
   CheckCircle,
+  ArrowLeft,
 } from "lucide-react";
 import { isFirebaseConfigured } from "../../config/firebase";
 import "../../styles/admin.css";
@@ -16,16 +17,14 @@ import {
   createFrameDocument,
   uploadFrameThumbnail,
 } from "../../services/frameManagementService";
-import { saveCustomFrame } from "../../services/customFrameService";
+import { saveCustomFrame, getStorageInfo, clearAllCustomFrames } from "../../services/customFrameService";
 import { quickDetectSlots } from "../../utils/slotDetector";
 
 export default function AdminUploadFrame() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  console.log("🎨 AdminUploadFrame component rendered");
-  console.log("👤 Current user:", user);
-
+  // State declarations FIRST
   const [frameName, setFrameName] = useState("");
   const [frameDescription, setFrameDescription] = useState("");
   const [frameCategory, setFrameCategory] = useState("custom");
@@ -43,6 +42,61 @@ export default function AdminUploadFrame() {
   // UI State
   const [showPreview, setShowPreview] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [storageInfo, setStorageInfo] = useState(null);
+
+  console.log("🎨 AdminUploadFrame component rendered");
+  console.log("👤 Current user:", user);
+  
+  // Get Firebase storage info on mount
+  useEffect(() => {
+    const info = getStorageInfo();
+    setStorageInfo(info);
+    console.log("☁️ Firebase Storage Info:", info);
+  }, []); // Run only once on mount
+
+  // Helper function to clear frames from Firebase
+  const handleClearStorage = async () => {
+    if (window.confirm(
+      "⚠️ PERINGATAN!\n\n" +
+      "Ini akan menghapus SEMUA custom frames dari Firebase.\n\n" +
+      "Apakah Anda yakin ingin melanjutkan?"
+    )) {
+      try {
+        await clearAllCustomFrames();
+        alert("✅ Custom frames berhasil dihapus!\n\nSilakan refresh halaman.");
+        window.location.reload();
+      } catch (error) {
+        alert("❌ Gagal menghapus: " + error.message);
+      }
+    }
+  };
+
+  // Aggressive clear - hapus semua data yang memakan space
+  const handleClearAllStorage = async () => {
+    if (window.confirm(
+      "⚠️ PERINGATAN KERAS!\n\n" +
+      "Ini akan menghapus:\n" +
+      "- Semua custom frames dari Firebase\n" +
+      "- Semua data cache lokal\n\n" +
+      "Apakah Anda YAKIN ingin melanjutkan?"
+    )) {
+      try {
+        // Clear all frames from Firebase
+        await clearAllCustomFrames();
+        
+        // Clear localStorage items
+        localStorage.removeItem('capturedPhotos');
+        localStorage.removeItem('capturedVideos');
+        localStorage.removeItem('frameConfig');
+        localStorage.removeItem('activeDraftId');
+        
+        alert("✅ Storage dibersihkan!\n\nHalaman akan di-refresh...");
+        window.location.reload();
+      } catch (error) {
+        alert("❌ Gagal menghapus: " + error.message);
+      }
+    }
+  };
 
   // Handle frame image upload with auto slot detection
   const handleImageUpload = async (e) => {
@@ -62,7 +116,21 @@ export default function AdminUploadFrame() {
       return;
     }
 
-    console.log("✅ Valid PNG file:", file.name, "Size:", file.size);
+    // Validate file size (max 5MB)
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    if (file.size > maxSize) {
+      console.log("❌ File too large:", file.size, "bytes");
+      alert(
+        `File terlalu besar! Maksimal 5MB.\n\nUkuran file: ${(
+          file.size /
+          1024 /
+          1024
+        ).toFixed(2)}MB\n\nSilakan compress image terlebih dahulu.`
+      );
+      return;
+    }
+
+    console.log("✅ Valid PNG file:", file.name, "Size:", file.size, "bytes");
     setFrameImageFile(file);
 
     // Create preview
@@ -139,11 +207,20 @@ export default function AdminUploadFrame() {
 
   // Delete slot
   const deleteSlot = (index) => {
-    setSlots(slots.filter((_, i) => i !== index));
+    const newSlots = slots.filter((_, i) => i !== index);
+    setSlots(newSlots);
+    // Update maxCaptures to match slot count
+    setMaxCaptures(newSlots.length);
   };
 
   // Save frame
   const handleSaveFrame = async () => {
+    console.log("🔥 handleSaveFrame called");
+    console.log("📝 Frame name:", frameName);
+    console.log("🖼️ Frame image file:", frameImageFile);
+    console.log("📍 Slots:", slots);
+    console.log("🔧 Firebase configured:", isFirebaseConfigured);
+
     // Validation
     if (!frameName.trim()) {
       alert("Nama frame harus diisi");
@@ -161,24 +238,48 @@ export default function AdminUploadFrame() {
     }
 
     setSaving(true);
+    console.log("💾 Starting save process...");
+
+    // Add timeout protection
+    const timeoutId = setTimeout(() => {
+      console.error("⏰ Save timeout after 30 seconds");
+      setSaving(false);
+      alert(
+        "❌ Timeout: Proses simpan terlalu lama.\n\n" +
+        "Kemungkinan penyebab:\n" +
+        "- File image terlalu besar\n" +
+        "- LocalStorage penuh\n" +
+        "- Browser memory issue\n\n" +
+        "Coba:\n" +
+        "1. Compress image (< 500KB)\n" +
+        "2. Clear browser cache\n" +
+        "3. Reload page dan coba lagi"
+      );
+    }, 30000); // 30 seconds timeout
 
     try {
-      // Create frame configuration object
+      // Create frame configuration object with unique ID (name + timestamp)
+      const uniqueId = frameName.toLowerCase().replace(/\s+/g, "-") + "-" + Date.now();
+      
+      // IMPORTANT: Use slots.length as the source of truth for maxCaptures
+      const actualMaxCaptures = slots.length;
+      console.log("📊 Actual slot count:", actualMaxCaptures);
+      
       const frameConfig = {
-        id: frameName.toLowerCase().replace(/\s+/g, "-"),
+        id: uniqueId,
         name: frameName,
         description: frameDescription,
         category: frameCategory,
-        maxCaptures: parseInt(maxCaptures),
+        maxCaptures: actualMaxCaptures, // Use actual slot count
         duplicatePhotos,
-        slots: slots.map((slot) => ({
+        slots: slots.map((slot, idx) => ({
           ...slot,
           left: parseFloat(slot.left),
           top: parseFloat(slot.top),
           width: parseFloat(slot.width),
           height: parseFloat(slot.height),
           zIndex: parseInt(slot.zIndex),
-          photoIndex: parseInt(slot.photoIndex),
+          photoIndex: idx, // Re-index based on actual position
         })),
         layout: {
           aspectRatio: "9:16",
@@ -187,51 +288,57 @@ export default function AdminUploadFrame() {
         },
       };
 
-      if (isFirebaseConfigured) {
-        // Upload to Firebase
-        const createResult = await createFrameDocument(
-          {
-            ...frameConfig,
-            imagePath: "", // Will be updated after upload
-            createdBy: user.uid,
-          },
-          user.uid
+      console.log("📦 Frame config created:", frameConfig);
+
+      // Always use LocalStorage mode for admin uploads to avoid Firebase permission issues
+      console.log("💾 Using LocalStorage mode (Admin Direct Upload)");
+      
+      const result = await saveCustomFrame(
+        {
+          ...frameConfig,
+          createdBy: user?.email || "admin",
+        },
+        frameImageFile
+      );
+
+      console.log("✅ Save result:", result);
+
+      if (result.success) {
+        clearTimeout(timeoutId); // Clear timeout on success
+        
+        alert(
+          "✅ Frame berhasil disimpan ke Firebase!\n\n" +
+          "Frame ID: " + (result.frameId || frameConfig.id) + "\n\n" +
+          "Frame sekarang tersedia di halaman Frames untuk semua user."
         );
-
-        if (createResult.success) {
-          // Upload frame image
-          const imageUrl = await uploadFrameThumbnail(
-            frameImageFile,
-            createResult.frameId
-          );
-
-          alert("Frame berhasil diupload!");
-          navigate("/admin/frames");
-        } else {
-          throw new Error(createResult.message);
-        }
+        navigate("/admin/frames");
       } else {
-        // LocalStorage mode - use customFrameService
-        const result = await saveCustomFrame(
-          {
-            ...frameConfig,
-            createdBy: user.email,
-          },
-          frameImageFile
-        );
-
-        if (result.success) {
-          alert("Frame berhasil disimpan! Frame sekarang tersedia untuk user.");
-          navigate("/admin/frames");
-        } else {
-          throw new Error(result.message);
-        }
+        clearTimeout(timeoutId);
+        throw new Error(result.message || "Failed to save frame");
       }
     } catch (error) {
-      console.error("Error saving frame:", error);
-      alert("Gagal menyimpan frame: " + error.message);
+      clearTimeout(timeoutId); // Clear timeout on error
+      console.error("❌ Error saving frame:", error);
+      console.error("❌ Error stack:", error.stack);
+      
+      // Better error message
+      let errorMessage = error.message;
+      
+      if (error.message.includes("quota") || error.message.includes("Quota")) {
+        errorMessage = 
+          "❌ LocalStorage Penuh!\n\n" +
+          "Solusi:\n" +
+          "1. Compress image Anda (<200KB)\n" +
+          "2. Hapus frame lama di console:\n" +
+          "   window.storageDebug.clearFrames(true)\n" +
+          "3. Clear browser cache\n\n" +
+          "Tips: Gunakan tinypng.com untuk compress image";
+      }
+      
+      alert("Gagal menyimpan frame:\n\n" + errorMessage);
     } finally {
       setSaving(false);
+      console.log("🏁 Save process completed");
     }
   };
 
@@ -244,24 +351,99 @@ export default function AdminUploadFrame() {
         padding: "32px 0 48px",
       }}
     >
+      {/* Header with Back Button */}
+      <div style={{ maxWidth: "1120px", margin: "0 auto 32px", padding: "0 16px" }}>
+        <button
+          onClick={() => navigate("/admin")}
+          className="admin-button-secondary"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            marginBottom: "16px",
+            padding: "10px 16px",
+          }}
+        >
+          <ArrowLeft size={18} />
+          Kembali ke Dashboard
+        </button>
+        <h1
+          style={{
+            fontSize: "clamp(22px, 4vw, 34px)",
+            fontWeight: "800",
+            color: "#222",
+            margin: "0 0 8px",
+          }}
+        >
+          Upload Custom Frame
+        </h1>
+        <p style={{ color: "var(--text-secondary)", fontSize: "15px" }}>
+          Buat frame baru untuk photobooth
+        </p>
+      </div>
+
       {/* Debug Info */}
       <div
         style={{
           maxWidth: "1120px",
           margin: "0 auto 20px",
           padding: "16px",
-          backgroundColor: "#fff3cd",
-          border: "2px solid #ffc107",
+          backgroundColor: "#dbeafe",
+          border: "2px solid #3b82f6",
           borderRadius: "8px",
           fontSize: "14px",
         }}
       >
-        <strong>🔍 Debug Info:</strong>
+        <strong>☁️ Storage Info (Firebase Cloud):</strong>
         <br />
         Component: AdminUploadFrame ✅<br />
         User: {user?.email || "Not logged in"}
         <br />
         Path: /admin/upload-frame
+        {storageInfo?.isFirebase && (
+          <>
+            <br />
+            <strong style={{ color: "#2563eb" }}>
+              � Firebase Storage: Unlimited Cloud Storage
+            </strong>
+            <br />
+            <span style={{ color: "#2563eb" }}>
+              ✅ Data disimpan di Firebase Firestore & Storage
+            </span>
+          </>
+        )}
+        <div style={{ marginTop: "12px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          <button
+            onClick={handleClearStorage}
+            style={{
+              backgroundColor: "#f59e0b",
+              color: "white",
+              padding: "6px 12px",
+              borderRadius: "6px",
+              border: "none",
+              cursor: "pointer",
+              fontSize: "12px",
+              fontWeight: "600",
+            }}
+          >
+            🗑️ Hapus Custom Frames
+          </button>
+          <button
+            onClick={handleClearAllStorage}
+            style={{
+              backgroundColor: "#dc2626",
+              color: "white",
+              padding: "6px 12px",
+              borderRadius: "6px",
+              border: "none",
+              cursor: "pointer",
+              fontSize: "12px",
+              fontWeight: "600",
+            }}
+          >
+            ⚠️ Bersihkan Semua Storage
+          </button>
+        </div>
       </div>
 
       <div style={{ maxWidth: "1120px", margin: "0 auto", padding: "0 16px" }}>

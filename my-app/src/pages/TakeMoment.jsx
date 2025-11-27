@@ -726,25 +726,47 @@ export default function TakeMoment() {
   }, []);
 
   const runStorageWrite = useCallback(() => {
-    if (!safeStorage.isAvailable()) return;
+    console.log("💾 [runStorageWrite] Starting...");
+    
+    if (!safeStorage.isAvailable()) {
+      console.warn("⚠️ [runStorageWrite] safeStorage not available!");
+      return;
+    }
+    
     const payload = latestStoragePayloadRef.current;
-    if (!payload?.photos) return;
+    if (!payload?.photos) {
+      console.log("ℹ️ [runStorageWrite] No photos in payload, skipping");
+      return;
+    }
+
+    console.log("📸 [runStorageWrite] Processing", payload.photos.length, "photos");
 
     const photosPayload = Array.isArray(payload.photos)
-      ? payload.photos.map((entry) => {
-          if (!entry) return null;
-          if (typeof entry === "string") return entry;
+      ? payload.photos.map((entry, idx) => {
+          if (!entry) {
+            console.log(`   Photo ${idx}: null entry`);
+            return null;
+          }
+          if (typeof entry === "string") {
+            console.log(`   Photo ${idx}: string (${entry.startsWith('data:') ? 'data URL' : 'other'})`);
+            return entry;
+          }
 
           const { dataUrl, previewUrl } = entry;
+          console.log(`   Photo ${idx}: object - dataUrl=${dataUrl?.substring?.(0,30)}, previewUrl=${previewUrl?.substring?.(0,30)}`);
+          
           if (typeof dataUrl === "string" && dataUrl.startsWith("data:")) {
+            console.log(`   Photo ${idx}: ✅ Using dataUrl`);
             return dataUrl;
           }
           if (
             typeof previewUrl === "string" &&
             previewUrl.startsWith("data:")
           ) {
+            console.log(`   Photo ${idx}: ✅ Using previewUrl (data)`);
             return previewUrl;
           }
+          console.warn(`   Photo ${idx}: ❌ NO VALID DATA URL - has blob=${!!entry.blob}`);
           return null;
         })
       : [];
@@ -761,13 +783,24 @@ export default function TakeMoment() {
         typeof item?.dataUrl === "string" && item.dataUrl.startsWith("data:")
     );
 
+    console.log("📊 [runStorageWrite] photosPayload:", photosPayload.length, "items");
+    console.log("📊 [runStorageWrite] hasPersistablePhotos:", hasPersistablePhotos);
+    console.log("📊 [runStorageWrite] hasPersistableVideos:", hasPersistableVideos);
+
     try {
       if (!hasPersistablePhotos && !hasPersistableVideos) {
+        console.warn("⚠️ [runStorageWrite] No persistable data - REMOVING storage!");
         safeStorage.removeItem("capturedPhotos");
         safeStorage.removeItem("capturedVideos");
       } else {
+        console.log("✅ [runStorageWrite] Saving to storage...");
         safeStorage.setJSON("capturedPhotos", photosPayload);
         safeStorage.setJSON("capturedVideos", videosPayload);
+        console.log("✅ [runStorageWrite] Saved successfully!");
+        
+        // Verify
+        const verify = safeStorage.getJSON("capturedPhotos");
+        console.log("🔍 [runStorageWrite] Verification:", verify?.length || 0, "photos saved");
       }
     } catch (error) {
       console.error("❌ Failed to persist captured media", error);
@@ -1208,13 +1241,13 @@ export default function TakeMoment() {
   }, [capturedVideos]);
 
   const shouldMirrorVideo = useMemo(
-    () => isUsingBackCamera, // Flipped: back camera should be mirrored
+    () => !isUsingBackCamera, // Front camera should be mirrored (like a mirror), back camera should NOT be mirrored
     [isUsingBackCamera]
   );
 
   const displayMirror = useMemo(
-    () => (filterMode === "blur" ? true : shouldMirrorVideo),
-    [filterMode, shouldMirrorVideo]
+    () => shouldMirrorVideo, // Always mirror based on camera type, not just in blur mode
+    [shouldMirrorVideo]
   );
 
   // Sync background settings to refs
@@ -2793,11 +2826,36 @@ export default function TakeMoment() {
       capturedVideosRef.current = trimmedVideos;
       setCapturedPhotos(trimmedPhotos);
       setCapturedVideos(trimmedVideos);
-      scheduleStorageWrite(trimmedPhotos, trimmedVideos);
+      
+      // Check if this is the last photo - if so, save IMMEDIATELY
+      willReachMax = trimmedPhotos.length >= maxCaptures;
+      
+      if (willReachMax) {
+        console.log("🔥 [FINAL PHOTO] Force immediate storage write!");
+        // Save with immediate flag to bypass requestIdleCallback
+        scheduleStorageWrite(trimmedPhotos, trimmedVideos, { immediate: true });
+        
+        // Also do a direct backup save
+        try {
+          const backupPhotos = trimmedPhotos.map(p => {
+            if (typeof p === 'string' && p.startsWith('data:')) return p;
+            if (p?.dataUrl && p.dataUrl.startsWith('data:')) return p.dataUrl;
+            return null;
+          }).filter(Boolean);
+          
+          if (backupPhotos.length > 0) {
+            localStorage.setItem('capturedPhotos', JSON.stringify(backupPhotos));
+            window.__fremio_photos = backupPhotos;
+            console.log("✅ [FINAL PHOTO] Direct backup saved:", backupPhotos.length, "photos");
+          }
+        } catch (backupErr) {
+          console.warn("⚠️ Direct backup failed:", backupErr.message);
+        }
+      } else {
+        scheduleStorageWrite(trimmedPhotos, trimmedVideos);
+      }
 
       saveSucceeded = true;
-
-      willReachMax = trimmedPhotos.length >= maxCaptures;
 
       // Aggressive memory cleanup for mobile devices
       if (isMobileDevice() && trimmedPhotos.length > 0) {
@@ -2948,7 +3006,28 @@ export default function TakeMoment() {
   );
 
   const handleEdit = useCallback(async () => {
+    console.log("🚀 [handleEdit] START");
+    console.log("📊 [handleEdit] capturedPhotos.length:", capturedPhotos.length);
+    console.log("📊 [handleEdit] maxCaptures:", maxCaptures);
+    
+    // DETAILED DEBUG: Show what's in each photo
+    console.log("🔬 [DEBUG] Detailed capturedPhotos analysis:");
+    capturedPhotos.forEach((p, i) => {
+      console.log(`   Photo ${i}:`, {
+        type: typeof p,
+        isString: typeof p === 'string',
+        hasDataUrl: !!p?.dataUrl,
+        dataUrlPreview: p?.dataUrl?.substring?.(0, 60),
+        hasPreviewUrl: !!p?.previewUrl,
+        previewUrlPreview: p?.previewUrl?.substring?.(0, 60),
+        hasBlob: !!p?.blob,
+        blobType: p?.blob?.type,
+        blobSize: p?.blob?.size,
+      });
+    });
+    
     if (capturedPhotos.length < maxCaptures) {
+      console.log("❌ [handleEdit] EARLY RETURN - photos not complete");
       showToast({
         type: "warning",
         title: "Foto Belum Lengkap",
@@ -2959,6 +3038,65 @@ export default function TakeMoment() {
       return;
     }
 
+    console.log("✅ [handleEdit] Photos complete, proceeding...");
+    
+    // EMERGENCY: Save photos immediately at start of handleEdit
+    console.log("🆘 [EMERGENCY] Saving photos immediately...");
+    try {
+      // First, collect all dataUrls (only data: URLs, not blob: URLs)
+      const emergencyPhotos = capturedPhotos.map((p, idx) => {
+        if (typeof p === 'string' && p.startsWith('data:')) {
+          console.log(`   Photo ${idx}: Using direct string (data URL)`);
+          return p;
+        }
+        if (p?.dataUrl && typeof p.dataUrl === 'string' && p.dataUrl.startsWith('data:')) {
+          console.log(`   Photo ${idx}: Using dataUrl property`);
+          return p.dataUrl;
+        }
+        // DON'T use previewUrl as it's a blob URL which can't be serialized!
+        console.warn(`   Photo ${idx}: NO VALID DATA URL! dataUrl=${p?.dataUrl?.substring?.(0,30)}, previewUrl=${p?.previewUrl?.substring?.(0,30)}`);
+        return null;
+      }).filter(Boolean);
+      
+      console.log("🆘 [EMERGENCY] Photos to save:", emergencyPhotos.length);
+      console.log("🆘 [EMERGENCY] First photo type:", typeof emergencyPhotos[0]);
+      console.log("🆘 [EMERGENCY] First photo preview:", emergencyPhotos[0]?.substring?.(0, 60));
+      
+      if (emergencyPhotos.length > 0) {
+        // Save to localStorage
+        localStorage.setItem('capturedPhotos', JSON.stringify(emergencyPhotos));
+        console.log("✅ [EMERGENCY] Photos saved to localStorage!");
+        
+        // Also save to window for backup
+        window.__fremio_photos = emergencyPhotos;
+        console.log("✅ [EMERGENCY] Photos saved to window.__fremio_photos!");
+        
+        // Also save to sessionStorage as backup
+        try {
+          sessionStorage.setItem('capturedPhotos_backup', JSON.stringify(emergencyPhotos));
+          console.log("✅ [EMERGENCY] Photos saved to sessionStorage backup!");
+        } catch (sessErr) {
+          console.warn("⚠️ sessionStorage backup failed:", sessErr.message);
+        }
+        
+        // Verify localStorage
+        const verify = localStorage.getItem('capturedPhotos');
+        const parsed = verify ? JSON.parse(verify) : [];
+        console.log("🔍 [EMERGENCY] Verification - localStorage has:", parsed.length, "photos");
+        console.log("🔍 [EMERGENCY] Verification - first photo starts with:", parsed[0]?.substring?.(0, 30));
+        
+        if (parsed.length === 0) {
+          console.error("❌ [EMERGENCY] localStorage save FAILED! Data not persisted.");
+        }
+      } else {
+        console.error("❌ [EMERGENCY] No valid photos to save!");
+        console.log("📊 [EMERGENCY] This means photos don't have dataUrl property");
+        console.log("📊 [EMERGENCY] Need to check if capturePhoto() is creating dataUrl correctly");
+      }
+    } catch (emergencyError) {
+      console.error("❌ [EMERGENCY] Save failed:", emergencyError);
+    }
+    
     setIsEditorTransitioning(true);
 
     const photosSnapshot = Array.isArray(capturedPhotosRef.current)
@@ -3263,17 +3401,32 @@ export default function TakeMoment() {
       const photoPayloadSource = convertedPhotos.map(
         (entry) => entry?.dataUrl ?? null
       );
+      
+      console.log("📸 [SAVE DEBUG] Photo payload preparation:");
+      console.log("  - convertedPhotos count:", convertedPhotos.length);
+      console.log("  - photoPayloadSource count:", photoPayloadSource.length);
+      console.log("  - Has null values:", photoPayloadSource.some((value) => !value));
+      console.log("  - First photo preview:", photoPayloadSource[0]?.substring(0, 50));
+      
       if (photoPayloadSource.some((value) => !value)) {
         throw new Error("Foto tidak lengkap untuk disimpan.");
       }
 
+      // Flush any pending writes first
       flushStorageWrite();
-      cleanUpStorage();
+      
+      // NOTE: Do NOT call cleanUpStorage() here - it would read empty storage and write empty back!
+      // cleanUpStorage() should only be called AFTER photos are written
 
       const basePayload = preparePayload(photoPayloadSource, convertedVideos);
       const storageSize = calculateStorageSize(basePayload);
+      
+      console.log("📸 [SAVE DEBUG] Storage preparation:");
+      console.log("  - Payload photos count:", basePayload.photos.length);
+      console.log("  - Storage size:", storageSize.mb, "MB");
 
       if (parseFloat(storageSize.mb) > 4) {
+        console.log("⚠️ [SAVE DEBUG] Using emergency compression (>4MB)");
         const emergencyCompressedBase = await compressPhotosArray(
           photoPayloadSource,
           {
@@ -3286,12 +3439,39 @@ export default function TakeMoment() {
           emergencyCompressedBase,
           convertedVideos
         );
-        safeStorage.setJSON("capturedPhotos", emergencyPayload.photos);
-        safeStorage.setJSON("capturedVideos", emergencyPayload.videos);
+        
+        // Try direct localStorage first, then fallback to safeStorage
+        try {
+          console.log("📸 [SAVE DEBUG] Attempting direct localStorage save...");
+          localStorage.setItem("capturedPhotos", JSON.stringify(emergencyPayload.photos));
+          localStorage.setItem("capturedVideos", JSON.stringify(emergencyPayload.videos));
+          console.log("✅ [SAVE DEBUG] Direct localStorage save successful!");
+        } catch (directError) {
+          console.warn("⚠️ [SAVE DEBUG] Direct save failed, trying safeStorage:", directError);
+          safeStorage.setJSON("capturedPhotos", emergencyPayload.photos);
+          safeStorage.setJSON("capturedVideos", emergencyPayload.videos);
+        }
+        console.log("✅ [SAVE DEBUG] Emergency photos saved:", emergencyPayload.photos.length);
       } else {
-        safeStorage.setJSON("capturedPhotos", basePayload.photos);
-        safeStorage.setJSON("capturedVideos", basePayload.videos);
+        console.log("📸 [SAVE DEBUG] Saving normal payload");
+        
+        // Try direct localStorage first, then fallback to safeStorage
+        try {
+          console.log("📸 [SAVE DEBUG] Attempting direct localStorage save...");
+          localStorage.setItem("capturedPhotos", JSON.stringify(basePayload.photos));
+          localStorage.setItem("capturedVideos", JSON.stringify(basePayload.videos));
+          console.log("✅ [SAVE DEBUG] Direct localStorage save successful!");
+        } catch (directError) {
+          console.warn("⚠️ [SAVE DEBUG] Direct save failed, trying safeStorage:", directError);
+          safeStorage.setJSON("capturedPhotos", basePayload.photos);
+          safeStorage.setJSON("capturedVideos", basePayload.videos);
+        }
+        console.log("✅ [SAVE DEBUG] Photos saved to localStorage:", basePayload.photos.length);
       }
+      
+      // VERIFY SAVE
+      const verifyPhotos = safeStorage.getJSON("capturedPhotos");
+      console.log("🔍 [SAVE DEBUG] Verification - Photos in localStorage:", verifyPhotos?.length || 0);
 
       const activeDraftId = safeStorage.getItem("activeDraftId");
 
@@ -3482,6 +3662,44 @@ export default function TakeMoment() {
       console.log("    - Max captures:", storedConfig.maxCaptures);
       console.log("    - Has frameImage:", !!storedConfig.frameImage);
       console.log("    - Is custom:", storedConfig.isCustom);
+    }
+
+    // FINAL VERIFICATION before navigate
+    const finalPhotosCheck = safeStorage.getJSON("capturedPhotos");
+    console.log("🔍 FINAL CHECK before navigate:");
+    console.log("  - capturedPhotos in localStorage:", finalPhotosCheck?.length || 0);
+    console.log("  - capturedPhotosRef.current length:", capturedPhotosRef.current?.length || 0);
+    console.log("  - capturedPhotos state length:", capturedPhotos?.length || 0);
+    
+    if (!finalPhotosCheck || finalPhotosCheck.length === 0) {
+      console.error("❌ CRITICAL: Photos not saved to localStorage!");
+      console.error("  - capturedPhotosRef:", capturedPhotosRef.current);
+      console.error("  - Attempting emergency save...");
+      
+      // Emergency direct save - try multiple sources
+      try {
+        // First try capturedPhotosRef
+        let emergencyPhotos = (capturedPhotosRef.current || []).map(p => 
+          typeof p === 'string' ? p : p?.dataUrl || null
+        ).filter(Boolean);
+        
+        // If ref is empty, try state
+        if (emergencyPhotos.length === 0 && capturedPhotos?.length > 0) {
+          console.log("  - Using capturedPhotos state instead of ref");
+          emergencyPhotos = capturedPhotos.map(p => 
+            typeof p === 'string' ? p : p?.dataUrl || null
+          ).filter(Boolean);
+        }
+        
+        if (emergencyPhotos.length > 0) {
+          localStorage.setItem('capturedPhotos', JSON.stringify(emergencyPhotos));
+          console.log("✅ Emergency save successful:", emergencyPhotos.length, "photos");
+        } else {
+          console.error("❌ No photos to save!");
+        }
+      } catch (err) {
+        console.error("❌ Emergency save failed:", err);
+      }
     }
 
     navigate("/edit-photo");
@@ -4007,16 +4225,9 @@ export default function TakeMoment() {
             borderRadius: isMobileVariant ? "18px" : "20px",
             overflow: "hidden",
             position: "relative",
-            height: isMobileVariant
-              ? "min(400px, 60vh)"
-              : slotAspectRatio
-              ? "500px"
-              : "400px",
-            width: slotAspectRatio
-              ? `${500 * slotAspectRatio}px`
-              : isMobileVariant
-              ? "100%"
-              : "640px",
+            // Fixed size for consistent video preview - not dependent on slot aspect ratio
+            height: isMobileVariant ? "min(400px, 60vh)" : "480px",
+            width: isMobileVariant ? "100%" : "640px",
             maxWidth: "100%",
             margin: "0 auto",
             display: "flex",

@@ -9,6 +9,7 @@ export default function Frames() {
   const navigate = useNavigate();
   const [customFrames, setCustomFrames] = useState([]);
   const [expandedDescriptions, setExpandedDescriptions] = useState({});
+  const [imageErrors, setImageErrors] = useState({});
 
   const toggleDescription = (frameId) => {
     setExpandedDescriptions((prev) => ({
@@ -18,29 +19,45 @@ export default function Frames() {
   };
 
   // Clear old frameConfig when entering Frames page
-  // This ensures user always gets fresh frame selection
   useEffect(() => {
     // Clear frame-related data
     safeStorage.removeItem("frameConfig");
     safeStorage.removeItem("frameConfigTimestamp");
     safeStorage.removeItem("selectedFrame");
-
-    // Clear captured media from previous session
     safeStorage.removeItem("capturedPhotos");
     safeStorage.removeItem("capturedVideos");
 
-    // Load custom frames from admin
-    try {
-      const loadedCustomFrames = getAllCustomFrames();
-      console.log("🎨 Loading custom frames...");
-      console.log("  - Custom frames count:", loadedCustomFrames.length);
-      console.log("  - Custom frames data:", loadedCustomFrames);
-      setCustomFrames(loadedCustomFrames);
-    } catch (error) {
-      console.error("❌ Error loading custom frames:", error);
-      setCustomFrames([]);
-    }
+    // Load custom frames from Firebase (async)
+    const loadFrames = async () => {
+      try {
+        console.log("🔍 Loading custom frames from Firebase...");
+        
+        const loadedCustomFrames = await getAllCustomFrames();
+        console.log("🎨 Custom frames loaded:", loadedCustomFrames.length);
+        
+        if (loadedCustomFrames.length > 0) {
+          loadedCustomFrames.forEach((f, idx) => {
+            console.log(`  ${idx + 1}. ${f.name} (ID: ${f.id})`);
+            console.log(`     - imagePath: ${f.imagePath?.substring(0, 60)}...`);
+          });
+        } else {
+          console.warn("⚠️ NO CUSTOM FRAMES FOUND in Firebase!");
+        }
+        
+        setCustomFrames(loadedCustomFrames);
+      } catch (error) {
+        console.error("❌ Error loading custom frames:", error);
+        setCustomFrames([]);
+      }
+    };
+
+    loadFrames();
   }, []);
+
+  const handleImageError = (frameId) => {
+    console.error(`❌ Image failed to load for frame: ${frameId}`);
+    setImageErrors(prev => ({ ...prev, [frameId]: true }));
+  };
 
   return (
     <section className="min-h-screen bg-gradient-to-b from-[#fdf7f4] via-white to-[#f7f1ed] py-16">
@@ -76,16 +93,26 @@ export default function Frames() {
                     width: "100%",
                   }}
                 >
-                  <img
-                    src={frame.imagePath || frame.thumbnailUrl}
-                    alt={frame.name}
-                    className="object-contain transition-transform duration-300 group-hover:scale-105"
-                    style={{
-                      height: "100%",
-                      width: "100%",
-                      objectFit: "contain",
-                    }}
-                  />
+                  {imageErrors[frame.id] ? (
+                    <div className="flex flex-col items-center justify-center text-gray-400">
+                      <svg className="w-12 h-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <span className="text-xs">Gambar tidak tersedia</span>
+                    </div>
+                  ) : (
+                    <img
+                      src={frame.imagePath || frame.thumbnailUrl}
+                      alt={frame.name}
+                      className="object-contain transition-transform duration-300 group-hover:scale-105"
+                      style={{
+                        height: "100%",
+                        width: "100%",
+                        objectFit: "contain",
+                      }}
+                      onError={() => handleImageError(frame.id)}
+                    />
+                  )}
                 </div>
 
                 {/* Frame Title */}
@@ -112,9 +139,7 @@ export default function Frames() {
                       style={{
                         fontSize: "10px",
                         display: "-webkit-box",
-                        WebkitLineClamp: expandedDescriptions[frame.id]
-                          ? "unset"
-                          : 2,
+                        WebkitLineClamp: expandedDescriptions[frame.id] ? "unset" : 2,
                         WebkitBoxOrient: "vertical",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -131,9 +156,7 @@ export default function Frames() {
                         className="mt-1 text-[#c89585] hover:text-[#e0b7a9] font-medium transition-colors"
                         style={{ fontSize: "9px" }}
                       >
-                        {expandedDescriptions[frame.id]
-                          ? "Show Less"
-                          : "Show More"}
+                        {expandedDescriptions[frame.id] ? "Show Less" : "Show More"}
                       </button>
                     )}
                   </div>
@@ -145,15 +168,32 @@ export default function Frames() {
                     className="group/btn relative overflow-hidden rounded-md border-2 border-slate-300 bg-white font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-400 hover:shadow-md active:scale-95"
                     style={{ fontSize: "11px", padding: "8px 16px" }}
                     onClick={async () => {
-                      // Track view before navigating
+                      console.log("🎬 User clicked 'Lihat Frame'");
+                      console.log("📦 Frame data:", frame);
+                      
+                      if (!frame.slots || frame.slots.length === 0) {
+                        alert("Error: Frame ini tidak memiliki slot foto.");
+                        return;
+                      }
+                      
+                      if (!frame.imagePath && !frame.thumbnailUrl) {
+                        alert("Error: Frame ini tidak memiliki gambar.");
+                        return;
+                      }
+                      
                       await trackFrameView(frame.id, null, frame.name);
 
-                      // For custom frames, we need to register them first
-                      const success = await frameProvider.setCustomFrame(frame);
-                      if (success !== false) {
-                        navigate("/take-moment");
-                      } else {
-                        alert("Error: Gagal memilih frame");
+                      try {
+                        const success = await frameProvider.setCustomFrame(frame);
+                        
+                        if (success !== false) {
+                          navigate("/take-moment");
+                        } else {
+                          alert("Error: Gagal memilih frame");
+                        }
+                      } catch (error) {
+                        console.error("Error in setCustomFrame:", error);
+                        alert("Error: Gagal memilih frame - " + error.message);
                       }
                     }}
                   >
@@ -190,8 +230,7 @@ export default function Frames() {
               Frame sedang dalam proses penambahan oleh admin.
             </p>
             <p className="text-sm text-slate-500 max-w-md mx-auto">
-              Silahkan kembali lagi nanti untuk melihat koleksi frame yang
-              tersedia! 🎨
+              Silahkan kembali lagi nanti untuk melihat koleksi frame yang tersedia! 🎨
             </p>
           </div>
         )}

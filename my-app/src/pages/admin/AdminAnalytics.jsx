@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { isFirebaseConfigured } from "../../config/firebase";
 import "../../styles/admin.css";
@@ -18,9 +19,11 @@ import {
   ArrowUp,
   ArrowDown,
   Minus,
+  ArrowLeft,
 } from "lucide-react";
 
 export default function AdminAnalytics() {
+  const navigate = useNavigate();
   const { currentUser } = useAuth();
 
   const [loading, setLoading] = useState(false);
@@ -266,6 +269,22 @@ export default function AdminAnalytics() {
             </div>
           </div>
         )}
+
+        {/* Back Button */}
+        <button
+          onClick={() => navigate("/admin")}
+          className="admin-button-secondary"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            marginBottom: "16px",
+            padding: "10px 16px",
+          }}
+        >
+          <ArrowLeft size={18} />
+          Kembali ke Dashboard
+        </button>
 
         {/* Header */}
         <div style={{ marginBottom: "32px" }}>

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clear LocalStorage - Fremio Admin</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        h1 {
+            color: #2d3748;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #718096;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .info-box {
+            background: #f7fafc;
+            border-left: 4px solid #4299e1;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+        }
+
+        .info-box h3 {
+            color: #2d3748;
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+
+        .info-box p {
+            color: #4a5568;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: #edf2f7;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #2d3748;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #718096;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+        }
+
+        button {
+            flex: 1;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-danger {
+            background: #f56565;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #e53e3e;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(245, 101, 101, 0.3);
+        }
+
+        .btn-secondary {
+            background: #e2e8f0;
+            color: #2d3748;
+        }
+
+        .btn-secondary:hover {
+            background: #cbd5e0;
+        }
+
+        .warning {
+            background: #fff5f5;
+            border: 2px solid #fc8181;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .warning p {
+            color: #c53030;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .success {
+            background: #f0fff4;
+            border: 2px solid #68d391;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .success p {
+            color: #22543d;
+            font-size: 14px;
+        }
+
+        .frame-list {
+            max-height: 200px;
+            overflow-y: auto;
+            background: #f7fafc;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        .frame-item {
+            padding: 8px;
+            margin-bottom: 5px;
+            background: white;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #4a5568;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗑️ Clear LocalStorage</h1>
+        <p class="subtitle">Fremio Admin Tool</p>
+
+        <div class="info-box">
+            <h3>📊 Storage Information</h3>
+            <p id="storage-info">Loading...</p>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="frames-count">-</div>
+                <div class="stat-label">Custom Frames</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="storage-size">-</div>
+                <div class="stat-label">Storage Used</div>
+            </div>
+        </div>
+
+        <div id="frame-list-container"></div>
+
+        <div class="warning">
+            <p><strong>⚠️ Warning:</strong> This will permanently delete all custom frames from localStorage. This action cannot be undone!</p>
+        </div>
+
+        <div class="success" id="success-message">
+            <p><strong>✅ Success:</strong> All custom frames have been cleared. Redirecting...</p>
+        </div>
+
+        <div class="button-group">
+            <button class="btn-secondary" onclick="window.location.href='/fremio/admin/upload-frame'">Cancel</button>
+            <button class="btn-danger" onclick="clearStorage()">Clear All Frames</button>
+        </div>
+    </div>
+
+    <script>
+        // Load storage info on page load
+        window.addEventListener('DOMContentLoaded', loadStorageInfo);
+
+        function loadStorageInfo() {
+            try {
+                // Get custom frames
+                const frames = JSON.parse(localStorage.getItem('custom_frames') || '[]');
+                const framesJSON = localStorage.getItem('custom_frames') || '[]';
+                const size = framesJSON.length * 2; // UTF-16
+                const sizeMB = (size / 1024 / 1024).toFixed(2);
+
+                // Update stats
+                document.getElementById('frames-count').textContent = frames.length;
+                document.getElementById('storage-size').textContent = sizeMB + ' MB';
+
+                // Update info
+                document.getElementById('storage-info').textContent = 
+                    `You have ${frames.length} custom frames using ${sizeMB} MB of storage.`;
+
+                // Show frame list
+                if (frames.length > 0) {
+                    const frameListHTML = `
+                        <div class="frame-list">
+                            ${frames.map((f, i) => `
+                                <div class="frame-item">
+                                    ${i + 1}. ${f.name || f.id} (${f.category || 'custom'})
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                    document.getElementById('frame-list-container').innerHTML = frameListHTML;
+                }
+
+            } catch (error) {
+                console.error('Error loading storage info:', error);
+                document.getElementById('storage-info').textContent = 'Error loading storage info';
+            }
+        }
+
+        function clearStorage() {
+            if (confirm('Are you absolutely sure you want to delete ALL custom frames?\n\nThis cannot be undone!')) {
+                try {
+                    // Clear custom frames
+                    localStorage.removeItem('custom_frames');
+                    
+                    // Show success message
+                    document.querySelector('.warning').style.display = 'none';
+                    document.getElementById('success-message').style.display = 'block';
+
+                    // Redirect after 2 seconds
+                    setTimeout(() => {
+                        window.location.href = '/fremio/admin/upload-frame';
+                    }, 2000);
+
+                } catch (error) {
+                    alert('Error clearing storage: ' + error.message);
+                }
+            }
+        }
+    </script>
+</body>
+</html>

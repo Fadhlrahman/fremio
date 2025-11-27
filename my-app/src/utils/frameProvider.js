@@ -6,15 +6,27 @@ import {
   getAllFrames,
   preloadFrameConfigs,
 } from "../config/frameConfigManager.js";
-import { getCustomFrameConfig } from "../services/customFrameService.js";
+import { getCustomFrameConfig, getAllCustomFrames } from "../services/customFrameService.js";
 import safeStorage from "./safeStorage.js";
 import userStorage from "./userStorage.js";
 import { sanitizeFrameConfigForStorage } from "./frameConfigSanitizer.js";
 
 const CUSTOM_FRAME_PREFIX = "custom-";
 
-const isCustomFrameId = (frameName) =>
-  typeof frameName === "string" && frameName.startsWith(CUSTOM_FRAME_PREFIX);
+// Helper to detect UUID format (Supabase uses UUIDs)
+const isUUID = (str) => {
+  if (typeof str !== 'string') return false;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+};
+
+const isCustomFrameId = (frameName) => {
+  if (typeof frameName !== "string") return false;
+  // Custom frame can be either:
+  // 1. Starts with "custom-" prefix (legacy/localStorage)
+  // 2. Is a UUID (Supabase)
+  return frameName.startsWith(CUSTOM_FRAME_PREFIX) || isUUID(frameName);
+};
 
 export class FrameDataProvider {
   constructor() {
@@ -26,20 +38,80 @@ export class FrameDataProvider {
   // Set custom frame from admin upload
   async setCustomFrame(frameData) {
     console.log(`🎨 setCustomFrame called with:`, frameData);
+    console.log(`📊 Frame data keys:`, Object.keys(frameData));
 
     if (!frameData || !frameData.id) {
-      console.error("Frame data is required to set custom frame.");
+      console.error("❌ Frame data is required to set custom frame.");
       return false;
     }
 
     this.isLoading = true;
 
     try {
-      // Get the proper config format
-      const config = getCustomFrameConfig(frameData.id);
-
-      if (!config) {
-        throw new Error(`Custom frame config for "${frameData.id}" not found`);
+      // Check if frameData already has slots (full frame object from Frames.jsx)
+      let config;
+      
+      const hasSlots = frameData.slots && Array.isArray(frameData.slots) && frameData.slots.length > 0;
+      const hasImage = frameData.imagePath || frameData.thumbnailUrl;
+      
+      console.log(`🔍 Frame data check:`);
+      console.log(`  - Has slots: ${hasSlots} (${frameData.slots?.length || 0} slots)`);
+      console.log(`  - Has image: ${hasImage}`);
+      
+      if (hasSlots && hasImage) {
+        // Frame data is complete, use it directly!
+        console.log("✅ Frame data is complete, building config directly from frameData");
+        
+        // Build config from frameData (don't rely on localStorage)
+        config = {
+          id: frameData.id,
+          name: frameData.name,
+          description: frameData.description || "",
+          maxCaptures: frameData.maxCaptures || 3,
+          duplicatePhotos: frameData.duplicatePhotos || false,
+          imagePath: frameData.imagePath || frameData.thumbnailUrl,
+          frameImage: frameData.imagePath || frameData.thumbnailUrl,
+          thumbnailUrl: frameData.thumbnailUrl || frameData.imagePath,
+          slots: frameData.slots,
+          designer: frameData.designer || { 
+            elements: frameData.slots?.map((slot, index) => ({
+              id: slot.id || `photo_${index + 1}`,
+              type: "photo",
+              x: slot.left * 1080,
+              y: slot.top * 1920,
+              width: slot.width * 1080,
+              height: slot.height * 1920,
+              zIndex: slot.zIndex || 2,
+              data: {
+                photoIndex: slot.photoIndex !== undefined ? slot.photoIndex : index,
+                image: null,
+                aspectRatio: slot.aspectRatio || "4:5",
+              },
+            })) || []
+          },
+          layout: frameData.layout || {
+            aspectRatio: "9:16",
+            orientation: "portrait",
+            backgroundColor: "#ffffff",
+          },
+          category: frameData.category || "custom",
+          isCustom: true,
+        };
+        
+        console.log("✅ Config built successfully from frameData");
+      } else {
+        // Incomplete data, try to fetch from service
+        console.log("📦 Incomplete data, trying to fetch from service");
+        config = await getCustomFrameConfig(frameData.id);
+        
+        if (!config) {
+          console.error(`❌ Frame "${frameData.id}" not found in service`);
+          const allFrames = await getAllCustomFrames();
+          console.error(`   Available frames:`, allFrames.map(f => f.id));
+          throw new Error(`Custom frame config for "${frameData.id}" not found`);
+        }
+        
+        console.log("✅ Config retrieved from service");
       }
 
       this.currentFrame = frameData.id;
@@ -49,11 +121,13 @@ export class FrameDataProvider {
       console.log("  - Max captures:", config.maxCaptures);
       console.log("  - Slots count:", config.slots?.length);
       console.log("  - Image path:", config.imagePath ? "✓" : "✗");
+      console.log("  - Designer elements:", config.designer?.elements?.length || 0);
 
       this.persistFrameSelection(frameData.id, config);
       return true;
     } catch (error) {
       console.error(`❌ Error setting custom frame:`, error);
+      console.error(`❌ Error stack:`, error.stack);
       return false;
     } finally {
       this.isLoading = false;
@@ -85,10 +159,10 @@ export class FrameDataProvider {
         if (isValidFrame(frameName)) {
           config = await getFrameConfig(frameName);
         }
-        // Try custom frames from localStorage
+        // Try custom frames from service
         else {
           // Check if it's a custom frame from admin upload
-          const customConfig = getCustomFrameConfig(frameName);
+          const customConfig = await getCustomFrameConfig(frameName);
           if (customConfig) {
             config = customConfig;
             console.log(`✅ Found custom frame: ${frameName}`);
@@ -178,7 +252,7 @@ export class FrameDataProvider {
     }
 
     // If custom frame but no config, try to load from IndexedDB draft
-    if (storedFrame?.startsWith("custom-")) {
+    if (isCustomFrameId(storedFrame)) {
       const activeDraftId = userStorage.getItem("activeDraftId");
 
       if (activeDraftId) {
@@ -383,7 +457,16 @@ export class FrameDataProvider {
         __selectedAt: new Date().toISOString(),
       };
 
-      const isCustomFrame = config.isCustom || frameName?.startsWith("custom-");
+      // Check if it's a custom frame - either by isCustom flag OR prefix OR category
+      const isCustomFrame = config.isCustom || 
+                           frameName?.startsWith("custom-") || 
+                           config.category === "custom";
+      
+      console.log("🔍 [persistFrameSelection] Checking frame type:");
+      console.log("  - frameName:", frameName);
+      console.log("  - config.isCustom:", config.isCustom);
+      console.log("  - config.category:", config.category);
+      console.log("  - isCustomFrame:", isCustomFrame);
 
       // For custom frames, try to save WITHOUT sanitizing first (to preserve all data)
       let configSaved = false;
@@ -437,12 +520,38 @@ export class FrameDataProvider {
           );
           const fallbackConfig = { ...sanitizedConfig };
           delete fallbackConfig.imagePath;
+          delete fallbackConfig.frameImage;
+          delete fallbackConfig.thumbnailUrl;
           configSaved = safeStorage.setJSON("frameConfig", fallbackConfig);
+        }
+        
+        // Ultimate fallback - save minimal config
+        if (!configSaved) {
+          console.warn("⚠️ Saving minimal config as last resort...");
+          const minimalConfig = {
+            id: config.id,
+            name: config.name,
+            maxCaptures: config.maxCaptures,
+            slots: config.slots,
+            isCustom: true,
+            __timestamp: Date.now(),
+          };
+          configSaved = safeStorage.setJSON("frameConfig", minimalConfig);
         }
       }
 
-      if (!frameIdSaved || !configSaved) {
+      if (!frameIdSaved) {
+        throw new Error("Failed to save frame ID to localStorage");
+      }
+      
+      // For custom frames, we can proceed even without full config in storage
+      // because the frame data is also in custom_frames storage
+      if (!configSaved && !isCustomFrame) {
         throw new Error("Failed to persist frame selection");
+      }
+      
+      if (!configSaved) {
+        console.warn("⚠️ Config not fully saved, but proceeding since frame is in custom_frames storage");
       }
 
       // Save timestamp for validation

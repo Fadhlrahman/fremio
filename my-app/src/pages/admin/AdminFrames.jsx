@@ -1,357 +1,162 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAuth } from "../../contexts/AuthContext";
-import { isFirebaseConfigured } from "../../config/firebase";
-import { getAllCustomFrames } from "../../services/customFrameService";
-import "../../styles/admin.css";
-import { FileImage, Eye, Download, Heart, AlertCircle } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
+import { getAllCustomFrames, deleteCustomFrame } from "../../services/customFrameService";
 
-export default function AdminFrames() {
-  const navigate = useNavigate();
-  const { currentUser } = useAuth();
-
+const AdminFrames = () => {
+  console.log("AdminFrames component rendering...");
+  
   const [frames, setFrames] = useState([]);
-  const [stats, setStats] = useState({
-    total: 0,
-  });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // Fetch frames (Firebase or LocalStorage custom frames)
   useEffect(() => {
-    fetchData();
+    const loadFrames = async () => {
+      console.log("AdminFrames loading from Firebase...");
+      try {
+        const data = await getAllCustomFrames();
+        console.log("Frames loaded from Firebase:", data);
+        setFrames(data);
+      } catch (err) {
+        console.error("Error:", err);
+      }
+      setLoading(false);
+    };
+    loadFrames();
   }, []);
 
-  const fetchData = async () => {
-    if (!isFirebaseConfigured) {
-      // Load custom frames from localStorage
-      const customFrames = getAllCustomFrames();
-      setFrames(customFrames);
-
-      // Calculate stats from custom frames
-      const statsData = {
-        total: customFrames.length,
-      };
-      setStats(statsData);
-      return;
+  const handleDelete = async (frameId) => {
+    if (window.confirm("Yakin ingin menghapus frame ini?")) {
+      try {
+        const result = await deleteCustomFrame(frameId);
+        if (result.success) {
+          setFrames(frames.filter(f => f.id !== frameId));
+          alert("Frame berhasil dihapus!");
+        } else {
+          alert("Gagal menghapus: " + result.message);
+        }
+      } catch (err) {
+        alert("Gagal menghapus: " + err.message);
+      }
     }
-
-    setLoading(true);
-
-    try {
-      const { getAllFrames, getFrameStats } = await import(
-        "../../services/frameManagementService"
-      );
-
-      const [framesData, statsData] = await Promise.all([
-        getAllFrames(),
-        getFrameStats(),
-      ]);
-
-      setFrames(framesData);
-      setStats(statsData);
-    } catch (error) {
-      console.error("Error fetching frames:", error);
-    }
-
-    setLoading(false);
   };
 
   if (loading) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <div style={{ textAlign: "center" }}>
-          <div
-            style={{
-              display: "inline-block",
-              width: "48px",
-              height: "48px",
-              border: "4px solid #f3f4f6",
-              borderTop: "4px solid var(--accent)",
-              borderRadius: "50%",
-              animation: "spin 1s linear infinite",
-              marginBottom: "16px",
-            }}
-          ></div>
-          <p style={{ color: "var(--text-secondary)" }}>Loading frames...</p>
-        </div>
+      <div style={{ padding: "20px", textAlign: "center" }}>
+        <p>Loading frames...</p>
       </div>
     );
   }
 
+  // ULTRA SIMPLE - just to test if component renders at all
+  console.log("AdminFrames about to return JSX, frames count:", frames.length);
+
   return (
-    <div
-      style={{
-        background:
-          "linear-gradient(180deg, #fdf7f4 0%, #fff 50%, #f7f1ed 100%)",
-        minHeight: "100vh",
-        padding: "32px 0 48px",
-      }}
-    >
-      <div style={{ maxWidth: "1120px", margin: "0 auto", padding: "0 16px" }}>
-        {/* Firebase Warning Banner */}
-        {!isFirebaseConfigured && (
-          <div className="admin-alert">
-            <AlertCircle size={24} className="admin-alert-icon" />
-            <div>
-              <h3 className="admin-alert-title">
-                LocalStorage Mode - UI Preview Only
-              </h3>
-              <p className="admin-alert-message">
-                Firebase is not configured. Frames list and actions are
-                disabled. Setup Firebase to enable full functionality.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Header */}
-        <div style={{ marginBottom: "32px" }}>
-          <h1
-            style={{
-              fontSize: "clamp(22px, 4vw, 34px)",
-              fontWeight: "800",
-              color: "#222",
-              margin: "0 0 8px",
-            }}
-          >
-            Frame Management
-          </h1>
-          <p style={{ color: "var(--text-secondary)", fontSize: "15px" }}>
-            Review and manage community-submitted frames
-          </p>
-        </div>
-
-        {/* Stats Cards */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: "16px",
-            marginBottom: "32px",
-          }}
-        >
-          <StatCard title="Total Frames" value={stats.total} color="#3b82f6" />
-        </div>
-
-        {/* Frames Grid */}
-        {frames.length === 0 ? (
-          <div
-            className="admin-card"
-            style={{
-              padding: "60px 20px",
-              textAlign: "center",
-            }}
-          >
-            <FileImage
-              size={48}
-              style={{ margin: "0 auto 16px", color: "var(--text-secondary)" }}
-            />
-            <p style={{ color: "var(--text-secondary)", fontSize: "15px" }}>
-              Belum ada frame. Upload frame pertama Anda!
-            </p>
-          </div>
-        ) : (
-          <div
-            style={{ display: "flex", flexDirection: "column", gap: "16px" }}
-          >
-            {frames.map((frame) => (
-              <FrameCard key={frame.id} frame={frame} />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// Stat Card Component
-function StatCard({ title, value, color }) {
-  return (
-    <div className="admin-card" style={{ padding: "20px" }}>
-      <div
+    <div style={{ padding: "20px", backgroundColor: "#fff", minHeight: "200px" }}>
+      <h1 style={{ color: "#111", marginBottom: "20px" }}>🖼️ Kelola Frame</h1>
+      
+      <p style={{ color: "#666", marginBottom: "20px" }}>
+        Total frames: {frames.length}
+      </p>
+      
+      <Link 
+        to="/admin/upload-frame"
         style={{
-          backgroundColor: color,
+          display: "inline-block",
+          background: "#4f46e5",
           color: "white",
-          padding: "10px",
-          borderRadius: "10px",
-          width: "44px",
-          height: "44px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          marginBottom: "12px",
+          padding: "10px 20px",
+          borderRadius: "8px",
+          textDecoration: "none",
+          marginBottom: "20px"
         }}
       >
-        <FileImage size={20} />
-      </div>
-      <p
-        style={{
-          fontSize: "28px",
-          fontWeight: "800",
-          color: "#2d1b14",
-          marginBottom: "6px",
-        }}
-      >
-        {value}
-      </p>
-      <p
-        style={{
-          fontSize: "14px",
-          color: "#8b7064",
-          fontWeight: "500",
-        }}
-      >
-        {title}
-      </p>
+        + Upload Frame Baru
+      </Link>
+
+      {frames.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "40px", background: "#f3f4f6", borderRadius: "8px" }}>
+          <p style={{ color: "#6b7280" }}>Belum ada frame yang diupload</p>
+        </div>
+      ) : (
+        <div style={{ 
+          display: "grid", 
+          gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", 
+          gap: "20px" 
+        }}>
+          {frames.map((frame) => (
+            <div 
+              key={frame.id} 
+              style={{ 
+                background: "white", 
+                borderRadius: "12px", 
+                overflow: "hidden",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
+              }}
+            >
+              <div style={{ 
+                height: "150px", 
+                background: "#f3f4f6",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center"
+              }}>
+                {frame.imagePath ? (
+                  <img 
+                    src={frame.imagePath} 
+                    alt={frame.name}
+                    style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+                    onError={(e) => {
+                      e.target.style.display = "none";
+                    }}
+                  />
+                ) : (
+                  <span style={{ color: "#9ca3af" }}>No Image</span>
+                )}
+              </div>
+              <div style={{ padding: "12px" }}>
+                <h3 style={{ margin: "0 0 8px 0", fontSize: "14px" }}>{frame.name || "Untitled"}</h3>
+                <p style={{ margin: "0 0 8px 0", fontSize: "12px", color: "#6b7280" }}>
+                  {frame.category || "No category"}
+                </p>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <Link 
+                    to={"/fremio/admin/edit-frame/" + frame.id}
+                    style={{
+                      flex: 1,
+                      padding: "6px",
+                      background: "#e0e7ff",
+                      color: "#4f46e5",
+                      borderRadius: "4px",
+                      textAlign: "center",
+                      textDecoration: "none",
+                      fontSize: "12px"
+                    }}
+                  >
+                    Edit
+                  </Link>
+                  <button 
+                    onClick={() => handleDelete(frame.id)}
+                    style={{
+                      flex: 1,
+                      padding: "6px",
+                      background: "#fee2e2",
+                      color: "#dc2626",
+                      border: "none",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      fontSize: "12px"
+                    }}
+                  >
+                    Hapus
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
-}
+};
 
-// Frame Card Component
-function FrameCard({ frame }) {
-  return (
-    <div className="admin-card" style={{ padding: "26px" }}>
-      <div style={{ display: "flex", gap: "24px" }}>
-        {/* Thumbnail */}
-        <div
-          style={{
-            flexShrink: 0,
-            width: "200px",
-            height: "200px",
-            background: "linear-gradient(135deg, #fef3f0 0%, #f7ebe7 100%)",
-            borderRadius: "14px",
-            overflow: "hidden",
-            border: "2px solid var(--border)",
-          }}
-        >
-          {frame.thumbnailUrl ? (
-            <img
-              src={frame.thumbnailUrl}
-              alt={frame.name}
-              style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-              }}
-            />
-          ) : (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                height: "100%",
-              }}
-            >
-              <FileImage size={48} style={{ color: "#c8b5ae" }} />
-            </div>
-          )}
-        </div>
-
-        {/* Content */}
-        <div style={{ flex: 1 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              justifyContent: "space-between",
-              marginBottom: "16px",
-            }}
-          >
-            <div>
-              <h3
-                style={{
-                  fontSize: "22px",
-                  fontWeight: "800",
-                  color: "#2d1b14",
-                  marginBottom: "6px",
-                }}
-              >
-                {frame.name}
-              </h3>
-              <p
-                style={{
-                  color: "#8b7064",
-                  marginBottom: "10px",
-                  fontSize: "15px",
-                }}
-              >
-                {frame.description || "No description"}
-              </p>
-              <p
-                style={{
-                  fontSize: "14px",
-                  color: "#a89289",
-                  fontWeight: "500",
-                }}
-              >
-                Created by:{" "}
-                <span style={{ fontWeight: "700", color: "#6d5449" }}>
-                  {frame.creatorName || "Unknown"}
-                </span>
-              </p>
-            </div>
-          </div>
-
-          {/* Stats */}
-          <div
-            style={{
-              display: "flex",
-              gap: "24px",
-              marginBottom: "20px",
-              paddingTop: "12px",
-              borderTop: "1px solid var(--border)",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                color: "#8b7064",
-              }}
-            >
-              <Eye size={16} />
-              <span style={{ fontSize: "14px", fontWeight: "600" }}>
-                {frame.views || 0} views
-              </span>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                color: "#8b7064",
-              }}
-            >
-              <Download size={16} />
-              <span style={{ fontSize: "14px", fontWeight: "600" }}>
-                {frame.uses || 0} uses
-              </span>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                color: "#8b7064",
-              }}
-            >
-              <Heart size={16} />
-              <span style={{ fontSize: "14px", fontWeight: "600" }}>
-                {frame.likes || 0} likes
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+export default AdminFrames;

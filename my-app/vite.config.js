@@ -21,7 +21,7 @@ const resolveCertPath = (filename) => {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [tailwindcss(), react()],
-  base: "/fremio/", // ganti sesuai subpath deploy
+  base: process.env.NODE_ENV === 'production' ? "/" : "/fremio/", // production: /, development: /fremio/
   server: {
     host: '0.0.0.0',
     https: {

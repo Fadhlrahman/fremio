@@ -26,7 +26,7 @@ export default function EditPhoto() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
 
-  // Filter states
+  // Filter states.
   const [filters, setFilters] = useState({
     brightness: 100,
     contrast: 100,

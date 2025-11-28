@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import safeStorage from "../utils/safeStorage.js";
 import userStorage from "../utils/userStorage.js";
@@ -27,6 +27,10 @@ export default function EditPhoto() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
 
+  // Photo zoom/pan transforms - keyed by element id or photo index
+  const [photoTransforms, setPhotoTransforms] = useState({});
+  const [selectedPhotoId, setSelectedPhotoId] = useState(null);
+
   // Filter states.
   const [filters, setFilters] = useState({
     brightness: 100,
@@ -39,6 +43,180 @@ export default function EditPhoto() {
   });
   const [activeFilter, setActiveFilter] = useState(null);
   const photosFilled = React.useRef(false);
+
+  // Handler for updating photo transforms (zoom/pan)
+  const updatePhotoTransform = useCallback((photoId, newTransform) => {
+    setPhotoTransforms(prev => ({
+      ...prev,
+      [photoId]: newTransform
+    }));
+  }, []);
+
+  // Get transform for a specific photo
+  const getPhotoTransform = useCallback((photoId) => {
+    return photoTransforms[photoId] || { scale: 1, x: 0, y: 0 };
+  }, [photoTransforms]);
+
+  // Touch state refs for pinch-zoom
+  const touchStateRef = useRef({
+    isPinching: false,
+    isDragging: false,
+    initialDistance: 0,
+    initialScale: 1,
+    initialX: 0,
+    initialY: 0,
+    lastTouchX: 0,
+    lastTouchY: 0,
+    lastTapTime: 0,
+    activePhotoId: null,
+    containerRect: null,
+  });
+
+  // Calculate distance between two touch points
+  const getDistance = useCallback((touch1, touch2) => {
+    const dx = touch1.clientX - touch2.clientX;
+    const dy = touch1.clientY - touch2.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }, []);
+
+  // Clamp value
+  const clamp = useCallback((value, min, max) => {
+    return Math.min(Math.max(value, min), max);
+  }, []);
+
+  // Handle touch start on photo
+  const handlePhotoTouchStart = useCallback((e, photoId, containerEl) => {
+    const state = touchStateRef.current;
+    const touches = e.touches;
+    
+    state.activePhotoId = photoId;
+    
+    // Get container rect
+    if (containerEl) {
+      state.containerRect = containerEl.getBoundingClientRect();
+    }
+
+    const currentTransform = getPhotoTransform(photoId);
+
+    // Check for double tap to reset
+    const now = Date.now();
+    if (touches.length === 1) {
+      if (now - state.lastTapTime < 300) {
+        e.preventDefault();
+        updatePhotoTransform(photoId, { scale: 1, x: 0, y: 0 });
+        state.lastTapTime = 0;
+        setSelectedPhotoId(null);
+        return;
+      }
+      state.lastTapTime = now;
+    }
+
+    if (touches.length === 2) {
+      // Start pinch zoom
+      e.preventDefault();
+      e.stopPropagation();
+      state.isPinching = true;
+      state.isDragging = false;
+      state.initialDistance = getDistance(touches[0], touches[1]);
+      state.initialScale = currentTransform.scale;
+      state.initialX = currentTransform.x;
+      state.initialY = currentTransform.y;
+      setSelectedPhotoId(photoId);
+    } else if (touches.length === 1 && currentTransform.scale > 1) {
+      // Start pan (only if zoomed in)
+      e.preventDefault();
+      e.stopPropagation();
+      state.isDragging = true;
+      state.isPinching = false;
+      state.lastTouchX = touches[0].clientX;
+      state.lastTouchY = touches[0].clientY;
+      setSelectedPhotoId(photoId);
+    }
+  }, [getDistance, getPhotoTransform, updatePhotoTransform]);
+
+  // Handle touch move on photo
+  const handlePhotoTouchMove = useCallback((e, photoId) => {
+    const state = touchStateRef.current;
+    const touches = e.touches;
+    
+    if (state.activePhotoId !== photoId) return;
+
+    const currentTransform = getPhotoTransform(photoId);
+
+    if (state.isPinching && touches.length === 2) {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Calculate new scale based on pinch distance
+      const currentDistance = getDistance(touches[0], touches[1]);
+      const distanceRatio = currentDistance / state.initialDistance;
+      let newScale = state.initialScale * distanceRatio;
+      
+      // Clamp scale (1x to 4x)
+      newScale = clamp(newScale, 1, 4);
+
+      updatePhotoTransform(photoId, {
+        scale: newScale,
+        x: state.initialX,
+        y: state.initialY,
+      });
+    } else if (state.isDragging && touches.length === 1 && currentTransform.scale > 1) {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Calculate pan delta
+      const deltaX = touches[0].clientX - state.lastTouchX;
+      const deltaY = touches[0].clientY - state.lastTouchY;
+      
+      // Calculate max pan based on current scale and container size
+      const rect = state.containerRect;
+      const maxPanX = rect ? (rect.width * (currentTransform.scale - 1)) / 2 : 100;
+      const maxPanY = rect ? (rect.height * (currentTransform.scale - 1)) / 2 : 100;
+      
+      // Update position with bounds
+      const newX = clamp(currentTransform.x + deltaX, -maxPanX, maxPanX);
+      const newY = clamp(currentTransform.y + deltaY, -maxPanY, maxPanY);
+      
+      updatePhotoTransform(photoId, {
+        scale: currentTransform.scale,
+        x: newX,
+        y: newY,
+      });
+      
+      state.lastTouchX = touches[0].clientX;
+      state.lastTouchY = touches[0].clientY;
+    }
+  }, [clamp, getDistance, getPhotoTransform, updatePhotoTransform]);
+
+  // Handle touch end on photo
+  const handlePhotoTouchEnd = useCallback((e, photoId) => {
+    const state = touchStateRef.current;
+    const touches = e.touches;
+    
+    if (state.activePhotoId !== photoId) return;
+
+    const currentTransform = getPhotoTransform(photoId);
+
+    if (touches.length < 2) {
+      state.isPinching = false;
+    }
+    
+    if (touches.length === 0) {
+      state.isDragging = false;
+      state.activePhotoId = null;
+      
+      // If scale is below threshold, reset to 1
+      if (currentTransform.scale < 1.05) {
+        updatePhotoTransform(photoId, { scale: 1, x: 0, y: 0 });
+        setSelectedPhotoId(null);
+      }
+    } else if (touches.length === 1 && currentTransform.scale > 1) {
+      // Switch from pinch to drag
+      state.isDragging = true;
+      state.lastTouchX = touches[0].clientX;
+      state.lastTouchY = touches[0].clientY;
+    }
+  }, [getPhotoTransform, updatePhotoTransform]);
 
   const hasValidVideo = useMemo(() => {
     if (!Array.isArray(videos)) return false;
@@ -1547,6 +1725,27 @@ export default function EditPhoto() {
         </div>
       )}
 
+      {/* Zoom/Pan Instructions */}
+      {Object.keys(photoTransforms).some(key => photoTransforms[key]?.scale > 1) && (
+        <div
+          style={{
+            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+            color: "white",
+            padding: "10px 16px",
+            borderRadius: "12px",
+            fontSize: "13px",
+            fontWeight: "500",
+            marginBottom: "8px",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+          }}
+        >
+          <span>🔍</span>
+          <span>Foto di-zoom. Double tap untuk reset.</span>
+        </div>
+      )}
+
       {/* Photo Preview */}
       {frameConfig && (
         <div
@@ -1559,6 +1758,27 @@ export default function EditPhoto() {
             maxWidth: "900px",
           }}
         >
+          {/* Zoom Instructions */}
+          <div
+            style={{
+              background: "rgba(79, 70, 229, 0.1)",
+              border: "1px solid rgba(79, 70, 229, 0.3)",
+              color: "#4F46E5",
+              padding: "10px 16px",
+              borderRadius: "12px",
+              fontSize: "12px",
+              fontWeight: "500",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              width: "100%",
+              maxWidth: "280px",
+            }}
+          >
+            <span>👆</span>
+            <span>Pinch 2 jari untuk zoom, geser untuk pindah</span>
+          </div>
+
           {/* Frame Canvas Container */}
           <div
             style={{
@@ -1755,9 +1975,16 @@ export default function EditPhoto() {
                       );
                     }
 
+                    const photoId = element.id || `photo-${idx}`;
+                    const photoTransform = getPhotoTransform(photoId);
+                    const isSelected = selectedPhotoId === photoId;
+
                     return (
                       <div
                         key={`element-${element.id || idx}`}
+                        ref={(el) => {
+                          if (el) el.dataset.photoId = photoId;
+                        }}
                         style={{
                           position: "absolute",
                           left: `${element.x || 0}px`,
@@ -1765,14 +1992,20 @@ export default function EditPhoto() {
                           width: `${element.width || 100}px`,
                           height: `${element.height || 100}px`,
                           zIndex: elemZIndex,
-                          pointerEvents: "none",
+                          pointerEvents: "auto", // Enable touch events
                           borderRadius: `${element.data?.borderRadius || 24}px`,
                           overflow: "hidden",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          background: "transparent", // ✅ Changed from '#fff' to support transparent PNGs
+                          background: "transparent",
+                          touchAction: photoTransform.scale > 1 ? "none" : "pan-y",
+                          outline: isSelected ? "3px solid #4F46E5" : "none",
+                          boxShadow: isSelected ? "0 0 0 6px rgba(79,70,229,0.3)" : "none",
                         }}
+                        onTouchStart={(e) => handlePhotoTouchStart(e, photoId, e.currentTarget)}
+                        onTouchMove={(e) => handlePhotoTouchMove(e, photoId)}
+                        onTouchEnd={(e) => handlePhotoTouchEnd(e, photoId)}
                       >
                         <img
                           src={element.data.image}
@@ -1784,11 +2017,37 @@ export default function EditPhoto() {
                           style={{
                             width: "100%",
                             height: "100%",
-                            objectFit: "cover", // Back to cover - transparency preserved in PNG format
+                            objectFit: "cover",
                             display: "block",
+                            transform: `translate(${photoTransform.x}px, ${photoTransform.y}px) scale(${photoTransform.scale})`,
+                            transformOrigin: "center center",
+                            transition: photoTransform.scale === 1 ? "transform 0.2s ease-out" : "none",
+                            willChange: "transform",
+                            pointerEvents: "none",
                             ...getFilterStyle(),
                           }}
+                          draggable={false}
                         />
+                        {/* Zoom indicator */}
+                        {photoTransform.scale > 1 && (
+                          <div
+                            style={{
+                              position: "absolute",
+                              bottom: "8px",
+                              right: "8px",
+                              background: "rgba(0,0,0,0.7)",
+                              color: "white",
+                              padding: "4px 10px",
+                              borderRadius: "12px",
+                              fontSize: "14px",
+                              fontWeight: "600",
+                              pointerEvents: "none",
+                              zIndex: 10,
+                            }}
+                          >
+                            {photoTransform.scale.toFixed(1)}x
+                          </div>
+                        )}
                       </div>
                     );
                   }

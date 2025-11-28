@@ -78,6 +78,7 @@ export default function AdminFrameCreator() {
     "Birthday", 
     "Graduation",
     "Event",
+    "Music",
     "Custom"
   ];
 

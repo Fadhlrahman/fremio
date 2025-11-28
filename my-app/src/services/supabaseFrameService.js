@@ -65,7 +65,16 @@ const uploadImageToStorage = async (file, fileName) => {
   const compressedBlob = await compressImage(file);
   console.log('✅ Compressed size:', compressedBlob.size, 'bytes');
 
-  const filePath = `custom/${Date.now()}_${fileName.replace(/\s+/g, '_')}.png`;
+  // Sanitize filename: remove special characters, replace spaces with underscores
+  const sanitizedFileName = fileName
+    .replace(/[""''„"«»]/g, '')  // Remove various quote characters
+    .replace(/[–—]/g, '-')        // Replace en-dash/em-dash with hyphen
+    .replace(/[^\w\s.-]/g, '')    // Remove any other special characters except word chars, spaces, dots, hyphens
+    .replace(/\s+/g, '_')         // Replace spaces with underscores
+    .replace(/_+/g, '_')          // Replace multiple underscores with single
+    .replace(/^_|_$/g, '');       // Remove leading/trailing underscores
+  
+  const filePath = `custom/${Date.now()}_${sanitizedFileName}.png`;
   console.log('📁 Uploading to Supabase Storage:', filePath);
 
   const { data, error } = await supabase.storage
@@ -102,86 +111,112 @@ const withTimeout = (promise, ms, errorMessage = 'Request timeout') => {
 };
 
 /**
+ * Process frame data - map snake_case to camelCase
+ */
+const processFrameData = (data) => {
+  if (!data || !Array.isArray(data)) return [];
+  
+  return data.map(frame => ({
+    ...frame,
+    maxCaptures: frame.max_captures,
+    imagePath: frame.image_url || frame.thumbnail_url,
+    thumbnailUrl: frame.thumbnail_url,
+    createdAt: frame.created_at,
+    updatedAt: frame.updated_at,
+    createdBy: frame.created_by,
+    isActive: frame.is_active,
+    sortOrder: frame.layout?.sortOrder ?? 999,
+    categorySortOrder: frame.layout?.categorySortOrder ?? 999
+  }));
+};
+
+// In-memory cache for frames
+let framesCache = null;
+let framesCacheTime = 0;
+const CACHE_DURATION = 60000; // 1 minute cache
+
+/**
  * Get all custom frames
- * Version: 3 - 2024-11-28 - NO TIMEOUT AT ALL
+ * Version: 6 - Direct fetch API (faster than SDK)
  */
 export const getAllCustomFrames = async () => {
-  console.log('🔄 getAllCustomFrames v3 - DIRECT QUERY NO TIMEOUT - ' + new Date().toISOString());
+  const startTime = Date.now();
+  console.log('🔄 getAllCustomFrames v6 - ' + new Date().toISOString());
   
-  if (!isSupabaseConfigured || !supabase) {
+  // Return cached data if still valid
+  if (framesCache && (Date.now() - framesCacheTime) < CACHE_DURATION) {
+    console.log('⚡ Returning cached frames:', framesCache.length, 'frames');
+    return framesCache;
+  }
+  
+  if (!isSupabaseConfigured) {
     console.warn('⚠️ Supabase not configured, returning empty array');
     return [];
   }
 
   try {
-    console.log('📊 v3: Loading frames from Supabase...');
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
     
-    // Direct query - absolutely no timeout
-    const result = await supabase
-      .from(FRAMES_TABLE)
-      .select('*')
-      .order('created_at', { ascending: false });
+    console.log('📡 v6: Direct fetch to Supabase REST API...');
     
-    const { data, error } = result;
+    const controller = new AbortController();
+    const fetchTimeout = setTimeout(() => controller.abort(), 8000); // 8 second timeout
     
-    console.log('📊 v3: Query result received');
-    console.log('📊 v3: Error:', error);
-    console.log('📊 v3: Data count:', data?.length || 0);
-
-    if (error) {
-      console.error('❌ Error loading frames:', error);
-      console.error('❌ Error code:', error.code);
-      console.error('❌ Error message:', error.message);
-      console.error('❌ Error details:', error.details);
-      console.error('❌ Error hint:', error.hint);
-      
-      // If RLS error, suggest fix
-      if (error.code === '42501' || error.message?.includes('permission') || error.message?.includes('policy')) {
-        console.error('🔐 This looks like an RLS policy issue!');
-        console.error('🔐 Go to Supabase Dashboard → Authentication → Policies');
-        console.error('🔐 Add a policy to allow SELECT on frames table');
+    const response = await fetch(
+      `${supabaseUrl}/rest/v1/frames?select=*&order=created_at.desc`,
+      {
+        signal: controller.signal,
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
       }
-      
-      return [];
-    }
-
-    console.log('✅ Loaded', data?.length || 0, 'frames from Supabase');
+    );
     
-    if (!data || data.length === 0) {
-      console.warn('⚠️ No frames returned from Supabase');
-      console.warn('⚠️ Data exists in table but query returns empty - likely RLS issue');
-      console.warn('⚠️ Solution: Disable RLS or add SELECT policy for anon role');
-      return [];
+    clearTimeout(fetchTimeout);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Fetch error:', response.status, errorText);
+      return framesCache || []; // Return stale cache if available
     }
     
-    // Log first frame for debugging
-    if (data[0]) {
-      console.log('📋 First frame:', {
-        id: data[0].id,
-        name: data[0].name,
-        category: data[0].category,
-        has_image: !!data[0].image_url
-      });
-    }
+    const data = await response.json();
+    const processedData = processFrameData(data);
     
-    return data.map(frame => ({
-      ...frame,
-      // Map snake_case to camelCase for compatibility
-      maxCaptures: frame.max_captures,
-      imagePath: frame.image_url || frame.thumbnail_url,
-      thumbnailUrl: frame.thumbnail_url,
-      createdAt: frame.created_at,
-      updatedAt: frame.updated_at,
-      createdBy: frame.created_by,
-      isActive: frame.is_active,
-      // Read sort orders from layout JSON
-      sortOrder: frame.layout?.sortOrder ?? 999,
-      categorySortOrder: frame.layout?.categorySortOrder ?? 999
-    }));
+    // Update cache
+    framesCache = processedData;
+    framesCacheTime = Date.now();
+    
+    const duration = Date.now() - startTime;
+    console.log(`✅ v6: Loaded ${data?.length || 0} frames in ${duration}ms`);
+    
+    return processedData;
   } catch (error) {
-    console.error('❌ Error:', error);
+    console.error('❌ Fetch failed:', error.name, error.message);
+    
+    if (error.name === 'AbortError') {
+      console.error('❌ Request timed out after 8s');
+    }
+    
+    // Return stale cache if available
+    if (framesCache) {
+      console.log('📦 Returning stale cache:', framesCache.length, 'frames');
+      return framesCache;
+    }
+    
     return [];
   }
+};
+
+// Function to clear cache (call after upload/delete)
+export const clearFramesCache = () => {
+  framesCache = null;
+  framesCacheTime = 0;
+  console.log('🗑️ Frames cache cleared');
 };
 
 /**

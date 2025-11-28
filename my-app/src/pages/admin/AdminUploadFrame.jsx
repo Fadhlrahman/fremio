@@ -652,6 +652,7 @@ export default function AdminUploadFrame() {
                     <option value="custom">Custom</option>
                     <option value="fremio-series">Fremio Series</option>
                     <option value="inspired-by">Inspired By</option>
+                    <option value="music">Music</option>
                     <option value="seasonal">Seasonal</option>
                   </select>
                 </div>
@@ -777,6 +778,7 @@ export default function AdminUploadFrame() {
                           <option value="custom">Custom</option>
                           <option value="fremio-series">Fremio Series</option>
                           <option value="inspired-by">Inspired By</option>
+                          <option value="music">Music</option>
                           <option value="seasonal">Seasonal</option>
                         </select>
                       </div>

@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Check Supabase Frames</title>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 { color: #333; }
+    .card {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    button {
+      background: #4F46E5;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 5px;
+    }
+    button:hover { background: #4338CA; }
+    button.danger { background: #DC2626; }
+    button.danger:hover { background: #B91C1C; }
+    pre {
+      background: #1f2937;
+      color: #e5e7eb;
+      padding: 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 12px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .status { padding: 8px 16px; border-radius: 8px; margin: 10px 0; }
+    .status.success { background: #D1FAE5; color: #065F46; }
+    .status.error { background: #FEE2E2; color: #991B1B; }
+    .status.warning { background: #FEF3C7; color: #92400E; }
+    .frame-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 16px;
+      margin-top: 16px;
+    }
+    .frame-card {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 12px;
+      text-align: center;
+    }
+    .frame-card img {
+      max-width: 100%;
+      height: 150px;
+      object-fit: contain;
+      background: white;
+      border-radius: 4px;
+    }
+    .frame-card h4 { margin: 8px 0 4px; font-size: 14px; }
+    .frame-card p { margin: 0; font-size: 12px; color: #6b7280; }
+    input[type="text"] {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔍 Supabase Frames Debug</h1>
+  
+  <div class="card">
+    <h3>⚙️ Configuration</h3>
+    <p>Masukkan kredensial Supabase Anda:</p>
+    <input type="text" id="supabaseUrl" placeholder="Supabase URL (https://xxx.supabase.co)">
+    <input type="text" id="supabaseKey" placeholder="Supabase Anon Key">
+    <button onclick="initSupabase()">Connect to Supabase</button>
+    <div id="connection-status"></div>
+  </div>
+
+  <div class="card">
+    <h3>📊 Actions</h3>
+    <button onclick="checkFrames()">Load All Frames</button>
+    <button onclick="checkStorage()">Check Storage</button>
+    <button onclick="checkRLS()">Check RLS Policies</button>
+    <button class="danger" onclick="clearAllFrames()">⚠️ Delete All Frames</button>
+  </div>
+
+  <div class="card">
+    <h3>📋 Results</h3>
+    <div id="results">
+      <p style="color: #9ca3af;">Click a button to see results...</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🖼️ Frames Preview</h3>
+    <div id="frames-grid" class="frame-grid">
+      <p style="color: #9ca3af;">Load frames to see preview...</p>
+    </div>
+  </div>
+
+  <script>
+    let supabase = null;
+
+    function initSupabase() {
+      const url = document.getElementById('supabaseUrl').value.trim();
+      const key = document.getElementById('supabaseKey').value.trim();
+      
+      if (!url || !key) {
+        showStatus('connection-status', 'error', 'Please enter both URL and Key');
+        return;
+      }
+
+      try {
+        supabase = window.supabase.createClient(url, key);
+        showStatus('connection-status', 'success', '✅ Connected to Supabase');
+        
+        // Save to localStorage for convenience
+        localStorage.setItem('debug_supabase_url', url);
+        localStorage.setItem('debug_supabase_key', key);
+      } catch (e) {
+        showStatus('connection-status', 'error', '❌ Error: ' + e.message);
+      }
+    }
+
+    // Auto-load saved credentials
+    window.onload = () => {
+      const savedUrl = localStorage.getItem('debug_supabase_url');
+      const savedKey = localStorage.getItem('debug_supabase_key');
+      if (savedUrl) document.getElementById('supabaseUrl').value = savedUrl;
+      if (savedKey) document.getElementById('supabaseKey').value = savedKey;
+      if (savedUrl && savedKey) initSupabase();
+    };
+
+    function showStatus(elementId, type, message) {
+      document.getElementById(elementId).innerHTML = 
+        `<div class="status ${type}">${message}</div>`;
+    }
+
+    async function checkFrames() {
+      if (!supabase) {
+        showResults('❌ Connect to Supabase first');
+        return;
+      }
+
+      showResults('Loading frames...');
+
+      try {
+        // Get count first
+        const { count, error: countError } = await supabase
+          .from('frames')
+          .select('*', { count: 'exact', head: true });
+
+        if (countError) {
+          showResults(`❌ Count Error:\n${JSON.stringify(countError, null, 2)}`);
+          return;
+        }
+
+        // Get all frames
+        const { data, error } = await supabase
+          .from('frames')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          showResults(`❌ Query Error:\n${JSON.stringify(error, null, 2)}`);
+          return;
+        }
+
+        const summary = {
+          total_count: count,
+          returned_count: data?.length || 0,
+          frames: data?.map(f => ({
+            id: f.id,
+            name: f.name,
+            category: f.category,
+            created_at: f.created_at,
+            has_image: !!f.image_url,
+            has_thumbnail: !!f.thumbnail_url,
+            slots_count: f.slots?.length || 0
+          }))
+        };
+
+        showResults(JSON.stringify(summary, null, 2));
+        
+        // Show grid preview
+        if (data && data.length > 0) {
+          showFramesGrid(data);
+        } else {
+          document.getElementById('frames-grid').innerHTML = 
+            '<p style="color: #9ca3af;">No frames found</p>';
+        }
+
+      } catch (e) {
+        showResults(`❌ Exception: ${e.message}\n${e.stack}`);
+      }
+    }
+
+    async function checkStorage() {
+      if (!supabase) {
+        showResults('❌ Connect to Supabase first');
+        return;
+      }
+
+      showResults('Checking storage...');
+
+      try {
+        // List files in frames bucket
+        const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
+        
+        if (bucketsError) {
+          showResults(`❌ Bucket Error:\n${JSON.stringify(bucketsError, null, 2)}`);
+          return;
+        }
+
+        // List files in frames bucket
+        const { data: files, error: filesError } = await supabase.storage
+          .from('frames')
+          .list('custom', { limit: 100 });
+
+        const result = {
+          buckets: buckets?.map(b => b.name),
+          files_in_custom_folder: files?.length || 0,
+          files: files?.map(f => ({
+            name: f.name,
+            size: f.metadata?.size,
+            created: f.created_at
+          }))
+        };
+
+        showResults(JSON.stringify(result, null, 2));
+
+      } catch (e) {
+        showResults(`❌ Exception: ${e.message}`);
+      }
+    }
+
+    async function checkRLS() {
+      if (!supabase) {
+        showResults('❌ Connect to Supabase first');
+        return;
+      }
+
+      showResults('Checking RLS policies...');
+
+      try {
+        // Try different operations to check permissions
+        const tests = {};
+
+        // Test SELECT
+        const { data: selectData, error: selectError } = await supabase
+          .from('frames')
+          .select('id')
+          .limit(1);
+        tests.SELECT = selectError ? `❌ ${selectError.message}` : '✅ Allowed';
+
+        // Test INSERT (with rollback via non-existent FK)
+        const testFrame = {
+          name: 'RLS_TEST_' + Date.now(),
+          category: 'test',
+          slots: [],
+          max_captures: 1
+        };
+        const { error: insertError } = await supabase
+          .from('frames')
+          .insert(testFrame)
+          .select();
+        tests.INSERT = insertError ? `❌ ${insertError.message}` : '✅ Allowed';
+
+        // If insert succeeded, delete the test frame
+        if (!insertError) {
+          await supabase
+            .from('frames')
+            .delete()
+            .eq('name', testFrame.name);
+        }
+
+        // Test UPDATE (on non-existent row - should fail gracefully)
+        const { error: updateError } = await supabase
+          .from('frames')
+          .update({ name: 'test' })
+          .eq('id', '00000000-0000-0000-0000-000000000000');
+        tests.UPDATE = updateError ? `❌ ${updateError.message}` : '✅ Allowed (no rows matched)';
+
+        showResults(JSON.stringify({ RLS_Policy_Tests: tests }, null, 2));
+
+      } catch (e) {
+        showResults(`❌ Exception: ${e.message}`);
+      }
+    }
+
+    async function clearAllFrames() {
+      if (!supabase) {
+        showResults('❌ Connect to Supabase first');
+        return;
+      }
+
+      if (!confirm('⚠️ DANGER: This will DELETE ALL frames!\n\nAre you sure?')) {
+        return;
+      }
+
+      if (!confirm('⚠️ FINAL WARNING: All frame data will be PERMANENTLY lost!\n\nType "yes" to confirm')) {
+        return;
+      }
+
+      showResults('Deleting all frames...');
+
+      try {
+        const { error } = await supabase
+          .from('frames')
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
+
+        if (error) {
+          showResults(`❌ Delete Error:\n${JSON.stringify(error, null, 2)}`);
+        } else {
+          showResults('✅ All frames deleted');
+          document.getElementById('frames-grid').innerHTML = 
+            '<p style="color: #9ca3af;">All frames deleted</p>';
+        }
+
+      } catch (e) {
+        showResults(`❌ Exception: ${e.message}`);
+      }
+    }
+
+    function showResults(text) {
+      document.getElementById('results').innerHTML = `<pre>${text}</pre>`;
+    }
+
+    function showFramesGrid(frames) {
+      const grid = document.getElementById('frames-grid');
+      grid.innerHTML = frames.map(f => `
+        <div class="frame-card">
+          <img src="${f.thumbnail_url || f.image_url || 'https://via.placeholder.com/200x300?text=No+Image'}" 
+               alt="${f.name}"
+               onerror="this.src='https://via.placeholder.com/200x300?text=Error'">
+          <h4>${f.name || 'Untitled'}</h4>
+          <p>${f.category || 'No category'}</p>
+          <p style="font-size: 10px; color: #9ca3af;">${f.id?.substring(0, 8)}...</p>
+        </div>
+      `).join('');
+    }
+  </script>
+</body>
+</html>

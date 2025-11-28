@@ -112,27 +112,56 @@ export const getAllCustomFrames = async () => {
 
   try {
     console.log('📊 Loading frames from Supabase...');
+    console.log('🔗 Supabase URL:', import.meta.env.VITE_SUPABASE_URL?.substring(0, 30) + '...');
     
-    // Add 10 second timeout for query
+    // First, let's check connection by counting rows
+    const { count, error: countError } = await supabase
+      .from(FRAMES_TABLE)
+      .select('*', { count: 'exact', head: true });
+    
+    if (countError) {
+      console.error('❌ Count error:', countError);
+      console.error('❌ Error code:', countError.code);
+      console.error('❌ Error details:', countError.details);
+      console.error('❌ Error hint:', countError.hint);
+    } else {
+      console.log('📊 Total frames in database:', count);
+    }
+    
+    // Add 15 second timeout for query (increased from 10s)
     const { data, error } = await withTimeout(
       supabase
         .from(FRAMES_TABLE)
         .select('*')
         .order('created_at', { ascending: false }),
-      10000,
-      'Supabase query timeout after 10s'
+      15000,
+      'Supabase query timeout after 15s'
     );
 
     if (error) {
       console.error('❌ Error loading frames:', error);
+      console.error('❌ Error code:', error.code);
+      console.error('❌ Error message:', error.message);
+      console.error('❌ Error details:', error.details);
       return [];
     }
 
-    console.log('✅ Loaded', data?.length || 0, 'frames');
+    console.log('✅ Loaded', data?.length || 0, 'frames from Supabase');
     
     if (!data || data.length === 0) {
       console.warn('⚠️ No frames found in Supabase');
+      console.warn('⚠️ Check if RLS policies are blocking access');
       return [];
+    }
+    
+    // Log first frame for debugging
+    if (data[0]) {
+      console.log('📋 First frame:', {
+        id: data[0].id,
+        name: data[0].name,
+        category: data[0].category,
+        has_image: !!data[0].image_url
+      });
     }
     
     return data.map(frame => ({

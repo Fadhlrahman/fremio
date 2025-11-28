@@ -182,12 +182,12 @@ export default function Frames() {
                   {category} ({framesByCategory.categoryMap[category].length})
                 </h3>
 
-                {/* Frames Grid - 5 columns max */}
+                {/* Frames Grid - 5 columns on desktop */}
                 <div 
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))",
-                    gap: "16px",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
+                    gap: "12px",
                     maxWidth: "100%",
                   }}
                 >
@@ -197,14 +197,13 @@ export default function Frames() {
                       className="frame-card group"
                       style={{
                         width: "100%",
-                        maxWidth: "200px",
                         display: "flex",
                         flexDirection: "column",
                         gap: "4px",
-                        padding: "12px",
+                        padding: "10px",
                         backgroundColor: "white",
                         border: "2px solid #e5e7eb",
-                        borderRadius: "14px",
+                        borderRadius: "12px",
                         boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
                         transition: "all 0.3s ease",
                         cursor: "pointer",

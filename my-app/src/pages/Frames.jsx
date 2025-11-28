@@ -6,6 +6,30 @@ import { getAllCustomFrames } from "../services/customFrameService";
 import { trackFrameView } from "../services/analyticsService";
 import { imagePresets } from "../utils/imageOptimizer";
 
+// CSS for responsive 5-column grid
+const gridStyles = `
+  .frames-grid-5col {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+  }
+  @media (max-width: 900px) {
+    .frames-grid-5col {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+  @media (max-width: 700px) {
+    .frames-grid-5col {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  @media (max-width: 500px) {
+    .frames-grid-5col {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+`;
+
 export default function Frames() {
   const navigate = useNavigate();
   const [customFrames, setCustomFrames] = useState([]);
@@ -13,6 +37,17 @@ export default function Frames() {
   const [imageErrors, setImageErrors] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
+
+  // Inject grid styles
+  useEffect(() => {
+    const styleId = 'frames-grid-styles';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = gridStyles;
+      document.head.appendChild(style);
+    }
+  }, []);
 
   // Helper: Get primary category (first one only)
   const getPrimaryCategory = (frame) => {
@@ -184,9 +219,10 @@ export default function Frames() {
 
                 {/* Frames Grid - 5 columns on desktop */}
                 <div 
+                  className="frames-grid-5col"
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
+                    gridTemplateColumns: "repeat(5, 1fr)",
                     gap: "12px",
                     maxWidth: "100%",
                   }}

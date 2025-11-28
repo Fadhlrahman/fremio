@@ -112,45 +112,36 @@ export const getAllCustomFrames = async () => {
 
   try {
     console.log('📊 Loading frames from Supabase...');
-    console.log('🔗 Supabase URL:', import.meta.env.VITE_SUPABASE_URL?.substring(0, 30) + '...');
     
-    // First, let's check connection by counting rows
-    const { count, error: countError } = await supabase
+    // Simple query without timeout wrapper first
+    const { data, error } = await supabase
       .from(FRAMES_TABLE)
-      .select('*', { count: 'exact', head: true });
-    
-    if (countError) {
-      console.error('❌ Count error:', countError);
-      console.error('❌ Error code:', countError.code);
-      console.error('❌ Error details:', countError.details);
-      console.error('❌ Error hint:', countError.hint);
-    } else {
-      console.log('📊 Total frames in database:', count);
-    }
-    
-    // Add 15 second timeout for query (increased from 10s)
-    const { data, error } = await withTimeout(
-      supabase
-        .from(FRAMES_TABLE)
-        .select('*')
-        .order('created_at', { ascending: false }),
-      15000,
-      'Supabase query timeout after 15s'
-    );
+      .select('*')
+      .order('created_at', { ascending: false });
 
     if (error) {
       console.error('❌ Error loading frames:', error);
       console.error('❌ Error code:', error.code);
       console.error('❌ Error message:', error.message);
       console.error('❌ Error details:', error.details);
+      console.error('❌ Error hint:', error.hint);
+      
+      // If RLS error, suggest fix
+      if (error.code === '42501' || error.message?.includes('permission') || error.message?.includes('policy')) {
+        console.error('🔐 This looks like an RLS policy issue!');
+        console.error('🔐 Go to Supabase Dashboard → Authentication → Policies');
+        console.error('🔐 Add a policy to allow SELECT on frames table');
+      }
+      
       return [];
     }
 
     console.log('✅ Loaded', data?.length || 0, 'frames from Supabase');
     
     if (!data || data.length === 0) {
-      console.warn('⚠️ No frames found in Supabase');
-      console.warn('⚠️ Check if RLS policies are blocking access');
+      console.warn('⚠️ No frames returned from Supabase');
+      console.warn('⚠️ Data exists in table but query returns empty - likely RLS issue');
+      console.warn('⚠️ Solution: Disable RLS or add SELECT policy for anon role');
       return [];
     }
     

@@ -582,8 +582,8 @@ export default function Create() {
   const [pendingPhotoTool, setPendingPhotoTool] = useState(false); // Show photo tool properties without adding element
   const previewFrameRef = useRef(null);
   const [previewConstraints, setPreviewConstraints] = useState({
-    maxWidth: 280,
-    maxHeight: 500,
+    maxWidth: 460,
+    maxHeight: 480,
   });
   const hasLoadedDraftRef = useRef(false);
   const isLoadingDraftRef = useRef(false); // NEW: Track when actively loading a draft
@@ -1126,6 +1126,27 @@ export default function Create() {
       const sourceWidth = Number(draft.canvasWidth) || targetDimensions.width;
       const sourceHeight =
         Number(draft.canvasHeight) || targetDimensions.height;
+      
+      console.log("📐 [loadDraftIntoEditor] Scaling info:", {
+        targetAspectRatio,
+        targetDimensions,
+        sourceWidth,
+        sourceHeight,
+        draftCanvasWidth: draft.canvasWidth,
+        draftCanvasHeight: draft.canvasHeight,
+        scaleX: targetDimensions.width / sourceWidth,
+        scaleY: targetDimensions.height / sourceHeight,
+        needsScaling: sourceWidth !== targetDimensions.width || sourceHeight !== targetDimensions.height,
+      });
+      
+      // DEBUG: Log element sizes before scaling
+      console.log("📐 [loadDraftIntoEditor] Elements BEFORE scaling:");
+      clonedElements.forEach((el, idx) => {
+        if (el.type === 'upload' || el.type === 'background-photo') {
+          console.log(`   ${idx}. ${el.type}: ${el.width}x${el.height} at (${el.x}, ${el.y})`);
+        }
+      });
+      
       const scaledElements = scaleDraftElements(
         clonedElements,
         sourceWidth,
@@ -1133,6 +1154,14 @@ export default function Create() {
         targetDimensions.width,
         targetDimensions.height
       );
+      
+      // DEBUG: Log element sizes after scaling
+      console.log("📐 [loadDraftIntoEditor] Elements AFTER scaling:");
+      scaledElements.forEach((el, idx) => {
+        if (el.type === 'upload' || el.type === 'background-photo') {
+          console.log(`   ${idx}. ${el.type}: ${el.width}x${el.height} at (${el.x}, ${el.y})`);
+        }
+      });
 
       const withoutTransparentAreas = Array.isArray(scaledElements)
         ? scaledElements.filter(
@@ -1814,7 +1843,7 @@ export default function Create() {
           }
 
           try {
-            const timeoutMs = element.type === "background-photo" ? 8000 : 6000; // Reduced timeout
+            const timeoutMs = element.type === "background-photo" ? 8000 : 6000;
             const img = await loadImageAsync(imageSource, { timeoutMs });
 
             if (
@@ -1825,9 +1854,10 @@ export default function Create() {
               throw new Error("Invalid image dimensions");
             }
 
-            // ⚡ ULTRA AGGRESSIVE: Smaller size and lower quality for faster saves
-            const maxWidth = element.type === "background-photo" ? 600 : 480; // Reduced from 800/600
-            const quality = element.type === "background-photo" ? 0.6 : 0.7; // Reduced from 0.65/0.75
+            // ✅ HIGH QUALITY: Keep frames at full resolution for good quality
+            // Frame artwork needs to stay crisp when displayed at 1080x1920
+            const maxWidth = element.type === "background-photo" ? 1080 : 1080; // Full canvas width
+            const quality = element.type === "background-photo" ? 0.85 : 0.9; // Higher quality
             let targetWidth = img.width;
             let targetHeight = img.height;
 
@@ -2133,6 +2163,17 @@ export default function Create() {
     );
   }, [isBackgroundLocked, showToast]);
 
+  const resetBackground = useCallback(() => {
+    // Reset to default cream color
+    setCanvasBackground("#f7f1ed");
+    // Also remove any background-photo element if exists
+    const bgPhotoElement = elements.find(el => el.type === "background-photo");
+    if (bgPhotoElement) {
+      removeElement(bgPhotoElement.id);
+    }
+    showToast("success", "Background direset ke default", 1500);
+  }, [elements, removeElement, setCanvasBackground, showToast]);
+
   const handleUseThisFrame = async () => {
     if (!activeDraftId) {
       showToast("error", "Tidak ada draft aktif untuk digunakan.");
@@ -2318,17 +2359,6 @@ export default function Create() {
   const toolButtons = useMemo(() => {
     const buttons = [
       {
-        id: "canvas-size",
-        label: "Ukuran Canvas",
-        mobileLabel: "Ukuran",
-        icon: Maximize2,
-        onClick: () => {
-          setShowCanvasSizeInProperties(true);
-          selectElement(null); // Deselect any element
-        },
-        isActive: showCanvasSizeInProperties,
-      },
-      {
         id: "background",
         label: "Background",
         mobileLabel: "Background",
@@ -2404,7 +2434,6 @@ export default function Create() {
     backgroundPhotoElement,
     triggerBackgroundUpload,
     isMobileView,
-    showCanvasSizeInProperties,
     pendingPhotoTool,
     clearSelection,
   ]);
@@ -3289,14 +3318,7 @@ export default function Create() {
                   if (id === null) {
                     clearSelection();
                   } else if (id === "background") {
-                    if (isBackgroundLocked) {
-                      showToast(
-                        "info",
-                        "Background dikunci. Unlock untuk mengedit.",
-                        2000
-                      );
-                      return;
-                    }
+                    // Allow selecting background even if locked (to show toolbar)
                     selectElement("background");
                   } else {
                     selectElement(id);
@@ -3308,6 +3330,9 @@ export default function Create() {
                 onDuplicate={duplicateElement}
                 onToggleLock={toggleLock}
                 onResizeUpload={resizeUploadImage}
+                isBackgroundLocked={isBackgroundLocked}
+                onToggleBackgroundLock={toggleBackgroundLock}
+                onResetBackground={resetBackground}
               />
             </div>
           </div>

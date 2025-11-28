@@ -317,13 +317,16 @@ export const buildFrameConfigFromDraft = (draft) => {
     }
   });
 
-  const maxCaptures =
-    uniquePhotoIndices.size > 0 ? uniquePhotoIndices.size : slots.length;
+  // CRITICAL FIX: maxCaptures should be the number of slots, NOT unique photoIndices
+  // Each slot represents a separate photo area, even if they were duplicated from the same element
+  // The photoIndex is just for ordering/matching photos to slots
+  const maxCaptures = slots.length;
 
   console.log("🔍 [buildFrameConfigFromDraft] maxCaptures calculation:", {
     slotsCount: slots.length,
     uniquePhotoIndices: Array.from(uniquePhotoIndices),
     maxCaptures,
+    note: "maxCaptures = slots.length (each slot needs a separate photo)",
     slotDetails: slots.map((s, i) => ({
       id: s.id,
       photoIndex: s.photoIndex,

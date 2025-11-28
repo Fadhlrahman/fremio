@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Trash2, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown, ChevronDown, ChevronUp, Lock, Unlock } from "lucide-react";
+import { X, Trash2, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown, ChevronDown, Lock, Unlock } from "lucide-react";
 import ColorPicker from "./ColorPicker.jsx";
 import "./PropertiesPanel.css";
 
@@ -24,29 +24,65 @@ const CollapsibleSection = ({ title, children, isOpen, onToggle }) => {
       style={{
         width: '100%',
         display: 'block',
-        boxSizing: 'border-box'
+        boxSizing: 'border-box',
+        borderRadius: '16px',
+        background: 'linear-gradient(to bottom right, #ffffff, #fefcfb, rgba(253, 247, 244, 0.8))',
+        boxShadow: isOpen 
+          ? '0 4px 20px rgba(224, 183, 169, 0.18)' 
+          : '0 2px 12px rgba(224, 183, 169, 0.1)',
+        overflow: 'hidden',
+        transition: 'all 0.3s ease-out',
+        border: isOpen ? '1px solid rgba(224, 183, 169, 0.25)' : '1px solid rgba(224, 183, 169, 0.08)'
       }}
-      className="rounded-2xl border-2 border-[#e0b7a9]/30 bg-gradient-to-br from-white to-[#fdf7f4]/60 shadow-[0_6px_20px_rgba(224,183,169,0.2)] backdrop-blur-sm overflow-hidden transition-all duration-300 hover:shadow-[0_8px_28px_rgba(224,183,169,0.3)] hover:border-[#e0b7a9]/50"
     >
       <button
         type="button"
         onClick={onToggle}
         style={{
           width: '100%',
-          boxSizing: 'border-box'
+          boxSizing: 'border-box',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '14px 18px',
+          background: isOpen 
+            ? 'linear-gradient(to right, rgba(253, 247, 244, 0.6), rgba(247, 235, 229, 0.4))' 
+            : 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          transition: 'all 0.3s ease-out'
         }}
-        className="flex items-center justify-between px-6 py-4 transition-all duration-300 hover:bg-gradient-to-r hover:from-[#f7e3da]/40 hover:to-[#f1cfc0]/30 active:scale-[0.99] group"
       >
-        <h4 className="text-base font-bold tracking-wide text-[#4a302b] transition-colors group-hover:text-[#e0b7a9]">
+        <h4 style={{
+          fontSize: '14px',
+          fontWeight: 600,
+          letterSpacing: '0.02em',
+          color: isOpen ? '#c89585' : '#5a3d38',
+          margin: 0,
+          transition: 'color 0.3s ease'
+        }}>
           {title}
         </h4>
-        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-[#e0b7a9]/10 transition-all duration-300 group-hover:bg-[#e0b7a9]/20 group-hover:scale-110">
-          {isOpen ? (
-            <ChevronUp size={18} className="text-[#e0b7a9] flex-shrink-0 transition-transform duration-300" strokeWidth={2.5} />
-          ) : (
-            <ChevronDown size={18} className="text-[#e0b7a9] flex-shrink-0 transition-transform duration-300" strokeWidth={2.5} />
-          )}
-        </div>
+        <motion.div 
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '28px',
+            height: '28px',
+            borderRadius: '50%',
+            background: isOpen ? 'rgba(224, 183, 169, 0.2)' : 'rgba(224, 183, 169, 0.1)',
+            transition: 'background 0.3s ease'
+          }}
+          animate={{ rotate: isOpen ? 180 : 0 }}
+          transition={{ duration: 0.3, ease: "easeInOut" }}
+        >
+          <ChevronDown 
+            size={16} 
+            style={{ color: isOpen ? '#c89585' : '#d4a99a' }}
+            strokeWidth={2.5} 
+          />
+        </motion.div>
       </button>
       
       <AnimatePresence>
@@ -55,10 +91,22 @@ const CollapsibleSection = ({ title, children, isOpen, onToggle }) => {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="w-full overflow-hidden"
+            transition={{ 
+              duration: 0.25, 
+              ease: [0.4, 0, 0.2, 1],
+              opacity: { duration: 0.2 }
+            }}
+            style={{ width: '100%', overflow: 'hidden' }}
           >
-            <div className="w-full px-6 pb-6 space-y-4 text-sm text-slate-600">
+            <div style={{ 
+              width: '100%', 
+              padding: '4px 18px 18px 18px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+              fontSize: '14px',
+              color: '#64748b'
+            }}>
               {children}
             </div>
           </motion.div>
@@ -320,6 +368,52 @@ export default function PropertiesPanel({
     </CollapsibleSection>
   );
 
+  // Shape types for shape picker
+  const shapeTypes = [
+    { id: 'rectangle', label: 'Kotak', icon: '▬' },
+    { id: 'circle', label: 'Lingkaran', icon: '●' },
+    { id: 'triangle', label: 'Segitiga', icon: '▲' },
+    { id: 'star', label: 'Bintang', icon: '★' },
+    { id: 'heart', label: 'Hati', icon: '♥' },
+    { id: 'diamond', label: 'Belah Ketupat', icon: '◆' },
+    { id: 'hexagon', label: 'Segi Enam', icon: '⬡' },
+    { id: 'pentagon', label: 'Segi Lima', icon: '⬠' },
+    { id: 'octagon', label: 'Segi Delapan', icon: '⯃' },
+    { id: 'arrow-right', label: 'Panah Kanan', icon: '➤' },
+    { id: 'arrow-up', label: 'Panah Atas', icon: '▲' },
+    { id: 'cross', label: 'Plus', icon: '✚' },
+  ];
+
+  const renderShapeTypeControls = () => (
+    <CollapsibleSection 
+      title="Pilih Bentuk" 
+      isOpen={openDropdown === 'pilih-bentuk'}
+      onToggle={() => setOpenDropdown(openDropdown === 'pilih-bentuk' ? null : 'pilih-bentuk')}
+    >
+      <div className="grid grid-cols-4 gap-2">
+        {shapeTypes.map((shape) => {
+          const isSelected = (selectedElement.data?.shapeType || 'rectangle') === shape.id;
+          return (
+            <button
+              key={shape.id}
+              type="button"
+              onClick={() => onUpdateElement(selectedElement.id, { data: { shapeType: shape.id } })}
+              className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all ${
+                isSelected
+                  ? "bg-gradient-to-br from-[#e0b7a9] to-[#d4a99a] text-white shadow-lg ring-2 ring-[#d4a99a]/50"
+                  : "bg-white border-2 border-[#e0b7a9]/20 text-slate-600 hover:border-[#e0b7a9]/40 hover:bg-[#fdf7f4]/50"
+              }`}
+              title={shape.label}
+            >
+              <span className="text-2xl leading-none">{shape.icon}</span>
+              <span className="text-[9px] mt-1 font-medium truncate w-full text-center">{shape.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </CollapsibleSection>
+  );
+
   const renderFillControls = ({ showBorderRadius = true } = {}) => (
     <CollapsibleSection 
       title="Warna & Bentuk" 
@@ -523,7 +617,7 @@ export default function PropertiesPanel({
         variants={panelVariant}
         initial="hidden"
         animate="visible"
-        className="flex h-full w-full flex-col gap-4"
+        className="flex h-full w-full flex-col gap-3"
       >
         {/* Lock Background Button */}
         <div className="w-full px-4 py-3">
@@ -573,42 +667,40 @@ export default function PropertiesPanel({
                 }
               }}
               style={{
-                padding: '8px 14px',
-                fontSize: '13px',
-                minHeight: '38px',
-                height: '38px',
-                maxHeight: '38px',
+                padding: '12px 16px',
+                fontSize: '14px',
+                minHeight: '44px',
                 fontWeight: '600',
                 background: 'linear-gradient(135deg, #f5e5df 0%, #ecddd5 50%, #e8d4c9 100%)',
                 color: '#4a302b',
-                border: '2px solid #f5e5df',
-                borderRadius: '12px',
-                boxShadow: '0 3px 12px rgba(245, 229, 223, 0.4)',
+                border: '1px solid rgba(224, 183, 169, 0.3)',
+                borderRadius: '14px',
+                boxShadow: '0 3px 12px rgba(224, 183, 169, 0.15)',
                 cursor: 'pointer',
                 transition: 'all 0.3s ease',
                 width: '100%',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                marginTop: '10px',
-                marginBottom: '10px'
+                gap: '8px'
               }}
               className="group relative overflow-hidden upload-bg-v4"
               onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'scale(1.02)';
-                e.currentTarget.style.boxShadow = '0 5px 16px rgba(245, 229, 223, 0.5)';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 5px 16px rgba(224, 183, 169, 0.25)';
                 e.currentTarget.style.background = 'linear-gradient(135deg, #ecddd5 0%, #e8d4c9 50%, #e0c5b8 100%)';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.boxShadow = '0 3px 12px rgba(245, 229, 223, 0.4)';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 3px 12px rgba(224, 183, 169, 0.15)';
                 e.currentTarget.style.background = 'linear-gradient(135deg, #f5e5df 0%, #ecddd5 50%, #e8d4c9 100%)';
               }}
             >
               {/* Shine effect */}
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 pointer-events-none" />
               
-              <span className="relative z-10">Unggah Foto Background</span>
+              <span style={{ fontSize: '16px' }}>📷</span>
+              <span className="relative z-10">Unggah Background</span>
             </button>
             
             {backgroundPhoto && (
@@ -637,59 +729,6 @@ export default function PropertiesPanel({
                 </button>
               </div>
             )}
-          </div>
-        </CollapsibleSection>
-
-        {/* Ukuran Canvas - Collapsible */}
-        <CollapsibleSection 
-          title="Ukuran Canvas" 
-          isOpen={openDropdown === 'ukuran-canvas'}
-          onToggle={() => setOpenDropdown(openDropdown === 'ukuran-canvas' ? null : 'ukuran-canvas')}
-        >
-          <div className="flex flex-col gap-3">
-            <div className="grid grid-cols-1 gap-2">
-              {[
-                { label: "Story Instagram", ratio: "9:16", desc: "1080 × 1920" },
-                { label: "Instagram Feeds", ratio: "4:5", desc: "1080 × 1350" },
-                { label: "Photostrip", ratio: "2:3", desc: "1200 × 1800" },
-              ].map((preset) => (
-                <button
-                  key={preset.ratio}
-                  onClick={() => {
-                    onCanvasAspectRatioChange?.(preset.ratio);
-                  }}
-                  className={`px-4 py-3 text-sm rounded-xl border-2 transition-all text-left ${
-                    canvasAspectRatio === preset.ratio
-                      ? "border-[#e0b7a9] bg-gradient-to-r from-[#fdf7f4] to-[#f5e5df] text-[#4a302b] font-semibold shadow-md"
-                      : "border-[#e0b7a9]/20 bg-white hover:border-[#e0b7a9]/40 hover:bg-[#fdf7f4]/30 text-slate-700"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-semibold">{preset.label}</div>
-                      <div className="text-xs text-slate-500 mt-0.5">{preset.desc}</div>
-                    </div>
-                    {canvasAspectRatio === preset.ratio && (
-                      <div className="w-5 h-5 rounded-full bg-[#e0b7a9] flex items-center justify-center">
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                          <path d="M10 3L4.5 8.5L2 6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                </button>
-              ))}
-            </div>
-            
-            {/* Current Ratio Display */}
-            <div className="bg-gradient-to-br from-[#fdf7f4] to-[#f5e5df] rounded-xl p-3 border border-[#e0b7a9]/20">
-              <div className="text-xs font-semibold text-[#e0b7a9] uppercase tracking-wider mb-1">
-                Rasio Saat Ini
-              </div>
-              <div className="text-lg font-bold text-[#4a302b]">
-                {canvasAspectRatio}
-              </div>
-            </div>
           </div>
         </CollapsibleSection>
 
@@ -802,6 +841,131 @@ export default function PropertiesPanel({
             })()}
           </div>
         </CollapsibleSection>
+
+        {/* Ukuran Canvas - Collapsible */}
+        <CollapsibleSection 
+          title="Ukuran Canvas" 
+          isOpen={openDropdown === 'ukuran-canvas'}
+          onToggle={() => setOpenDropdown(openDropdown === 'ukuran-canvas' ? null : 'ukuran-canvas')}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {[
+                { label: "Story Instagram", ratio: "9:16", desc: "1080 × 1920", icon: "📱" },
+                { label: "Instagram Feeds", ratio: "4:5", desc: "1080 × 1350", icon: "📷" },
+                { label: "Photostrip", ratio: "2:3", desc: "1200 × 1800", icon: "🎞️" },
+              ].map((preset) => {
+                const isSelected = canvasAspectRatio === preset.ratio;
+                return (
+                  <button
+                    key={preset.ratio}
+                    onClick={() => onCanvasAspectRatioChange?.(preset.ratio)}
+                    style={{
+                      padding: '14px 16px',
+                      borderRadius: '14px',
+                      border: isSelected 
+                        ? '2px solid #d4a99a' 
+                        : '1px solid rgba(224, 183, 169, 0.15)',
+                      background: isSelected 
+                        ? 'linear-gradient(135deg, #fdf7f4 0%, #f7ebe5 50%, #f1dfd6 100%)'
+                        : 'linear-gradient(135deg, #ffffff 0%, #fefcfb 100%)',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.25s ease',
+                      boxShadow: isSelected 
+                        ? '0 4px 16px rgba(212, 169, 154, 0.25), inset 0 1px 0 rgba(255,255,255,0.8)' 
+                        : '0 2px 8px rgba(224, 183, 169, 0.08)',
+                      transform: isSelected ? 'scale(1.02)' : 'scale(1)',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.border = '1px solid rgba(224, 183, 169, 0.35)';
+                        e.currentTarget.style.background = 'linear-gradient(135deg, #fefcfb 0%, #fdf7f4 100%)';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(224, 183, 169, 0.15)';
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.border = '1px solid rgba(224, 183, 169, 0.15)';
+                        e.currentTarget.style.background = 'linear-gradient(135deg, #ffffff 0%, #fefcfb 100%)';
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(224, 183, 169, 0.08)';
+                        e.currentTarget.style.transform = 'scale(1)';
+                      }
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span style={{ fontSize: '20px' }}>{preset.icon}</span>
+                        <div>
+                          <div style={{ 
+                            fontWeight: isSelected ? 700 : 600, 
+                            fontSize: '14px',
+                            color: isSelected ? '#4a302b' : '#5a3d38',
+                            marginBottom: '2px'
+                          }}>
+                            {preset.label}
+                          </div>
+                          <div style={{ 
+                            fontSize: '12px', 
+                            color: isSelected ? '#c89585' : '#9ca3af',
+                            fontWeight: 500
+                          }}>
+                            {preset.desc}
+                          </div>
+                        </div>
+                      </div>
+                      {isSelected && (
+                        <div style={{
+                          width: '24px',
+                          height: '24px',
+                          borderRadius: '50%',
+                          background: 'linear-gradient(135deg, #e0b7a9 0%, #d4a99a 100%)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          boxShadow: '0 2px 8px rgba(212, 169, 154, 0.4)'
+                        }}>
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M10 3L4.5 8.5L2 6" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            
+            {/* Current Ratio Display */}
+            <div style={{
+              background: 'linear-gradient(135deg, #fdf7f4 0%, #f7ebe5 50%, #f1dfd6 100%)',
+              borderRadius: '14px',
+              padding: '14px 16px',
+              border: '1px solid rgba(224, 183, 169, 0.2)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6)'
+            }}>
+              <div style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                color: '#c89585',
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                marginBottom: '4px'
+              }}>
+                Rasio Saat Ini
+              </div>
+              <div style={{
+                fontSize: '22px',
+                fontWeight: 800,
+                color: '#4a302b',
+                letterSpacing: '-0.02em'
+              }}>
+                {canvasAspectRatio}
+              </div>
+            </div>
+          </div>
+        </CollapsibleSection>
       </motion.div>
     );
   }
@@ -813,7 +977,7 @@ export default function PropertiesPanel({
         variants={panelVariant}
         initial="hidden"
         animate="visible"
-        className="flex h-full w-full flex-col gap-4"
+        className="flex h-full w-full flex-col gap-3"
       >
         {/* Ukuran Canvas Section */}
         <CollapsibleSection 
@@ -821,47 +985,119 @@ export default function PropertiesPanel({
           isOpen={true}
           onToggle={() => {}}
         >
-          <div className="flex flex-col gap-3">
-            <div className="grid grid-cols-1 gap-2">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {[
-                { label: "Story Instagram", ratio: "9:16", desc: "1080 × 1920" },
-                { label: "Instagram Feeds", ratio: "4:5", desc: "1080 × 1350" },
-                { label: "Photostrip", ratio: "2:3", desc: "1200 × 1800" },
-              ].map((preset) => (
-                <button
-                  key={preset.ratio}
-                  onClick={() => {
-                    onCanvasAspectRatioChange?.(preset.ratio);
-                  }}
-                  className={`px-4 py-3 text-sm rounded-xl border-2 transition-all text-left ${
-                    canvasAspectRatio === preset.ratio
-                      ? "border-[#e0b7a9] bg-gradient-to-r from-[#fdf7f4] to-[#f5e5df] text-[#4a302b] font-semibold shadow-md"
-                      : "border-[#e0b7a9]/20 bg-white hover:border-[#e0b7a9]/40 hover:bg-[#fdf7f4]/30 text-slate-700"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-semibold">{preset.label}</div>
-                      <div className="text-xs text-slate-500 mt-0.5">{preset.desc}</div>
-                    </div>
-                    {canvasAspectRatio === preset.ratio && (
-                      <div className="w-5 h-5 rounded-full bg-[#e0b7a9] flex items-center justify-center">
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                          <path d="M10 3L4.5 8.5L2 6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
+                { label: "Story Instagram", ratio: "9:16", desc: "1080 × 1920", icon: "📱" },
+                { label: "Instagram Feeds", ratio: "4:5", desc: "1080 × 1350", icon: "📷" },
+                { label: "Photostrip", ratio: "2:3", desc: "1200 × 1800", icon: "🎞️" },
+              ].map((preset) => {
+                const isSelected = canvasAspectRatio === preset.ratio;
+                return (
+                  <button
+                    key={preset.ratio}
+                    onClick={() => onCanvasAspectRatioChange?.(preset.ratio)}
+                    style={{
+                      padding: '14px 16px',
+                      borderRadius: '14px',
+                      border: isSelected 
+                        ? '2px solid #d4a99a' 
+                        : '1px solid rgba(224, 183, 169, 0.15)',
+                      background: isSelected 
+                        ? 'linear-gradient(135deg, #fdf7f4 0%, #f7ebe5 50%, #f1dfd6 100%)'
+                        : 'linear-gradient(135deg, #ffffff 0%, #fefcfb 100%)',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.25s ease',
+                      boxShadow: isSelected 
+                        ? '0 4px 16px rgba(212, 169, 154, 0.25), inset 0 1px 0 rgba(255,255,255,0.8)' 
+                        : '0 2px 8px rgba(224, 183, 169, 0.08)',
+                      transform: isSelected ? 'scale(1.02)' : 'scale(1)',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.border = '1px solid rgba(224, 183, 169, 0.35)';
+                        e.currentTarget.style.background = 'linear-gradient(135deg, #fefcfb 0%, #fdf7f4 100%)';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(224, 183, 169, 0.15)';
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.border = '1px solid rgba(224, 183, 169, 0.15)';
+                        e.currentTarget.style.background = 'linear-gradient(135deg, #ffffff 0%, #fefcfb 100%)';
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(224, 183, 169, 0.08)';
+                        e.currentTarget.style.transform = 'scale(1)';
+                      }
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span style={{ fontSize: '20px' }}>{preset.icon}</span>
+                        <div>
+                          <div style={{ 
+                            fontWeight: isSelected ? 700 : 600, 
+                            fontSize: '14px',
+                            color: isSelected ? '#4a302b' : '#5a3d38',
+                            marginBottom: '2px'
+                          }}>
+                            {preset.label}
+                          </div>
+                          <div style={{ 
+                            fontSize: '12px', 
+                            color: isSelected ? '#c89585' : '#9ca3af',
+                            fontWeight: 500
+                          }}>
+                            {preset.desc}
+                          </div>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                </button>
-              ))}
+                      {isSelected && (
+                        <div style={{
+                          width: '24px',
+                          height: '24px',
+                          borderRadius: '50%',
+                          background: 'linear-gradient(135deg, #e0b7a9 0%, #d4a99a 100%)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          boxShadow: '0 2px 8px rgba(212, 169, 154, 0.4)'
+                        }}>
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M10 3L4.5 8.5L2 6" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
             
             {/* Current Ratio Display */}
-            <div className="bg-gradient-to-br from-[#fdf7f4] to-[#f5e5df] rounded-xl p-3 border border-[#e0b7a9]/20">
-              <div className="text-xs font-semibold text-[#e0b7a9] uppercase tracking-wider mb-1">
+            <div style={{
+              background: 'linear-gradient(135deg, #fdf7f4 0%, #f7ebe5 50%, #f1dfd6 100%)',
+              borderRadius: '14px',
+              padding: '14px 16px',
+              border: '1px solid rgba(224, 183, 169, 0.2)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6)'
+            }}>
+              <div style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                color: '#c89585',
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                marginBottom: '4px'
+              }}>
                 Rasio Saat Ini
               </div>
-              <div className="text-lg font-bold text-[#4a302b]">
+              <div style={{
+                fontSize: '22px',
+                fontWeight: 800,
+                color: '#4a302b',
+                letterSpacing: '-0.02em'
+              }}>
                 {canvasAspectRatio}
               </div>
             </div>
@@ -878,7 +1114,7 @@ export default function PropertiesPanel({
         variants={panelVariant}
         initial="hidden"
         animate="visible"
-        className="flex h-full w-full flex-col gap-4"
+        className="flex h-full w-full flex-col gap-3"
       >
         <CollapsibleSection 
           title="Area Foto" 
@@ -963,15 +1199,14 @@ export default function PropertiesPanel({
       variants={panelVariant}
       initial="hidden"
       animate="visible"
-      className="flex h-full flex-col gap-4"
+      className="flex h-full flex-col gap-3"
     >
-      {selectedElement.type !== "background-photo" && renderSharedControls()}
-
       {selectedElement.type === "text" && renderTextControls()}
 
       {selectedElement.type === "shape" &&
         <>
-          {renderFillControls({ showBorderRadius: true })}
+          {renderShapeTypeControls()}
+          {renderFillControls({ showBorderRadius: (selectedElement.data?.shapeType || 'rectangle') === 'rectangle' })}
           {renderOutlineControls({ defaultColor: "#d9b9ab", maxWidth: 32 })}
         </>}
 
@@ -992,6 +1227,9 @@ export default function PropertiesPanel({
 
       {selectedElement.type === "background-photo" &&
         renderBackgroundPhotoControls()}
+
+      {/* Dimensi - dipindahkan ke bawah */}
+      {selectedElement.type !== "background-photo" && renderSharedControls()}
 
       <button
         type="button"

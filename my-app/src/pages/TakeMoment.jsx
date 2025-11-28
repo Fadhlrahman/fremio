@@ -644,6 +644,12 @@ export default function TakeMoment() {
   const [isEditorTransitioning, setIsEditorTransitioning] = useState(false);
   const [cameraError, setCameraError] = useState(null);
   const [liveModeEnabled, setLiveModeEnabled] = useState(true); // Live mode: video + photo
+  const [isDuplicateMode, setIsDuplicateMode] = useState(false); // Duplicate mode: each photo fills 2 slots
+
+  // Calculate photos needed based on duplicate mode - defined early to avoid reference errors
+  const photosNeeded = isDuplicateMode && maxCaptures > 1 
+    ? Math.ceil(maxCaptures / 2) 
+    : maxCaptures;
 
   const pendingStorageIdleRef = useRef(null);
   const pendingStorageTimeoutRef = useRef(null);
@@ -1189,9 +1195,9 @@ export default function TakeMoment() {
     previousCaptureCountRef.current = currentCount;
 
     if (
-      maxCaptures > 0 &&
-      currentCount >= maxCaptures &&
-      previousCount < maxCaptures &&
+      photosNeeded > 0 &&
+      currentCount >= photosNeeded &&
+      previousCount < photosNeeded &&
       currentCount > 0 &&
       previewSectionRef.current
     ) {
@@ -1222,7 +1228,7 @@ export default function TakeMoment() {
         performScroll();
       }
     }
-  }, [capturedPhotos.length, isMobile, maxCaptures]);
+  }, [capturedPhotos.length, isMobile, photosNeeded]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !isMobile) return;
@@ -1728,7 +1734,8 @@ export default function TakeMoment() {
     };
   }, [filterMode, cameraActive, displayMirror]);
 
-  const hasReachedMaxPhotos = capturedPhotos.length >= maxCaptures;
+  // photosNeeded is already defined earlier (near line 648)
+  const hasReachedMaxPhotos = capturedPhotos.length >= photosNeeded;
   const isCaptureDisabled =
     capturing || isVideoProcessing || hasReachedMaxPhotos;
 
@@ -2110,7 +2117,7 @@ export default function TakeMoment() {
           return;
         }
 
-        const availableSlots = Math.max(0, maxCaptures - capturedPhotos.length);
+        const availableSlots = Math.max(0, photosNeeded - capturedPhotos.length);
         const acceptedEntries = availableSlots
           ? validEntries.slice(0, availableSlots)
           : [];
@@ -2123,7 +2130,7 @@ export default function TakeMoment() {
           showToast({
             type: "warning",
             title: "Batas Maksimal Tercapai",
-            message: `Maksimal ${maxCaptures} foto untuk frame ini sudah tercapai.`,
+            message: `Maksimal ${photosNeeded} foto untuk frame ini sudah tercapai.`,
             action: {
               label: "Hapus Foto",
               onClick: () => setCapturedPhotos([]),
@@ -2669,7 +2676,7 @@ export default function TakeMoment() {
       showToast({
         type: "warning",
         title: "Batas Maksimal",
-        message: `Maksimal ${maxCaptures} foto sudah tercapai untuk frame ini!`,
+        message: `Maksimal ${photosNeeded} foto sudah tercapai untuk frame ini!`,
         action: {
           label: "Reset",
           onClick: () => setCapturedPhotos([]),
@@ -2927,6 +2934,16 @@ export default function TakeMoment() {
         : [];
 
       const appendedPhotos = [...basePhotos, photoEntry];
+      
+      // DEBUG: Log maxCaptures to verify it's correct before trimming
+      console.log("📷 [CAPTURE DEBUG] Photo capture state:", {
+        maxCaptures,
+        basePhotosCount: basePhotos.length,
+        appendedPhotosCount: appendedPhotos.length,
+        isDuplicateMode,
+        photosNeeded,
+      });
+      
       const trimmedPhotos = appendedPhotos.slice(0, maxCaptures);
       const overflowPhotos = appendedPhotos.slice(maxCaptures);
       overflowPhotos.forEach((entry) => cleanupCapturedPhotoPreview(entry));
@@ -3012,7 +3029,7 @@ export default function TakeMoment() {
       setCapturedVideos(trimmedVideos);
       
       // Check if this is the last photo - if so, save IMMEDIATELY
-      willReachMax = trimmedPhotos.length >= maxCaptures;
+      willReachMax = trimmedPhotos.length >= photosNeeded;
       
       if (willReachMax) {
         console.log("🔥 [FINAL PHOTO] Force immediate storage write!");
@@ -3223,14 +3240,14 @@ export default function TakeMoment() {
       });
     });
     
-    if (capturedPhotos.length < maxCaptures) {
+    if (capturedPhotos.length < photosNeeded) {
       console.log("❌ [handleEdit] EARLY RETURN - photos not complete");
       showToast({
         type: "warning",
         title: "Foto Belum Lengkap",
-        message: `Ambil ${maxCaptures - capturedPhotos.length} foto lagi (${
+        message: `Ambil ${photosNeeded - capturedPhotos.length} foto lagi (${
           capturedPhotos.length
-        }/${maxCaptures}).`,
+        }/${photosNeeded}).`,
       });
       return;
     }
@@ -3241,7 +3258,7 @@ export default function TakeMoment() {
     console.log("🆘 [EMERGENCY] Saving photos immediately...");
     try {
       // First, collect all dataUrls (only data: URLs, not blob: URLs)
-      const emergencyPhotos = capturedPhotos.map((p, idx) => {
+      let emergencyPhotos = capturedPhotos.map((p, idx) => {
         if (typeof p === 'string' && p.startsWith('data:')) {
           console.log(`   Photo ${idx}: Using direct string (data URL)`);
           return p;
@@ -3254,6 +3271,18 @@ export default function TakeMoment() {
         console.warn(`   Photo ${idx}: NO VALID DATA URL! dataUrl=${p?.dataUrl?.substring?.(0,30)}, previewUrl=${p?.previewUrl?.substring?.(0,30)}`);
         return null;
       }).filter(Boolean);
+      
+      // DUPLICATE MODE: If enabled, duplicate each photo for emergency save too
+      if (isDuplicateMode && maxCaptures > emergencyPhotos.length) {
+        console.log("🔁 [EMERGENCY DUPLICATE] Duplicating photos in emergency save...");
+        const duplicated = [];
+        for (let i = 0; i < emergencyPhotos.length; i++) {
+          duplicated.push(emergencyPhotos[i]);
+          duplicated.push(emergencyPhotos[i]);
+        }
+        emergencyPhotos = duplicated.slice(0, maxCaptures);
+        console.log("✅ [EMERGENCY DUPLICATE] Photos duplicated:", emergencyPhotos.length);
+      }
       
       console.log("🆘 [EMERGENCY] Photos to save:", emergencyPhotos.length);
       console.log("🆘 [EMERGENCY] First photo type:", typeof emergencyPhotos[0]);
@@ -3582,7 +3611,7 @@ export default function TakeMoment() {
     };
 
     try {
-      const photoPayloadSource = convertedPhotos.map(
+      let photoPayloadSource = convertedPhotos.map(
         (entry) => entry?.dataUrl ?? null
       );
       
@@ -3591,9 +3620,114 @@ export default function TakeMoment() {
       console.log("  - photoPayloadSource count:", photoPayloadSource.length);
       console.log("  - Has null values:", photoPayloadSource.some((value) => !value));
       console.log("  - First photo preview:", photoPayloadSource[0]?.substring(0, 50));
+      console.log("  - isDuplicateMode:", isDuplicateMode);
+      console.log("  - maxCaptures:", maxCaptures);
+      console.log("  - convertedVideos count:", convertedVideos.length);
       
       if (photoPayloadSource.some((value) => !value)) {
         throw new Error("Foto tidak lengkap untuk disimpan.");
+      }
+
+      // Prepare video source for potential duplication
+      let videoPayloadSource = [...convertedVideos];
+      
+      console.log("🎬 [VIDEO DEBUG] Before duplication check:");
+      console.log("  - videoPayloadSource.length:", videoPayloadSource.length);
+      console.log("  - maxCaptures:", maxCaptures);
+      console.log("  - isDuplicateMode:", isDuplicateMode);
+      console.log("  - Condition (isDuplicateMode && maxCaptures > 1):", isDuplicateMode && maxCaptures > 1);
+      console.log("  - Condition (videoPayloadSource.length < maxCaptures):", videoPayloadSource.length < maxCaptures);
+
+      // DUPLICATE MODE: If enabled, duplicate each photo AND video to fill all slots
+      // Example: 3 photos with 6 slots -> Photo1, Photo1, Photo2, Photo2, Photo3, Photo3
+      // Photos may already be duplicated from capture step, but videos need duplication here
+      if (isDuplicateMode && maxCaptures > 1) {
+        // Check if photos need duplication (may already be done in capture step)
+        if (photoPayloadSource.length < maxCaptures) {
+          console.log("🔁 [DUPLICATE MODE] Duplicating photos...");
+          console.log("  - Original photos:", photoPayloadSource.length);
+          console.log("  - Target slots:", maxCaptures);
+          
+          const duplicatedPhotos = [];
+          for (let i = 0; i < photoPayloadSource.length; i++) {
+            const photo = photoPayloadSource[i];
+            duplicatedPhotos.push(photo); // First copy
+            duplicatedPhotos.push(photo); // Duplicate copy
+          }
+          // Trim to maxCaptures in case we have odd number
+          photoPayloadSource = duplicatedPhotos.slice(0, maxCaptures);
+          
+          console.log("✅ [DUPLICATE MODE] Photos duplicated:", photoPayloadSource.length);
+        } else {
+          console.log("📸 [DUPLICATE MODE] Photos already at target count:", photoPayloadSource.length);
+        }
+        
+        // ALWAYS duplicate videos if they're less than maxCaptures
+        // Videos are NOT duplicated in capture step, only here
+        if (videoPayloadSource.length < maxCaptures) {
+          console.log("🔁 [DUPLICATE MODE] Duplicating videos...");
+          console.log("  - Original videos:", videoPayloadSource.length);
+          console.log("  - Target slots:", maxCaptures);
+          
+          const duplicatedVideos = [];
+          for (let i = 0; i < videoPayloadSource.length; i++) {
+            const video = videoPayloadSource[i];
+            if (video) {
+              // Create duplicate with unique IDs but same content
+              duplicatedVideos.push({ ...video, id: video.id || `video-${i * 2}` });
+              duplicatedVideos.push({ ...video, id: `${video.id || 'video'}-dup-${i * 2 + 1}` });
+            } else {
+              duplicatedVideos.push(null);
+              duplicatedVideos.push(null);
+            }
+          }
+          // Trim to maxCaptures
+          videoPayloadSource = duplicatedVideos.slice(0, maxCaptures);
+          
+          console.log("✅ [DUPLICATE MODE] Videos duplicated:", videoPayloadSource.length);
+        } else {
+          console.log("🎬 [DUPLICATE MODE] Videos already at target count:", videoPayloadSource.length);
+        }
+      }
+      
+      // SAFETY CHECK: If photos count > videos count, duplicate videos to match
+      // This handles cases where photos were duplicated but videos weren't
+      console.log("🔍 [SAFETY CHECK] Before duplication check:");
+      console.log("  - photoPayloadSource.length:", photoPayloadSource.length);
+      console.log("  - videoPayloadSource.length:", videoPayloadSource.length);
+      console.log("  - Condition (photos > videos):", photoPayloadSource.length > videoPayloadSource.length);
+      console.log("  - Condition (videos > 0):", videoPayloadSource.length > 0);
+      
+      if (photoPayloadSource.length > videoPayloadSource.length && videoPayloadSource.length > 0) {
+        console.log("⚠️ [SAFETY] Photo/Video count mismatch, duplicating videos to match...");
+        console.log("  - Photos:", photoPayloadSource.length);
+        console.log("  - Videos:", videoPayloadSource.length);
+        
+        const duplicatedVideos = [];
+        const targetCount = photoPayloadSource.length;
+        const originalCount = videoPayloadSource.length;
+        
+        // Each original video should be duplicated to fill slots
+        // ratio = targetCount / originalCount (e.g., 6/3 = 2)
+        const ratio = Math.ceil(targetCount / originalCount);
+        
+        for (let i = 0; i < originalCount; i++) {
+          const video = videoPayloadSource[i];
+          for (let j = 0; j < ratio; j++) {
+            if (duplicatedVideos.length >= targetCount) break;
+            if (video) {
+              duplicatedVideos.push({ 
+                ...video, 
+                id: j === 0 ? (video.id || `video-${i}`) : `${video.id || 'video'}-dup-${i}-${j}` 
+              });
+            } else {
+              duplicatedVideos.push(null);
+            }
+          }
+        }
+        
+        videoPayloadSource = duplicatedVideos.slice(0, targetCount);
+        console.log("✅ [SAFETY] Videos duplicated to match photos:", videoPayloadSource.length);
       }
 
       // Flush any pending writes first
@@ -3602,11 +3736,12 @@ export default function TakeMoment() {
       // NOTE: Do NOT call cleanUpStorage() here - it would read empty storage and write empty back!
       // cleanUpStorage() should only be called AFTER photos are written
 
-      const basePayload = preparePayload(photoPayloadSource, convertedVideos);
+      const basePayload = preparePayload(photoPayloadSource, videoPayloadSource);
       const storageSize = calculateStorageSize(basePayload);
       
       console.log("📸 [SAVE DEBUG] Storage preparation:");
       console.log("  - Payload photos count:", basePayload.photos.length);
+      console.log("  - Payload videos count:", basePayload.videos.length);
       console.log("  - Storage size:", storageSize.mb, "MB");
 
       if (parseFloat(storageSize.mb) > 4) {
@@ -3621,7 +3756,7 @@ export default function TakeMoment() {
         );
         const emergencyPayload = preparePayload(
           emergencyCompressedBase,
-          convertedVideos
+          videoPayloadSource
         );
         
         // Try direct localStorage first, then fallback to safeStorage
@@ -3895,6 +4030,8 @@ export default function TakeMoment() {
     flushStorageWrite,
     getFrameCompressionProfile,
     maxCaptures,
+    photosNeeded,
+    isDuplicateMode,
     navigate,
     scheduleStorageWrite,
     stopCamera,
@@ -4035,7 +4172,7 @@ export default function TakeMoment() {
                 color: "#94a3b8",
               }}
             >
-              {capturedPhotos.length}/{maxCaptures}
+              {capturedPhotos.length}/{photosNeeded}
             </span>
           )}
         </header>
@@ -4156,29 +4293,29 @@ export default function TakeMoment() {
 
         <button
           onClick={handleEdit}
-          disabled={capturedPhotos.length < maxCaptures}
+          disabled={capturedPhotos.length < photosNeeded}
           style={{
             width: "100%",
             padding: isMobileVariant ? "0.75rem" : "0.65rem",
             background:
-              capturedPhotos.length >= maxCaptures ? "#1E293B" : "#d7dde5",
+              capturedPhotos.length >= photosNeeded ? "#1E293B" : "#d7dde5",
             color: "white",
             border: "none",
             borderRadius: "999px",
             fontSize: isMobileVariant ? "0.95rem" : "0.88rem",
             fontWeight: 600,
             cursor:
-              capturedPhotos.length >= maxCaptures ? "pointer" : "not-allowed",
+              capturedPhotos.length >= photosNeeded ? "pointer" : "not-allowed",
             boxShadow: isMobileVariant
               ? "0 8px 16px rgba(0,0,0,0.1)"
               : "0 14px 28px rgba(30,41,59,0.15)",
             transition: "transform 0.2s ease",
-            opacity: capturedPhotos.length >= maxCaptures ? 1 : 0.7,
+            opacity: capturedPhotos.length >= photosNeeded ? 1 : 0.7,
           }}
         >
-          {capturedPhotos.length >= maxCaptures
+          {capturedPhotos.length >= photosNeeded
             ? "✨ Edit Photos"
-            : `📝 ${capturedPhotos.length}/${maxCaptures} foto`}
+            : `📝 ${capturedPhotos.length}/${photosNeeded} foto`}
         </button>
       </div>
     );
@@ -4231,26 +4368,26 @@ export default function TakeMoment() {
         />
         <button
           onClick={() => {
-            if (capturedPhotos.length >= maxCaptures) return;
+            if (capturedPhotos.length >= photosNeeded) return;
             fileInputRef.current?.click();
           }}
-          disabled={capturedPhotos.length >= maxCaptures}
+          disabled={capturedPhotos.length >= photosNeeded}
           title={
-            capturedPhotos.length >= maxCaptures
+            capturedPhotos.length >= photosNeeded
               ? "Maksimal foto sudah tercapai"
               : "Pilih file dari galeri"
           }
           style={{
             padding: isMobileVariant ? "0.65rem 0.85rem" : "0.7rem 1.35rem",
             background:
-              capturedPhotos.length >= maxCaptures ? "#f1f5f9" : "#fff",
-            color: capturedPhotos.length >= maxCaptures ? "#94a3b8" : "#333",
+              capturedPhotos.length >= photosNeeded ? "#f1f5f9" : "#fff",
+            color: capturedPhotos.length >= photosNeeded ? "#94a3b8" : "#333",
             border: "1px solid #e2e8f0",
             borderRadius: "999px",
             fontSize: isMobileVariant ? "0.92rem" : "1rem",
             fontWeight: 500,
             cursor:
-              capturedPhotos.length >= maxCaptures ? "not-allowed" : "pointer",
+              capturedPhotos.length >= photosNeeded ? "not-allowed" : "pointer",
             boxShadow: "0 12px 24px rgba(15,23,42,0.08)",
             display: "flex",
             alignItems: "center",
@@ -4259,11 +4396,11 @@ export default function TakeMoment() {
             gridColumn: "1",
           }}
         >
-          {capturedPhotos.length >= maxCaptures
+          {capturedPhotos.length >= photosNeeded
             ? "Max photos reached"
             : isMobileVariant
             ? "Upload dari galeri"
-            : `Choose file (${maxCaptures - capturedPhotos.length} left)`}
+            : `Choose file (${photosNeeded - capturedPhotos.length} left)`}
         </button>
 
         {shouldShowTimer ? (
@@ -4345,6 +4482,46 @@ export default function TakeMoment() {
                 <span>🎥 Live Mode</span>
               </label>
             </div>
+
+            {/* Duplicate Mode Toggle - only show when maxCaptures > 1 */}
+            {maxCaptures > 1 && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  marginLeft: isMobileVariant ? 0 : "0.5rem",
+                }}
+              >
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.4rem",
+                    cursor: capturing ? "not-allowed" : "pointer",
+                    fontSize: isMobileVariant ? "0.88rem" : "0.95rem",
+                    fontWeight: isMobileVariant ? 600 : 500,
+                    color: isDuplicateMode 
+                      ? "#8B5CF6" 
+                      : (isMobileVariant ? "#1E293B" : "#475569"),
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isDuplicateMode}
+                    onChange={(e) => setIsDuplicateMode(e.target.checked)}
+                    disabled={capturing || capturedPhotos.length > 0}
+                    style={{
+                      width: "18px",
+                      height: "18px",
+                      cursor: capturing || capturedPhotos.length > 0 ? "not-allowed" : "pointer",
+                      accentColor: "#8B5CF6",
+                    }}
+                  />
+                  <span>🔁 Duplikat ({photosNeeded} foto)</span>
+                </label>
+              </div>
+            )}
           </div>
         ) : (
           <div
@@ -4868,7 +5045,8 @@ export default function TakeMoment() {
               textAlign: "center",
             }}
           >
-            Foto: {capturedPhotos.length}/{maxCaptures}
+            Foto: {capturedPhotos.length}/{photosNeeded}
+            {isDuplicateMode && <span style={{ color: "#8B5CF6", marginLeft: "4px" }}>🔁</span>}
             {hasReachedMaxPhotos && " - maksimal tercapai!"}
           </div>
 
@@ -4893,7 +5071,7 @@ export default function TakeMoment() {
               justifyContent: "center",
             }}
           >
-            {capturedPhotos.length >= maxCaptures
+            {capturedPhotos.length >= photosNeeded
               ? "🚫"
               : capturing
               ? `⏳ ${countdown ?? timer}s`
@@ -4959,7 +5137,8 @@ export default function TakeMoment() {
             textAlign: "center",
           }}
         >
-          Foto: {capturedPhotos.length}/{maxCaptures}
+          Foto: {capturedPhotos.length}/{photosNeeded}
+          {isDuplicateMode && <span style={{ color: "#8B5CF6", marginLeft: "4px" }}>🔁</span>}
           {hasReachedMaxPhotos && " - maksimal tercapai!"}
         </div>
       </div>

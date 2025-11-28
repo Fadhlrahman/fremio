@@ -271,19 +271,17 @@
 
 .create-preview__frame {
   width: 100%;
-  max-width: 700px;
+  max-width: 500px;
   padding: 20px;
-  border-radius: 0;
-  border: none;
+  border-radius: 16px;
+  border: 1px solid rgba(224, 183, 169, 0.2);
   background: #ffffff;
   display: flex;
   justify-content: center;
   align-items: center;
-  box-shadow: none;
+  box-shadow: 0 4px 20px rgba(224, 183, 169, 0.15);
   position: relative;
-  height: auto;
-  min-height: 600px;
-  max-height: 1000px;
+  height: 520px;
   margin: 0 auto;
 }
 

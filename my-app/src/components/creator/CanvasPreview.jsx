@@ -217,13 +217,20 @@ const getElementStyle = (element, isSelected) => {
     case "shape": {
       const strokeWidth = Number(element.data?.strokeWidth ?? 0);
       const hasStroke = Boolean(element.data?.stroke) && strokeWidth > 0;
+      const shapeType = element.data?.shapeType || 'rectangle';
+      
+      // For non-rectangular shapes, we use transparent background and render SVG
+      const isRectangular = shapeType === 'rectangle';
+      const isCircle = shapeType === 'circle';
+      
       return {
-        background: element.data?.fill ?? "#f4d3c2",
-        backgroundColor: element.data?.fill ?? "#f4d3c2",
-        borderRadius: `${element.data?.borderRadius ?? 24}px`,
-        border: hasStroke
+        background: isRectangular || isCircle ? (element.data?.fill ?? "#f4d3c2") : "transparent",
+        backgroundColor: isRectangular || isCircle ? (element.data?.fill ?? "#f4d3c2") : "transparent",
+        borderRadius: isCircle ? '50%' : (isRectangular ? `${element.data?.borderRadius ?? 24}px` : '0'),
+        border: (isRectangular || isCircle) && hasStroke
           ? `${strokeWidth}px solid ${element.data.stroke}`
           : "none",
+        overflow: "visible",
       };
     }
     case "upload":
@@ -361,11 +368,92 @@ const ElementContent = forwardRef(
     }
 
     if (element.type === "shape") {
-      return <div style={style} />;
+      const shapeType = element.data?.shapeType || 'rectangle';
+      const fill = element.data?.fill ?? "#f4d3c2";
+      const stroke = element.data?.stroke;
+      const strokeWidth = Number(element.data?.strokeWidth ?? 0);
+      const hasStroke = Boolean(stroke) && strokeWidth > 0;
+      
+      // Rectangle and circle use CSS, others use SVG
+      if (shapeType === 'rectangle' || shapeType === 'circle') {
+        return <div style={style} />;
+      }
+      
+      // SVG shapes
+      const svgProps = {
+        width: "100%",
+        height: "100%",
+        viewBox: "0 0 100 100",
+        preserveAspectRatio: "none",
+        style: { display: 'block' }
+      };
+      
+      const shapeProps = {
+        fill: fill,
+        stroke: hasStroke ? stroke : "none",
+        strokeWidth: hasStroke ? (strokeWidth / Math.min(element.width, element.height) * 100) : 0,
+      };
+      
+      let svgContent;
+      switch (shapeType) {
+        case 'triangle':
+          svgContent = <polygon points="50,5 95,95 5,95" {...shapeProps} />;
+          break;
+        case 'star':
+          svgContent = <polygon points="50,5 61,40 98,40 68,62 79,97 50,75 21,97 32,62 2,40 39,40" {...shapeProps} />;
+          break;
+        case 'heart':
+          svgContent = <path d="M50,88 C20,60 5,40 5,25 C5,10 20,5 35,5 C45,5 50,15 50,15 C50,15 55,5 65,5 C80,5 95,10 95,25 C95,40 80,60 50,88 Z" {...shapeProps} />;
+          break;
+        case 'hexagon':
+          svgContent = <polygon points="50,3 93,25 93,75 50,97 7,75 7,25" {...shapeProps} />;
+          break;
+        case 'diamond':
+          svgContent = <polygon points="50,5 95,50 50,95 5,50" {...shapeProps} />;
+          break;
+        case 'pentagon':
+          svgContent = <polygon points="50,5 97,38 79,95 21,95 3,38" {...shapeProps} />;
+          break;
+        case 'octagon':
+          svgContent = <polygon points="30,5 70,5 95,30 95,70 70,95 30,95 5,70 5,30" {...shapeProps} />;
+          break;
+        case 'arrow-right':
+          svgContent = <polygon points="5,30 60,30 60,10 95,50 60,90 60,70 5,70" {...shapeProps} />;
+          break;
+        case 'arrow-up':
+          svgContent = <polygon points="50,5 90,40 70,40 70,95 30,95 30,40 10,40" {...shapeProps} />;
+          break;
+        case 'cross':
+          svgContent = <polygon points="35,5 65,5 65,35 95,35 95,65 65,65 65,95 35,95 35,65 5,65 5,35 35,35" {...shapeProps} />;
+          break;
+        case 'line-horizontal':
+          svgContent = <rect x="0" y="45" width="100" height="10" {...shapeProps} />;
+          break;
+        case 'line-vertical':
+          svgContent = <rect x="45" y="0" width="10" height="100" {...shapeProps} />;
+          break;
+        default:
+          return <div style={style} />;
+      }
+      
+      return (
+        <div style={{ ...style, background: 'transparent', backgroundColor: 'transparent' }}>
+          <svg {...svgProps}>{svgContent}</svg>
+        </div>
+      );
     }
 
     if (element.type === "upload") {
       const isCapturedOverlay = element.data?.__capturedOverlay === true;
+      
+      // Always use "fill" to stretch image to container size
+      // This ensures the image fills the entire element bounds
+      console.log("🖼️ Upload element rendering:", {
+        id: element.id?.slice(0, 8),
+        width: element.width,
+        height: element.height,
+      });
+      
       return (
         <div
           style={style}
@@ -379,10 +467,12 @@ const ElementContent = forwardRef(
             <img
               src={element.data.image}
               alt="Unggahan"
-              className="h-full w-full object-cover"
               style={{
-                objectFit: element.data?.objectFit ?? "cover",
+                width: "100%",
+                height: "100%",
+                objectFit: "fill",
                 pointerEvents: "none",
+                display: "block",
               }}
               draggable={false}
             />
@@ -536,10 +626,14 @@ function CanvasPreviewComponent({
   onDuplicate,
   onToggleLock,
   onResizeUpload,
+  isBackgroundLocked = false,
+  onToggleBackgroundLock,
+  onResetBackground,
 }) {
   // State for text editing mode
   const [editingTextId, setEditingTextId] = useState(null);
   const [editingTextValue, setEditingTextValue] = useState("");
+  const [showBackgroundToolbar, setShowBackgroundToolbar] = useState(false);
   const textInputRef = useRef(null);
   const backgroundTouchRef = useRef(null);
   const interactionMetaRef = useRef(new Map());
@@ -690,7 +784,16 @@ function CanvasPreviewComponent({
   const previewScale = useMemo(() => {
     const scaleX = maxWidth / canvasDimensions.width;
     const scaleY = maxHeight / canvasDimensions.height;
-    return Math.min(scaleX, scaleY, 1);
+    const scale = Math.min(scaleX, scaleY, 1);
+    console.log("📏 [CanvasPreview] previewScale calculated:", {
+      canvasDimensions,
+      maxWidth,
+      maxHeight,
+      scaleX,
+      scaleY,
+      previewScale: scale,
+    });
+    return scale;
   }, [maxWidth, maxHeight, canvasDimensions.width, canvasDimensions.height]);
 
   const scaledSize = useMemo(
@@ -797,8 +900,17 @@ function CanvasPreviewComponent({
       backgroundMeta.didTriggerTap = false;
       return;
     }
+    // Toggle background toolbar visibility
+    setShowBackgroundToolbar(prev => !prev);
     onSelect("background", { interaction: "tap" });
   };
+
+  // Hide background toolbar when an element is selected
+  useEffect(() => {
+    if (selectedElementId && selectedElementId !== "background") {
+      setShowBackgroundToolbar(false);
+    }
+  }, [selectedElementId]);
 
   // Add native touch event listeners for background photo
   // Ultra-smooth pinch-to-zoom using CSS transforms
@@ -1080,9 +1192,96 @@ function CanvasPreviewComponent({
         width: `${scaledSize.width}px`,
         height: `${scaledSize.height}px`,
         position: "relative",
-        overflow: "hidden",
+        overflow: "visible",
       }}
     >
+      {/* Background Toolbar - appears above canvas when background is clicked */}
+      {showBackgroundToolbar && selectedElementId === "background" && (
+        <div
+          style={{
+            position: "absolute",
+            top: "-60px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            display: "flex",
+            gap: "10px",
+            zIndex: 10001,
+            pointerEvents: "auto",
+          }}
+        >
+          {/* Lock/Unlock Button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleBackgroundLock?.();
+            }}
+            style={{
+              width: "48px",
+              height: "48px",
+              borderRadius: "12px",
+              background: isBackgroundLocked
+                ? "linear-gradient(135deg, #f7a998 0%, #e89985 100%)"
+                : "#ffffff",
+              border: "2px solid #f7a998",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: isBackgroundLocked
+                ? "0 4px 12px rgba(247, 169, 152, 0.4)"
+                : "0 2px 8px rgba(0, 0, 0, 0.15)",
+              transition: "all 0.2s ease",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.1)")}
+            onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+            title={isBackgroundLocked ? "Buka Kunci Background" : "Kunci Background"}
+          >
+            <img
+              src={isBackgroundLocked ? lockIcon : unlockIcon}
+              alt={isBackgroundLocked ? "Locked" : "Unlocked"}
+              style={{ width: "28px", height: "28px" }}
+            />
+          </button>
+
+          {/* Reset/Delete Background Button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!isBackgroundLocked) {
+                onResetBackground?.();
+                setShowBackgroundToolbar(false);
+              }
+            }}
+            style={{
+              width: "48px",
+              height: "48px",
+              borderRadius: "12px",
+              background: isBackgroundLocked ? "#e5e7eb" : "#ffffff",
+              border: "2px solid #f7a998",
+              cursor: isBackgroundLocked ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+              transition: "all 0.2s ease",
+              opacity: isBackgroundLocked ? 0.5 : 1,
+            }}
+            onMouseEnter={(e) => {
+              if (!isBackgroundLocked) e.currentTarget.style.transform = "scale(1.1)";
+            }}
+            onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+            title={isBackgroundLocked ? "Background Terkunci" : "Reset Background"}
+            disabled={isBackgroundLocked}
+          >
+            <img
+              src={trashIcon}
+              alt="Reset Background"
+              style={{ width: "28px", height: "28px" }}
+            />
+          </button>
+        </div>
+      )}
+
       <Motion.div
         key={`canvas-${aspectRatio}-${canvasDimensions.width}-${canvasDimensions.height}`}
         id="creator-canvas"
@@ -1117,6 +1316,15 @@ function CanvasPreviewComponent({
         }}
       >
         {sortedElements.map((element) => {
+          // Debug ALL elements to see their sizes
+          console.log(`� [Rnd] Element ${element.type}:`, {
+            id: element.id?.slice(0, 8),
+            width: element.width,
+            height: element.height,
+            x: element.x,
+            y: element.y,
+            zIndex: element.zIndex,
+          });
           const isSelected = selectedElementId === element.id;
           const isBackgroundPhoto = element.type === "background-photo";
           const backgroundAspectRatio = isBackgroundPhoto
@@ -1438,6 +1646,9 @@ function CanvasPreviewComponent({
             <Rnd
               key={element.id}
               data-element-id={element.id}
+              data-element-type={element.type}
+              data-element-width={element.width}
+              data-element-height={element.height}
               data-element-zindex={
                 Number.isFinite(element.zIndex) ? element.zIndex : undefined
               }
@@ -1663,7 +1874,17 @@ function CanvasPreviewComponent({
                     data-export-ignore="true"
                     style={{
                       position: "absolute",
-                      top: -76,
+                      // Dynamic positioning: show below if element is near top, otherwise show above
+                      ...(element.y < 100 
+                        ? { 
+                            bottom: -76,
+                            top: 'auto'
+                          } 
+                        : { 
+                            top: -76,
+                            bottom: 'auto'
+                          }
+                      ),
                       left: "50%",
                       transform: "translateX(-50%)",
                       display: "flex",

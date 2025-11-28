@@ -91,6 +91,17 @@ const uploadImageToStorage = async (file, fileName) => {
 };
 
 /**
+ * Helper: Promise with timeout
+ */
+const withTimeout = (promise, ms, errorMessage = 'Request timeout') => {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(errorMessage)), ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+};
+
+/**
  * Get all custom frames
  */
 export const getAllCustomFrames = async () => {
@@ -101,17 +112,29 @@ export const getAllCustomFrames = async () => {
 
   try {
     console.log('📊 Loading frames from Supabase...');
-    const { data, error } = await supabase
-      .from(FRAMES_TABLE)
-      .select('*')
-      .order('created_at', { ascending: false });
+    
+    // Add 10 second timeout for query
+    const { data, error } = await withTimeout(
+      supabase
+        .from(FRAMES_TABLE)
+        .select('*')
+        .order('created_at', { ascending: false }),
+      10000,
+      'Supabase query timeout after 10s'
+    );
 
     if (error) {
       console.error('❌ Error loading frames:', error);
       return [];
     }
 
-    console.log('✅ Loaded', data.length, 'frames');
+    console.log('✅ Loaded', data?.length || 0, 'frames');
+    
+    if (!data || data.length === 0) {
+      console.warn('⚠️ No frames found in Supabase');
+      return [];
+    }
+    
     return data.map(frame => ({
       ...frame,
       // Map snake_case to camelCase for compatibility

@@ -360,7 +360,48 @@ export default function EditPhoto() {
           const validVideoCount = normalizedVideos.filter(
             (v) => v && (v.dataUrl || v.blob)
           ).length;
-          setVideos(normalizedVideos);
+          
+          // DUPLICATE MODE FIX: If we have fewer videos than photos, duplicate videos to match
+          // This handles cases where TakeMoment didn't duplicate videos properly
+          if (normalizedVideos.length > 0 && resolvedPhotos.length > normalizedVideos.length) {
+            console.log("🔁 [EDITPHOTO] Duplicating videos to match photos...");
+            console.log("  - Photos count:", resolvedPhotos.length);
+            console.log("  - Videos count:", normalizedVideos.length);
+            
+            const targetCount = resolvedPhotos.length;
+            const originalCount = normalizedVideos.length;
+            const duplicatedVideos = [];
+            
+            // Calculate ratio: how many times each video should be duplicated
+            const ratio = Math.ceil(targetCount / originalCount);
+            
+            for (let i = 0; i < originalCount; i++) {
+              const video = normalizedVideos[i];
+              for (let j = 0; j < ratio; j++) {
+                if (duplicatedVideos.length >= targetCount) break;
+                if (video) {
+                  duplicatedVideos.push({
+                    ...video,
+                    id: j === 0 ? video.id : `${video.id}-dup-${j}`,
+                  });
+                } else {
+                  duplicatedVideos.push(null);
+                }
+              }
+            }
+            
+            // Use duplicated videos
+            const finalVideos = duplicatedVideos.slice(0, targetCount);
+            setVideos(finalVideos);
+            
+            console.log("✅ [EDITPHOTO] Videos duplicated:", {
+              originalCount,
+              targetCount,
+              finalCount: finalVideos.length,
+            });
+          } else {
+            setVideos(normalizedVideos);
+          }
 
           console.log("✅ Videos normalized:", {
             totalEntries: resolvedVideos.length,
@@ -2515,7 +2556,13 @@ export default function EditPhoto() {
                   console.log("📹 Preparing videos...", {
                     totalVideos: videos.length,
                     photoSlots: photoSlots.length,
+                    designerElementsCount: designerElements.length,
                   });
+                  
+                  // CRITICAL FIX: Use the greater of videos.length or photoSlots.length
+                  // This ensures all videos are processed even if photoSlots doesn't match
+                  const targetVideoCount = Math.max(videos.length, photoSlots.length);
+                  console.log("📹 Target video count:", targetVideoCount);
 
                   // Log video metadata to verify source and duration
                   videos.forEach((v, idx) => {
@@ -2532,9 +2579,8 @@ export default function EditPhoto() {
                   });
 
                   // Load videos into video elements (PARALLEL loading for performance)
-                  const loadVideoPromises = videos
-                    .slice(0, photoSlots.length)
-                    .map((videoData, i) => {
+                  // FIX: Don't slice - process ALL videos to avoid missing videos
+                  const loadVideoPromises = videos.map((videoData, i) => {
                       if (
                         !videoData ||
                         (!videoData.dataUrl && !videoData.blob)
@@ -2585,9 +2631,14 @@ export default function EditPhoto() {
                               videoEl.duration > 0);
 
                           if (isReady) {
+                            // FIX: Create a fallback slot if photoSlots[i] doesn't exist
+                            const actualSlot = photoSlots[i] || {
+                              id: `virtual-slot-${i}`,
+                              data: { photoIndex: i }
+                            };
                             resolve({
                               video: videoEl,
-                              slot: photoSlots[i],
+                              slot: actualSlot,
                               index: i,
                             });
                           } else {
@@ -2625,9 +2676,14 @@ export default function EditPhoto() {
                               videoEl.duration > 0);
 
                           if (isReady) {
+                            // FIX: Create a fallback slot if photoSlots[i] doesn't exist
+                            const actualSlot = photoSlots[i] || {
+                              id: `virtual-slot-${i}`,
+                              data: { photoIndex: i }
+                            };
                             resolve({
                               video: videoEl,
-                              slot: photoSlots[i],
+                              slot: actualSlot,
                               index: i,
                             });
                           } else {
@@ -2657,17 +2713,21 @@ export default function EditPhoto() {
                     console.log(`🔗 Mapping video ${idx}:`, {
                       slotId: slot?.id?.slice(0, 8),
                       photoIndex: slot?.data?.photoIndex,
+                      videoIndex: idx,
                       videoReady: video.readyState >= 2,
                     });
                     
                     if (slot?.id) {
                       videoBySlotId.set(slot.id, { video, slot });
                     }
-                    const photoIndex = slot?.data?.photoIndex;
-                    if (
-                      typeof photoIndex === "number" &&
-                      !videoByPhotoIndex.has(photoIndex)
-                    ) {
+                    
+                    // CRITICAL FIX: For duplicate mode, use video INDEX as photoIndex
+                    // This ensures video 0 maps to slot 0, video 1 maps to slot 1, etc.
+                    // The original slot.data.photoIndex might be duplicated (0,0,1,1,2,2)
+                    // but we need sequential mapping (0,1,2,3,4,5) to match frame slots
+                    const photoIndex = idx; // Use index instead of slot.data.photoIndex
+                    
+                    if (!videoByPhotoIndex.has(photoIndex)) {
                       videoByPhotoIndex.set(photoIndex, { video, slot });
                     }
                   });

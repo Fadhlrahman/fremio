@@ -79,7 +79,8 @@ const defaultPropsByType = (type) => {
           fill: '#f4d3c2',
           borderRadius: scaleUniformValue(32),
           stroke: null,
-          strokeWidth: 0
+          strokeWidth: 0,
+          shapeType: 'rectangle' // rectangle, circle, triangle, star, heart, hexagon, diamond, line
         }
       };
     case 'upload':
@@ -960,12 +961,28 @@ export const useCreatorStore = create((set, get) => ({
       ? (element.zIndex ?? 0) 
       : get().lastZIndex + 1;
     
+    // For photo elements, generate a unique photoIndex
+    // Count existing photo elements to determine the next index
+    let duplicateData = { ...element.data };
+    if (element.type === 'photo') {
+      const existingPhotoElements = get().elements.filter(el => el.type === 'photo');
+      const maxPhotoIndex = existingPhotoElements.reduce((max, el) => {
+        const idx = el.data?.photoIndex;
+        return Number.isFinite(idx) ? Math.max(max, idx) : max;
+      }, -1);
+      duplicateData = {
+        ...element.data,
+        photoIndex: maxPhotoIndex + 1
+      };
+    }
+    
     const duplicate = {
       ...element,
       id: generateId(),
       x: element.x + 20,
       y: element.y + 20,
       zIndex: newZIndex,
+      data: duplicateData,
     };
     
     set((state) => {

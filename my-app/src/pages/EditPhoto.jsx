@@ -89,6 +89,8 @@ export default function EditPhoto() {
     const state = touchStateRef.current;
     const touches = e.touches;
     
+    console.log("📱 TouchStart:", { photoId, touchCount: touches.length, selectedPhotoId });
+    
     // Get container rect
     if (containerEl) {
       state.containerRect = containerEl.getBoundingClientRect();
@@ -99,28 +101,24 @@ export default function EditPhoto() {
 
     // Check for double tap to reset
     const now = Date.now();
-    if (touches.length === 1) {
-      if (now - state.lastTapTime < 300 && isCurrentlySelected) {
+    if (touches.length === 1 && isCurrentlySelected) {
+      if (now - state.lastTapTime < 300) {
         // Double tap on selected photo - reset zoom
         e.preventDefault();
+        e.stopPropagation();
         updatePhotoTransform(photoId, { scale: 1, x: 0, y: 0 });
         state.lastTapTime = 0;
         setSelectedPhotoId(null);
+        console.log("📱 Double tap - reset zoom");
         return;
       }
       state.lastTapTime = now;
-      
-      // First tap - select this photo (required before zoom/pan)
-      if (!isCurrentlySelected) {
-        e.preventDefault();
-        setSelectedPhotoId(photoId);
-        state.activePhotoId = photoId;
-        return; // Don't start drag on first tap
-      }
     }
 
-    // Only allow zoom/pan if this photo is selected
+    // Selection is now handled by onClick - here we only handle zoom/pan
+    // If not selected, ignore touch events (selection happens via click)
     if (!isCurrentlySelected) {
+      console.log("📱 Photo not selected, ignoring touch");
       return;
     }
 
@@ -136,14 +134,16 @@ export default function EditPhoto() {
       state.initialScale = currentTransform.scale;
       state.initialX = currentTransform.x;
       state.initialY = currentTransform.y;
-    } else if (touches.length === 1 && currentTransform.scale > 1) {
-      // Start pan (only if zoomed in and selected)
+      console.log("📱 Pinch started, initial scale:", currentTransform.scale);
+    } else if (touches.length === 1) {
+      // Start pan (can pan even at scale 1 for repositioning)
       e.preventDefault();
       e.stopPropagation();
       state.isDragging = true;
       state.isPinching = false;
       state.lastTouchX = touches[0].clientX;
       state.lastTouchY = touches[0].clientY;
+      console.log("📱 Drag started");
     }
   }, [getDistance, getPhotoTransform, updatePhotoTransform, selectedPhotoId]);
 
@@ -168,28 +168,42 @@ export default function EditPhoto() {
       
       // Clamp scale (1x to 4x)
       newScale = clamp(newScale, 1, 4);
+      
+      console.log("📱 Pinch move, new scale:", newScale.toFixed(2));
 
       updatePhotoTransform(photoId, {
         scale: newScale,
         x: state.initialX,
         y: state.initialY,
       });
-    } else if (state.isDragging && touches.length === 1 && currentTransform.scale > 1) {
+    } else if (state.isDragging && touches.length === 1) {
       e.preventDefault();
       e.stopPropagation();
       
-      // Calculate pan delta
-      const deltaX = touches[0].clientX - state.lastTouchX;
-      const deltaY = touches[0].clientY - state.lastTouchY;
+      // Calculate pan delta - scale factor affects movement
+      // Since canvas is scaled 0.25, we need to compensate
+      const scaleFactor = 4; // 1 / 0.25 = 4
+      const deltaX = (touches[0].clientX - state.lastTouchX) * scaleFactor;
+      const deltaY = (touches[0].clientY - state.lastTouchY) * scaleFactor;
       
       // Calculate max pan based on current scale and container size
       const rect = state.containerRect;
-      const maxPanX = rect ? (rect.width * (currentTransform.scale - 1)) / 2 : 100;
-      const maxPanY = rect ? (rect.height * (currentTransform.scale - 1)) / 2 : 100;
+      const containerWidth = rect ? rect.width * scaleFactor : 1080;
+      const containerHeight = rect ? rect.height * scaleFactor : 1920;
+      
+      // Allow some movement even at scale 1
+      const maxPanX = currentTransform.scale > 1 
+        ? (containerWidth * (currentTransform.scale - 1)) / 2 
+        : containerWidth * 0.3;
+      const maxPanY = currentTransform.scale > 1 
+        ? (containerHeight * (currentTransform.scale - 1)) / 2 
+        : containerHeight * 0.3;
       
       // Update position with bounds
       const newX = clamp(currentTransform.x + deltaX, -maxPanX, maxPanX);
       const newY = clamp(currentTransform.y + deltaY, -maxPanY, maxPanY);
+      
+      console.log("📱 Drag move, delta:", deltaX.toFixed(0), deltaY.toFixed(0), "new pos:", newX.toFixed(0), newY.toFixed(0));
       
       updatePhotoTransform(photoId, {
         scale: currentTransform.scale,
@@ -2043,6 +2057,21 @@ export default function EditPhoto() {
                     const photoTransform = getPhotoTransform(photoId);
                     const isSelected = selectedPhotoId === photoId;
 
+                    // Handle click for selection (works better than touch on scaled elements)
+                    const handlePhotoClick = (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      console.log("📱 Photo clicked:", photoId, "currently selected:", selectedPhotoId);
+                      
+                      if (selectedPhotoId === photoId) {
+                        // Already selected - deselect
+                        setSelectedPhotoId(null);
+                      } else {
+                        // Select this photo
+                        setSelectedPhotoId(photoId);
+                      }
+                    };
+
                     return (
                       <div
                         key={`element-${element.id || idx}`}
@@ -2055,7 +2084,7 @@ export default function EditPhoto() {
                           top: `${element.y || 0}px`,
                           width: `${element.width || 100}px`,
                           height: `${element.height || 100}px`,
-                          zIndex: elemZIndex,
+                          zIndex: isSelected ? 9000 : elemZIndex, // Bring selected photo to front for easier interaction
                           pointerEvents: "auto", // Enable touch events
                           borderRadius: `${element.data?.borderRadius || 24}px`,
                           overflow: "hidden",
@@ -2063,10 +2092,12 @@ export default function EditPhoto() {
                           alignItems: "center",
                           justifyContent: "center",
                           background: "transparent",
-                          touchAction: photoTransform.scale > 1 ? "none" : "pan-y",
+                          touchAction: isSelected ? "none" : "auto", // Disable browser gestures when selected
                           outline: isSelected ? "3px solid #4F46E5" : "none",
                           boxShadow: isSelected ? "0 0 0 6px rgba(79,70,229,0.3)" : "none",
+                          cursor: "pointer",
                         }}
+                        onClick={handlePhotoClick}
                         onTouchStart={(e) => handlePhotoTouchStart(e, photoId, e.currentTarget)}
                         onTouchMove={(e) => handlePhotoTouchMove(e, photoId)}
                         onTouchEnd={(e) => handlePhotoTouchEnd(e, photoId)}

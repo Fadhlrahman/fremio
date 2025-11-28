@@ -103,9 +103,10 @@ const withTimeout = (promise, ms, errorMessage = 'Request timeout') => {
 
 /**
  * Get all custom frames
+ * Version: 3 - 2024-11-28 - NO TIMEOUT AT ALL
  */
 export const getAllCustomFrames = async () => {
-  console.log('🔄 getAllCustomFrames v2 - NO TIMEOUT');
+  console.log('🔄 getAllCustomFrames v3 - DIRECT QUERY NO TIMEOUT - ' + new Date().toISOString());
   
   if (!isSupabaseConfigured || !supabase) {
     console.warn('⚠️ Supabase not configured, returning empty array');
@@ -113,15 +114,19 @@ export const getAllCustomFrames = async () => {
   }
 
   try {
-    console.log('📊 Loading frames from Supabase (direct query)...');
+    console.log('📊 v3: Loading frames from Supabase...');
     
-    // Direct query without any timeout wrapper
-    const { data, error } = await supabase
+    // Direct query - absolutely no timeout
+    const result = await supabase
       .from(FRAMES_TABLE)
       .select('*')
       .order('created_at', { ascending: false });
-
-    console.log('📊 Query completed. Error:', error, 'Data length:', data?.length);
+    
+    const { data, error } = result;
+    
+    console.log('📊 v3: Query result received');
+    console.log('📊 v3: Error:', error);
+    console.log('📊 v3: Data count:', data?.length || 0);
 
     if (error) {
       console.error('❌ Error loading frames:', error);

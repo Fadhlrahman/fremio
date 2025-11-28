@@ -448,6 +448,32 @@ export default function PropertiesPanel({
     </CollapsibleSection>
   );
 
+  // Render hanya border radius (untuk photo/area foto)
+  const renderBorderRadiusControls = () => (
+    <CollapsibleSection 
+      title="Kelengkungan Sudut" 
+      isOpen={openDropdown === 'border-radius'}
+      onToggle={() => setOpenDropdown(openDropdown === 'border-radius' ? null : 'border-radius')}
+    >
+      <InputRow label="Radius">
+        <input
+          type="range"
+          min={0}
+          max={120}
+          value={selectedElement.data?.borderRadius ?? 24}
+          onChange={(event) =>
+            onUpdateElement(selectedElement.id, {
+              data: { borderRadius: Number(event.target.value) },
+            })
+          }
+        />
+        <div className="text-xs font-semibold text-slate-500">
+          {Math.round(selectedElement.data?.borderRadius ?? 24)}px
+        </div>
+      </InputRow>
+    </CollapsibleSection>
+  );
+
   const renderOutlineControls = ({ defaultColor = "#d9b9ab", maxWidth = 24 } = {}) => {
     const currentWidth = Number(selectedElement.data?.strokeWidth ?? 0);
     const fallbackColor =
@@ -1212,8 +1238,7 @@ export default function PropertiesPanel({
 
       {selectedElement.type === "photo" && (
         <>
-          {renderFillControls({ showBorderRadius: true })}
-          {renderOutlineControls({ defaultColor: "#f4f4f4", maxWidth: 24 })}
+          {renderBorderRadiusControls()}
         </>
       )}
 

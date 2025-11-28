@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
+import { motion as Motion } from "framer-motion";
 import {
   Upload,
   FileImage,
@@ -10,25 +11,31 @@ import {
   Eye,
   CheckCircle,
   ArrowLeft,
+  Settings,
+  Layers,
+  ChevronDown,
+  AlertTriangle,
+  CheckCircle2,
 } from "lucide-react";
-import { isFirebaseConfigured } from "../../config/firebase";
 import "../../styles/admin.css";
-import {
-  createFrameDocument,
-  uploadFrameThumbnail,
-} from "../../services/frameManagementService";
-import { saveCustomFrame, getStorageInfo, clearAllCustomFrames, getCustomFrameById } from "../../services/customFrameService";
+import "./AdminUploadFrame.css";
+import { saveCustomFrame, getStorageInfo, getCustomFrameById } from "../../services/customFrameService";
 import { quickDetectSlots } from "../../utils/slotDetector";
+
+const panelMotion = {
+  hidden: { opacity: 0, y: 16 },
+  visible: { opacity: 1, y: 0 },
+};
 
 export default function AdminUploadFrame() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const editFrameId = searchParams.get("edit");
   const { user } = useAuth();
+  const fileInputRef = useRef(null);
 
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false);
-  const [loadingFrame, setLoadingFrame] = useState(false);
 
   // State declarations FIRST
   const [frameName, setFrameName] = useState("");
@@ -44,14 +51,19 @@ export default function AdminUploadFrame() {
   // Slots configuration
   const [slots, setSlots] = useState([]);
   const [autoDetecting, setAutoDetecting] = useState(false);
+  const [selectedSlotIndex, setSelectedSlotIndex] = useState(null);
 
   // UI State
-  const [showPreview, setShowPreview] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [storageInfo, setStorageInfo] = useState(null);
+  const [activePanel, setActivePanel] = useState("upload"); // upload, slots, settings
+  const [showFrameSettings, setShowFrameSettings] = useState(true);
+  const [toast, setToast] = useState(null);
 
-  // Elements state for edit mode (text, shapes, uploads)
-  const [elements, setElements] = useState([]);
+  // Toast helper
+  const showToast = (type, message, duration = 3000) => {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), duration);
+  };
 
   console.log("🎨 AdminUploadFrame component rendered");
   console.log("👤 Current user:", user);
@@ -59,9 +71,7 @@ export default function AdminUploadFrame() {
   
   // Get Firebase storage info on mount
   useEffect(() => {
-    const info = getStorageInfo();
-    setStorageInfo(info);
-    console.log("☁️ Firebase Storage Info:", info);
+    getStorageInfo(); // Just call it for debugging
   }, []); // Run only once on mount
 
   // Load frame data when in edit mode
@@ -69,7 +79,6 @@ export default function AdminUploadFrame() {
     const loadFrameForEdit = async () => {
       if (!editFrameId) return;
       
-      setLoadingFrame(true);
       setIsEditMode(true);
       
       try {
@@ -96,14 +105,6 @@ export default function AdminUploadFrame() {
             setSlots(frame.slots);
             console.log("📍 Slots loaded:", frame.slots.length);
           }
-          
-          // Set elements (text, shapes, uploads) - IMPORTANT!
-          if (frame.elements && frame.elements.length > 0) {
-            setElements(frame.elements);
-            console.log("🎨 Elements loaded:", frame.elements.length, frame.elements);
-          } else {
-            console.log("⚠️ No elements found in frame data");
-          }
         } else {
           console.error("❌ Frame not found:", editFrameId);
           alert("Frame tidak ditemukan!");
@@ -112,57 +113,11 @@ export default function AdminUploadFrame() {
       } catch (error) {
         console.error("❌ Error loading frame:", error);
         alert("Gagal memuat frame: " + error.message);
-      } finally {
-        setLoadingFrame(false);
       }
     };
     
     loadFrameForEdit();
   }, [editFrameId, navigate]);
-
-  // Helper function to clear frames from Firebase
-  const handleClearStorage = async () => {
-    if (window.confirm(
-      "⚠️ PERINGATAN!\n\n" +
-      "Ini akan menghapus SEMUA custom frames dari Firebase.\n\n" +
-      "Apakah Anda yakin ingin melanjutkan?"
-    )) {
-      try {
-        await clearAllCustomFrames();
-        alert("✅ Custom frames berhasil dihapus!\n\nSilakan refresh halaman.");
-        window.location.reload();
-      } catch (error) {
-        alert("❌ Gagal menghapus: " + error.message);
-      }
-    }
-  };
-
-  // Aggressive clear - hapus semua data yang memakan space
-  const handleClearAllStorage = async () => {
-    if (window.confirm(
-      "⚠️ PERINGATAN KERAS!\n\n" +
-      "Ini akan menghapus:\n" +
-      "- Semua custom frames dari Firebase\n" +
-      "- Semua data cache lokal\n\n" +
-      "Apakah Anda YAKIN ingin melanjutkan?"
-    )) {
-      try {
-        // Clear all frames from Firebase
-        await clearAllCustomFrames();
-        
-        // Clear localStorage items
-        localStorage.removeItem('capturedPhotos');
-        localStorage.removeItem('capturedVideos');
-        localStorage.removeItem('frameConfig');
-        localStorage.removeItem('activeDraftId');
-        
-        alert("✅ Storage dibersihkan!\n\nHalaman akan di-refresh...");
-        window.location.reload();
-      } catch (error) {
-        alert("❌ Gagal menghapus: " + error.message);
-      }
-    }
-  };
 
   // Handle frame image upload with auto slot detection
   const handleImageUpload = async (e) => {
@@ -285,7 +240,6 @@ export default function AdminUploadFrame() {
     console.log("📝 Frame name:", frameName);
     console.log("🖼️ Frame image file:", frameImageFile);
     console.log("📍 Slots:", slots);
-    console.log("🔧 Firebase configured:", isFirebaseConfigured);
 
     // Validation
     if (!frameName.trim()) {
@@ -408,927 +362,583 @@ export default function AdminUploadFrame() {
     }
   };
 
+  // Tool buttons for the sidebar
+  const toolButtons = [
+    {
+      id: "upload",
+      label: "Upload Frame",
+      icon: Upload,
+      isActive: activePanel === "upload",
+    },
+    {
+      id: "slots",
+      label: "Photo Slots",
+      icon: Layers,
+      isActive: activePanel === "slots",
+    },
+    {
+      id: "settings",
+      label: "Frame Settings",
+      icon: Settings,
+      isActive: activePanel === "settings",
+    },
+  ];
+
+  // Convert aspect ratio string to CSS value
+  const getAspectRatioCSS = (ratio) => {
+    switch (ratio) {
+      case "1:1": return "1/1";
+      case "4:5": return "4/5";
+      case "3:4": return "3/4";
+      case "16:9": return "16/9";
+      case "9:16": return "9/16";
+      default: return "4/5";
+    }
+  };
+
   return (
-    <div
-      style={{
-        background:
-          "linear-gradient(180deg, #fdf7f4 0%, #fff 50%, #f7f1ed 100%)",
-        minHeight: "100vh",
-        padding: "32px 0 48px",
-      }}
-    >
-      {/* Header with Back Button */}
-      <div style={{ maxWidth: "1120px", margin: "0 auto 32px", padding: "0 16px" }}>
-        <button
-          onClick={() => navigate("/admin")}
-          className="admin-button-secondary"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-            marginBottom: "16px",
-            padding: "10px 16px",
-          }}
+    <div className="admin-upload-page">
+      {/* Toast Notification */}
+      {toast && (
+        <Motion.div
+          className="admin-upload-toast-wrapper"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0 }}
         >
-          <ArrowLeft size={18} />
-          Kembali ke Dashboard
-        </button>
-        <h1
-          style={{
-            fontSize: "clamp(22px, 4vw, 34px)",
-            fontWeight: "800",
-            color: "#222",
-            margin: "0 0 8px",
-          }}
-        >
-          Upload Custom Frame
-        </h1>
-        <p style={{ color: "var(--text-secondary)", fontSize: "15px" }}>
-          Buat frame baru untuk photobooth
-        </p>
-      </div>
-
-      {/* Debug Info */}
-      <div
-        style={{
-          maxWidth: "1120px",
-          margin: "0 auto 20px",
-          padding: "16px",
-          backgroundColor: "#dbeafe",
-          border: "2px solid #3b82f6",
-          borderRadius: "8px",
-          fontSize: "14px",
-        }}
-      >
-        <strong>☁️ Storage Info (Firebase Cloud):</strong>
-        <br />
-        Component: AdminUploadFrame ✅<br />
-        User: {user?.email || "Not logged in"}
-        <br />
-        Path: /admin/upload-frame
-        {storageInfo?.isFirebase && (
-          <>
-            <br />
-            <strong style={{ color: "#2563eb" }}>
-              � Firebase Storage: Unlimited Cloud Storage
-            </strong>
-            <br />
-            <span style={{ color: "#2563eb" }}>
-              ✅ Data disimpan di Firebase Firestore & Storage
-            </span>
-          </>
-        )}
-        <div style={{ marginTop: "12px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
-          <button
-            onClick={handleClearStorage}
-            style={{
-              backgroundColor: "#f59e0b",
-              color: "white",
-              padding: "6px 12px",
-              borderRadius: "6px",
-              border: "none",
-              cursor: "pointer",
-              fontSize: "12px",
-              fontWeight: "600",
-            }}
-          >
-            🗑️ Hapus Custom Frames
-          </button>
-          <button
-            onClick={handleClearAllStorage}
-            style={{
-              backgroundColor: "#dc2626",
-              color: "white",
-              padding: "6px 12px",
-              borderRadius: "6px",
-              border: "none",
-              cursor: "pointer",
-              fontSize: "12px",
-              fontWeight: "600",
-            }}
-          >
-            ⚠️ Bersihkan Semua Storage
-          </button>
-        </div>
-      </div>
-
-      <div style={{ maxWidth: "1120px", margin: "0 auto", padding: "0 16px" }}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: "24px",
-          }}
-        >
-          {/* Left Column - Configuration */}
           <div
-            style={{ display: "flex", flexDirection: "column", gap: "24px" }}
+            className={`admin-upload-toast ${
+              toast.type === "success"
+                ? "admin-upload-toast--success"
+                : "admin-upload-toast--error"
+            }`}
           >
-            {/* Basic Info */}
-            <section className="admin-card">
-              <div className="admin-card-header">
-                <h2 className="admin-card-title">Informasi Frame</h2>
-              </div>
+            {toast.type === "success" ? (
+              <CheckCircle2 size={18} strokeWidth={2.5} />
+            ) : (
+              <AlertTriangle size={18} strokeWidth={2.5} />
+            )}
+            <span>{toast.message}</span>
+          </div>
+        </Motion.div>
+      )}
 
-              <div
-                className="admin-card-body"
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "16px",
-                }}
+      <div className="admin-upload-grid">
+        {/* Left Panel - Tools */}
+        <Motion.aside
+          variants={panelMotion}
+          initial="hidden"
+          animate="visible"
+          transition={{ delay: 0.05 }}
+          className="admin-upload-panel--tools"
+        >
+          <h2 className="admin-upload-panel__title">Tools</h2>
+          <div className="admin-upload-tools__list">
+            {toolButtons.map((button) => {
+              const IconComponent = button.icon;
+              return (
+                <button
+                  key={button.id}
+                  type="button"
+                  onClick={() => setActivePanel(button.id)}
+                  className={`admin-upload-tools__button ${
+                    button.isActive ? "admin-upload-tools__button--active" : ""
+                  }`.trim()}
+                >
+                  <IconComponent size={20} strokeWidth={2} />
+                  <span>{button.label}</span>
+                </button>
+              );
+            })}
+
+            <div style={{ marginTop: "auto", paddingTop: "20px", borderTop: "1px solid rgba(224,183,169,0.3)" }}>
+              <button
+                type="button"
+                onClick={() => navigate("/admin")}
+                className="admin-upload-tools__button"
               >
-                <div>
-                  <label className="admin-label">Nama Frame *</label>
+                <ArrowLeft size={20} strokeWidth={2} />
+                <span>Kembali</span>
+              </button>
+            </div>
+          </div>
+        </Motion.aside>
+
+        {/* Center - Preview */}
+        <Motion.section
+          variants={panelMotion}
+          initial="hidden"
+          animate="visible"
+          transition={{ delay: 0.1 }}
+          className="admin-upload-preview"
+        >
+          <h2 className="admin-upload-preview__title">
+            {isEditMode ? "Edit Frame" : "Upload Frame"}
+          </h2>
+
+          <div className="admin-upload-preview__body">
+            <div className="admin-upload-preview__frame">
+              {frameImagePreview ? (
+                <>
+                  {/* Frame Image */}
+                  <img
+                    src={frameImagePreview}
+                    alt="Frame Preview"
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "contain",
+                      zIndex: 3,
+                    }}
+                  />
+                  {/* Slot overlays */}
+                  {slots.map((slot, index) => (
+                    <div
+                      key={index}
+                      className={`admin-upload-preview-slot ${
+                        selectedSlotIndex === index ? "admin-upload-preview-slot--selected" : ""
+                      }`}
+                      style={{
+                        left: `${slot.left * 100}%`,
+                        top: `${slot.top * 100}%`,
+                        width: `${slot.width * 100}%`,
+                        aspectRatio: getAspectRatioCSS(slot.aspectRatio),
+                        zIndex: 1,
+                      }}
+                      onClick={() => {
+                        setSelectedSlotIndex(index);
+                        setActivePanel("slots");
+                      }}
+                    >
+                      <span className="admin-upload-preview-slot__label">
+                        Slot {index + 1}
+                      </span>
+                    </div>
+                  ))}
+                  {/* Success badge */}
+                  <div className="admin-upload-badge admin-upload-badge--success" style={{
+                    position: "absolute",
+                    top: "12px",
+                    right: "12px",
+                    zIndex: 10,
+                  }}>
+                    <CheckCircle size={14} />
+                    Uploaded
+                  </div>
+                </>
+              ) : (
+                /* Upload Zone */
+                <div
+                  className={`admin-upload-zone ${autoDetecting ? "admin-upload-zone--active" : ""}`}
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png"
+                    onChange={handleImageUpload}
+                    style={{ display: "none" }}
+                  />
+                  {autoDetecting ? (
+                    <>
+                      <div className="admin-upload-zone__icon">
+                        <Eye size={64} />
+                      </div>
+                      <p className="admin-upload-zone__title">Mendeteksi slot...</p>
+                      <p className="admin-upload-zone__subtitle">Mencari area transparan pada frame</p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="admin-upload-zone__icon">
+                        <Upload size={64} />
+                      </div>
+                      <p className="admin-upload-zone__title">Upload Frame PNG</p>
+                      <p className="admin-upload-zone__subtitle">Klik untuk memilih file (max 5MB)</p>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Save Button */}
+          <Motion.button
+            type="button"
+            onClick={handleSaveFrame}
+            disabled={saving || !frameName || !frameImageFile || slots.length === 0}
+            className="admin-upload-save"
+            whileTap={{ scale: 0.97 }}
+            whileHover={{ y: -3 }}
+          >
+            {saving ? (
+              <>
+                <svg
+                  className="admin-upload-save__spinner"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    style={{ opacity: 0.25 }}
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    style={{ opacity: 0.75 }}
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+                Menyimpan...
+              </>
+            ) : (
+              <>
+                <Save size={18} strokeWidth={2.5} />
+                Simpan Frame
+              </>
+            )}
+          </Motion.button>
+        </Motion.section>
+
+        {/* Right Panel - Properties */}
+        <Motion.aside
+          variants={panelMotion}
+          initial="hidden"
+          animate="visible"
+          transition={{ delay: 0.15 }}
+          className="admin-upload-panel--properties"
+        >
+          <h2 className="admin-upload-panel__title">Properties</h2>
+          <div className="admin-upload-panel__body">
+            {/* Frame Settings Section */}
+            {activePanel === "settings" && (
+              <div>
+                <div className="admin-upload-properties__section">
+                  <label className="admin-upload-properties__label">Nama Frame *</label>
                   <input
                     type="text"
                     value={frameName}
                     onChange={(e) => setFrameName(e.target.value)}
-                    className="admin-input"
+                    className="admin-upload-properties__input"
                     placeholder="contoh: FremioSeries-red-3"
                   />
                 </div>
 
-                <div>
-                  <label className="admin-label">Deskripsi</label>
+                <div className="admin-upload-properties__section">
+                  <label className="admin-upload-properties__label">Deskripsi</label>
                   <textarea
                     value={frameDescription}
                     onChange={(e) => setFrameDescription(e.target.value)}
                     rows={3}
-                    className="admin-textarea"
+                    className="admin-upload-properties__input"
+                    style={{ resize: "vertical" }}
                     placeholder="Deskripsi frame..."
                   />
                 </div>
 
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: "16px",
-                  }}
-                >
-                  <div>
-                    <label className="admin-label">Kategori</label>
-                    <select
-                      value={frameCategory}
-                      onChange={(e) => setFrameCategory(e.target.value)}
-                      className="admin-select"
-                    >
-                      <option value="custom">Custom</option>
-                      <option value="fremio-series">Fremio Series</option>
-                      <option value="inspired-by">Inspired By</option>
-                      <option value="seasonal">Seasonal</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="admin-label">Jumlah Foto</label>
-                    <input
-                      type="number"
-                      value={maxCaptures}
-                      onChange={(e) => setMaxCaptures(e.target.value)}
-                      min="1"
-                      max="10"
-                      className="admin-input"
-                    />
-                  </div>
+                <div className="admin-upload-properties__section">
+                  <label className="admin-upload-properties__label">Kategori</label>
+                  <select
+                    value={frameCategory}
+                    onChange={(e) => setFrameCategory(e.target.value)}
+                    className="admin-upload-properties__select"
+                  >
+                    <option value="custom">Custom</option>
+                    <option value="fremio-series">Fremio Series</option>
+                    <option value="inspired-by">Inspired By</option>
+                    <option value="seasonal">Seasonal</option>
+                  </select>
                 </div>
 
-                <div
-                  style={{ display: "flex", alignItems: "center", gap: "8px" }}
-                >
+                <div className="admin-upload-properties__section">
+                  <label className="admin-upload-properties__label">Jumlah Foto</label>
                   <input
-                    type="checkbox"
-                    id="duplicatePhotos"
-                    checked={duplicatePhotos}
-                    onChange={(e) => setDuplicatePhotos(e.target.checked)}
-                    style={{ width: "16px", height: "16px" }}
+                    type="number"
+                    value={maxCaptures}
+                    onChange={(e) => setMaxCaptures(parseInt(e.target.value) || 1)}
+                    min="1"
+                    max="10"
+                    className="admin-upload-properties__input"
                   />
-                  <label
-                    htmlFor="duplicatePhotos"
-                    style={{
-                      fontSize: "14px",
-                      color: "var(--text-secondary)",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Duplikat foto (2 copy per foto)
+                </div>
+
+                <div className="admin-upload-properties__section">
+                  <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={duplicatePhotos}
+                      onChange={(e) => setDuplicatePhotos(e.target.checked)}
+                      style={{ width: "18px", height: "18px" }}
+                    />
+                    <span style={{ fontSize: "13px", color: "#5c4941" }}>Duplikasi foto ke semua slot</span>
                   </label>
                 </div>
               </div>
-            </section>
+            )}
 
-            {/* Frame Image Upload */}
-            <section className="admin-card">
-              <div className="admin-card-header">
-                <h2 className="admin-card-title">Upload Frame (PNG)</h2>
-                <p
-                  style={{
-                    fontSize: "13px",
-                    color: "#a89289",
-                    marginTop: "4px",
-                  }}
-                >
-                  Upload gambar frame dalam format PNG dengan area transparan
-                  untuk foto
-                </p>
-              </div>
-
-              <div
-                className="admin-card-body"
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "20px",
-                }}
-              >
-                {/* Upload Area */}
-                {!frameImagePreview ? (
-                  <div
-                    onClick={() => {
-                      console.log("🖱️ Upload area clicked");
-                      document.getElementById("frame-upload").click();
-                    }}
-                    style={{
-                      border: "3px dashed #e0b7a9",
-                      borderRadius: "16px",
-                      padding: "48px 32px",
-                      textAlign: "center",
-                      cursor: "pointer",
-                      transition: "all 0.3s ease",
-                      backgroundColor: "#fefcfb",
-                      minHeight: "280px",
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      position: "relative",
-                      overflow: "hidden",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = "#d4a89a";
-                      e.currentTarget.style.backgroundColor = "#fff5f2";
-                      e.currentTarget.style.transform = "scale(1.01)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = "#e0b7a9";
-                      e.currentTarget.style.backgroundColor = "#fefcfb";
-                      e.currentTarget.style.transform = "scale(1)";
-                    }}
+            {/* Upload Panel */}
+            {activePanel === "upload" && (
+              <div>
+                <div className="admin-upload-properties__section">
+                  <label className="admin-upload-properties__label">Frame Image</label>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="admin-upload-btn admin-upload-btn--secondary"
+                    style={{ width: "100%" }}
                   >
-                    <input
-                      type="file"
-                      accept="image/png"
-                      onChange={handleImageUpload}
-                      style={{ display: "none" }}
-                      id="frame-upload"
-                    />
-
-                    {/* Upload Icon */}
-                    <div
-                      style={{
-                        width: "80px",
-                        height: "80px",
-                        borderRadius: "50%",
-                        backgroundColor: "#fff0ec",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        marginBottom: "20px",
-                        border: "3px solid #e0b7a9",
-                      }}
-                    >
-                      <Upload size={40} style={{ color: "#e0b7a9" }} />
-                    </div>
-
-                    {/* Upload Text */}
-                    <h3
-                      style={{
-                        fontSize: "20px",
-                        fontWeight: "700",
-                        color: "#2d1b14",
-                        marginBottom: "8px",
-                      }}
-                    >
-                      Klik atau Drag & Drop File PNG
-                    </h3>
-
-                    <p
-                      style={{
-                        color: "#8b7064",
-                        marginBottom: "16px",
-                        fontSize: "15px",
-                        lineHeight: "1.6",
-                      }}
-                    >
-                      Upload gambar frame photobooth Anda di sini
-                    </p>
-
-                    {/* File Info */}
-                    <div
-                      style={{
-                        backgroundColor: "#fff",
-                        padding: "16px 24px",
-                        borderRadius: "12px",
-                        border: "2px solid #ecdeda",
-                        maxWidth: "400px",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "12px",
-                          marginBottom: "8px",
-                        }}
-                      >
-                        <FileImage size={20} style={{ color: "#e0b7a9" }} />
-                        <span
-                          style={{
-                            fontSize: "13px",
-                            fontWeight: "600",
-                            color: "#6d5449",
-                          }}
-                        >
-                          Spesifikasi File:
-                        </span>
-                      </div>
-                      <ul
-                        style={{
-                          fontSize: "12px",
-                          color: "#a89289",
-                          listStyle: "none",
-                          padding: 0,
-                          margin: 0,
-                          lineHeight: "1.8",
-                        }}
-                      >
-                        <li>✓ Format: PNG dengan transparency</li>
-                        <li>✓ Ukuran: 1080 × 1920 pixels (9:16)</li>
-                        <li>✓ Max size: 5MB</li>
-                      </ul>
-                    </div>
-
-                    {/* Decorative Background */}
-                    <div
-                      style={{
-                        position: "absolute",
-                        top: "-50%",
-                        right: "-50%",
-                        width: "200%",
-                        height: "200%",
-                        background:
-                          "radial-gradient(circle, rgba(224,183,169,0.05) 0%, transparent 70%)",
-                        pointerEvents: "none",
-                        zIndex: 0,
-                      }}
-                    />
-                  </div>
-                ) : (
-                  /* Preview with Edit Button */
-                  <div>
-                    <div style={{ position: "relative", marginBottom: "16px" }}>
-                      <img
-                        src={frameImagePreview}
-                        alt="Frame preview"
-                        style={{
-                          width: "100%",
-                          borderRadius: "14px",
-                          border: "3px solid #e0b7a9",
-                          boxShadow: "0 8px 24px rgba(224, 183, 169, 0.2)",
-                        }}
-                      />
-                      <div
-                        className="admin-badge-success"
-                        style={{
-                          position: "absolute",
-                          top: "16px",
-                          right: "16px",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                          padding: "8px 16px",
-                          fontSize: "14px",
-                          fontWeight: "600",
-                        }}
-                      >
-                        <CheckCircle size={18} />
-                        File Terupload
+                    <Upload size={18} />
+                    {frameImageFile ? "Ganti File" : "Pilih File PNG"}
+                  </button>
+                  
+                  {frameImageFile && (
+                    <div className="admin-upload-file-info">
+                      <FileImage size={20} className="admin-upload-file-info__icon" />
+                      <div className="admin-upload-file-info__details">
+                        <p className="admin-upload-file-info__name">{frameImageFile.name}</p>
+                        <p className="admin-upload-file-info__size">
+                          {(frameImageFile.size / 1024).toFixed(1)} KB
+                        </p>
                       </div>
                     </div>
-
-                    {/* File Info Display */}
-                    {frameImageFile && (
-                      <div
-                        style={{
-                          backgroundColor: "#fefcfb",
-                          padding: "16px",
-                          borderRadius: "12px",
-                          border: "2px solid #ecdeda",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "12px",
-                          }}
-                        >
-                          <FileImage size={24} style={{ color: "#e0b7a9" }} />
-                          <div>
-                            <p
-                              style={{
-                                fontSize: "14px",
-                                fontWeight: "600",
-                                color: "#2d1b14",
-                                marginBottom: "2px",
-                              }}
-                            >
-                              {frameImageFile.name}
-                            </p>
-                            <p style={{ fontSize: "12px", color: "#a89289" }}>
-                              {(frameImageFile.size / 1024).toFixed(2)} KB
-                            </p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setFrameImageFile(null);
-                            setFrameImagePreview("");
-                          }}
-                          className="admin-button-secondary"
-                          style={{ padding: "8px 16px", fontSize: "13px" }}
-                        >
-                          Ganti File
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </section>
-
-            {/* Slot Configuration */}
-            <section className="admin-card">
-              <div
-                className="admin-card-header"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <div>
-                  <h2 className="admin-card-title">
-                    Slot Foto ({slots.length})
-                  </h2>
-                  <p
-                    style={{
-                      fontSize: "12px",
-                      color: "#a89289",
-                      marginTop: "4px",
-                    }}
-                  >
-                    {autoDetecting
-                      ? "🔍 Mendeteksi slot otomatis..."
-                      : "Slot akan terdeteksi otomatis saat upload PNG"}
-                  </p>
+                  )}
                 </div>
-                <div style={{ display: "flex", gap: "12px" }}>
-                  {frameImagePreview && (
+
+                {frameImagePreview && (
+                  <div className="admin-upload-properties__section">
                     <button
                       onClick={async () => {
                         setAutoDetecting(true);
                         try {
-                          const detectedSlots = await quickDetectSlots(
-                            frameImagePreview
-                          );
+                          const detectedSlots = await quickDetectSlots(frameImagePreview);
                           if (detectedSlots.length > 0) {
                             setSlots(detectedSlots);
                             setMaxCaptures(detectedSlots.length);
-                            alert(
-                              `✅ Berhasil mendeteksi ${detectedSlots.length} slot!`
-                            );
+                            showToast("success", `Berhasil mendeteksi ${detectedSlots.length} slot!`);
                           } else {
-                            alert("⚠️ Tidak ada area transparan terdeteksi");
+                            showToast("error", "Tidak ada area transparan terdeteksi");
                           }
                         } catch (error) {
                           console.error("❌ Error re-detecting slots:", error);
-                          alert("❌ Gagal mendeteksi slot");
+                          showToast("error", "Gagal mendeteksi slot");
                         } finally {
                           setAutoDetecting(false);
                         }
                       }}
                       disabled={autoDetecting}
-                      className="admin-button-secondary"
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        opacity: autoDetecting ? 0.6 : 1,
-                        cursor: autoDetecting ? "wait" : "pointer",
-                      }}
+                      className="admin-upload-btn admin-upload-btn--secondary"
+                      style={{ width: "100%", opacity: autoDetecting ? 0.6 : 1 }}
                     >
-                      <Eye size={20} />
-                      {autoDetecting ? "Detecting..." : "Re-detect Slots"}
+                      <Eye size={18} />
+                      {autoDetecting ? "Mendeteksi..." : "Re-detect Slots"}
                     </button>
-                  )}
-                  <button
-                    onClick={addSlot}
-                    className="admin-button-primary"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
+                  </div>
+                )}
+
+                {/* Quick Frame Settings in Upload Panel */}
+                <div className="admin-upload-frame-settings">
+                  <div
+                    className="admin-upload-frame-settings__header"
+                    onClick={() => setShowFrameSettings(!showFrameSettings)}
                   >
-                    <Plus size={20} />
-                    Tambah Manual
-                  </button>
+                    <span className="admin-upload-frame-settings__title">
+                      <Settings size={16} />
+                      Frame Settings
+                    </span>
+                    <ChevronDown
+                      size={18}
+                      className={`admin-upload-frame-settings__toggle ${showFrameSettings ? "admin-upload-frame-settings__toggle--open" : ""}`}
+                    />
+                  </div>
+                  {showFrameSettings && (
+                    <div className="admin-upload-frame-settings__body">
+                      <div>
+                        <label className="admin-upload-properties__label" style={{ marginBottom: "6px" }}>Nama Frame *</label>
+                        <input
+                          type="text"
+                          value={frameName}
+                          onChange={(e) => setFrameName(e.target.value)}
+                          className="admin-upload-properties__input"
+                          placeholder="contoh: FremioSeries-red-3"
+                        />
+                      </div>
+                      <div>
+                        <label className="admin-upload-properties__label" style={{ marginBottom: "6px" }}>Kategori</label>
+                        <select
+                          value={frameCategory}
+                          onChange={(e) => setFrameCategory(e.target.value)}
+                          className="admin-upload-properties__select"
+                        >
+                          <option value="custom">Custom</option>
+                          <option value="fremio-series">Fremio Series</option>
+                          <option value="inspired-by">Inspired By</option>
+                          <option value="seasonal">Seasonal</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
+            )}
 
-              <div
-                className="admin-card-body"
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "16px",
-                }}
-              >
-                {slots.length === 0 ? (
-                  <div
-                    style={{
-                      textAlign: "center",
-                      padding: "40px 20px",
-                      color: "#a89289",
-                      backgroundColor: "#fefcfb",
-                      borderRadius: "12px",
-                      border: "2px dashed #e0b7a9",
-                    }}
+            {/* Slots Panel */}
+            {activePanel === "slots" && (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
+                  <span className="admin-upload-properties__label" style={{ margin: 0 }}>
+                    Photo Slots ({slots.length})
+                  </span>
+                  <button
+                    onClick={addSlot}
+                    className="admin-upload-btn admin-upload-btn--primary"
+                    style={{ padding: "8px 12px", fontSize: "12px" }}
                   >
-                    <FileImage
-                      size={48}
-                      style={{ margin: "0 auto 12px", color: "#c8b5ae" }}
-                    />
-                    <p
-                      style={{
-                        fontSize: "15px",
-                        fontWeight: "600",
-                        marginBottom: "8px",
-                      }}
-                    >
-                      {frameImagePreview
-                        ? "🎯 Slot akan terdeteksi otomatis"
-                        : "Upload frame PNG untuk auto-detect slot"}
+                    <Plus size={14} />
+                    Add
+                  </button>
+                </div>
+
+                {slots.length === 0 ? (
+                  <div className="admin-upload-empty">
+                    <Layers size={40} className="admin-upload-empty__icon" />
+                    <p className="admin-upload-empty__title">
+                      {frameImagePreview ? "Slot akan terdeteksi otomatis" : "Upload frame terlebih dahulu"}
                     </p>
-                    <p style={{ fontSize: "13px", color: "#b8a39d" }}>
+                    <p className="admin-upload-empty__subtitle">
                       {frameImagePreview
-                        ? "Klik 'Re-detect Slots' atau 'Tambah Manual'"
-                        : "Area transparan pada PNG akan otomatis terdeteksi sebagai slot foto"}
+                        ? "Klik 'Re-detect' atau tambahkan manual"
+                        : "Area transparan akan terdeteksi sebagai slot"}
                     </p>
                   </div>
                 ) : (
                   slots.map((slot, index) => (
-                    <SlotConfig
+                    <div
                       key={index}
-                      slot={slot}
-                      index={index}
-                      maxCaptures={maxCaptures}
-                      onUpdate={updateSlot}
-                      onDelete={deleteSlot}
-                    />
+                      className={`admin-upload-slot-card ${selectedSlotIndex === index ? "admin-upload-slot-card--selected" : ""}`}
+                      onClick={() => setSelectedSlotIndex(index)}
+                    >
+                      <div className="admin-upload-slot-card__header">
+                        <span className="admin-upload-slot-card__title">Slot {index + 1}</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteSlot(index);
+                          }}
+                          className="admin-upload-slot-card__delete"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+
+                      <div className="admin-upload-slot-card__grid">
+                        <div className="admin-upload-slot-card__field">
+                          <label className="admin-upload-slot-card__field-label">Kiri</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="1"
+                            value={slot.left}
+                            onChange={(e) => updateSlot(index, "left", e.target.value)}
+                            className="admin-upload-slot-card__field-input"
+                          />
+                        </div>
+                        <div className="admin-upload-slot-card__field">
+                          <label className="admin-upload-slot-card__field-label">Atas</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="1"
+                            value={slot.top}
+                            onChange={(e) => updateSlot(index, "top", e.target.value)}
+                            className="admin-upload-slot-card__field-input"
+                          />
+                        </div>
+                        <div className="admin-upload-slot-card__field">
+                          <label className="admin-upload-slot-card__field-label">Lebar</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="1"
+                            value={slot.width}
+                            onChange={(e) => updateSlot(index, "width", e.target.value)}
+                            className="admin-upload-slot-card__field-input"
+                          />
+                        </div>
+                        <div className="admin-upload-slot-card__field">
+                          <label className="admin-upload-slot-card__field-label">Tinggi</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="1"
+                            value={slot.height}
+                            onChange={(e) => updateSlot(index, "height", e.target.value)}
+                            className="admin-upload-slot-card__field-input"
+                          />
+                        </div>
+                        <div className="admin-upload-slot-card__field" style={{ gridColumn: "span 2" }}>
+                          <label className="admin-upload-slot-card__field-label">Aspect Ratio</label>
+                          <select
+                            value={slot.aspectRatio || "4:5"}
+                            onChange={(e) => updateSlot(index, "aspectRatio", e.target.value)}
+                            className="admin-upload-slot-card__field-input"
+                            style={{ cursor: "pointer" }}
+                          >
+                            <option value="4:5">4:5 (Portrait)</option>
+                            <option value="1:1">1:1 (Square)</option>
+                            <option value="16:9">16:9 (Landscape)</option>
+                            <option value="3:4">3:4 (Portrait)</option>
+                            <option value="9:16">9:16 (Tall)</option>
+                          </select>
+                        </div>
+                        <div className="admin-upload-slot-card__field" style={{ gridColumn: "span 2" }}>
+                          <label className="admin-upload-slot-card__field-label">Index Foto</label>
+                          <select
+                            value={slot.photoIndex}
+                            onChange={(e) => updateSlot(index, "photoIndex", e.target.value)}
+                            className="admin-upload-slot-card__field-input"
+                            style={{ cursor: "pointer" }}
+                          >
+                            {Array.from({ length: maxCaptures }, (_, i) => (
+                              <option key={i} value={i}>Foto {i + 1}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
                   ))
                 )}
               </div>
-            </section>
-          </div>
-
-          {/* Right Column - Live Preview */}
-          <div
-            style={{ position: "sticky", top: "32px", alignSelf: "flex-start" }}
-          >
-            <section className="admin-card">
-              <div
-                className="admin-card-header"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <h2 className="admin-card-title">Live Preview</h2>
-                <button
-                  onClick={() => setShowPreview(!showPreview)}
-                  className="admin-button-secondary"
-                  style={{ display: "flex", alignItems: "center", gap: "8px" }}
-                >
-                  <Eye size={20} />
-                  {showPreview ? "Sembunyikan" : "Tampilkan"}
-                </button>
-              </div>
-
-              <div className="admin-card-body">
-                {showPreview && frameImagePreview && (
-                  <div
-                    style={{
-                      position: "relative",
-                      backgroundColor: "#f7f1ed",
-                      borderRadius: "14px",
-                      overflow: "hidden",
-                      aspectRatio: "9/16",
-                    }}
-                  >
-                    {/* Frame image */}
-                    <img
-                      src={frameImagePreview}
-                      alt="Frame"
-                      style={{
-                        position: "absolute",
-                        inset: 0,
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "contain",
-                        zIndex: 3,
-                      }}
-                    />
-
-                    {/* Photo slots overlay */}
-                    {slots.map((slot, index) => {
-                      // Convert aspect ratio string to CSS value
-                      const getAspectRatioCSS = (ratio) => {
-                        switch (ratio) {
-                          case "1:1":
-                            return "1/1";
-                          case "4:5":
-                            return "4/5";
-                          case "3:4":
-                            return "3/4";
-                          case "16:9":
-                            return "16/9";
-                          case "9:16":
-                            return "9/16";
-                          default:
-                            return "4/5";
-                        }
-                      };
-
-                      return (
-                        <div
-                          key={index}
-                          style={{
-                            position: "absolute",
-                            border: "2px solid #3b82f6",
-                            backgroundColor: "rgba(59, 130, 246, 0.15)",
-                            left: `${slot.left * 100}%`,
-                            top: `${slot.top * 100}%`,
-                            width: `${slot.width * 100}%`,
-                            aspectRatio: getAspectRatioCSS(slot.aspectRatio),
-                            zIndex: 1,
-                          }}
-                        >
-                          <div
-                            style={{
-                              position: "absolute",
-                              top: "4px",
-                              left: "4px",
-                              backgroundColor: "#3b82f6",
-                              color: "white",
-                              fontSize: "11px",
-                              padding: "4px 8px",
-                              borderRadius: "6px",
-                              fontWeight: "600",
-                            }}
-                          >
-                            Slot {index + 1} (Foto {slot.photoIndex + 1})
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {!showPreview && (
-                  <div
-                    style={{
-                      textAlign: "center",
-                      padding: "60px 20px",
-                      color: "#a89289",
-                    }}
-                  >
-                    <Eye
-                      size={48}
-                      style={{ margin: "0 auto 12px", color: "#c8b5ae" }}
-                    />
-                    <p style={{ fontSize: "15px" }}>
-                      Klik "Tampilkan" untuk preview
-                    </p>
-                  </div>
-                )}
-              </div>
-            </section>
+            )}
 
             {/* Action Buttons */}
-            <div style={{ marginTop: "24px", display: "flex", gap: "16px" }}>
+            <div className="admin-upload-actions">
               <button
                 onClick={() => navigate("/admin/frames")}
-                className="admin-button-secondary"
-                style={{ flex: 1, padding: "14px" }}
+                className="admin-upload-btn admin-upload-btn--secondary"
               >
                 Batal
               </button>
               <button
                 onClick={handleSaveFrame}
-                disabled={saving}
-                className="admin-button-primary"
-                style={{
-                  flex: 1,
-                  padding: "14px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "8px",
-                  opacity: saving ? 0.5 : 1,
-                  cursor: saving ? "not-allowed" : "pointer",
-                }}
+                disabled={saving || !frameName || !frameImageFile || slots.length === 0}
+                className="admin-upload-btn admin-upload-btn--primary"
+                style={{ opacity: saving ? 0.6 : 1 }}
               >
-                <Save size={20} />
-                {saving ? "Menyimpan..." : "Simpan Frame"}
+                <Save size={16} />
+                {saving ? "Menyimpan..." : "Simpan"}
               </button>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Slot Configuration Component
-function SlotConfig({ slot, index, maxCaptures, onUpdate, onDelete }) {
-  return (
-    <div
-      style={{
-        border: "2px solid var(--border)",
-        borderRadius: "12px",
-        padding: "16px",
-        backgroundColor: "#fdfbfa",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: "12px",
-        }}
-      >
-        <h3 style={{ fontWeight: "700", color: "#2d1b14", fontSize: "15px" }}>
-          Slot {index + 1}
-        </h3>
-        <button
-          onClick={() => onDelete(index)}
-          style={{
-            color: "#dc2626",
-            padding: "6px",
-            border: "none",
-            background: "transparent",
-            cursor: "pointer",
-            borderRadius: "6px",
-            transition: "all 0.2s ease",
-          }}
-          onMouseEnter={(e) =>
-            (e.currentTarget.style.backgroundColor = "#fee2e2")
-          }
-          onMouseLeave={(e) =>
-            (e.currentTarget.style.backgroundColor = "transparent")
-          }
-        >
-          <Trash2 size={18} />
-        </button>
-      </div>
-
-      <div
-        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}
-      >
-        <div>
-          <label className="admin-label" style={{ fontSize: "12px" }}>
-            Kiri (0.0-1.0)
-          </label>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            max="1"
-            value={slot.left}
-            onChange={(e) => onUpdate(index, "left", e.target.value)}
-            className="admin-input"
-            style={{ fontSize: "13px", padding: "8px 12px" }}
-          />
-        </div>
-
-        <div>
-          <label className="admin-label" style={{ fontSize: "12px" }}>
-            Atas (0.0-1.0)
-          </label>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            max="1"
-            value={slot.top}
-            onChange={(e) => onUpdate(index, "top", e.target.value)}
-            className="admin-input"
-            style={{ fontSize: "13px", padding: "8px 12px" }}
-          />
-        </div>
-
-        <div>
-          <label className="admin-label" style={{ fontSize: "12px" }}>
-            Lebar (0.0-1.0)
-          </label>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            max="1"
-            value={slot.width}
-            onChange={(e) => onUpdate(index, "width", e.target.value)}
-            className="admin-input"
-            style={{ fontSize: "13px", padding: "8px 12px" }}
-          />
-        </div>
-
-        <div>
-          <label className="admin-label" style={{ fontSize: "12px" }}>
-            Tinggi (0.0-1.0)
-          </label>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            max="1"
-            value={slot.height}
-            onChange={(e) => onUpdate(index, "height", e.target.value)}
-            className="admin-input"
-            style={{ fontSize: "13px", padding: "8px 12px" }}
-          />
-        </div>
-
-        <div>
-          <label className="admin-label" style={{ fontSize: "12px" }}>
-            Aspect Ratio
-          </label>
-          <select
-            value={slot.aspectRatio || "4:5"}
-            onChange={(e) => onUpdate(index, "aspectRatio", e.target.value)}
-            className="admin-select"
-            style={{ fontSize: "13px", padding: "8px 12px" }}
-          >
-            <option value="4:5">4:5 (Portrait)</option>
-            <option value="1:1">1:1 (Square)</option>
-            <option value="16:9">16:9 (Landscape)</option>
-            <option value="3:4">3:4 (Portrait)</option>
-            <option value="9:16">9:16 (Tall Portrait)</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="admin-label" style={{ fontSize: "12px" }}>
-            Index Foto
-          </label>
-          <select
-            value={slot.photoIndex}
-            onChange={(e) => onUpdate(index, "photoIndex", e.target.value)}
-            className="admin-select"
-            style={{ fontSize: "13px", padding: "8px 12px" }}
-          >
-            {Array.from({ length: maxCaptures }, (_, i) => (
-              <option key={i} value={i}>
-                Foto {i + 1}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div
-        style={{
-          fontSize: "12px",
-          color: "#8b7064",
-          backgroundColor: "#fff",
-          padding: "10px",
-          borderRadius: "8px",
-          marginTop: "12px",
-          border: "1px solid var(--border)",
-        }}
-      >
-        Posisi: ({(slot.left * 100).toFixed(1)}%, {(slot.top * 100).toFixed(1)}
-        %) • Ukuran: {(slot.width * 100).toFixed(1)}% ×{" "}
-        {(slot.height * 100).toFixed(1)}%
+        </Motion.aside>
       </div>
     </div>
   );

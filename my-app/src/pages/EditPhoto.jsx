@@ -89,19 +89,19 @@ export default function EditPhoto() {
     const state = touchStateRef.current;
     const touches = e.touches;
     
-    state.activePhotoId = photoId;
-    
     // Get container rect
     if (containerEl) {
       state.containerRect = containerEl.getBoundingClientRect();
     }
 
     const currentTransform = getPhotoTransform(photoId);
+    const isCurrentlySelected = selectedPhotoId === photoId;
 
     // Check for double tap to reset
     const now = Date.now();
     if (touches.length === 1) {
-      if (now - state.lastTapTime < 300) {
+      if (now - state.lastTapTime < 300 && isCurrentlySelected) {
+        // Double tap on selected photo - reset zoom
         e.preventDefault();
         updatePhotoTransform(photoId, { scale: 1, x: 0, y: 0 });
         state.lastTapTime = 0;
@@ -109,10 +109,25 @@ export default function EditPhoto() {
         return;
       }
       state.lastTapTime = now;
+      
+      // First tap - select this photo (required before zoom/pan)
+      if (!isCurrentlySelected) {
+        e.preventDefault();
+        setSelectedPhotoId(photoId);
+        state.activePhotoId = photoId;
+        return; // Don't start drag on first tap
+      }
     }
 
+    // Only allow zoom/pan if this photo is selected
+    if (!isCurrentlySelected) {
+      return;
+    }
+
+    state.activePhotoId = photoId;
+
     if (touches.length === 2) {
-      // Start pinch zoom
+      // Start pinch zoom (only if selected)
       e.preventDefault();
       e.stopPropagation();
       state.isPinching = true;
@@ -121,25 +136,24 @@ export default function EditPhoto() {
       state.initialScale = currentTransform.scale;
       state.initialX = currentTransform.x;
       state.initialY = currentTransform.y;
-      setSelectedPhotoId(photoId);
     } else if (touches.length === 1 && currentTransform.scale > 1) {
-      // Start pan (only if zoomed in)
+      // Start pan (only if zoomed in and selected)
       e.preventDefault();
       e.stopPropagation();
       state.isDragging = true;
       state.isPinching = false;
       state.lastTouchX = touches[0].clientX;
       state.lastTouchY = touches[0].clientY;
-      setSelectedPhotoId(photoId);
     }
-  }, [getDistance, getPhotoTransform, updatePhotoTransform]);
+  }, [getDistance, getPhotoTransform, updatePhotoTransform, selectedPhotoId]);
 
   // Handle touch move on photo
   const handlePhotoTouchMove = useCallback((e, photoId) => {
     const state = touchStateRef.current;
     const touches = e.touches;
     
-    if (state.activePhotoId !== photoId) return;
+    // Only process if this photo is selected and active
+    if (state.activePhotoId !== photoId || selectedPhotoId !== photoId) return;
 
     const currentTransform = getPhotoTransform(photoId);
 
@@ -186,7 +200,7 @@ export default function EditPhoto() {
       state.lastTouchX = touches[0].clientX;
       state.lastTouchY = touches[0].clientY;
     }
-  }, [clamp, getDistance, getPhotoTransform, updatePhotoTransform]);
+  }, [clamp, getDistance, getPhotoTransform, updatePhotoTransform, selectedPhotoId]);
 
   // Handle touch end on photo
   const handlePhotoTouchEnd = useCallback((e, photoId) => {
@@ -208,7 +222,7 @@ export default function EditPhoto() {
       // If scale is below threshold, reset to 1
       if (currentTransform.scale < 1.05) {
         updatePhotoTransform(photoId, { scale: 1, x: 0, y: 0 });
-        setSelectedPhotoId(null);
+        // Don't deselect on touch end - keep selected for more adjustments
       }
     } else if (touches.length === 1 && currentTransform.scale > 1) {
       // Switch from pinch to drag
@@ -1725,12 +1739,60 @@ export default function EditPhoto() {
         </div>
       )}
 
-      {/* Zoom/Pan Instructions */}
-      {Object.keys(photoTransforms).some(key => photoTransforms[key]?.scale > 1) && (
+      {/* Selected Photo Indicator & Controls */}
+      {selectedPhotoId && (
         <div
           style={{
             background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
             color: "white",
+            padding: "12px 16px",
+            borderRadius: "12px",
+            fontSize: "13px",
+            fontWeight: "500",
+            marginBottom: "8px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "12px",
+            width: "100%",
+            maxWidth: "320px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span>✨</span>
+            <span>Foto terpilih - pinch untuk zoom</span>
+          </div>
+          <button
+            onClick={() => {
+              setSelectedPhotoId(null);
+              // Reset transform jika ada
+              if (photoTransforms[selectedPhotoId]?.scale > 1) {
+                updatePhotoTransform(selectedPhotoId, { scale: 1, x: 0, y: 0 });
+              }
+            }}
+            style={{
+              background: "rgba(255,255,255,0.2)",
+              border: "none",
+              color: "white",
+              padding: "6px 12px",
+              borderRadius: "8px",
+              fontSize: "12px",
+              fontWeight: "600",
+              cursor: "pointer",
+            }}
+          >
+            Selesai
+          </button>
+        </div>
+      )}
+
+      {/* Zoom Active Indicator */}
+      {Object.keys(photoTransforms).some(key => photoTransforms[key]?.scale > 1) && (
+        <div
+          style={{
+            background: "rgba(16, 185, 129, 0.1)",
+            border: "1px solid rgba(16, 185, 129, 0.3)",
+            color: "#059669",
             padding: "10px 16px",
             borderRadius: "12px",
             fontSize: "13px",
@@ -1758,26 +1820,28 @@ export default function EditPhoto() {
             maxWidth: "900px",
           }}
         >
-          {/* Zoom Instructions */}
-          <div
-            style={{
-              background: "rgba(79, 70, 229, 0.1)",
-              border: "1px solid rgba(79, 70, 229, 0.3)",
-              color: "#4F46E5",
-              padding: "10px 16px",
-              borderRadius: "12px",
-              fontSize: "12px",
-              fontWeight: "500",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              width: "100%",
-              maxWidth: "280px",
-            }}
-          >
-            <span>👆</span>
-            <span>Pinch 2 jari untuk zoom, geser untuk pindah</span>
-          </div>
+          {/* Zoom Instructions - only show if no photo selected */}
+          {!selectedPhotoId && (
+            <div
+              style={{
+                background: "rgba(79, 70, 229, 0.1)",
+                border: "1px solid rgba(79, 70, 229, 0.3)",
+                color: "#4F46E5",
+                padding: "10px 16px",
+                borderRadius: "12px",
+                fontSize: "12px",
+                fontWeight: "500",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                width: "100%",
+                maxWidth: "280px",
+              }}
+            >
+              <span>👆</span>
+              <span>Tap foto untuk pilih, lalu pinch untuk zoom</span>
+            </div>
+          )}
 
           {/* Frame Canvas Container */}
           <div

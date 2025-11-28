@@ -29,13 +29,20 @@ const AdminFrames = () => {
 
   useEffect(() => {
     const loadFrames = async () => {
-      console.log("AdminFrames loading from Firebase...");
+      console.log("🔄 AdminFrames: Starting to load frames...");
       try {
+        console.log("📊 AdminFrames: Calling getAllCustomFrames()...");
         const data = await getAllCustomFrames();
-        console.log("Frames loaded from Firebase:", data);
+        console.log("✅ AdminFrames: Frames loaded:", data);
+        console.log("📊 AdminFrames: Frame count:", data?.length || 0);
+        
+        if (!data || data.length === 0) {
+          console.warn("⚠️ AdminFrames: No frames returned!");
+          console.warn("⚠️ Check Supabase RLS policies or connection");
+        }
         
         // Initialize with sort_order if not exists
-        const framesWithOrder = data.map((f, idx) => ({
+        const framesWithOrder = (data || []).map((f, idx) => ({
           ...f,
           sortOrder: f.sort_order ?? f.sortOrder ?? idx,
           categorySortOrder: f.category_sort_order ?? f.categorySortOrder ?? 0
@@ -52,7 +59,8 @@ const AdminFrames = () => {
         });
         setCategoryOrders(catOrders);
       } catch (err) {
-        console.error("Error:", err);
+        console.error("❌ AdminFrames Error:", err);
+        console.error("❌ Error stack:", err.stack);
       }
       setLoading(false);
     };

@@ -28,17 +28,18 @@ const AdminFrames = () => {
   };
 
   useEffect(() => {
-    const loadFrames = async () => {
-      console.log("🔄 AdminFrames: Starting to load frames...");
+    const loadFrames = async (retryCount = 0) => {
+      const MAX_RETRIES = 3;
+      console.log(`🔄 AdminFrames: Loading frames... (attempt ${retryCount + 1}/${MAX_RETRIES + 1})`);
+      
       try {
-        console.log("📊 AdminFrames: Calling getAllCustomFrames()...");
         const data = await getAllCustomFrames();
-        console.log("✅ AdminFrames: Frames loaded:", data);
-        console.log("📊 AdminFrames: Frame count:", data?.length || 0);
+        console.log("✅ AdminFrames: Frames loaded, count:", data?.length || 0);
         
-        if (!data || data.length === 0) {
-          console.warn("⚠️ AdminFrames: No frames returned!");
-          console.warn("⚠️ Check Supabase RLS policies or connection");
+        if ((!data || data.length === 0) && retryCount < MAX_RETRIES) {
+          console.warn(`⚠️ AdminFrames: No frames, retrying in 1s... (${retryCount + 1}/${MAX_RETRIES})`);
+          setTimeout(() => loadFrames(retryCount + 1), 1000);
+          return;
         }
         
         // Initialize with sort_order if not exists
@@ -58,11 +59,17 @@ const AdminFrames = () => {
           }
         });
         setCategoryOrders(catOrders);
+        setLoading(false);
       } catch (err) {
-        console.error("❌ AdminFrames Error:", err);
-        console.error("❌ Error stack:", err.stack);
+        console.error("❌ AdminFrames Error:", err.message);
+        if (retryCount < MAX_RETRIES) {
+          console.log(`🔄 Retrying in 1s... (${retryCount + 1}/${MAX_RETRIES})`);
+          setTimeout(() => loadFrames(retryCount + 1), 1000);
+        } else {
+          console.error("❌ All retries failed");
+          setLoading(false);
+        }
       }
-      setLoading(false);
     };
     loadFrames();
   }, []);

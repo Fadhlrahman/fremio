@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import frameProvider from "../utils/frameProvider.js";
 import safeStorage from "../utils/safeStorage.js";
 import { getAllCustomFrames } from "../services/customFrameService";
@@ -11,6 +11,70 @@ export default function Frames() {
   const [customFrames, setCustomFrames] = useState([]);
   const [expandedDescriptions, setExpandedDescriptions] = useState({});
   const [imageErrors, setImageErrors] = useState({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+
+  // Helper: Get primary category (first one only)
+  const getPrimaryCategory = (frame) => {
+    if (frame.categories && Array.isArray(frame.categories) && frame.categories.length > 0) {
+      return frame.categories[0];
+    }
+    if (frame.category) {
+      const cats = frame.category.split(",").map(c => c.trim()).filter(c => c);
+      return cats[0] || "Lainnya";
+    }
+    return "Lainnya";
+  };
+
+  // Group frames by PRIMARY category only and respect sort orders
+  const framesByCategory = useMemo(() => {
+    const categoryMap = {};
+    const categoryOrders = {}; // Track category sort orders
+    
+    customFrames.forEach(frame => {
+      // Use PRIMARY category only (first one)
+      const cat = getPrimaryCategory(frame);
+      
+      if (!categoryMap[cat]) {
+        categoryMap[cat] = [];
+      }
+      categoryMap[cat].push(frame);
+      
+      // Track category sort order (use the lowest one found)
+      const catOrder = frame.category_sort_order ?? frame.categorySortOrder ?? 999;
+      if (categoryOrders[cat] === undefined || catOrder < categoryOrders[cat]) {
+        categoryOrders[cat] = catOrder;
+      }
+    });
+    
+    // Sort frames within each category by sort_order
+    Object.keys(categoryMap).forEach(cat => {
+      categoryMap[cat].sort((a, b) => {
+        const orderA = a.sort_order ?? a.sortOrder ?? 999;
+        const orderB = b.sort_order ?? b.sortOrder ?? 999;
+        return orderA - orderB;
+      });
+    });
+    
+    // Sort categories by category_sort_order, with fallback to default order
+    const sortedCategories = Object.keys(categoryMap).sort((a, b) => {
+      const orderA = categoryOrders[a] ?? 999;
+      const orderB = categoryOrders[b] ?? 999;
+      
+      // If both have same order, use default logic
+      if (orderA === orderB) {
+        if (a === "Fremio Series") return -1;
+        if (b === "Fremio Series") return 1;
+        if (a === "Lainnya") return 1;
+        if (b === "Lainnya") return -1;
+        return a.localeCompare(b);
+      }
+      
+      return orderA - orderB;
+    });
+    
+    return { categoryMap, sortedCategories };
+  }, [customFrames]);
 
   const toggleDescription = (frameId) => {
     setExpandedDescriptions((prev) => ({
@@ -28,10 +92,14 @@ export default function Frames() {
     safeStorage.removeItem("capturedPhotos");
     safeStorage.removeItem("capturedVideos");
 
-    // Load custom frames from Firebase (async)
-    const loadFrames = async () => {
+    // Load custom frames with retry logic
+    const loadFrames = async (retryCount = 0) => {
+      const MAX_RETRIES = 3;
+      
       try {
-        console.log("🔍 Loading custom frames from Firebase...");
+        setIsLoading(true);
+        setLoadError(null);
+        console.log(`🔍 Loading custom frames... (attempt ${retryCount + 1})`);
         
         const loadedCustomFrames = await getAllCustomFrames();
         console.log("🎨 Custom frames loaded:", loadedCustomFrames.length);
@@ -39,16 +107,28 @@ export default function Frames() {
         if (loadedCustomFrames.length > 0) {
           loadedCustomFrames.forEach((f, idx) => {
             console.log(`  ${idx + 1}. ${f.name} (ID: ${f.id})`);
-            console.log(`     - imagePath: ${f.imagePath?.substring(0, 60)}...`);
           });
+          setCustomFrames(loadedCustomFrames);
+          setIsLoading(false);
+        } else if (retryCount < MAX_RETRIES) {
+          // If no frames found, retry after a short delay
+          console.warn(`⚠️ No frames found, retrying... (${retryCount + 1}/${MAX_RETRIES})`);
+          setTimeout(() => loadFrames(retryCount + 1), 1000);
         } else {
-          console.warn("⚠️ NO CUSTOM FRAMES FOUND in Firebase!");
+          console.warn("⚠️ NO CUSTOM FRAMES FOUND after retries");
+          setCustomFrames([]);
+          setIsLoading(false);
         }
-        
-        setCustomFrames(loadedCustomFrames);
       } catch (error) {
         console.error("❌ Error loading custom frames:", error);
-        setCustomFrames([]);
+        if (retryCount < MAX_RETRIES) {
+          console.log(`🔄 Retrying... (${retryCount + 1}/${MAX_RETRIES})`);
+          setTimeout(() => loadFrames(retryCount + 1), 1000);
+        } else {
+          setLoadError(error.message);
+          setCustomFrames([]);
+          setIsLoading(false);
+        }
       }
     };
 
@@ -71,150 +151,200 @@ export default function Frames() {
           </span>
         </h2>
 
-        {/* Custom Frames from Admin */}
-        {customFrames.length > 0 ? (
-          <div
-            className="grid grid-cols-4 gap-4 px-2 mb-12"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(4, 1fr)",
-              gap: "1rem",
-            }}
-          >
-            {customFrames.map((frame) => (
-              <div
-                key={frame.id}
-                className="group relative flex flex-col gap-2 overflow-hidden rounded-lg border border-[#e0b7a9]/40 bg-white p-3 shadow-md transition-all duration-300 hover:-translate-y-1 hover:border-[#e0b7a9] hover:shadow-lg"
-              >
-                {/* Frame Image */}
-                <div
-                  className="flex items-center justify-center overflow-hidden rounded-md bg-gray-50"
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="animate-spin rounded-full h-12 w-12 border-4 border-[#e0b7a9] border-t-transparent mb-4"></div>
+            <p className="text-slate-600">Memuat frame...</p>
+          </div>
+        )}
+
+        {/* Error State */}
+        {loadError && !isLoading && (
+          <div className="text-center py-20">
+            <p className="text-red-500 mb-4">Gagal memuat frame: {loadError}</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="px-6 py-2 bg-[#e0b7a9] text-white rounded-full hover:bg-[#c89585] transition-colors"
+            >
+              Coba Lagi
+            </button>
+          </div>
+        )}
+
+        {/* Custom Frames by Category */}
+        {!isLoading && !loadError && customFrames.length > 0 ? (
+          <div className="space-y-12">
+            {framesByCategory.sortedCategories.map((category) => (
+              <div key={category} className="mb-10">
+                {/* Category Header */}
+                <h3 className="text-xl font-bold text-slate-800 mb-4">
+                  {category} ({framesByCategory.categoryMap[category].length})
+                </h3>
+
+                {/* Frames Grid - frames in same category in one row, wrap when full */}
+                <div 
                   style={{
-                    height: "200px",
-                    width: "100%",
+                    display: "flex",
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    gap: "16px",
                   }}
                 >
-                  {imageErrors[frame.id] ? (
-                    <div className="flex flex-col items-center justify-center text-gray-400">
-                      <svg className="w-12 h-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                      <span className="text-xs">Gambar tidak tersedia</span>
-                    </div>
-                  ) : (
-                    <img
-                      src={imagePresets.card(frame.imagePath || frame.thumbnailUrl)}
-                      alt={frame.name}
-                      loading="lazy"
-                      className="object-contain transition-transform duration-300 group-hover:scale-105"
+                  {framesByCategory.categoryMap[category].map((frame) => (
+                    <div
+                      key={`${category}-${frame.id}`}
+                      className="frame-card group"
                       style={{
-                        height: "100%",
-                        width: "100%",
-                        objectFit: "contain",
+                        width: "clamp(160px, 16vw, 220px)",
+                        flexShrink: 0,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "4px",
+                        padding: "12px",
+                        backgroundColor: "white",
+                        border: "2px solid #e5e7eb",
+                        borderRadius: "14px",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+                        transition: "all 0.3s ease",
+                        cursor: "pointer",
+                        overflow: "visible",
                       }}
-                      onError={(e) => {
-                        // Fallback to original if CDN fails
-                        if (!e.target.dataset.fallback) {
-                          e.target.dataset.fallback = 'true';
-                          e.target.src = frame.imagePath || frame.thumbnailUrl;
-                        } else {
-                          handleImageError(frame.id);
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = "translateY(-6px)";
+                        e.currentTarget.style.boxShadow = "0 12px 24px rgba(200,149,133,0.25)";
+                        e.currentTarget.style.borderColor = "#e0b7a9";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = "translateY(0)";
+                        e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.1)";
+                        e.currentTarget.style.borderColor = "#e5e7eb";
+                      }}
+                      onClick={async () => {
+                        console.log("🎬 User clicked frame card");
+                        console.log("📦 Frame data:", frame);
+                        
+                        if (!frame.slots || frame.slots.length === 0) {
+                          alert("Error: Frame ini tidak memiliki slot foto.");
+                          return;
                         }
-                      }}
-                    />
-                  )}
-                </div>
+                        
+                        if (!frame.imagePath && !frame.thumbnailUrl) {
+                          alert("Error: Frame ini tidak memiliki gambar.");
+                          return;
+                        }
+                        
+                        await trackFrameView(frame.id, null, frame.name);
 
-                {/* Frame Title */}
-                <div className="text-center">
-                  <h4
-                    className="font-bold text-slate-900 truncate"
-                    style={{ fontSize: "12px" }}
-                  >
-                    {frame.name}
-                  </h4>
-                  <p
-                    className="mt-1 text-slate-500"
-                    style={{ fontSize: "10px" }}
-                  >
-                    {frame.maxCaptures} captures
-                  </p>
-                </div>
-
-                {/* Frame Description */}
-                {frame.description && (
-                  <div className="text-left px-1">
-                    <p
-                      className="text-slate-600 leading-relaxed"
-                      style={{
-                        fontSize: "10px",
-                        display: "-webkit-box",
-                        WebkitLineClamp: expandedDescriptions[frame.id] ? "unset" : 2,
-                        WebkitBoxOrient: "vertical",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
+                        try {
+                          const success = await frameProvider.setCustomFrame(frame);
+                          
+                          if (success !== false) {
+                            navigate("/take-moment");
+                          } else {
+                            alert("Error: Gagal memilih frame");
+                          }
+                        } catch (error) {
+                          console.error("Error in setCustomFrame:", error);
+                          alert("Error: Gagal memilih frame - " + error.message);
+                        }
                       }}
                     >
-                      {frame.description}
-                    </p>
-                    {frame.description.length > 80 && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleDescription(frame.id);
+                      {/* Frame Image */}
+                      <div
+                        style={{
+                          width: "100%",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          borderRadius: "10px",
+                          backgroundColor: "#f9fafb",
+                          marginTop: "4px",
+                          marginBottom: "8px",
+                          padding: "10px",
+                          overflow: "visible",
                         }}
-                        className="mt-1 text-[#c89585] hover:text-[#e0b7a9] font-medium transition-colors"
-                        style={{ fontSize: "9px" }}
                       >
-                        {expandedDescriptions[frame.id] ? "Show Less" : "Show More"}
-                      </button>
-                    )}
-                  </div>
-                )}
+                        {imageErrors[frame.id] ? (
+                          <div className="flex flex-col items-center justify-center text-gray-400" style={{ height: "clamp(160px, 18vw, 240px)" }}>
+                            <svg className="w-12 h-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <span className="text-xs">Gambar tidak tersedia</span>
+                          </div>
+                        ) : (
+                          <img
+                            src={imagePresets.card(frame.imagePath || frame.thumbnailUrl)}
+                            alt={frame.name}
+                            loading="lazy"
+                            className="transition-transform duration-300 group-hover:scale-105"
+                            style={{
+                              maxHeight: "clamp(160px, 18vw, 240px)",
+                              width: "auto",
+                              maxWidth: "100%",
+                              objectFit: "contain",
+                            }}
+                            onError={(e) => {
+                              // Fallback to original if CDN fails
+                              if (!e.target.dataset.fallback) {
+                                e.target.dataset.fallback = 'true';
+                                e.target.src = frame.imagePath || frame.thumbnailUrl;
+                              } else {
+                                handleImageError(frame.id);
+                              }
+                            }}
+                          />
+                        )}
+                      </div>
 
-                {/* Lihat Frame Button */}
-                <div className="flex justify-center w-full">
-                  <button
-                    className="group/btn relative overflow-hidden rounded-md border-2 border-slate-300 bg-white font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-400 hover:shadow-md active:scale-95"
-                    style={{ fontSize: "11px", padding: "8px 16px" }}
-                    onClick={async () => {
-                      console.log("🎬 User clicked 'Lihat Frame'");
-                      console.log("📦 Frame data:", frame);
-                      
-                      if (!frame.slots || frame.slots.length === 0) {
-                        alert("Error: Frame ini tidak memiliki slot foto.");
-                        return;
-                      }
-                      
-                      if (!frame.imagePath && !frame.thumbnailUrl) {
-                        alert("Error: Frame ini tidak memiliki gambar.");
-                        return;
-                      }
-                      
-                      await trackFrameView(frame.id, null, frame.name);
+                      {/* Frame Title */}
+                      <div style={{ textAlign: "center", width: "100%" }}>
+                        <h4
+                          className="font-bold text-slate-900"
+                          style={{ fontSize: "14px", marginBottom: "0px" }}
+                        >
+                          {frame.name}
+                        </h4>
+                      </div>
 
-                      try {
-                        const success = await frameProvider.setCustomFrame(frame);
-                        
-                        if (success !== false) {
-                          navigate("/take-moment");
-                        } else {
-                          alert("Error: Gagal memilih frame");
-                        }
-                      } catch (error) {
-                        console.error("Error in setCustomFrame:", error);
-                        alert("Error: Gagal memilih frame - " + error.message);
-                      }
-                    }}
-                  >
-                    <span className="relative z-10">Lihat Frame</span>
-                    <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-slate-100 to-transparent transition-transform duration-500 group-hover/btn:translate-x-full" />
-                  </button>
+                      {/* Frame Description */}
+                      {frame.description && (
+                        <div style={{ textAlign: "center", width: "100%", marginTop: "-6px" }}>
+                          <p
+                            className="text-slate-500"
+                            style={{
+                              fontSize: "10px",
+                              lineHeight: "1.3",
+                              display: "-webkit-box",
+                              WebkitLineClamp: expandedDescriptions[frame.id] ? "unset" : 2,
+                              WebkitBoxOrient: "vertical",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {frame.description}
+                          </p>
+                          {frame.description.length > 80 && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleDescription(frame.id);
+                              }}
+                              className="mt-1 text-[#c89585] hover:text-[#e0b7a9] font-medium transition-colors"
+                              style={{ fontSize: "9px" }}
+                            >
+                              {expandedDescriptions[frame.id] ? "Show Less" : "Show More"}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
           </div>
-        ) : (
+        ) : !isLoading && !loadError && (
           <div className="mb-12 p-8 bg-gradient-to-br from-slate-50 to-gray-50 border-2 border-slate-200 rounded-xl text-center shadow-lg">
             <div className="mb-6">
               <div className="inline-flex items-center justify-center w-20 h-20 bg-slate-100 rounded-full mb-4">

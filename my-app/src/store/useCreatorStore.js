@@ -528,13 +528,22 @@ export const useCreatorStore = create((set, get) => ({
     return element.id;
   },
   addUploadElement: (imageDataUrl) => {
-    // Create image to get dimensions
+    // First, create the element and get its ID
+    const id = get().addElement('upload', {
+      x: Math.round((CANVAS_WIDTH - DEFAULT_UPLOAD_WIDTH) / 2),
+      y: Math.round((CANVAS_HEIGHT - DEFAULT_UPLOAD_HEIGHT) / 2),
+      data: {
+        image: imageDataUrl,
+        objectFit: 'contain',
+        label: 'Unggahan'
+      }
+    });
+    
+    // Now load image to get dimensions and resize the element
     const img = new Image();
-    img.src = imageDataUrl;
     
     img.onload = () => {
       const aspectRatio = img.width / img.height;
-      const state = get();
       
       // Target size is 1/3 of canvas for display
       const targetWidth = CANVAS_WIDTH / 3;
@@ -561,50 +570,43 @@ export const useCreatorStore = create((set, get) => ({
       displayCtx.drawImage(img, 0, 0, Math.round(width), Math.round(height));
       const displayImageDataUrl = displayCanvas.toDataURL('image/png', 0.95);
       
-      const elements = state.elements;
-      const uploadElement = elements.find(el => el.data?.image === imageDataUrl && el.type === 'upload');
-      
-      if (uploadElement) {
-        // Center the element on canvas
-        const uploadElementId = uploadElement.id;
-        const x = Math.round((CANVAS_WIDTH - width) / 2);
-        const y = Math.round((CANVAS_HEIGHT - height) / 2);
+      // Center the element on canvas
+      const x = Math.round((CANVAS_WIDTH - width) / 2);
+      const y = Math.round((CANVAS_HEIGHT - height) / 2);
 
-        set((prev) => {
-          const mapped = prev.elements.map((el) =>
-            el.id === uploadElementId
-              ? {
-                  ...el,
-                  width: Math.round(width),
-                  height: Math.round(height),
-                  x,
-                  y,
-                  data: {
-                    ...el.data,
-                    image: displayImageDataUrl, // Use smaller version for display
-                    originalImage: imageDataUrl, // Keep original for high-quality resize
-                    imageAspectRatio: aspectRatio,
-                    objectFit: 'contain'
-                  }
+      // Update the element using its ID (not by searching for image)
+      set((prev) => {
+        const mapped = prev.elements.map((el) =>
+          el.id === id
+            ? {
+                ...el,
+                width: Math.round(width),
+                height: Math.round(height),
+                x,
+                y,
+                data: {
+                  ...el.data,
+                  image: displayImageDataUrl, // Use smaller version for display
+                  originalImage: imageDataUrl, // Keep original for high-quality resize
+                  imageAspectRatio: aspectRatio,
+                  objectFit: 'contain'
                 }
-              : el
-          );
-          return {
-            elements: syncCreatorElements(mapped)
-          };
-        });
-      }
+              }
+            : el
+        );
+        return {
+          elements: syncCreatorElements(mapped)
+        };
+      });
     };
     
-    const id = get().addElement('upload', {
-      x: Math.round((CANVAS_WIDTH - DEFAULT_UPLOAD_WIDTH) / 2),
-      y: Math.round((CANVAS_HEIGHT - DEFAULT_UPLOAD_HEIGHT) / 2),
-      data: {
-        image: imageDataUrl,
-        objectFit: 'contain',
-        label: 'Unggahan'
-      }
-    });
+    img.onerror = () => {
+      console.error('[addUploadElement] Failed to load image for resizing');
+    };
+    
+    // Start loading the image
+    img.src = imageDataUrl;
+    
     return id;
   },
   addBackgroundPhoto: (imageDataUrl, meta = {}) => {

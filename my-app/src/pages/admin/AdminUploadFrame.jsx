@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import {
   Upload,
@@ -17,12 +17,18 @@ import {
   createFrameDocument,
   uploadFrameThumbnail,
 } from "../../services/frameManagementService";
-import { saveCustomFrame, getStorageInfo, clearAllCustomFrames } from "../../services/customFrameService";
+import { saveCustomFrame, getStorageInfo, clearAllCustomFrames, getCustomFrameById } from "../../services/customFrameService";
 import { quickDetectSlots } from "../../utils/slotDetector";
 
 export default function AdminUploadFrame() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const editFrameId = searchParams.get("edit");
   const { user } = useAuth();
+
+  // Edit mode state
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [loadingFrame, setLoadingFrame] = useState(false);
 
   // State declarations FIRST
   const [frameName, setFrameName] = useState("");
@@ -44,8 +50,12 @@ export default function AdminUploadFrame() {
   const [saving, setSaving] = useState(false);
   const [storageInfo, setStorageInfo] = useState(null);
 
+  // Elements state for edit mode (text, shapes, uploads)
+  const [elements, setElements] = useState([]);
+
   console.log("🎨 AdminUploadFrame component rendered");
   console.log("👤 Current user:", user);
+  console.log("✏️ Edit mode:", editFrameId ? `Editing frame ${editFrameId}` : "New frame");
   
   // Get Firebase storage info on mount
   useEffect(() => {
@@ -53,6 +63,62 @@ export default function AdminUploadFrame() {
     setStorageInfo(info);
     console.log("☁️ Firebase Storage Info:", info);
   }, []); // Run only once on mount
+
+  // Load frame data when in edit mode
+  useEffect(() => {
+    const loadFrameForEdit = async () => {
+      if (!editFrameId) return;
+      
+      setLoadingFrame(true);
+      setIsEditMode(true);
+      
+      try {
+        console.log("📥 Loading frame for edit:", editFrameId);
+        const frame = await getCustomFrameById(editFrameId);
+        
+        if (frame) {
+          console.log("✅ Frame loaded:", frame);
+          
+          // Set basic info
+          setFrameName(frame.name || "");
+          setFrameDescription(frame.description || "");
+          setFrameCategory(frame.category || "custom");
+          setMaxCaptures(frame.maxCaptures || frame.slots?.length || 3);
+          setDuplicatePhotos(frame.duplicatePhotos || false);
+          
+          // Set frame image preview
+          if (frame.imagePath || frame.thumbnailUrl) {
+            setFrameImagePreview(frame.imagePath || frame.thumbnailUrl);
+          }
+          
+          // Set slots
+          if (frame.slots && frame.slots.length > 0) {
+            setSlots(frame.slots);
+            console.log("📍 Slots loaded:", frame.slots.length);
+          }
+          
+          // Set elements (text, shapes, uploads) - IMPORTANT!
+          if (frame.elements && frame.elements.length > 0) {
+            setElements(frame.elements);
+            console.log("🎨 Elements loaded:", frame.elements.length, frame.elements);
+          } else {
+            console.log("⚠️ No elements found in frame data");
+          }
+        } else {
+          console.error("❌ Frame not found:", editFrameId);
+          alert("Frame tidak ditemukan!");
+          navigate("/admin/frames");
+        }
+      } catch (error) {
+        console.error("❌ Error loading frame:", error);
+        alert("Gagal memuat frame: " + error.message);
+      } finally {
+        setLoadingFrame(false);
+      }
+    };
+    
+    loadFrameForEdit();
+  }, [editFrameId, navigate]);
 
   // Helper function to clear frames from Firebase
   const handleClearStorage = async () => {

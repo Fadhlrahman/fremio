@@ -129,7 +129,8 @@ export const imagePresets = {
     width: 300, 
     height: 450, 
     quality: 75,
-    format: 'webp'
+    format: 'webp',
+    fit: 'contain'
   }),
   
   /**

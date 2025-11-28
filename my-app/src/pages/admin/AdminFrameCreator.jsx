@@ -153,6 +153,8 @@ export default function AdminFrameCreator() {
           
           if (frame) {
             console.log("✅ Frame loaded:", frame);
+            console.log("🔍 Frame layout:", frame.layout);
+            console.log("🔍 Frame layout.elements:", frame.layout?.elements);
             
             // Set frame metadata
             setFrameName(frame.name || "");
@@ -176,6 +178,7 @@ export default function AdminFrameCreator() {
             // Add background photo if available
             if (frame.imagePath || frame.image_url || frame.thumbnailUrl) {
               const imageUrl = frame.imagePath || frame.image_url || frame.thumbnailUrl;
+              console.log("🖼️ Adding background photo:", imageUrl);
               newElements.push({
                 id: "background-photo-1",
                 type: "background-photo",
@@ -194,6 +197,7 @@ export default function AdminFrameCreator() {
             
             // Add photo slots
             if (frame.slots && Array.isArray(frame.slots)) {
+              console.log("📸 Adding photo slots:", frame.slots.length);
               frame.slots.forEach((slot, index) => {
                 newElements.push({
                   id: slot.id || `photo_${index + 1}`,
@@ -213,8 +217,9 @@ export default function AdminFrameCreator() {
             
             // Restore other elements (upload, text, shape) from layout.elements
             if (frame.layout?.elements && Array.isArray(frame.layout.elements)) {
-              console.log("📦 Restoring other elements:", frame.layout.elements.length);
+              console.log("📦 Restoring other elements:", frame.layout.elements.length, frame.layout.elements);
               frame.layout.elements.forEach((el) => {
+                console.log("🔄 Restoring element:", el.type, el.id);
                 // Convert normalized positions back to absolute positions
                 const restoredElement = {
                   ...el,
@@ -230,8 +235,11 @@ export default function AdminFrameCreator() {
                 delete restoredElement.heightNorm;
                 newElements.push(restoredElement);
               });
+            } else {
+              console.log("⚠️ No layout.elements found in frame data");
             }
             
+            console.log("📋 Total elements to set:", newElements.length, newElements.map(e => e.type));
             setElements(newElements);
             showToast("success", `Frame "${frame.name}" dimuat untuk diedit`);
           } else {
@@ -488,6 +496,8 @@ export default function AdminFrameCreator() {
           heightNorm: el.height / canvasHeight,
         }));
 
+      console.log("📦 Other elements to save:", otherElements.length, otherElements.map(e => ({ type: e.type, id: e.id })));
+
       const frameData = {
         name: frameName.trim(),
         description: frameDescription.trim(),
@@ -508,6 +518,14 @@ export default function AdminFrameCreator() {
           elements: otherElements, // Store upload/text/shape elements here
         },
       };
+
+      console.log("💾 Frame data to save:", {
+        ...frameData,
+        layout: {
+          ...frameData.layout,
+          elementsCount: frameData.layout.elements.length
+        }
+      });
 
       let result;
       

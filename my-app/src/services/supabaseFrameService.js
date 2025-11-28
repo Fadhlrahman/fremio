@@ -121,7 +121,10 @@ export const getAllCustomFrames = async () => {
       createdAt: frame.created_at,
       updatedAt: frame.updated_at,
       createdBy: frame.created_by,
-      isActive: frame.is_active
+      isActive: frame.is_active,
+      // Read sort orders from layout JSON
+      sortOrder: frame.layout?.sortOrder ?? 999,
+      categorySortOrder: frame.layout?.categorySortOrder ?? 999
     }));
   } catch (error) {
     console.error('❌ Error:', error);
@@ -422,6 +425,177 @@ export const getStorageInfo = () => ({
   isSupabase: true
 });
 
+/**
+ * Update frame sort order within category
+ * Stores sort_order inside the layout JSON field
+ */
+export const updateFrameSortOrder = async (frameId, sortOrder) => {
+  if (!isSupabaseConfigured || !supabase) {
+    return { success: false, message: 'Supabase tidak dikonfigurasi' };
+  }
+
+  try {
+    // First get current layout
+    const { data: frame, error: fetchError } = await supabase
+      .from(FRAMES_TABLE)
+      .select('layout')
+      .eq('id', frameId)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    // Update layout with sort_order
+    const updatedLayout = {
+      ...(frame?.layout || {}),
+      sortOrder: sortOrder
+    };
+
+    const { error } = await supabase
+      .from(FRAMES_TABLE)
+      .update({ layout: updatedLayout, updated_at: new Date().toISOString() })
+      .eq('id', frameId);
+
+    if (error) throw error;
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating sort order:', error);
+    return { success: false, message: error.message };
+  }
+};
+
+/**
+ * Update category sort order
+ * Stores category_sort_order inside the layout JSON field for all frames in category
+ */
+export const updateCategorySortOrder = async (category, sortOrder) => {
+  if (!isSupabaseConfigured || !supabase) {
+    return { success: false, message: 'Supabase tidak dikonfigurasi' };
+  }
+
+  try {
+    // Get all frames in this category
+    const { data: frames, error: fetchError } = await supabase
+      .from(FRAMES_TABLE)
+      .select('id, layout, category')
+      .like('category', `%${category}%`);
+
+    if (fetchError) throw fetchError;
+
+    // Update each frame's layout with categorySortOrder
+    for (const frame of frames) {
+      // Check if this frame's primary category matches
+      const primaryCat = frame.category?.split(',')[0]?.trim();
+      if (primaryCat === category) {
+        const updatedLayout = {
+          ...(frame?.layout || {}),
+          categorySortOrder: sortOrder
+        };
+
+        const { error } = await supabase
+          .from(FRAMES_TABLE)
+          .update({ layout: updatedLayout, updated_at: new Date().toISOString() })
+          .eq('id', frame.id);
+
+        if (error) throw error;
+      }
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating category sort order:', error);
+    return { success: false, message: error.message };
+  }
+};
+
+/**
+ * Batch update sort orders for multiple frames
+ * Stores in layout JSON field
+ */
+export const batchUpdateSortOrders = async (updates) => {
+  if (!isSupabaseConfigured || !supabase) {
+    return { success: false, message: 'Supabase tidak dikonfigurasi' };
+  }
+
+  try {
+    for (const { frameId, sortOrder } of updates) {
+      // Get current layout
+      const { data: frame, error: fetchError } = await supabase
+        .from(FRAMES_TABLE)
+        .select('layout')
+        .eq('id', frameId)
+        .single();
+
+      if (fetchError) {
+        console.warn('Could not fetch frame:', frameId, fetchError);
+        continue;
+      }
+
+      // Update layout with sort_order
+      const updatedLayout = {
+        ...(frame?.layout || {}),
+        sortOrder: sortOrder
+      };
+
+      const { error } = await supabase
+        .from(FRAMES_TABLE)
+        .update({ layout: updatedLayout, updated_at: new Date().toISOString() })
+        .eq('id', frameId);
+      
+      if (error) {
+        console.warn('Could not update frame:', frameId, error);
+      }
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('Error batch updating sort orders:', error);
+    return { success: false, message: error.message };
+  }
+};
+
+/**
+ * Get all frames sorted by category and sort order from layout
+ */
+export const getAllFramesSorted = async () => {
+  if (!isSupabaseConfigured || !supabase) {
+    return [];
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from(FRAMES_TABLE)
+      .select('*')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    // Map and add sort orders from layout
+    const frames = data.map(frame => ({
+      ...frame,
+      maxCaptures: frame.max_captures,
+      imagePath: frame.image_url || frame.thumbnail_url,
+      thumbnailUrl: frame.thumbnail_url,
+      createdAt: frame.created_at,
+      updatedAt: frame.updated_at,
+      sortOrder: frame.layout?.sortOrder ?? 999,
+      categorySortOrder: frame.layout?.categorySortOrder ?? 999
+    }));
+
+    // Sort by categorySortOrder then sortOrder
+    frames.sort((a, b) => {
+      if (a.categorySortOrder !== b.categorySortOrder) {
+        return a.categorySortOrder - b.categorySortOrder;
+      }
+      return a.sortOrder - b.sortOrder;
+    });
+
+    return frames;
+  } catch (error) {
+    console.error('Error getting sorted frames:', error);
+    return [];
+  }
+};
+
 // Alias for backward compatibility
 export const addCustomFrame = async (frameData) => saveCustomFrame(frameData, null);
 
@@ -435,5 +609,9 @@ export default {
   getCustomFrameConfig,
   addCustomFrame,
   clearAllCustomFrames,
-  getStorageInfo
+  getStorageInfo,
+  updateFrameSortOrder,
+  updateCategorySortOrder,
+  batchUpdateSortOrders,
+  getAllFramesSorted
 };

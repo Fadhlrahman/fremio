@@ -182,13 +182,13 @@ export default function Frames() {
                   {category} ({framesByCategory.categoryMap[category].length})
                 </h3>
 
-                {/* Frames Grid - frames in same category in one row, wrap when full */}
+                {/* Frames Grid - 5 columns max */}
                 <div 
                   style={{
-                    display: "flex",
-                    flexDirection: "row",
-                    flexWrap: "wrap",
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))",
                     gap: "16px",
+                    maxWidth: "100%",
                   }}
                 >
                   {framesByCategory.categoryMap[category].map((frame) => (
@@ -196,8 +196,8 @@ export default function Frames() {
                       key={`${category}-${frame.id}`}
                       className="frame-card group"
                       style={{
-                        width: "clamp(160px, 16vw, 220px)",
-                        flexShrink: 0,
+                        width: "100%",
+                        maxWidth: "200px",
                         display: "flex",
                         flexDirection: "column",
                         gap: "4px",

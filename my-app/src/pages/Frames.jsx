@@ -129,14 +129,71 @@ export default function Frames() {
   };
 
   return (
-    <section className="min-h-screen bg-gradient-to-b from-[#fdf7f4] via-white to-[#f7f1ed] py-4 sm:py-8">
-      <div className="mx-auto px-2 sm:px-4 max-w-7xl">
-        <h2 className="mb-4 sm:mb-6 text-center text-lg sm:text-xl md:text-2xl font-bold text-slate-900">
-          Pilihan Frame dari{" "}
-          <span className="bg-gradient-to-r from-[#e0b7a9] to-[#c89585] bg-clip-text text-transparent">
-            Admin Fremio
-          </span>
-        </h2>
+    <>
+      {/* Mobile grid v3 - force rebuild */}
+      <style>{`
+        .frames-grid {
+          display: grid !important;
+          grid-template-columns: repeat(4, 1fr) !important;
+          gap: 4px !important;
+        }
+        .frame-card {
+          padding: 3px !important;
+          border-radius: 4px !important;
+          background: white !important;
+          border: 1px solid #e5e7eb !important;
+        }
+        .frame-card h4 {
+          font-size: 7px !important;
+          margin-top: 2px !important;
+          line-height: 1.2 !important;
+        }
+        .frame-image-container {
+          aspect-ratio: 3/4 !important;
+          width: 100% !important;
+          overflow: hidden !important;
+          border-radius: 3px !important;
+          background: #f9fafb !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+        }
+        @media (min-width: 640px) {
+          .frames-grid {
+            gap: 8px !important;
+          }
+          .frame-card {
+            padding: 6px !important;
+            border-radius: 6px !important;
+          }
+          .frame-card h4 {
+            font-size: 10px !important;
+          }
+        }
+        @media (min-width: 768px) {
+          .frames-grid {
+            grid-template-columns: repeat(5, 1fr) !important;
+            gap: 10px !important;
+          }
+        }
+        @media (min-width: 1024px) {
+          .frames-grid {
+            grid-template-columns: repeat(6, 1fr) !important;
+            gap: 12px !important;
+          }
+          .frame-card h4 {
+            font-size: 11px !important;
+          }
+        }
+      `}</style>
+      <section className="min-h-screen bg-gradient-to-b from-[#fdf7f4] via-white to-[#f7f1ed] py-2 sm:py-8">
+        <div className="mx-auto px-1 sm:px-4 max-w-7xl">
+          <h2 className="mb-2 sm:mb-6 text-center text-sm sm:text-xl md:text-2xl font-bold text-slate-900">
+            Pilihan Frame dari{" "}
+            <span className="bg-gradient-to-r from-[#e0b7a9] to-[#c89585] bg-clip-text text-transparent">
+              Admin Fremio
+            </span>
+          </h2>
 
         {isLoading && (
           <div className="flex flex-col items-center justify-center py-20">
@@ -161,16 +218,16 @@ export default function Frames() {
                 <h3 className="text-sm sm:text-base font-bold text-slate-800 mb-2">
                   {category} ({framesByCategory.categoryMap[category].length})
                 </h3>
-                <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 sm:gap-3">
+                <div className="frames-grid">
                   {framesByCategory.categoryMap[category].map((frame) => (
                     <div
                       key={frame.id}
                       onClick={() => handleFrameClick(frame)}
-                      className="bg-white rounded-lg border border-gray-200 p-1 sm:p-2 cursor-pointer hover:shadow-md hover:border-[#e0b7a9] hover:-translate-y-1 transition-all active:scale-95"
+                      className="frame-card cursor-pointer hover:shadow-md hover:border-[#e0b7a9] active:scale-95 transition-all"
                     >
-                      <div className="w-full bg-gray-50 rounded flex items-center justify-center overflow-hidden mb-1" style={{ aspectRatio: "3/4" }}>
+                      <div className="frame-image-container">
                         {imageErrors[frame.id] ? (
-                          <svg className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-3 h-3 sm:w-5 sm:h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                           </svg>
                         ) : (
@@ -190,7 +247,7 @@ export default function Frames() {
                           />
                         )}
                       </div>
-                      <h4 className="text-[8px] sm:text-[10px] md:text-xs font-semibold text-slate-800 text-center leading-tight line-clamp-2">
+                      <h4 className="font-semibold text-slate-800 text-center line-clamp-1">
                         {frame.name}
                       </h4>
                     </div>
@@ -210,7 +267,8 @@ export default function Frames() {
             <p className="text-sm text-slate-600">Frame sedang ditambahkan oleh admin.</p>
           </div>
         )}
-      </div>
-    </section>
+        </div>
+      </section>
+    </>
   );
 }

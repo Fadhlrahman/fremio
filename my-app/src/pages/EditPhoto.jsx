@@ -70,6 +70,8 @@ export default function EditPhoto() {
     lastTapTime: 0,
     activePhotoId: null,
     containerRect: null,
+    photoWidth: 0,
+    photoHeight: 0,
   });
 
   // Calculate distance between two touch points
@@ -82,6 +84,23 @@ export default function EditPhoto() {
   // Clamp value
   const clamp = useCallback((value, min, max) => {
     return Math.min(Math.max(value, min), max);
+  }, []);
+
+  // Calculate pan constraints based on scale
+  // When zoomed in, the photo is larger than the viewport
+  // Max pan = how far the photo can move before edge is visible
+  const calculatePanConstraints = useCallback((scale, viewportWidth, viewportHeight) => {
+    // Photo size after scaling (assuming photo fills viewport at scale 1)
+    const scaledPhotoWidth = viewportWidth * scale;
+    const scaledPhotoHeight = viewportHeight * scale;
+    
+    // How much the photo extends beyond viewport on each side
+    // At scale 1: maxPan = 0 (photo exactly fits viewport)
+    // At scale 2: maxPan = viewportSize/2 (photo is 2x, so can move half viewport distance)
+    const maxPanX = Math.max(0, (scaledPhotoWidth - viewportWidth) / 2);
+    const maxPanY = Math.max(0, (scaledPhotoHeight - viewportHeight) / 2);
+    
+    return { maxPanX, maxPanY };
   }, []);
 
   // Handle touch start on photo
@@ -156,6 +175,7 @@ export default function EditPhoto() {
     if (state.activePhotoId !== photoId || selectedPhotoId !== photoId) return;
 
     const currentTransform = getPhotoTransform(photoId);
+    const rect = state.containerRect;
 
     if (state.isPinching && touches.length === 2) {
       e.preventDefault();
@@ -169,41 +189,61 @@ export default function EditPhoto() {
       // Clamp scale (1x to 4x)
       newScale = clamp(newScale, 1, 4);
       
-      console.log("📱 Pinch move, new scale:", newScale.toFixed(2));
+      // When scaling, also adjust pan to keep within bounds
+      // The viewport (container) size in the actual canvas coordinate space
+      // Since the canvas is scaled down for display (0.25), we need to know the real size
+      const scaleFactor = 4; // 1 / 0.25 = 4
+      const viewportWidth = rect ? rect.width * scaleFactor : 1080;
+      const viewportHeight = rect ? rect.height * scaleFactor : 1080;
+      
+      // Calculate new constraints with the new scale
+      const { maxPanX, maxPanY } = calculatePanConstraints(newScale, viewportWidth, viewportHeight);
+      
+      // Clamp current position to new constraints
+      const newX = clamp(state.initialX, -maxPanX, maxPanX);
+      const newY = clamp(state.initialY, -maxPanY, maxPanY);
+      
+      console.log("📱 Pinch move, scale:", newScale.toFixed(2), "maxPan:", maxPanX.toFixed(0), maxPanY.toFixed(0));
 
       updatePhotoTransform(photoId, {
         scale: newScale,
-        x: state.initialX,
-        y: state.initialY,
+        x: newX,
+        y: newY,
       });
     } else if (state.isDragging && touches.length === 1) {
       e.preventDefault();
       e.stopPropagation();
       
-      // Calculate pan delta - scale factor affects movement
-      // Since canvas is scaled 0.25, we need to compensate
+      // Only allow pan if zoomed in (scale > 1)
+      if (currentTransform.scale <= 1) {
+        console.log("📱 Drag ignored - not zoomed in");
+        return;
+      }
+      
+      // Calculate pan delta
+      // Since canvas is displayed at 0.25 scale, touch movement needs to be scaled up
       const scaleFactor = 4; // 1 / 0.25 = 4
       const deltaX = (touches[0].clientX - state.lastTouchX) * scaleFactor;
       const deltaY = (touches[0].clientY - state.lastTouchY) * scaleFactor;
       
-      // Calculate max pan based on current scale and container size
-      const rect = state.containerRect;
-      const containerWidth = rect ? rect.width * scaleFactor : 1080;
-      const containerHeight = rect ? rect.height * scaleFactor : 1920;
+      // The viewport size in canvas coordinate space
+      const viewportWidth = rect ? rect.width * scaleFactor : 1080;
+      const viewportHeight = rect ? rect.height * scaleFactor : 1080;
       
-      // Allow some movement even at scale 1
-      const maxPanX = currentTransform.scale > 1 
-        ? (containerWidth * (currentTransform.scale - 1)) / 2 
-        : containerWidth * 0.3;
-      const maxPanY = currentTransform.scale > 1 
-        ? (containerHeight * (currentTransform.scale - 1)) / 2 
-        : containerHeight * 0.3;
+      // Calculate constraints
+      const { maxPanX, maxPanY } = calculatePanConstraints(currentTransform.scale, viewportWidth, viewportHeight);
       
-      // Update position with bounds
+      // Apply delta and clamp to constraints
+      // Positive deltaX means finger moved right -> photo moves right -> viewport shows more of left side
       const newX = clamp(currentTransform.x + deltaX, -maxPanX, maxPanX);
       const newY = clamp(currentTransform.y + deltaY, -maxPanY, maxPanY);
       
-      console.log("📱 Drag move, delta:", deltaX.toFixed(0), deltaY.toFixed(0), "new pos:", newX.toFixed(0), newY.toFixed(0));
+      console.log("📱 Drag move:", {
+        delta: [deltaX.toFixed(0), deltaY.toFixed(0)],
+        newPos: [newX.toFixed(0), newY.toFixed(0)],
+        maxPan: [maxPanX.toFixed(0), maxPanY.toFixed(0)],
+        scale: currentTransform.scale.toFixed(2)
+      });
       
       updatePhotoTransform(photoId, {
         scale: currentTransform.scale,
@@ -214,7 +254,7 @@ export default function EditPhoto() {
       state.lastTouchX = touches[0].clientX;
       state.lastTouchY = touches[0].clientY;
     }
-  }, [clamp, getDistance, getPhotoTransform, updatePhotoTransform, selectedPhotoId]);
+  }, [clamp, getDistance, getPhotoTransform, updatePhotoTransform, selectedPhotoId, calculatePanConstraints]);
 
   // Handle touch end on photo
   const handlePhotoTouchEnd = useCallback((e, photoId) => {
@@ -1279,6 +1319,31 @@ export default function EditPhoto() {
 
     console.log("🔄 Filling photo elements with real images...");
     console.log(`   Found ${photoSlots.length} photo slots`);
+    console.log(`   Available photos: ${photos.length}`);
+
+    // DUPLICATE MODE FIX: If we have fewer photos than slots, duplicate photos
+    // This handles cases where TakeMoment didn't duplicate photos properly
+    let photosToUse = [...photos];
+    if (photosToUse.length > 0 && photosToUse.length < photoSlots.length) {
+      console.log("🔁 [EDITPHOTO] Duplicating photos to fill slots...");
+      console.log(`   - Original photos: ${photosToUse.length}`);
+      console.log(`   - Photo slots: ${photoSlots.length}`);
+      
+      // Calculate how many times each photo needs to be duplicated
+      const duplicatedPhotos = [];
+      const ratio = Math.ceil(photoSlots.length / photosToUse.length);
+      
+      for (let i = 0; i < photosToUse.length; i++) {
+        for (let j = 0; j < ratio; j++) {
+          if (duplicatedPhotos.length < photoSlots.length) {
+            duplicatedPhotos.push(photosToUse[i]);
+          }
+        }
+      }
+      
+      photosToUse = duplicatedPhotos.slice(0, photoSlots.length);
+      console.log(`   - After duplication: ${photosToUse.length} photos`);
+    }
 
     // Build a map of photo slots for auto-index assignment
     let photoSlotCounter = 0;
@@ -1295,22 +1360,22 @@ export default function EditPhoto() {
           console.log(`📌 Auto-assigning photoIndex ${photoIndex} to slot (no photoIndex defined)`);
         }
         
-        // If photoIndex is out of range, use the sequential counter
-        if (photoIndex >= photos.length) {
-          console.warn(`⚠️ photoIndex ${photoIndex} out of range (max: ${photos.length - 1}), using counter ${photoSlotCounter}`);
+        // If photoIndex is out of range, use the sequential counter (use photosToUse for duplication support)
+        if (photoIndex >= photosToUse.length) {
+          console.warn(`⚠️ photoIndex ${photoIndex} out of range (max: ${photosToUse.length - 1}), using counter ${photoSlotCounter}`);
           photoIndex = photoSlotCounter;
         }
         
         // Increment counter for next photo slot
         photoSlotCounter++;
         
-        // Skip if no more photos available
-        if (photoIndex >= photos.length) {
+        // Skip if no more photos available (use photosToUse)
+        if (photoIndex >= photosToUse.length) {
           console.warn(`⚠️ No photo available for slot ${photoIndex}`);
           return el;
         }
         
-        let photoData = photos[photoIndex];
+        let photoData = photosToUse[photoIndex];
         
         // Extra normalization in case photos weren't normalized at load time
         if (photoData && typeof photoData !== 'string') {
@@ -1337,7 +1402,7 @@ export default function EditPhoto() {
         } else {
           console.warn(`⚠️ No photo data found for slot ${photoIndex}`);
           console.warn(
-            `   Available photos: ${photos.length}, requested index: ${photoIndex}`
+            `   Available photos: ${photosToUse.length}, requested index: ${photoIndex}`
           );
         }
       }
@@ -2307,6 +2372,65 @@ export default function EditPhoto() {
                     );
                   };
 
+                  // Helper function untuk object-fit: cover WITH transform (zoom/pan)
+                  const drawImageCoverWithTransform = (ctx, img, x, y, w, h, transform) => {
+                    const { scale = 1, x: panX = 0, y: panY = 0 } = transform || {};
+                    
+                    // Calculate the source rectangle for object-fit: cover
+                    const imgRatio = img.width / img.height;
+                    const boxRatio = w / h;
+
+                    let baseSourceX = 0,
+                      baseSourceY = 0,
+                      baseSourceW = img.width,
+                      baseSourceH = img.height;
+
+                    if (imgRatio > boxRatio) {
+                      // Image lebih lebar, crop kiri-kanan
+                      baseSourceW = img.height * boxRatio;
+                      baseSourceX = (img.width - baseSourceW) / 2;
+                    } else {
+                      // Image lebih tinggi, crop atas-bawah
+                      baseSourceH = img.width / boxRatio;
+                      baseSourceY = (img.height - baseSourceH) / 2;
+                    }
+
+                    // Apply zoom: when zoomed in, we show less of the image (smaller source area)
+                    const zoomedSourceW = baseSourceW / scale;
+                    const zoomedSourceH = baseSourceH / scale;
+                    
+                    // Center the zoomed view initially
+                    let zoomedSourceX = baseSourceX + (baseSourceW - zoomedSourceW) / 2;
+                    let zoomedSourceY = baseSourceY + (baseSourceH - zoomedSourceH) / 2;
+                    
+                    // Apply pan: convert screen pan to source pan
+                    // panX is in screen coordinates (destination), convert to source coordinates
+                    // Negative panX means user dragged left -> show more of right side -> increase sourceX
+                    const panSourceX = -(panX / w) * zoomedSourceW;
+                    const panSourceY = -(panY / h) * zoomedSourceH;
+                    
+                    zoomedSourceX += panSourceX;
+                    zoomedSourceY += panSourceY;
+                    
+                    // Clamp source coordinates to image bounds
+                    zoomedSourceX = Math.max(0, Math.min(zoomedSourceX, img.width - zoomedSourceW));
+                    zoomedSourceY = Math.max(0, Math.min(zoomedSourceY, img.height - zoomedSourceH));
+                    
+                    console.log(`🎨 drawImageCoverWithTransform: scale=${scale.toFixed(2)}, pan=(${panX.toFixed(0)},${panY.toFixed(0)}), source=(${zoomedSourceX.toFixed(0)},${zoomedSourceY.toFixed(0)},${zoomedSourceW.toFixed(0)},${zoomedSourceH.toFixed(0)})`);
+
+                    ctx.drawImage(
+                      img,
+                      zoomedSourceX,
+                      zoomedSourceY,
+                      zoomedSourceW,
+                      zoomedSourceH,
+                      x,
+                      y,
+                      w,
+                      h
+                    );
+                  };
+
                   // ✅ Helper function untuk object-fit: contain (untuk transparent PNGs)
                   const drawImageContain = (ctx, img, x, y, w, h) => {
                     const imgRatio = img.width / img.height;
@@ -2453,10 +2577,14 @@ export default function EditPhoto() {
                           ctx.closePath();
                           ctx.clip();
 
-                          // Use cover - transparency preserved in PNG format from Create page
-                          drawImageCover(ctx, img, x, y, w, h);
+                          // Get transform for this photo element
+                          const photoId = element.id || `photo-${sortedElements.indexOf(element)}`;
+                          const photoTransform = photoTransforms[photoId] || { scale: 1, x: 0, y: 0 };
+                          
+                          // Use cover with transform - apply zoom/pan if any
+                          drawImageCoverWithTransform(ctx, img, x, y, w, h, photoTransform);
                           ctx.restore();
-                          console.log(`  ✅ Image drawn successfully!`);
+                          console.log(`  ✅ Image drawn successfully with transform:`, photoTransform);
                           resolve();
                         };
                         img.onerror = (err) => {

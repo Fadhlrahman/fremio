@@ -4,6 +4,7 @@
  */
 
 import { supabase, isSupabaseConfigured } from '../config/supabase.js';
+import { getStaticFrames } from '../data/staticFrames.js';
 
 const FRAMES_TABLE = 'frames';
 const FRAMES_BUCKET = 'frames';
@@ -112,6 +113,8 @@ const withTimeout = (promise, ms, errorMessage = 'Request timeout') => {
 
 /**
  * Process frame data - map snake_case to camelCase
+ * Note: layout and slots columns are excluded from query for performance
+ * (they contain large Base64 data). Use fetchFrameWithFullData() if you need them.
  */
 const processFrameData = (data) => {
   if (!data || !Array.isArray(data)) return [];
@@ -125,97 +128,168 @@ const processFrameData = (data) => {
     updatedAt: frame.updated_at,
     createdBy: frame.created_by,
     isActive: frame.is_active,
-    sortOrder: frame.layout?.sortOrder ?? 999,
-    categorySortOrder: frame.layout?.categorySortOrder ?? 999
+    // Default sort orders (layout column excluded for performance)
+    sortOrder: 999,
+    categorySortOrder: 999
   }));
 };
 
 // In-memory cache for frames
 let framesCache = null;
 let framesCacheTime = 0;
-const CACHE_DURATION = 60000; // 1 minute cache
+const CACHE_DURATION = 300000; // 5 minute cache
+let isFetching = false;
+let fetchPromise = null;
+
+// Use localStorage for persistence across sessions
+const STORAGE_CACHE_KEY = 'fremio_frames_cache_v2';
+const STORAGE_CACHE_TIME_KEY = 'fremio_frames_cache_time_v2';
+
+const loadCacheFromStorage = () => {
+  try {
+    const cached = localStorage.getItem(STORAGE_CACHE_KEY);
+    const cachedTime = localStorage.getItem(STORAGE_CACHE_TIME_KEY);
+    if (cached && cachedTime) {
+      const time = parseInt(cachedTime, 10);
+      // Accept cache up to 10 minutes old for instant loading
+      if (Date.now() - time < 600000) {
+        framesCache = JSON.parse(cached);
+        framesCacheTime = time;
+        console.log('📦 Loaded cache from localStorage:', framesCache.length, 'frames');
+        return true;
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load cache from storage');
+  }
+  return false;
+};
+
+const saveCacheToStorage = (data) => {
+  try {
+    localStorage.setItem(STORAGE_CACHE_KEY, JSON.stringify(data));
+    localStorage.setItem(STORAGE_CACHE_TIME_KEY, Date.now().toString());
+  } catch (e) {
+    console.warn('Failed to save cache to storage');
+  }
+};
+
+// Background fetch function - OPTIMIZED: Only fetch required columns
+// PERFORMANCE OPTIMIZATION:
+// Excluded columns that contain large data:
+// - 'design_data': Contains large Base64 images (~50KB+ per frame)
+// - 'slots': Contains slot position data with embedded images
+// - 'layout': Contains full layout JSON with embedded Base64 images (~40MB total!)
+// Including these columns causes query to take ~50 seconds instead of ~1 second
+const fetchFramesFromAPI = async () => {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  
+  const controller = new AbortController();
+  const fetchTimeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+  
+  // Only select columns needed for list view - excludes large data columns
+  const columns = [
+    'id',
+    'name',
+    'category',
+    'image_url',
+    'thumbnail_url',
+    'is_active',
+    'popularity',
+    'created_by',
+    'created_at',
+    'updated_at',
+    'storage_path',
+    'max_captures'
+  ].join(',');
+  
+  const response = await fetch(
+    `${supabaseUrl}/rest/v1/frames?select=${columns}&order=created_at.desc`,
+    {
+      signal: controller.signal,
+      headers: {
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
+    }
+  );
+  
+  clearTimeout(fetchTimeout);
+  
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  
+  return response.json();
+};
 
 /**
  * Get all custom frames
- * Version: 6 - Direct fetch API (faster than SDK)
+ * Version: 10 - Fetch first, static fallback only if fails
  */
 export const getAllCustomFrames = async () => {
   const startTime = Date.now();
-  console.log('🔄 getAllCustomFrames v6 - ' + new Date().toISOString());
+  console.log('🔄 getAllCustomFrames v10 - ' + new Date().toISOString());
   
-  // Return cached data if still valid
-  if (framesCache && (Date.now() - framesCacheTime) < CACHE_DURATION) {
-    console.log('⚡ Returning cached frames:', framesCache.length, 'frames');
+  // 1. Return fresh in-memory cache if available (less than 30 seconds old)
+  if (framesCache && framesCache.length > 0 && (Date.now() - framesCacheTime) < 30000) {
+    console.log('⚡ Returning fresh memory cache:', framesCache.length, 'frames');
     return framesCache;
   }
   
-  if (!isSupabaseConfigured) {
-    console.warn('⚠️ Supabase not configured, returning empty array');
-    return [];
-  }
-
-  try {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-    
-    console.log('📡 v6: Direct fetch to Supabase REST API...');
-    
-    const controller = new AbortController();
-    const fetchTimeout = setTimeout(() => controller.abort(), 8000); // 8 second timeout
-    
-    const response = await fetch(
-      `${supabaseUrl}/rest/v1/frames?select=*&order=created_at.desc`,
-      {
-        signal: controller.signal,
-        headers: {
-          'apikey': supabaseKey,
-          'Authorization': `Bearer ${supabaseKey}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        }
+  // 2. Try to fetch fresh data from API (with short timeout)
+  if (isSupabaseConfigured && !isFetching) {
+    try {
+      isFetching = true;
+      console.log('📡 v10: Fetching fresh data from API...');
+      
+      const data = await fetchFramesFromAPI();
+      const processedData = processFrameData(data);
+      
+      if (processedData && processedData.length > 0) {
+        framesCache = processedData;
+        framesCacheTime = Date.now();
+        saveCacheToStorage(processedData);
+        
+        const duration = Date.now() - startTime;
+        console.log(`✅ v10: Loaded ${processedData.length} frames in ${duration}ms`);
+        return processedData;
       }
-    );
-    
-    clearTimeout(fetchTimeout);
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('❌ Fetch error:', response.status, errorText);
-      return framesCache || []; // Return stale cache if available
+    } catch (e) {
+      console.warn('API fetch failed:', e.message);
+    } finally {
+      isFetching = false;
     }
-    
-    const data = await response.json();
-    const processedData = processFrameData(data);
-    
-    // Update cache
-    framesCache = processedData;
-    framesCacheTime = Date.now();
-    
-    const duration = Date.now() - startTime;
-    console.log(`✅ v6: Loaded ${data?.length || 0} frames in ${duration}ms`);
-    
-    return processedData;
-  } catch (error) {
-    console.error('❌ Fetch failed:', error.name, error.message);
-    
-    if (error.name === 'AbortError') {
-      console.error('❌ Request timed out after 8s');
-    }
-    
-    // Return stale cache if available
-    if (framesCache) {
-      console.log('📦 Returning stale cache:', framesCache.length, 'frames');
-      return framesCache;
-    }
-    
-    return [];
   }
+  
+  // 3. Fallback: Try localStorage cache
+  if (loadCacheFromStorage() && framesCache && framesCache.length > 0) {
+    console.log('📦 Returning localStorage cache:', framesCache.length, 'frames');
+    return framesCache;
+  }
+  
+  // 4. Last resort: Return static frames
+  const staticFrames = getStaticFrames();
+  console.log('📋 Returning static fallback:', staticFrames.length, 'frames');
+  return staticFrames;
 };
+
+// Preload frames when module loads
+if (isSupabaseConfigured) {
+  loadCacheFromStorage();
+}
 
 // Function to clear cache (call after upload/delete)
 export const clearFramesCache = () => {
   framesCache = null;
   framesCacheTime = 0;
+  try {
+    localStorage.removeItem(STORAGE_CACHE_KEY);
+    localStorage.removeItem(STORAGE_CACHE_TIME_KEY);
+  } catch (e) {}
   console.log('🗑️ Frames cache cleared');
 };
 
@@ -318,6 +392,10 @@ export const saveCustomFrame = async (frameData, imageFile) => {
     }
 
     console.log('✅ Frame saved with ID:', data.id);
+    
+    // Clear cache so new frame appears immediately
+    clearFramesCache();
+    
     return { success: true, frameId: data.id };
 
   } catch (error) {
@@ -367,6 +445,10 @@ export const updateCustomFrame = async (frameId, updates, imageFile = null) => {
     if (error) throw error;
 
     console.log('✅ Frame updated successfully');
+    
+    // Clear cache so changes appear immediately
+    clearFramesCache();
+    
     return { success: true };
   } catch (error) {
     console.error('Error updating frame:', error);
@@ -406,6 +488,10 @@ export const deleteCustomFrame = async (frameId) => {
     if (error) throw error;
 
     console.log('✅ Frame deleted:', frameId);
+    
+    // Clear cache so deleted frame disappears immediately
+    clearFramesCache();
+    
     return { success: true };
   } catch (error) {
     console.error('Error deleting frame:', error);

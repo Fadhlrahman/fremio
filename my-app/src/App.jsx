@@ -70,15 +70,10 @@ export default function App() {
             <Route path="investor" element={<Investor />} />
             <Route path="affiliates" element={<Affiliates />} />
 
+            {/* Frames - accessible without login, but clicking frame requires auth */}
+            <Route path="frames" element={<Frames />} />
+
             {/* Protected routes */}
-            <Route
-              path="frames"
-              element={
-                <ProtectedRoute>
-                  <Frames />
-                </ProtectedRoute>
-              }
-            />
             <Route
               path="create"
               element={

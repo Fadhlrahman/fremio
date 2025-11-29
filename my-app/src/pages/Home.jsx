@@ -214,7 +214,7 @@ export default function Home() {
                 <div className="team-grid-home">
                   <div className="team-card-home">
                     <div className="member-photo-home">👨‍💼</div>
-                    <h4>Fadhl Rahman</h4>
+                    <h4>Razzaqu Raydan</h4>
                     <p className="member-role-home">Founder & CEO</p>
                     <p className="member-bio-home">
                       Visioner di balik Fremio dengan passion untuk fotografi

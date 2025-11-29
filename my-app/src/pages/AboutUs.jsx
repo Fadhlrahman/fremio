@@ -1,7 +1,7 @@
 export default function AboutUs() {
   const teamMembers = [
     {
-      name: "Fadhl Rahman",
+      name: "Razzaqu Raydan",
       role: "Founder & CEO",
       photo: "👨‍💼",
       bio: "Visioner di balik Fremio dengan passion untuk fotografi dan teknologi.",

@@ -2,19 +2,72 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
 import frameProvider from "../utils/frameProvider.js";
 import safeStorage from "../utils/safeStorage.js";
-import { getAllCustomFrames } from "../services/customFrameService";
 import { trackFrameView, trackUserSession, trackFunnelEvent } from "../services/analyticsService";
 import { imagePresets } from "../utils/imageOptimizer";
 import { useAuth } from "../contexts/AuthContext";
 
-// 6 Frame IDs yang diizinkan untuk ditampilkan
-const ALLOWED_FRAME_IDS = [
-  '7f5fe81b-4342-4049-ae6c-18e7b926cca8', // Cherish Pink Elegance
-  'd3254c20-0d9b-4dc2-91ee-ea9a96fdb6f7', // Blue Picnic Vibes
-  '02097dcc-5d75-468b-8d18-f11cc657b14b', // Our Love Memory
-  '3f9bbc23-bc3a-43a2-805f-d81146096a50', // YIPIE
-  'b33cf2aa-6ee8-4a85-b1a4-880cdc2c6a9a', // Snap Your Joy
-  '8a9875dd-5960-4bec-9475-1071a5eb8af4', // Pixel Fun Adventure
+// HARDCODED 6 FRAMES - tidak pakai service/API/cache
+const HARDCODED_FRAMES = [
+  {
+    id: "7f5fe81b-4342-4049-ae6c-18e7b926cca8",
+    name: "Cherish Pink Elegance",
+    category: "Fremio Series",
+    image_url: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764335547744_Cherish_Pink_Elegance.png",
+    imagePath: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764335547744_Cherish_Pink_Elegance.png",
+    thumbnailUrl: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764335547744_Cherish_Pink_Elegance.png",
+    maxCaptures: 4,
+    slots: []
+  },
+  {
+    id: "d3254c20-0d9b-4dc2-91ee-ea9a96fdb6f7",
+    name: "Blue Picnic Vibes",
+    category: "Fremio Series",
+    image_url: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764335173018_Blue_Picnic_Vibes.png",
+    imagePath: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764335173018_Blue_Picnic_Vibes.png",
+    thumbnailUrl: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764335173018_Blue_Picnic_Vibes.png",
+    maxCaptures: 4,
+    slots: []
+  },
+  {
+    id: "02097dcc-5d75-468b-8d18-f11cc657b14b",
+    name: "Our Love Memory",
+    category: "Fremio Series",
+    image_url: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764334019709_Our_Love_Memory.png",
+    imagePath: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764334019709_Our_Love_Memory.png",
+    thumbnailUrl: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764334019709_Our_Love_Memory.png",
+    maxCaptures: 4,
+    slots: []
+  },
+  {
+    id: "3f9bbc23-bc3a-43a2-805f-d81146096a50",
+    name: "YIPIE",
+    category: "Fremio Series",
+    image_url: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764333750555_YIPIE.png",
+    imagePath: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764333750555_YIPIE.png",
+    thumbnailUrl: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764333750555_YIPIE.png",
+    maxCaptures: 4,
+    slots: []
+  },
+  {
+    id: "b33cf2aa-6ee8-4a85-b1a4-880cdc2c6a9a",
+    name: "Snap Your Joy",
+    category: "Fremio Series",
+    image_url: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764333576320_Snap_Your_Joy.png",
+    imagePath: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764333576320_Snap_Your_Joy.png",
+    thumbnailUrl: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764333576320_Snap_Your_Joy.png",
+    maxCaptures: 4,
+    slots: []
+  },
+  {
+    id: "8a9875dd-5960-4bec-9475-1071a5eb8af4",
+    name: "Pixel Fun Adventure",
+    category: "Fremio Series",
+    image_url: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764245117632_Pixel_Fun_Adventure.png",
+    imagePath: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764245117632_Pixel_Fun_Adventure.png",
+    thumbnailUrl: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764245117632_Pixel_Fun_Adventure.png",
+    maxCaptures: 4,
+    slots: []
+  }
 ];
 
 export default function Frames() {
@@ -98,40 +151,12 @@ export default function Frames() {
     safeStorage.removeItem("selectedFrame");
     safeStorage.removeItem("capturedPhotos");
     safeStorage.removeItem("capturedVideos");
-    const loadFrames = async (retryCount = 0) => {
-      const MAX_RETRIES = 2;
-      try {
-        setIsLoading(true);
-        setLoadError(null);
-        const loadedCustomFrames = await getAllCustomFrames();
-        
-        // Filter hanya frame yang diizinkan
-        const filteredFrames = loadedCustomFrames.filter(frame => 
-          ALLOWED_FRAME_IDS.includes(frame.id)
-        );
-        console.log('🔍 Filtered frames:', filteredFrames.length, 'of', loadedCustomFrames.length);
-        
-        if (filteredFrames.length > 0) {
-          setCustomFrames(filteredFrames);
-          setIsLoading(false);
-          console.log('✅ Frames loaded:', filteredFrames.length);
-        } else if (retryCount < MAX_RETRIES) {
-          setTimeout(() => loadFrames(retryCount + 1), 500);
-        } else {
-          setCustomFrames([]);
-          setIsLoading(false);
-        }
-      } catch (error) {
-        if (retryCount < MAX_RETRIES) {
-          setTimeout(() => loadFrames(retryCount + 1), 500);
-        } else {
-          setLoadError(error.message);
-          setCustomFrames([]);
-          setIsLoading(false);
-        }
-      }
-    };
-    loadFrames();
+    
+    // LANGSUNG PAKAI HARDCODED FRAMES - tidak ada API/service/cache
+    console.log('🎯 Using HARDCODED 6 frames only');
+    setCustomFrames(HARDCODED_FRAMES);
+    setIsLoading(false);
+    console.log('✅ Frames loaded:', HARDCODED_FRAMES.length);
   }, []);
 
   const handleImageError = (frameId) => {

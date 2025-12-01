@@ -4,6 +4,8 @@ import helmet from "helmet";
 import compression from "compression";
 import morgan from "morgan";
 import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 import { initializeFirebase } from "./config/firebase.js";
 import storageService from "./services/storageService.js";
 
@@ -13,6 +15,11 @@ import framesRoutes from "./routes/frames.js";
 import draftsRoutes from "./routes/drafts.js";
 import uploadRoutes from "./routes/upload.js";
 import analyticsRoutes from "./routes/analytics.js";
+import staticRoutes from "./routes/static.js";
+
+// Get __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -20,17 +27,30 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+}));
 app.use(compression());
 app.use(morgan("dev"));
+
+// CORS - Allow all origins for static files and API
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    origin: true, // Allow all origins
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// Serve static files from public directory
+const publicDir = process.env.STATIC_DIR || path.join(__dirname, "public");
+app.use("/static", express.static(publicDir, {
+  maxAge: "1y",
+  immutable: true,
+}));
 
 // Health check
 app.get("/health", (req, res) => {
@@ -52,6 +72,7 @@ app.use("/api/frames", framesRoutes);
 app.use("/api/drafts", draftsRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use("/api/static", staticRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -101,6 +122,9 @@ const startServer = async () => {
       console.log("   GET  /api/drafts");
       console.log("   POST /api/upload/image");
       console.log("   POST /api/analytics/track");
+      console.log("   GET  /api/static/frames");
+      console.log("   POST /api/static/frames");
+      console.log("   GET  /static/frames/:filename (direct image access)");
       console.log("");
     });
   } catch (error) {

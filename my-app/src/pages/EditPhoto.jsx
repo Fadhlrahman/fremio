@@ -3140,8 +3140,8 @@ export default function EditPhoto() {
                   canvas.height = 1920;
                   const ctx = canvas.getContext("2d", { alpha: true }); // ✅ Enable alpha for transparency
 
-                  // ✅ Helper function to load image with CORS fallback
-                  const loadImageWithFallback = async (url) => {
+                  // ✅ Helper function to load image with CORS fallback and retry
+                  const loadImageWithFallback = async (url, retries = 2) => {
                     return new Promise(async (resolve, reject) => {
                       // Skip if already data URL
                       if (url.startsWith('data:')) {
@@ -3165,7 +3165,7 @@ export default function EditPhoto() {
                           console.log("⏱️ Direct load timeout, trying fallback...");
                           tryFallback();
                         }
-                      }, 5000);
+                      }, 8000);
 
                       img.onload = () => {
                         if (resolved) return;
@@ -3190,7 +3190,7 @@ export default function EditPhoto() {
                           
                           // Use VPS proxy for Supabase/external URLs
                           if (needsProxy) {
-                            const proxyUrl = `https://fremio-api.fremio.id/api/static/proxy?url=${encodeURIComponent(url)}`;
+                            const proxyUrl = `http://72.61.210.203/api/static/proxy?url=${encodeURIComponent(url)}`;
                             console.log("🔄 Using VPS proxy for image:", url.substring(0, 60) + "...");
                             fetchUrl = proxyUrl;
                           }
@@ -3228,6 +3228,22 @@ export default function EditPhoto() {
                         } catch (fetchError) {
                           console.error("❌ Fetch/proxy approach failed:", fetchError);
                           
+                          // Retry logic for transient errors
+                          if (retries > 0 && (fetchError.message.includes('502') || fetchError.message.includes('544'))) {
+                            console.log(`🔄 Retrying in 1s... (${retries} retries left)`);
+                            await new Promise(r => setTimeout(r, 1000));
+                            try {
+                              const retryResult = await loadImageWithFallback(url, retries - 1);
+                              if (!resolved) {
+                                resolved = true;
+                                resolve(retryResult);
+                              }
+                              return;
+                            } catch (retryError) {
+                              // Fall through to last resort
+                            }
+                          }
+                          
                           // Last resort: try loading without crossOrigin
                           const lastResortImg = new Image();
                           lastResortImg.onload = () => {
@@ -3238,7 +3254,7 @@ export default function EditPhoto() {
                           };
                           lastResortImg.onerror = () => {
                             if (resolved) return;
-                            reject(new Error("All methods failed"));
+                            reject(new Error("All methods failed - server may be temporarily unavailable"));
                           };
                           lastResortImg.src = url;
                         }
@@ -3984,11 +4000,19 @@ export default function EditPhoto() {
                   });
                 } catch (error) {
                   console.error("❌ Error saat download:", error);
+                  
+                  // Check if it's a server/storage issue
+                  const isServerError = error.message?.includes('544') || 
+                                        error.message?.includes('502') || 
+                                        error.message?.includes('timeout') ||
+                                        error.message?.includes('unavailable');
+                  
                   showToast({
                     type: "error",
                     title: "Download Gagal",
-                    message:
-                      error.message || "Terjadi kesalahan saat mengunduh foto.",
+                    message: isServerError 
+                      ? "Server penyimpanan sedang mengalami gangguan. Silakan coba lagi dalam beberapa menit."
+                      : (error.message || "Terjadi kesalahan saat mengunduh foto."),
                   });
                 }
               }}

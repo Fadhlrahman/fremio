@@ -3140,6 +3140,85 @@ export default function EditPhoto() {
                   canvas.height = 1920;
                   const ctx = canvas.getContext("2d", { alpha: true }); // ✅ Enable alpha for transparency
 
+                  // ✅ Helper function to load image with CORS fallback
+                  const loadImageWithFallback = async (url) => {
+                    return new Promise(async (resolve, reject) => {
+                      // Skip if already data URL
+                      if (url.startsWith('data:')) {
+                        const img = new Image();
+                        img.onload = () => resolve(img);
+                        img.onerror = reject;
+                        img.src = url;
+                        return;
+                      }
+
+                      // First try: direct load with crossOrigin
+                      const img = new Image();
+                      img.crossOrigin = "anonymous";
+                      
+                      const directLoadTimeout = setTimeout(() => {
+                        console.log("⏱️ Direct load timeout, trying fetch approach...");
+                        tryFetchApproach();
+                      }, 5000);
+
+                      img.onload = () => {
+                        clearTimeout(directLoadTimeout);
+                        console.log("✅ Image loaded directly with crossOrigin");
+                        resolve(img);
+                      };
+
+                      img.onerror = async () => {
+                        clearTimeout(directLoadTimeout);
+                        console.log("⚠️ Direct load failed, trying fetch approach...");
+                        tryFetchApproach();
+                      };
+
+                      const tryFetchApproach = async () => {
+                        try {
+                          // Fetch image as blob and convert to data URL
+                          const response = await fetch(url, { 
+                            mode: 'cors',
+                            credentials: 'omit'
+                          });
+                          
+                          if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}`);
+                          }
+                          
+                          const blob = await response.blob();
+                          const dataUrl = await new Promise((res) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => res(reader.result);
+                            reader.readAsDataURL(blob);
+                          });
+                          
+                          const fallbackImg = new Image();
+                          fallbackImg.onload = () => {
+                            console.log("✅ Image loaded via fetch blob approach");
+                            resolve(fallbackImg);
+                          };
+                          fallbackImg.onerror = () => {
+                            console.error("❌ Fetch blob approach also failed");
+                            reject(new Error("All image loading methods failed"));
+                          };
+                          fallbackImg.src = dataUrl;
+                        } catch (fetchError) {
+                          console.error("❌ Fetch approach failed:", fetchError);
+                          // Last resort: try without crossOrigin (won't work for canvas but at least shows something)
+                          const lastResortImg = new Image();
+                          lastResortImg.onload = () => {
+                            console.log("⚠️ Image loaded without crossOrigin (limited canvas access)");
+                            resolve(lastResortImg);
+                          };
+                          lastResortImg.onerror = () => reject(new Error("All methods failed"));
+                          lastResortImg.src = url;
+                        }
+                      };
+
+                      img.src = url;
+                    });
+                  };
+
                   // ✅ Helper function to apply filter using temporary canvas (Safari compatible)
                   const applyFilterToImage = (img, filterValues) => {
                     // Create temporary canvas same size as image
@@ -3395,33 +3474,32 @@ export default function EditPhoto() {
                     backgroundPhotoElement &&
                     backgroundPhotoElement.data?.image
                   ) {
-                    const bgImg = new Image();
-                    bgImg.crossOrigin = "anonymous";
-                    await new Promise((resolve, reject) => {
-                      bgImg.onload = () => {
-                        // ✅ Apply filter using manual pixel manipulation (works on all browsers)
-                        let sourceCanvas;
-                        if (isFilterActive) {
-                          sourceCanvas = applyFilterToImage(bgImg, filterValues);
-                          console.log("  🎨 Background filter applied via pixel manipulation");
-                        } else {
-                          // No filter needed, use original image directly
-                          sourceCanvas = document.createElement("canvas");
-                          sourceCanvas.width = bgImg.width;
-                          sourceCanvas.height = bgImg.height;
-                          sourceCanvas.getContext("2d").drawImage(bgImg, 0, 0);
-                        }
-                        
-                        ctx.save();
-                        // Draw dengan object-fit: cover using filtered canvas
-                        drawImageCover(ctx, sourceCanvas, 0, 0, 1080, 1920);
-                        ctx.restore();
-                        resolve();
-                      };
-                      bgImg.onerror = reject;
-                      // Use original URL for download (full quality)
-                      bgImg.src = getOriginalUrl(backgroundPhotoElement.data.image);
-                    });
+                    try {
+                      const bgImgUrl = getOriginalUrl(backgroundPhotoElement.data.image);
+                      console.log("🖼️ Loading background photo:", bgImgUrl.substring(0, 80) + "...");
+                      const bgImg = await loadImageWithFallback(bgImgUrl);
+                      
+                      // ✅ Apply filter using manual pixel manipulation (works on all browsers)
+                      let sourceCanvas;
+                      if (isFilterActive) {
+                        sourceCanvas = applyFilterToImage(bgImg, filterValues);
+                        console.log("  🎨 Background filter applied via pixel manipulation");
+                      } else {
+                        // No filter needed, use original image directly
+                        sourceCanvas = document.createElement("canvas");
+                        sourceCanvas.width = bgImg.width;
+                        sourceCanvas.height = bgImg.height;
+                        sourceCanvas.getContext("2d").drawImage(bgImg, 0, 0);
+                      }
+                      
+                      ctx.save();
+                      // Draw dengan object-fit: cover using filtered canvas
+                      drawImageCover(ctx, sourceCanvas, 0, 0, 1080, 1920);
+                      ctx.restore();
+                      console.log("✅ Background photo drawn successfully");
+                    } catch (bgError) {
+                      console.error("❌ Failed to load background photo:", bgError);
+                    }
                   }
 
                   // Sort designer elements by z-index to draw in correct order
@@ -3464,68 +3542,63 @@ export default function EditPhoto() {
                     // Support both "upload" and "photo" types for custom frames
                     if ((element.type === "upload" || element.type === "photo") && element.data?.image) {
                       console.log(`  ✅ Drawing photo/upload at x=${element.x}, y=${element.y}, w=${element.width}, h=${element.height}`);
-                      const img = new Image();
-                      img.crossOrigin = "anonymous";
-                      await new Promise((resolve, reject) => {
-                        img.onload = async () => {
-                          console.log(`  📸 Image loaded successfully, drawing to canvas...`);
-                          
-                          // ✅ Apply filter using manual pixel manipulation (works on all browsers)
-                          let sourceCanvas;
-                          if (isFilterActive) {
-                            sourceCanvas = applyFilterToImage(img, filterValues);
-                            console.log(`  🎨 Filter applied via pixel manipulation`);
-                          } else {
-                            // No filter needed, draw original image to temp canvas
-                            sourceCanvas = document.createElement("canvas");
-                            sourceCanvas.width = img.width;
-                            sourceCanvas.height = img.height;
-                            sourceCanvas.getContext("2d").drawImage(img, 0, 0);
-                          }
-                          
-                          // Now draw from filtered canvas to main canvas
-                          ctx.save();
+                      
+                      try {
+                        const img = await loadImageWithFallback(element.data.image);
+                        console.log(`  📸 Image loaded successfully, drawing to canvas...`);
+                        
+                        // ✅ Apply filter using manual pixel manipulation (works on all browsers)
+                        let sourceCanvas;
+                        if (isFilterActive) {
+                          sourceCanvas = applyFilterToImage(img, filterValues);
+                          console.log(`  🎨 Filter applied via pixel manipulation`);
+                        } else {
+                          // No filter needed, draw original image to temp canvas
+                          sourceCanvas = document.createElement("canvas");
+                          sourceCanvas.width = img.width;
+                          sourceCanvas.height = img.height;
+                          sourceCanvas.getContext("2d").drawImage(img, 0, 0);
+                        }
+                        
+                        // Now draw from filtered canvas to main canvas
+                        ctx.save();
 
-                          // ✅ Reset context for proper transparency handling
-                          ctx.globalAlpha = 1;
-                          ctx.globalCompositeOperation = "source-over";
+                        // ✅ Reset context for proper transparency handling
+                        ctx.globalAlpha = 1;
+                        ctx.globalCompositeOperation = "source-over";
 
-                          // Clip untuk border radius
-                          const x = element.x || 0;
-                          const y = element.y || 0;
-                          const w = element.width || 100;
-                          const h = element.height || 100;
-                          const r = element.data?.borderRadius ?? 0;
+                        // Clip untuk border radius
+                        const x = element.x || 0;
+                        const y = element.y || 0;
+                        const w = element.width || 100;
+                        const h = element.height || 100;
+                        const r = element.data?.borderRadius ?? 0;
 
-                          ctx.beginPath();
-                          ctx.moveTo(x + r, y);
-                          ctx.lineTo(x + w - r, y);
-                          ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-                          ctx.lineTo(x + w, y + h - r);
-                          ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-                          ctx.lineTo(x + r, y + h);
-                          ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-                          ctx.lineTo(x, y + r);
-                          ctx.quadraticCurveTo(x, y, x + r, y);
-                          ctx.closePath();
-                          ctx.clip();
+                        ctx.beginPath();
+                        ctx.moveTo(x + r, y);
+                        ctx.lineTo(x + w - r, y);
+                        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+                        ctx.lineTo(x + w, y + h - r);
+                        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+                        ctx.lineTo(x + r, y + h);
+                        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+                        ctx.lineTo(x, y + r);
+                        ctx.quadraticCurveTo(x, y, x + r, y);
+                        ctx.closePath();
+                        ctx.clip();
 
-                          // Get transform for this photo element
-                          const photoId = element.id || `photo-${sortedElements.indexOf(element)}`;
-                          const photoTransform = photoTransforms[photoId] || { scale: 1, x: 0, y: 0 };
-                          
-                          // Use cover with transform - use filtered canvas
-                          drawImageCoverWithTransform(ctx, sourceCanvas, x, y, w, h, photoTransform);
-                          ctx.restore();
-                          console.log(`  ✅ Image drawn with filter and transform:`, photoTransform);
-                          resolve();
-                        };
-                        img.onerror = (err) => {
-                          console.error(`  ❌ Image load error:`, err);
-                          resolve(); // Continue with other elements even if one fails
-                        };
-                        img.src = element.data.image;
-                      });
+                        // Get transform for this photo element
+                        const photoId = element.id || `photo-${sortedElements.indexOf(element)}`;
+                        const photoTransform = photoTransforms[photoId] || { scale: 1, x: 0, y: 0 };
+                        
+                        // Use cover with transform - use filtered canvas
+                        drawImageCoverWithTransform(ctx, sourceCanvas, x, y, w, h, photoTransform);
+                        ctx.restore();
+                        console.log(`  ✅ Image drawn with filter and transform:`, photoTransform);
+                      } catch (imgError) {
+                        console.error(`  ❌ Image load error:`, imgError);
+                        // Continue with other elements even if one fails
+                      }
                     } else if (element.type === "upload" || element.type === "photo") {
                       // Photo/upload element but NO image data
                       console.warn(`  ⚠️ Photo/upload element has NO image data!`, {
@@ -3678,51 +3751,51 @@ export default function EditPhoto() {
                   let frameOffsetY = 0;
 
                   if (frameConfig && frameConfig.frameImage && !frameConfig.isCustom) {
-                    const frameImg = new Image();
-                    frameImg.crossOrigin = "anonymous";
-                    await new Promise((resolve, reject) => {
-                      frameImg.onload = () => {
-                        // Calculate actual frame dimensions maintaining aspect ratio
-                        const canvasWidth = 1080;
-                        const canvasHeight = 1920;
-                        const imgRatio = frameImg.width / frameImg.height;
-                        const canvasRatio = canvasWidth / canvasHeight;
+                    try {
+                      console.log("🖼️ Loading frame image for overlay:", frameConfig.frameImage.substring(0, 80) + "...");
+                      const frameImg = await loadImageWithFallback(frameConfig.frameImage);
+                      
+                      // Calculate actual frame dimensions maintaining aspect ratio
+                      const canvasWidth = 1080;
+                      const canvasHeight = 1920;
+                      const imgRatio = frameImg.width / frameImg.height;
+                      const canvasRatio = canvasWidth / canvasHeight;
 
-                        let drawWidth, drawHeight, drawX, drawY;
+                      let drawWidth, drawHeight, drawX, drawY;
 
-                        if (imgRatio > canvasRatio) {
-                          // Image wider than canvas - fit to width
-                          drawWidth = canvasWidth;
-                          drawHeight = canvasWidth / imgRatio;
-                          drawX = 0;
-                          drawY = (canvasHeight - drawHeight) / 2;
-                        } else {
-                          // Image taller than canvas - fit to height
-                          drawHeight = canvasHeight;
-                          drawWidth = canvasHeight * imgRatio;
-                          drawX = (canvasWidth - drawWidth) / 2;
-                          drawY = 0;
-                        }
+                      if (imgRatio > canvasRatio) {
+                        // Image wider than canvas - fit to width
+                        drawWidth = canvasWidth;
+                        drawHeight = canvasWidth / imgRatio;
+                        drawX = 0;
+                        drawY = (canvasHeight - drawHeight) / 2;
+                      } else {
+                        // Image taller than canvas - fit to height
+                        drawHeight = canvasHeight;
+                        drawWidth = canvasHeight * imgRatio;
+                        drawX = (canvasWidth - drawWidth) / 2;
+                        drawY = 0;
+                      }
 
-                        ctx.drawImage(
-                          frameImg,
-                          drawX,
-                          drawY,
-                          drawWidth,
-                          drawHeight
-                        );
+                      ctx.drawImage(
+                        frameImg,
+                        drawX,
+                        drawY,
+                        drawWidth,
+                        drawHeight
+                      );
 
-                        // Store actual frame dimensions for cropping
-                        finalCanvasWidth = Math.round(drawWidth);
-                        finalCanvasHeight = Math.round(drawHeight);
-                        frameOffsetX = Math.round(drawX);
-                        frameOffsetY = Math.round(drawY);
-
-                        resolve();
-                      };
-                      frameImg.onerror = reject;
-                      frameImg.src = frameConfig.frameImage;
-                    });
+                      // Store actual frame dimensions for cropping
+                      finalCanvasWidth = Math.round(drawWidth);
+                      finalCanvasHeight = Math.round(drawHeight);
+                      frameOffsetX = Math.round(drawX);
+                      frameOffsetY = Math.round(drawY);
+                      
+                      console.log("✅ Frame overlay drawn successfully");
+                    } catch (frameError) {
+                      console.error("❌ Failed to load frame overlay:", frameError);
+                      // Continue without frame overlay - photos will still be downloaded
+                    }
                   }
 
                   // Crop canvas to actual frame size (remove white space)

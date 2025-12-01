@@ -15,7 +15,7 @@ const HARDCODED_FRAMES = [
     image_url: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764335547744_Cherish_Pink_Elegance.png",
     imagePath: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764335547744_Cherish_Pink_Elegance.png",
     thumbnailUrl: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764335547744_Cherish_Pink_Elegance.png",
-    maxCaptures: 4,
+    maxCaptures: 6,
     slots: []
   },
   {
@@ -35,7 +35,7 @@ const HARDCODED_FRAMES = [
     image_url: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764334019709_Our_Love_Memory.png",
     imagePath: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764334019709_Our_Love_Memory.png",
     thumbnailUrl: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764334019709_Our_Love_Memory.png",
-    maxCaptures: 4,
+    maxCaptures: 6,
     slots: []
   },
   {
@@ -65,7 +65,7 @@ const HARDCODED_FRAMES = [
     image_url: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764245117632_Pixel_Fun_Adventure.png",
     imagePath: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764245117632_Pixel_Fun_Adventure.png",
     thumbnailUrl: "https://hzhthvlsussqbwuhkfsh.supabase.co/storage/v1/object/public/frames/custom/1764245117632_Pixel_Fun_Adventure.png",
-    maxCaptures: 4,
+    maxCaptures: 6,
     slots: []
   }
 ];

@@ -6,6 +6,7 @@
  */
 
 import { uploadImageSimple } from './imagekitService.js';
+import { getStaticFrames } from '../data/staticFrames.js';
 
 // Multiple fallback URLs - try each one until success
 // Using /vps/frames path which maps to Pages Function at functions/vps/frames.js
@@ -279,25 +280,24 @@ export async function getAllFrames() {
   // TEMPORARY: Langsung return static frames, skip API dan cache
   if (USE_STATIC_FRAMES_ONLY) {
     console.log('🎯 [FrameService] Using STATIC FRAMES ONLY mode');
-    const staticData = await fetchStaticBackup();
-    if (staticData && staticData.length > 0) {
-      console.log(`✅ [FrameService] Returning ${staticData.length} static frames`);
-      return staticData.map(f => ({
-        id: f.id,
-        name: f.name,
-        description: f.description || '',
-        category: f.category,
-        image_url: f.image_url,
-        thumbnail_url: f.thumbnail_url || f.image_url,
-        imagePath: f.image_url,
-        thumbnailUrl: f.thumbnail_url || f.image_url,
-        maxCaptures: f.max_captures || 4,
-        max_captures: f.max_captures || 4,
-        slots: f.slots || [],
-        is_active: true,
-        sort_order: f.sort_order || 0,
-      }));
-    }
+    // Langsung pakai getStaticFrames() dari staticFrames.js (6 frames)
+    const staticData = getStaticFrames();
+    console.log(`✅ [FrameService] Returning ${staticData.length} static frames`);
+    return staticData.map(f => ({
+      id: f.id,
+      name: f.name,
+      description: f.description || '',
+      category: f.category,
+      image_url: f.image_url || f.imagePath,
+      thumbnail_url: f.thumbnail_url || f.image_url,
+      imagePath: f.image_url || f.imagePath,
+      thumbnailUrl: f.thumbnail_url || f.image_url,
+      maxCaptures: f.maxCaptures || 4,
+      max_captures: f.maxCaptures || 4,
+      slots: f.slots || [],
+      is_active: true,
+      sort_order: f.sort_order || 0,
+    }));
   }
   
   // Helper to map frames to consistent format

@@ -3152,31 +3152,51 @@ export default function EditPhoto() {
                         return;
                       }
 
+                      // Check if this is a Supabase or external URL that needs proxying
+                      const needsProxy = url.includes('supabase.co') || url.includes('imagekit.io');
+                      
                       // First try: direct load with crossOrigin
                       const img = new Image();
                       img.crossOrigin = "anonymous";
                       
+                      let resolved = false;
                       const directLoadTimeout = setTimeout(() => {
-                        console.log("⏱️ Direct load timeout, trying fetch approach...");
-                        tryFetchApproach();
+                        if (!resolved) {
+                          console.log("⏱️ Direct load timeout, trying fallback...");
+                          tryFallback();
+                        }
                       }, 5000);
 
                       img.onload = () => {
+                        if (resolved) return;
+                        resolved = true;
                         clearTimeout(directLoadTimeout);
                         console.log("✅ Image loaded directly with crossOrigin");
                         resolve(img);
                       };
 
-                      img.onerror = async () => {
+                      img.onerror = () => {
+                        if (resolved) return;
                         clearTimeout(directLoadTimeout);
-                        console.log("⚠️ Direct load failed, trying fetch approach...");
-                        tryFetchApproach();
+                        console.log("⚠️ Direct load failed, trying fallback...");
+                        tryFallback();
                       };
 
-                      const tryFetchApproach = async () => {
+                      const tryFallback = async () => {
+                        if (resolved) return;
+                        
                         try {
-                          // Fetch image as blob and convert to data URL
-                          const response = await fetch(url, { 
+                          let fetchUrl = url;
+                          
+                          // Use VPS proxy for Supabase/external URLs
+                          if (needsProxy) {
+                            const proxyUrl = `https://fremio-api.fremio.id/api/static/proxy?url=${encodeURIComponent(url)}`;
+                            console.log("🔄 Using VPS proxy for image:", url.substring(0, 60) + "...");
+                            fetchUrl = proxyUrl;
+                          }
+                          
+                          // Fetch image via proxy or directly
+                          const response = await fetch(fetchUrl, { 
                             mode: 'cors',
                             credentials: 'omit'
                           });
@@ -3194,23 +3214,32 @@ export default function EditPhoto() {
                           
                           const fallbackImg = new Image();
                           fallbackImg.onload = () => {
-                            console.log("✅ Image loaded via fetch blob approach");
+                            if (resolved) return;
+                            resolved = true;
+                            console.log("✅ Image loaded via proxy/fetch approach");
                             resolve(fallbackImg);
                           };
                           fallbackImg.onerror = () => {
-                            console.error("❌ Fetch blob approach also failed");
+                            if (resolved) return;
+                            console.error("❌ Fallback image load also failed");
                             reject(new Error("All image loading methods failed"));
                           };
                           fallbackImg.src = dataUrl;
                         } catch (fetchError) {
-                          console.error("❌ Fetch approach failed:", fetchError);
-                          // Last resort: try without crossOrigin (won't work for canvas but at least shows something)
+                          console.error("❌ Fetch/proxy approach failed:", fetchError);
+                          
+                          // Last resort: try loading without crossOrigin
                           const lastResortImg = new Image();
                           lastResortImg.onload = () => {
-                            console.log("⚠️ Image loaded without crossOrigin (limited canvas access)");
+                            if (resolved) return;
+                            resolved = true;
+                            console.log("⚠️ Image loaded without crossOrigin (may cause tainted canvas)");
                             resolve(lastResortImg);
                           };
-                          lastResortImg.onerror = () => reject(new Error("All methods failed"));
+                          lastResortImg.onerror = () => {
+                            if (resolved) return;
+                            reject(new Error("All methods failed"));
+                          };
                           lastResortImg.src = url;
                         }
                       };

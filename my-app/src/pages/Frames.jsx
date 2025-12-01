@@ -7,6 +7,16 @@ import { trackFrameView, trackUserSession, trackFunnelEvent } from "../services/
 import { imagePresets } from "../utils/imageOptimizer";
 import { useAuth } from "../contexts/AuthContext";
 
+// 6 Frame IDs yang diizinkan untuk ditampilkan
+const ALLOWED_FRAME_IDS = [
+  '7f5fe81b-4342-4049-ae6c-18e7b926cca8', // Cherish Pink Elegance
+  'd3254c20-0d9b-4dc2-91ee-ea9a96fdb6f7', // Blue Picnic Vibes
+  '02097dcc-5d75-468b-8d18-f11cc657b14b', // Our Love Memory
+  '3f9bbc23-bc3a-43a2-805f-d81146096a50', // YIPIE
+  'b33cf2aa-6ee8-4a85-b1a4-880cdc2c6a9a', // Snap Your Joy
+  '8a9875dd-5960-4bec-9475-1071a5eb8af4', // Pixel Fun Adventure
+];
+
 export default function Frames() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -94,10 +104,17 @@ export default function Frames() {
         setIsLoading(true);
         setLoadError(null);
         const loadedCustomFrames = await getAllCustomFrames();
-        if (loadedCustomFrames.length > 0) {
-          setCustomFrames(loadedCustomFrames);
+        
+        // Filter hanya frame yang diizinkan
+        const filteredFrames = loadedCustomFrames.filter(frame => 
+          ALLOWED_FRAME_IDS.includes(frame.id)
+        );
+        console.log('🔍 Filtered frames:', filteredFrames.length, 'of', loadedCustomFrames.length);
+        
+        if (filteredFrames.length > 0) {
+          setCustomFrames(filteredFrames);
           setIsLoading(false);
-          console.log('✅ Frames loaded:', loadedCustomFrames.length);
+          console.log('✅ Frames loaded:', filteredFrames.length);
         } else if (retryCount < MAX_RETRIES) {
           setTimeout(() => loadFrames(retryCount + 1), 500);
         } else {

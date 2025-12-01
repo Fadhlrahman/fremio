@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { useNavigate } from "react-router-dom";
 import safeStorage from "../utils/safeStorage.js";
 import userStorage from "../utils/userStorage.js";
+import frameProvider from "../utils/frameProvider.js";
 import { BACKGROUND_PHOTO_Z } from "../constants/layers.js";
 import html2canvas from "html2canvas";
 import {
@@ -12,6 +13,29 @@ import { convertBlobToMp4 } from "../utils/videoTranscoder.js";
 import { useToast } from "../contexts/ToastContext";
 import { trackFrameDownload } from "../services/analyticsService";
 import { imagePresets, getOriginalUrl } from "../utils/imageOptimizer";
+
+// Pre-import frequently used modules to avoid dynamic import delays
+let draftStorageModule = null;
+let draftHelpersModule = null;
+let customFrameServiceModule = null;
+
+// Preload modules in background
+const preloadModules = async () => {
+  try {
+    const [draftStorage, draftHelpers, customFrameService] = await Promise.all([
+      import("../utils/draftStorage.js"),
+      import("../utils/draftHelpers.js"),
+      import("../services/customFrameService.js"),
+    ]);
+    draftStorageModule = draftStorage;
+    draftHelpersModule = draftHelpers;
+    customFrameServiceModule = customFrameService;
+    console.log("✅ EditPhoto modules preloaded");
+  } catch (e) {
+    console.warn("⚠️ Module preload failed:", e);
+  }
+};
+preloadModules();
 
 export default function EditPhoto() {
   console.log("🚀 EDITPHOTO RENDERING...");
@@ -26,6 +50,7 @@ export default function EditPhoto() {
   const [backgroundPhotoElement, setBackgroundPhotoElement] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
+  const [videoProcessingMessage, setVideoProcessingMessage] = useState(""); // For video download loading screen
 
   // Photo zoom/pan transforms - keyed by element id or photo index
   const [photoTransforms, setPhotoTransforms] = useState({});
@@ -118,13 +143,20 @@ export default function EditPhoto() {
     const currentTransform = getPhotoTransform(photoId);
     const isCurrentlySelected = selectedPhotoId === photoId;
 
+    // ALWAYS prevent default for photo containers to stop page scroll/zoom
+    // This is critical for preventing browser gestures
+    try {
+      e.preventDefault();
+      e.stopPropagation();
+    } catch (err) {
+      // Passive event listener might prevent this
+    }
+
     // Check for double tap to reset
     const now = Date.now();
     if (touches.length === 1 && isCurrentlySelected) {
       if (now - state.lastTapTime < 300) {
         // Double tap on selected photo - reset zoom
-        e.preventDefault();
-        e.stopPropagation();
         updatePhotoTransform(photoId, { scale: 1, x: 0, y: 0 });
         state.lastTapTime = 0;
         setSelectedPhotoId(null);
@@ -145,8 +177,6 @@ export default function EditPhoto() {
 
     if (touches.length === 2) {
       // Start pinch zoom (only if selected)
-      e.preventDefault();
-      e.stopPropagation();
       state.isPinching = true;
       state.isDragging = false;
       state.initialDistance = getDistance(touches[0], touches[1]);
@@ -156,8 +186,6 @@ export default function EditPhoto() {
       console.log("📱 Pinch started, initial scale:", currentTransform.scale);
     } else if (touches.length === 1) {
       // Start pan (can pan even at scale 1 for repositioning)
-      e.preventDefault();
-      e.stopPropagation();
       state.isDragging = true;
       state.isPinching = false;
       state.lastTouchX = touches[0].clientX;
@@ -171,6 +199,14 @@ export default function EditPhoto() {
     const state = touchStateRef.current;
     const touches = e.touches;
     
+    // ALWAYS prevent default to stop page scroll/zoom
+    try {
+      e.preventDefault();
+      e.stopPropagation();
+    } catch (err) {
+      // Passive event listener might prevent this
+    }
+    
     // Only process if this photo is selected and active
     if (state.activePhotoId !== photoId || selectedPhotoId !== photoId) return;
 
@@ -178,9 +214,6 @@ export default function EditPhoto() {
     const rect = state.containerRect;
 
     if (state.isPinching && touches.length === 2) {
-      e.preventDefault();
-      e.stopPropagation();
-      
       // Calculate new scale based on pinch distance
       const currentDistance = getDistance(touches[0], touches[1]);
       const distanceRatio = currentDistance / state.initialDistance;
@@ -211,15 +244,7 @@ export default function EditPhoto() {
         y: newY,
       });
     } else if (state.isDragging && touches.length === 1) {
-      e.preventDefault();
-      e.stopPropagation();
-      
-      // Only allow pan if zoomed in (scale > 1)
-      if (currentTransform.scale <= 1) {
-        console.log("📱 Drag ignored - not zoomed in");
-        return;
-      }
-      
+      // Allow pan at any scale for repositioning photo within slot
       // Calculate pan delta
       // Since canvas is displayed at 0.25 scale, touch movement needs to be scaled up
       const scaleFactor = 4; // 1 / 0.25 = 4
@@ -271,20 +296,453 @@ export default function EditPhoto() {
     
     if (touches.length === 0) {
       state.isDragging = false;
-      state.activePhotoId = null;
+      // Keep activePhotoId so global handlers can continue working
+      // state.activePhotoId = null;
       
       // If scale is below threshold, reset to 1
       if (currentTransform.scale < 1.05) {
         updatePhotoTransform(photoId, { scale: 1, x: 0, y: 0 });
         // Don't deselect on touch end - keep selected for more adjustments
       }
-    } else if (touches.length === 1 && currentTransform.scale > 1) {
-      // Switch from pinch to drag
+    } else if (touches.length === 1) {
+      // Switch from pinch to drag - allow at any scale
       state.isDragging = true;
       state.lastTouchX = touches[0].clientX;
       state.lastTouchY = touches[0].clientY;
     }
   }, [getPhotoTransform, updatePhotoTransform]);
+
+  // ============================================
+  // DESKTOP MOUSE/TRACKPAD HANDLERS
+  // ============================================
+  
+  // Mouse state ref for desktop interactions
+  const mouseStateRef = useRef({
+    isDragging: false,
+    lastMouseX: 0,
+    lastMouseY: 0,
+    activePhotoId: null,
+    containerRect: null,
+  });
+
+  // Handle wheel event for trackpad pinch-to-zoom on desktop
+  // Trackpad pinch gestures fire wheel events with ctrlKey = true
+  const handlePhotoWheel = useCallback((e, photoId, containerEl) => {
+    // Only handle if this photo is selected
+    if (selectedPhotoId !== photoId) return;
+    
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const currentTransform = getPhotoTransform(photoId);
+    
+    // Get container rect for pan constraint calculations
+    const rect = containerEl?.getBoundingClientRect();
+    const scaleFactor = 4; // Canvas is displayed at 0.25 scale
+    const viewportWidth = rect ? rect.width * scaleFactor : 1080;
+    const viewportHeight = rect ? rect.height * scaleFactor : 1080;
+    
+    // ctrlKey indicates trackpad pinch gesture
+    if (e.ctrlKey) {
+      // Pinch-to-zoom: deltaY controls zoom level
+      // Negative deltaY = zoom in, Positive deltaY = zoom out
+      const zoomSensitivity = 0.01;
+      const zoomDelta = -e.deltaY * zoomSensitivity;
+      let newScale = currentTransform.scale * (1 + zoomDelta);
+      
+      // Clamp scale (1x to 4x)
+      newScale = clamp(newScale, 1, 4);
+      
+      // Calculate new pan constraints with the new scale
+      const { maxPanX, maxPanY } = calculatePanConstraints(newScale, viewportWidth, viewportHeight);
+      
+      // Clamp current position to new constraints
+      const newX = clamp(currentTransform.x, -maxPanX, maxPanX);
+      const newY = clamp(currentTransform.y, -maxPanY, maxPanY);
+      
+      console.log("🖱️ Desktop pinch zoom, scale:", newScale.toFixed(2));
+      
+      updatePhotoTransform(photoId, {
+        scale: newScale,
+        x: newX,
+        y: newY,
+      });
+    } else {
+      // Regular scroll - use as pan when zoomed in
+      if (currentTransform.scale > 1) {
+        const panSensitivity = 2;
+        const deltaX = -e.deltaX * panSensitivity * scaleFactor;
+        const deltaY = -e.deltaY * panSensitivity * scaleFactor;
+        
+        const { maxPanX, maxPanY } = calculatePanConstraints(currentTransform.scale, viewportWidth, viewportHeight);
+        
+        const newX = clamp(currentTransform.x + deltaX, -maxPanX, maxPanX);
+        const newY = clamp(currentTransform.y + deltaY, -maxPanY, maxPanY);
+        
+        updatePhotoTransform(photoId, {
+          scale: currentTransform.scale,
+          x: newX,
+          y: newY,
+        });
+      }
+    }
+  }, [selectedPhotoId, getPhotoTransform, updatePhotoTransform, clamp, calculatePanConstraints]);
+
+  // Handle mouse down for desktop click-drag pan
+  const handlePhotoMouseDown = useCallback((e, photoId, containerEl) => {
+    // Only left mouse button
+    if (e.button !== 0) return;
+    
+    // Only handle if this photo is selected
+    if (selectedPhotoId !== photoId) return;
+    
+    e.preventDefault();
+    
+    const state = mouseStateRef.current;
+    state.isDragging = true;
+    state.lastMouseX = e.clientX;
+    state.lastMouseY = e.clientY;
+    state.activePhotoId = photoId;
+    state.containerRect = containerEl?.getBoundingClientRect();
+    
+    console.log("🖱️ Desktop drag started for photo:", photoId);
+  }, [selectedPhotoId]);
+
+  // Handle mouse move for desktop drag pan
+  const handlePhotoMouseMove = useCallback((e, photoId) => {
+    const state = mouseStateRef.current;
+    
+    // Only process if dragging this photo
+    if (!state.isDragging || state.activePhotoId !== photoId) return;
+    if (selectedPhotoId !== photoId) return;
+    
+    e.preventDefault();
+    
+    const currentTransform = getPhotoTransform(photoId);
+    
+    // Calculate pan delta
+    const scaleFactor = 4; // Canvas is displayed at 0.25 scale
+    const deltaX = (e.clientX - state.lastMouseX) * scaleFactor;
+    const deltaY = (e.clientY - state.lastMouseY) * scaleFactor;
+    
+    const rect = state.containerRect;
+    const viewportWidth = rect ? rect.width * scaleFactor : 1080;
+    const viewportHeight = rect ? rect.height * scaleFactor : 1080;
+    
+    // Calculate constraints based on current scale
+    const { maxPanX, maxPanY } = calculatePanConstraints(currentTransform.scale, viewportWidth, viewportHeight);
+    
+    // Apply delta and clamp
+    const newX = clamp(currentTransform.x + deltaX, -maxPanX, maxPanX);
+    const newY = clamp(currentTransform.y + deltaY, -maxPanY, maxPanY);
+    
+    updatePhotoTransform(photoId, {
+      scale: currentTransform.scale,
+      x: newX,
+      y: newY,
+    });
+    
+    state.lastMouseX = e.clientX;
+    state.lastMouseY = e.clientY;
+  }, [selectedPhotoId, getPhotoTransform, updatePhotoTransform, clamp, calculatePanConstraints]);
+
+  // Handle mouse up for desktop drag end
+  const handlePhotoMouseUp = useCallback((e, photoId) => {
+    const state = mouseStateRef.current;
+    
+    if (state.activePhotoId !== photoId) return;
+    
+    const currentTransform = getPhotoTransform(photoId);
+    
+    state.isDragging = false;
+    state.activePhotoId = null;
+    
+    // If scale is below threshold, reset to 1
+    if (currentTransform.scale < 1.05) {
+      updatePhotoTransform(photoId, { scale: 1, x: 0, y: 0 });
+    }
+    
+    console.log("🖱️ Desktop drag ended for photo:", photoId);
+  }, [getPhotoTransform, updatePhotoTransform]);
+
+  // Global mouse event listeners for desktop drag (to handle mouse leaving element)
+  useEffect(() => {
+    if (!selectedPhotoId) return;
+    
+    const state = mouseStateRef.current;
+    
+    const handleGlobalMouseMove = (e) => {
+      if (!state.isDragging || !state.activePhotoId) return;
+      if (selectedPhotoId !== state.activePhotoId) return;
+      
+      const currentTransform = getPhotoTransform(state.activePhotoId);
+      
+      // Calculate pan delta
+      const scaleFactor = 4;
+      const deltaX = (e.clientX - state.lastMouseX) * scaleFactor;
+      const deltaY = (e.clientY - state.lastMouseY) * scaleFactor;
+      
+      const rect = state.containerRect;
+      const viewportWidth = rect ? rect.width * scaleFactor : 1080;
+      const viewportHeight = rect ? rect.height * scaleFactor : 1080;
+      
+      const { maxPanX, maxPanY } = calculatePanConstraints(currentTransform.scale, viewportWidth, viewportHeight);
+      
+      const newX = clamp(currentTransform.x + deltaX, -maxPanX, maxPanX);
+      const newY = clamp(currentTransform.y + deltaY, -maxPanY, maxPanY);
+      
+      updatePhotoTransform(state.activePhotoId, {
+        scale: currentTransform.scale,
+        x: newX,
+        y: newY,
+      });
+      
+      state.lastMouseX = e.clientX;
+      state.lastMouseY = e.clientY;
+    };
+    
+    const handleGlobalMouseUp = (e) => {
+      if (!state.isDragging || !state.activePhotoId) return;
+      
+      const photoId = state.activePhotoId;
+      const currentTransform = getPhotoTransform(photoId);
+      
+      state.isDragging = false;
+      state.activePhotoId = null;
+      
+      // If scale is below threshold, reset to 1
+      if (currentTransform.scale < 1.05) {
+        updatePhotoTransform(photoId, { scale: 1, x: 0, y: 0 });
+      }
+    };
+    
+    document.addEventListener('mousemove', handleGlobalMouseMove);
+    document.addEventListener('mouseup', handleGlobalMouseUp);
+    
+    return () => {
+      document.removeEventListener('mousemove', handleGlobalMouseMove);
+      document.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [selectedPhotoId, getPhotoTransform, updatePhotoTransform, clamp, calculatePanConstraints]);
+
+  // Ref to store photo container elements for native event binding
+  const photoContainerRefs = useRef({});
+
+  // GLOBAL touch handlers for pinch-to-zoom AND pan/drag from anywhere on screen
+  // This allows user to pinch/drag with fingers anywhere on screen when photo is selected
+  useEffect(() => {
+    if (!selectedPhotoId) return;
+    
+    const state = touchStateRef.current;
+    
+    const handleGlobalTouchStart = (e) => {
+      if (!selectedPhotoId) return;
+      
+      const touches = e.touches;
+      
+      // If photo is selected but not yet active (first touch was outside photo area)
+      // We activate it for global gestures
+      if (!state.activePhotoId && selectedPhotoId) {
+        state.activePhotoId = selectedPhotoId;
+        const currentTransform = getPhotoTransform(selectedPhotoId);
+        state.initialScale = currentTransform.scale;
+        state.initialX = currentTransform.x;
+        state.initialY = currentTransform.y;
+      }
+      
+      // If we have 2 touches, start pinch
+      if (touches.length === 2 && state.activePhotoId) {
+        e.preventDefault();
+        state.isPinching = true;
+        state.isDragging = false;
+        state.initialDistance = getDistance(touches[0], touches[1]);
+        
+        const currentTransform = getPhotoTransform(state.activePhotoId);
+        state.initialScale = currentTransform.scale;
+        state.initialX = currentTransform.x;
+        state.initialY = currentTransform.y;
+        
+        console.log("📱 Global pinch started from anywhere on screen");
+      } else if (touches.length === 1 && state.activePhotoId) {
+        // Single touch - start dragging (for pan)
+        const currentTransform = getPhotoTransform(state.activePhotoId);
+        // Allow pan even at scale 1 for repositioning photo within slot
+        state.isDragging = true;
+        state.isPinching = false;
+        state.lastTouchX = touches[0].clientX;
+        state.lastTouchY = touches[0].clientY;
+        console.log("📱 Global drag started, scale:", currentTransform.scale);
+      }
+    };
+    
+    const handleGlobalTouchMove = (e) => {
+      if (!selectedPhotoId || !state.activePhotoId) return;
+      
+      const touches = e.touches;
+      const photoId = state.activePhotoId;
+      
+      // Handle pinch zoom from anywhere
+      if (state.isPinching && touches.length === 2) {
+        e.preventDefault();
+        
+        const currentDistance = getDistance(touches[0], touches[1]);
+        const distanceRatio = currentDistance / state.initialDistance;
+        let newScale = state.initialScale * distanceRatio;
+        
+        // Clamp scale (1x to 4x)
+        newScale = clamp(newScale, 1, 4);
+        
+        const rect = state.containerRect;
+        const scaleFactor = 4;
+        const viewportWidth = rect ? rect.width * scaleFactor : 1080;
+        const viewportHeight = rect ? rect.height * scaleFactor : 1080;
+        
+        const { maxPanX, maxPanY } = calculatePanConstraints(newScale, viewportWidth, viewportHeight);
+        const newX = clamp(state.initialX, -maxPanX, maxPanX);
+        const newY = clamp(state.initialY, -maxPanY, maxPanY);
+        
+        updatePhotoTransform(photoId, {
+          scale: newScale,
+          x: newX,
+          y: newY,
+        });
+        
+        console.log("📱 Global pinch move, scale:", newScale.toFixed(2));
+      } else if (state.isDragging && touches.length === 1) {
+        // Handle drag/pan from anywhere
+        e.preventDefault();
+        
+        const currentTransform = getPhotoTransform(photoId);
+        
+        // Calculate pan delta
+        const scaleFactor = 4; // 1 / 0.25 = 4
+        const deltaX = (touches[0].clientX - state.lastTouchX) * scaleFactor;
+        const deltaY = (touches[0].clientY - state.lastTouchY) * scaleFactor;
+        
+        const rect = state.containerRect;
+        const viewportWidth = rect ? rect.width * scaleFactor : 1080;
+        const viewportHeight = rect ? rect.height * scaleFactor : 1080;
+        
+        // Calculate constraints based on current scale
+        const { maxPanX, maxPanY } = calculatePanConstraints(currentTransform.scale, viewportWidth, viewportHeight);
+        
+        // Apply delta and clamp
+        const newX = clamp(currentTransform.x + deltaX, -maxPanX, maxPanX);
+        const newY = clamp(currentTransform.y + deltaY, -maxPanY, maxPanY);
+        
+        updatePhotoTransform(photoId, {
+          scale: currentTransform.scale,
+          x: newX,
+          y: newY,
+        });
+        
+        state.lastTouchX = touches[0].clientX;
+        state.lastTouchY = touches[0].clientY;
+        
+        console.log("📱 Global drag move:", { deltaX: deltaX.toFixed(0), deltaY: deltaY.toFixed(0) });
+      }
+    };
+    
+    const handleGlobalTouchEnd = (e) => {
+      if (!selectedPhotoId || !state.activePhotoId) return;
+      
+      const touches = e.touches;
+      const photoId = state.activePhotoId;
+      
+      if (touches.length < 2) {
+        state.isPinching = false;
+      }
+      
+      if (touches.length === 0) {
+        state.isDragging = false;
+        const currentTransform = getPhotoTransform(photoId);
+        if (currentTransform.scale < 1.05) {
+          updatePhotoTransform(photoId, { scale: 1, x: 0, y: 0 });
+        }
+        // Don't clear activePhotoId here - keep it active for continued interaction
+      } else if (touches.length === 1) {
+        // Switch from pinch to drag
+        state.isDragging = true;
+        state.lastTouchX = touches[0].clientX;
+        state.lastTouchY = touches[0].clientY;
+      }
+    };
+    
+    // Add global listeners
+    document.addEventListener('touchstart', handleGlobalTouchStart, { passive: false });
+    document.addEventListener('touchmove', handleGlobalTouchMove, { passive: false });
+    document.addEventListener('touchend', handleGlobalTouchEnd, { passive: false });
+    
+    return () => {
+      document.removeEventListener('touchstart', handleGlobalTouchStart);
+      document.removeEventListener('touchmove', handleGlobalTouchMove);
+      document.removeEventListener('touchend', handleGlobalTouchEnd);
+    };
+  }, [selectedPhotoId, getDistance, getPhotoTransform, updatePhotoTransform, clamp, calculatePanConstraints]);
+
+  // Effect to prevent browser default gestures on photo containers
+  // This is needed because React's onTouchStart/Move are passive by default
+  useEffect(() => {
+    const preventDefaultHandler = (e) => {
+      // Only prevent if we're interacting with a selected photo
+      if (selectedPhotoId && touchStateRef.current.activePhotoId) {
+        e.preventDefault();
+      }
+    };
+
+    // Add non-passive listeners to all photo containers
+    const containers = Object.values(photoContainerRefs.current);
+    containers.forEach(container => {
+      if (container) {
+        container.addEventListener('touchstart', preventDefaultHandler, { passive: false });
+        container.addEventListener('touchmove', preventDefaultHandler, { passive: false });
+      }
+    });
+
+    return () => {
+      containers.forEach(container => {
+        if (container) {
+          container.removeEventListener('touchstart', preventDefaultHandler);
+          container.removeEventListener('touchmove', preventDefaultHandler);
+        }
+      });
+    };
+  }, [selectedPhotoId, designerElements]);
+
+  // Also prevent gestures on the whole preview area when a photo is selected
+  const previewContainerRef = useRef(null);
+  
+  useEffect(() => {
+    const container = previewContainerRef.current;
+    if (!container) return;
+
+    const preventGestures = (e) => {
+      // Prevent pinch-zoom and pan when a photo is selected
+      if (selectedPhotoId) {
+        // Check if touch is on a photo element or if we're pinching
+        const state = touchStateRef.current;
+        if (state.activePhotoId || state.isPinching) {
+          e.preventDefault();
+        }
+      }
+    };
+
+    container.addEventListener('touchstart', preventGestures, { passive: false });
+    container.addEventListener('touchmove', preventGestures, { passive: false });
+    
+    // Prevent page zoom on double-tap
+    container.addEventListener('gesturestart', (e) => e.preventDefault());
+    container.addEventListener('gesturechange', (e) => e.preventDefault());
+    container.addEventListener('gestureend', (e) => e.preventDefault());
+
+    return () => {
+      container.removeEventListener('touchstart', preventGestures);
+      container.removeEventListener('touchmove', preventGestures);
+      container.removeEventListener('gesturestart', (e) => e.preventDefault());
+      container.removeEventListener('gesturechange', (e) => e.preventDefault());
+      container.removeEventListener('gestureend', (e) => e.preventDefault());
+    };
+  }, [selectedPhotoId]);
 
   const hasValidVideo = useMemo(() => {
     if (!Array.isArray(videos)) return false;
@@ -322,9 +780,9 @@ export default function EditPhoto() {
             return recoveryDraft ?? null;
           }
           try {
-            const { default: draftStorage } = await import(
-              "../utils/draftStorage.js"
-            );
+            // Use preloaded module or fallback to dynamic import
+            const draftStorage = draftStorageModule?.default || 
+              (await import("../utils/draftStorage.js")).default;
             const draft = await draftStorage.getDraftById(activeDraftId);
             recoveryDraft = draft ?? null;
             if (!draft) {
@@ -421,8 +879,8 @@ export default function EditPhoto() {
 
         // If still no photos, wait a bit and retry (storage might be delayed)
         if (resolvedPhotos.length === 0) {
-          console.log("⏳ [RETRY] No photos found, waiting 300ms and retrying...");
-          await new Promise(resolve => setTimeout(resolve, 300));
+          console.log("⏳ [RETRY] No photos found, waiting 100ms and retrying...");
+          await new Promise(resolve => setTimeout(resolve, 100));
           
           const retryRaw = localStorage.getItem("capturedPhotos");
           if (retryRaw) {
@@ -664,6 +1122,31 @@ export default function EditPhoto() {
         let config = safeStorage.getJSON("frameConfig");
         console.log("   frameConfig from localStorage:", !!config, config?.id);
         
+        // 🆕 CRITICAL FALLBACK: If no config in localStorage, try frameProvider memory
+        if (!config || !config.id) {
+          console.log("⚠️ No config in localStorage, checking frameProvider memory...");
+          const memoryConfig = frameProvider.getCurrentConfig();
+          if (memoryConfig?.id) {
+            console.log("✅ Found config in frameProvider memory:", memoryConfig.id);
+            config = memoryConfig;
+            // Persist it to localStorage for consistency
+            try {
+              safeStorage.setJSON("frameConfig", {
+                ...config,
+                __timestamp: Date.now(),
+                __savedFrom: "EditPhoto_memoryFallback"
+              });
+              safeStorage.setItem("frameConfigTimestamp", String(Date.now()));
+              safeStorage.setItem("selectedFrame", config.id);
+              console.log("✅ Persisted frameProvider config to localStorage");
+            } catch (e) {
+              console.warn("⚠️ Failed to persist config:", e);
+            }
+          } else {
+            console.log("❌ No config in frameProvider memory either");
+          }
+        }
+        
         // CRITICAL DEBUG: Check what's in the loaded config
         if (config) {
           console.log("🔍 [DEBUG] Loaded frameConfig structure:", {
@@ -698,10 +1181,14 @@ export default function EditPhoto() {
         if (isCustomFrame && !isDraftBasedCustomFrame) {
           // Only try service for UUID-based frames (Supabase frames)
           console.log("🔄 Supabase custom frame detected, reloading from service...");
+          
+          // First, save the original config's image URL as fallback
+          const originalImageUrl = config?.imagePath || config?.frameImage || config?.thumbnailUrl || config?.image_url;
+          
           try {
-            const { getCustomFrameConfig } = await import(
-              "../services/customFrameService.js"
-            );
+            // Use preloaded module or fallback to dynamic import
+            const { getCustomFrameConfig } = customFrameServiceModule || 
+              await import("../services/customFrameService.js");
             const freshConfig = await getCustomFrameConfig(
               selectedFrameId || config?.id
             );
@@ -713,6 +1200,13 @@ export default function EditPhoto() {
             }
           } catch (error) {
             console.warn("⚠️ Failed to reload from service:", error);
+            // IMPORTANT: Keep using the existing config from localStorage
+            // and ensure it has the image URL
+            if (config && !config.frameImage && originalImageUrl) {
+              config.frameImage = originalImageUrl;
+              config.imagePath = originalImageUrl;
+              console.log("🔧 Using cached image URL:", originalImageUrl?.substring(0, 80));
+            }
           }
         } else if (isDraftBasedCustomFrame) {
           console.log("🎨 Draft-based custom frame detected (custom-xxx), will load from draft...");
@@ -771,9 +1265,9 @@ export default function EditPhoto() {
             try {
               const draft = await loadDraftForRecovery();
               if (draft) {
-                const { buildFrameConfigFromDraft } = await import(
-                  "../utils/draftHelpers.js"
-                );
+                // Use preloaded module or fallback
+                const { buildFrameConfigFromDraft } = draftHelpersModule || 
+                  await import("../utils/draftHelpers.js");
                 config = buildFrameConfigFromDraft(draft);
                 console.log(
                   "✅ Successfully loaded frameConfig from draft:",
@@ -789,9 +1283,9 @@ export default function EditPhoto() {
           if (!config && isSupabaseFrame) {
             console.log("🔄 Attempting to load Supabase frame from service...");
             try {
-              const { getCustomFrameConfig } = await import(
-                "../services/customFrameService.js"
-              );
+              // Use preloaded module or fallback
+              const { getCustomFrameConfig } = customFrameServiceModule || 
+                await import("../services/customFrameService.js");
               config = await getCustomFrameConfig(selectedFrameId);
               if (config) {
                 console.log(
@@ -814,9 +1308,9 @@ export default function EditPhoto() {
               const draft = await loadDraftForRecovery();
 
               if (draft) {
-                const { buildFrameConfigFromDraft } = await import(
-                  "../utils/draftHelpers.js"
-                );
+                // Use preloaded module or fallback
+                const { buildFrameConfigFromDraft } = draftHelpersModule || 
+                  await import("../utils/draftHelpers.js");
                 config = buildFrameConfigFromDraft(draft);
                 console.log(
                   "✅ Successfully loaded frameConfig from draft:",
@@ -888,9 +1382,9 @@ export default function EditPhoto() {
                     );
 
                     // Rebuild frameConfig from draft to get complete data
-                    const { buildFrameConfigFromDraft } = await import(
-                      "../utils/draftHelpers.js"
-                    );
+                    // Use preloaded module or fallback
+                    const { buildFrameConfigFromDraft } = draftHelpersModule || 
+                      await import("../utils/draftHelpers.js");
                     config = buildFrameConfigFromDraft(draft);
 
                     // Try to save complete frameConfig back to localStorage (might fail if too large)
@@ -950,6 +1444,31 @@ export default function EditPhoto() {
         // Log detail frameConfig untuk debug
         console.log("✅ Loaded frame config:", config.id);
         console.log("📋 Frame details:", config);
+
+        // CRITICAL: If frame is missing image URL, try to get from localStorage cache
+        const needsImageUrl = !config.frameImage && !config.imagePath && !config.image_url;
+        if (needsImageUrl) {
+          console.log("⚠️ Frame missing image URL, trying to get from cache...");
+          try {
+            // Try localStorage frames cache
+            const cachedFramesStr = localStorage.getItem("fremio_frames_cache_v3");
+            if (cachedFramesStr) {
+              const cachedFrames = JSON.parse(cachedFramesStr);
+              const cachedFrame = cachedFrames?.find(f => f.id === config.id);
+              if (cachedFrame) {
+                const imageUrl = cachedFrame.imagePath || cachedFrame.image_url || cachedFrame.thumbnailUrl;
+                if (imageUrl) {
+                  config.frameImage = imageUrl;
+                  config.imagePath = imageUrl;
+                  config.image_url = imageUrl;
+                  console.log("✅ Found image URL from cache:", imageUrl?.substring(0, 80));
+                }
+              }
+            }
+          } catch (e) {
+            console.warn("Failed to get image from cache:", e);
+          }
+        }
 
         // Log admin vs custom frame detection
         if (!config.isCustom) {
@@ -1246,7 +1765,7 @@ export default function EditPhoto() {
                   photoIndex,
                   image: photoData || null,
                   aspectRatio: slot.aspectRatio || "4:5",
-                  borderRadius: slot.borderRadius || 24,
+                  borderRadius: slot.borderRadius ?? 0, // Use 0 as default, respect 0 value from admin
                 },
               };
             });
@@ -1431,7 +1950,7 @@ export default function EditPhoto() {
     
     const retryLoadPhotos = async () => {
       // Wait a bit for storage to settle
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 150));
       
       // Try multiple sources
       let foundPhotos = [];
@@ -1751,6 +2270,73 @@ export default function EditPhoto() {
         paddingTop: "0.5rem",
       }}
     >
+      {/* Video Processing Loading Overlay */}
+      {videoProcessingMessage && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.85)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 99999,
+            backdropFilter: "blur(4px)",
+          }}
+        >
+          <div
+            style={{
+              background: "white",
+              borderRadius: "20px",
+              padding: "2rem 2.5rem",
+              textAlign: "center",
+              maxWidth: "320px",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            }}
+          >
+            {/* Spinning Animation */}
+            <div
+              style={{
+                width: "60px",
+                height: "60px",
+                margin: "0 auto 1.5rem",
+                border: "4px solid #E5E7EB",
+                borderTopColor: "#8B5CF6",
+                borderRadius: "50%",
+                animation: "spin 1s linear infinite",
+              }}
+            />
+            <div
+              style={{
+                fontSize: "1.1rem",
+                fontWeight: "600",
+                color: "#1F2937",
+                marginBottom: "0.5rem",
+              }}
+            >
+              Memproses Video
+            </div>
+            <div
+              style={{
+                fontSize: "0.9rem",
+                color: "#6B7280",
+                lineHeight: "1.5",
+              }}
+            >
+              {videoProcessingMessage}
+            </div>
+          </div>
+          
+          {/* CSS Animation */}
+          <style>{`
+            @keyframes spin {
+              to { transform: rotate(360deg); }
+            }
+          `}</style>
+        </div>
+      )}
+
       {/* Debug Info: Show if frameConfig or photos missing */}
       {(!frameConfig || photos.length === 0) && (
         <div
@@ -1843,11 +2429,12 @@ export default function EditPhoto() {
           </div>
           <button
             onClick={() => {
+              // Clear active photo state for global handlers
+              touchStateRef.current.activePhotoId = null;
+              touchStateRef.current.isDragging = false;
+              touchStateRef.current.isPinching = false;
+              // Just deselect - keep the zoom/pan transform
               setSelectedPhotoId(null);
-              // Reset transform jika ada
-              if (photoTransforms[selectedPhotoId]?.scale > 1) {
-                updatePhotoTransform(selectedPhotoId, { scale: 1, x: 0, y: 0 });
-              }
             }}
             style={{
               background: "rgba(255,255,255,0.2)",
@@ -1890,6 +2477,7 @@ export default function EditPhoto() {
       {/* Photo Preview */}
       {frameConfig && (
         <div
+          ref={previewContainerRef}
           style={{
             display: "flex",
             flexDirection: "column",
@@ -1897,31 +2485,9 @@ export default function EditPhoto() {
             gap: "1rem",
             width: "100%",
             maxWidth: "900px",
+            touchAction: selectedPhotoId ? "none" : "auto",
           }}
         >
-          {/* Zoom Instructions - only show if no photo selected */}
-          {!selectedPhotoId && (
-            <div
-              style={{
-                background: "rgba(79, 70, 229, 0.1)",
-                border: "1px solid rgba(79, 70, 229, 0.3)",
-                color: "#4F46E5",
-                padding: "10px 16px",
-                borderRadius: "12px",
-                fontSize: "12px",
-                fontWeight: "500",
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                width: "100%",
-                maxWidth: "280px",
-              }}
-            >
-              <span>👆</span>
-              <span>Tap foto untuk pilih, lalu pinch untuk zoom</span>
-            </div>
-          )}
-
           {/* Frame Canvas Container */}
           <div
             style={{
@@ -2096,7 +2662,7 @@ export default function EditPhoto() {
                             zIndex: elemZIndex,
                             pointerEvents: "none",
                             borderRadius: `${
-                              element.data?.borderRadius || 24
+                              element.data?.borderRadius ?? 0
                             }px`,
                             overflow: "hidden",
                             display: "flex",
@@ -2141,8 +2707,12 @@ export default function EditPhoto() {
                       <div
                         key={`element-${element.id || idx}`}
                         ref={(el) => {
-                          if (el) el.dataset.photoId = photoId;
+                          if (el) {
+                            el.dataset.photoId = photoId;
+                            photoContainerRefs.current[photoId] = el;
+                          }
                         }}
+                        data-photo-container="true"
                         style={{
                           position: "absolute",
                           left: `${element.x || 0}px`,
@@ -2151,21 +2721,27 @@ export default function EditPhoto() {
                           height: `${element.height || 100}px`,
                           zIndex: isSelected ? 9000 : elemZIndex, // Bring selected photo to front for easier interaction
                           pointerEvents: "auto", // Enable touch events
-                          borderRadius: `${element.data?.borderRadius || 24}px`,
+                          borderRadius: `${element.data?.borderRadius ?? 0}px`,
                           overflow: "hidden",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
                           background: "transparent",
-                          touchAction: isSelected ? "none" : "auto", // Disable browser gestures when selected
+                          touchAction: "none", // Always disable browser gestures on photo containers
+                          WebkitUserSelect: "none",
+                          userSelect: "none",
                           outline: isSelected ? "3px solid #4F46E5" : "none",
                           boxShadow: isSelected ? "0 0 0 6px rgba(79,70,229,0.3)" : "none",
-                          cursor: "pointer",
+                          cursor: isSelected ? "move" : "pointer",
                         }}
                         onClick={handlePhotoClick}
                         onTouchStart={(e) => handlePhotoTouchStart(e, photoId, e.currentTarget)}
                         onTouchMove={(e) => handlePhotoTouchMove(e, photoId)}
                         onTouchEnd={(e) => handlePhotoTouchEnd(e, photoId)}
+                        onWheel={(e) => handlePhotoWheel(e, photoId, e.currentTarget)}
+                        onMouseDown={(e) => handlePhotoMouseDown(e, photoId, e.currentTarget)}
+                        onMouseMove={(e) => handlePhotoMouseMove(e, photoId)}
+                        onMouseUp={(e) => handlePhotoMouseUp(e, photoId)}
                       >
                         <img
                           src={element.data.image}
@@ -2253,9 +2829,16 @@ export default function EditPhoto() {
               overflowX: "auto",
               overflowY: "hidden",
               paddingBottom: "0.5rem",
+              paddingLeft: "0.5rem",
+              paddingRight: "0.5rem",
               scrollbarWidth: "thin",
               scrollbarColor: "#D1D5DB #F3F4F6",
               WebkitOverflowScrolling: "touch",
+              width: "100%",
+              maxWidth: "100vw",
+              boxSizing: "border-box",
+              msOverflowStyle: "none", /* IE and Edge */
+              scrollSnapType: "x mandatory",
             }}
           >
             {filterPresets.map((preset) => (
@@ -2282,6 +2865,8 @@ export default function EditPhoto() {
                   minWidth: "75px",
                   flexShrink: 0,
                   whiteSpace: "nowrap",
+                  scrollSnapAlign: "start",
+                  touchAction: "pan-x",
                 }}
                 onMouseEnter={(e) => {
                   if (activeFilter !== preset.name) {
@@ -2333,6 +2918,126 @@ export default function EditPhoto() {
                   canvas.width = 1080;
                   canvas.height = 1920;
                   const ctx = canvas.getContext("2d", { alpha: true }); // ✅ Enable alpha for transparency
+
+                  // ✅ Helper function to apply filter using temporary canvas (Safari compatible)
+                  const applyFilterToImage = (img, filterValues) => {
+                    // Create temporary canvas same size as image
+                    const tempCanvas = document.createElement("canvas");
+                    tempCanvas.width = img.width;
+                    tempCanvas.height = img.height;
+                    const tempCtx = tempCanvas.getContext("2d");
+                    
+                    // Draw original image first
+                    tempCtx.drawImage(img, 0, 0);
+                    
+                    // Get image data for manual filter processing
+                    const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                    const data = imageData.data;
+                    
+                    const { brightness, contrast, saturate, grayscale, sepia, hueRotate } = filterValues;
+                    
+                    // Apply filters manually pixel by pixel
+                    for (let i = 0; i < data.length; i += 4) {
+                      let r = data[i];
+                      let g = data[i + 1];
+                      let b = data[i + 2];
+                      
+                      // Brightness (100 = normal)
+                      const brightnessFactor = brightness / 100;
+                      r *= brightnessFactor;
+                      g *= brightnessFactor;
+                      b *= brightnessFactor;
+                      
+                      // Contrast (100 = normal)
+                      const contrastFactor = (contrast / 100);
+                      const intercept = 128 * (1 - contrastFactor);
+                      r = r * contrastFactor + intercept;
+                      g = g * contrastFactor + intercept;
+                      b = b * contrastFactor + intercept;
+                      
+                      // Grayscale (0 = normal, 100 = full grayscale)
+                      if (grayscale > 0) {
+                        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+                        const grayFactor = grayscale / 100;
+                        r = r * (1 - grayFactor) + gray * grayFactor;
+                        g = g * (1 - grayFactor) + gray * grayFactor;
+                        b = b * (1 - grayFactor) + gray * grayFactor;
+                      }
+                      
+                      // Sepia (0 = normal, 100 = full sepia)
+                      if (sepia > 0) {
+                        const sepiaFactor = sepia / 100;
+                        const sr = 0.393 * r + 0.769 * g + 0.189 * b;
+                        const sg = 0.349 * r + 0.686 * g + 0.168 * b;
+                        const sb = 0.272 * r + 0.534 * g + 0.131 * b;
+                        r = r * (1 - sepiaFactor) + sr * sepiaFactor;
+                        g = g * (1 - sepiaFactor) + sg * sepiaFactor;
+                        b = b * (1 - sepiaFactor) + sb * sepiaFactor;
+                      }
+                      
+                      // Saturate (100 = normal)
+                      if (saturate !== 100) {
+                        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+                        const satFactor = saturate / 100;
+                        r = gray + satFactor * (r - gray);
+                        g = gray + satFactor * (g - gray);
+                        b = gray + satFactor * (b - gray);
+                      }
+                      
+                      // Hue rotate (degrees)
+                      if (hueRotate !== 0) {
+                        const angle = hueRotate * Math.PI / 180;
+                        const cos = Math.cos(angle);
+                        const sin = Math.sin(angle);
+                        const newR = r * (0.213 + cos * 0.787 - sin * 0.213) + 
+                                     g * (0.715 - cos * 0.715 - sin * 0.715) + 
+                                     b * (0.072 - cos * 0.072 + sin * 0.928);
+                        const newG = r * (0.213 - cos * 0.213 + sin * 0.143) + 
+                                     g * (0.715 + cos * 0.285 + sin * 0.140) + 
+                                     b * (0.072 - cos * 0.072 - sin * 0.283);
+                        const newB = r * (0.213 - cos * 0.213 - sin * 0.787) + 
+                                     g * (0.715 - cos * 0.715 + sin * 0.715) + 
+                                     b * (0.072 + cos * 0.928 + sin * 0.072);
+                        r = newR;
+                        g = newG;
+                        b = newB;
+                      }
+                      
+                      // Clamp values
+                      data[i] = Math.max(0, Math.min(255, Math.round(r)));
+                      data[i + 1] = Math.max(0, Math.min(255, Math.round(g)));
+                      data[i + 2] = Math.max(0, Math.min(255, Math.round(b)));
+                    }
+                    
+                    // Put filtered image data back
+                    tempCtx.putImageData(imageData, 0, 0);
+                    console.log("🎨 Manual pixel filter applied successfully");
+                    
+                    return tempCanvas;
+                  };
+                  
+                  // Get filter values
+                  const filterValues = {
+                    brightness: filters.brightness,
+                    contrast: filters.contrast,
+                    saturate: filters.saturate,
+                    grayscale: filters.grayscale,
+                    sepia: filters.sepia,
+                    blur: filters.blur,
+                    hueRotate: filters.hueRotate
+                  };
+                  
+                  // Check if any filter is active (not default values)
+                  const isFilterActive = 
+                    filters.brightness !== 100 ||
+                    filters.contrast !== 100 ||
+                    filters.saturate !== 100 ||
+                    filters.grayscale !== 0 ||
+                    filters.sepia !== 0 ||
+                    filters.blur !== 0 ||
+                    filters.hueRotate !== 0;
+                  
+                  console.log("🎨 Filter active:", isFilterActive, filterValues);
 
                   // Background color
                   ctx.fillStyle =
@@ -2473,19 +3178,22 @@ export default function EditPhoto() {
                     bgImg.crossOrigin = "anonymous";
                     await new Promise((resolve, reject) => {
                       bgImg.onload = () => {
+                        // ✅ Apply filter using manual pixel manipulation (works on all browsers)
+                        let sourceCanvas;
+                        if (isFilterActive) {
+                          sourceCanvas = applyFilterToImage(bgImg, filterValues);
+                          console.log("  🎨 Background filter applied via pixel manipulation");
+                        } else {
+                          // No filter needed, use original image directly
+                          sourceCanvas = document.createElement("canvas");
+                          sourceCanvas.width = bgImg.width;
+                          sourceCanvas.height = bgImg.height;
+                          sourceCanvas.getContext("2d").drawImage(bgImg, 0, 0);
+                        }
+                        
                         ctx.save();
-                        // Apply filters
-                        ctx.filter = `
-                          brightness(${filters.brightness}%)
-                          contrast(${filters.contrast}%)
-                          saturate(${filters.saturate}%)
-                          grayscale(${filters.grayscale}%)
-                          sepia(${filters.sepia}%)
-                          blur(${filters.blur}px)
-                          hue-rotate(${filters.hueRotate}deg)
-                        `.trim();
-                        // Draw dengan object-fit: cover
-                        drawImageCover(ctx, bgImg, 0, 0, 1080, 1920);
+                        // Draw dengan object-fit: cover using filtered canvas
+                        drawImageCover(ctx, sourceCanvas, 0, 0, 1080, 1920);
                         ctx.restore();
                         resolve();
                       };
@@ -2538,31 +3246,35 @@ export default function EditPhoto() {
                       const img = new Image();
                       img.crossOrigin = "anonymous";
                       await new Promise((resolve, reject) => {
-                        img.onload = () => {
+                        img.onload = async () => {
                           console.log(`  📸 Image loaded successfully, drawing to canvas...`);
+                          
+                          // ✅ Apply filter using manual pixel manipulation (works on all browsers)
+                          let sourceCanvas;
+                          if (isFilterActive) {
+                            sourceCanvas = applyFilterToImage(img, filterValues);
+                            console.log(`  🎨 Filter applied via pixel manipulation`);
+                          } else {
+                            // No filter needed, draw original image to temp canvas
+                            sourceCanvas = document.createElement("canvas");
+                            sourceCanvas.width = img.width;
+                            sourceCanvas.height = img.height;
+                            sourceCanvas.getContext("2d").drawImage(img, 0, 0);
+                          }
+                          
+                          // Now draw from filtered canvas to main canvas
                           ctx.save();
 
                           // ✅ Reset context for proper transparency handling
                           ctx.globalAlpha = 1;
                           ctx.globalCompositeOperation = "source-over";
 
-                          // Apply filters
-                          ctx.filter = `
-                            brightness(${filters.brightness}%)
-                            contrast(${filters.contrast}%)
-                            saturate(${filters.saturate}%)
-                            grayscale(${filters.grayscale}%)
-                            sepia(${filters.sepia}%)
-                            blur(${filters.blur}px)
-                            hue-rotate(${filters.hueRotate}deg)
-                          `.trim();
-
                           // Clip untuk border radius
                           const x = element.x || 0;
                           const y = element.y || 0;
                           const w = element.width || 100;
                           const h = element.height || 100;
-                          const r = element.data?.borderRadius || 24;
+                          const r = element.data?.borderRadius ?? 0;
 
                           ctx.beginPath();
                           ctx.moveTo(x + r, y);
@@ -2581,10 +3293,10 @@ export default function EditPhoto() {
                           const photoId = element.id || `photo-${sortedElements.indexOf(element)}`;
                           const photoTransform = photoTransforms[photoId] || { scale: 1, x: 0, y: 0 };
                           
-                          // Use cover with transform - apply zoom/pan if any
-                          drawImageCoverWithTransform(ctx, img, x, y, w, h, photoTransform);
+                          // Use cover with transform - use filtered canvas
+                          drawImageCoverWithTransform(ctx, sourceCanvas, x, y, w, h, photoTransform);
                           ctx.restore();
-                          console.log(`  ✅ Image drawn successfully with transform:`, photoTransform);
+                          console.log(`  ✅ Image drawn with filter and transform:`, photoTransform);
                           resolve();
                         };
                         img.onerror = (err) => {
@@ -2931,18 +3643,14 @@ export default function EditPhoto() {
                     document.body.removeChild(link);
                   }
 
-                  // Track download analytics
-                  if (frameConfig?.id) {
-                    await trackFrameDownload(
-                      frameConfig.id,
-                      null,
-                      null,
-                      frameConfig.name || frameConfig.id
-                    );
-                    console.log(
-                      "📊 Tracked download for frame:",
-                      frameConfig.id
-                    );
+                  // Track download analytics - always track even if frameConfig.id is missing
+                  try {
+                    const frameId = frameConfig?.id || "unknown";
+                    const frameName = frameConfig?.name || frameConfig?.id || "Unknown Frame";
+                    await trackFrameDownload(frameId, null, null, frameName);
+                    console.log("📊 Tracked download for frame:", frameId);
+                  } catch (trackError) {
+                    console.warn("⚠️ Failed to track download:", trackError);
                   }
 
                   console.log("✅ Download selesai!");
@@ -2997,8 +3705,8 @@ export default function EditPhoto() {
                 }
 
                 try {
-                  setSaveMessage("🎬 Merender video dengan frame...");
                   setIsSaving(true);
+                  setVideoProcessingMessage("🎬 Merender video dengan frame...");
 
                   // Create off-screen canvas for video rendering (same as photo - full 1080x1920)
                   const canvas = document.createElement("canvas");
@@ -3247,8 +3955,9 @@ export default function EditPhoto() {
                     "   - Video will play in photo slots with frame overlay"
                   );
 
-                  // Setup MediaRecorder
-                  const stream = captureStreamFn.call(canvas, 25); // 25 fps
+                  // Setup MediaRecorder - Use higher FPS for smoother playback
+                  const targetFps = 30; // Increased from 25 to 30 for smoother video
+                  const stream = captureStreamFn.call(canvas, targetFps);
 
                   // Prioritize MP4 and H.264 to avoid slow WebM to MP4 conversion
                   const mimeTypes = [
@@ -3266,14 +3975,16 @@ export default function EditPhoto() {
                     throw new Error("Browser tidak mendukung perekaman video");
                   }
 
-                  // Adaptive bitrate: lower for mobile to reduce file size and processing time
+                  // Adaptive bitrate: higher for better quality, especially for high-res cameras
                   const isMobile = /iPhone|iPad|iPod|Android/i.test(
                     navigator.userAgent
                   );
-                  const videoBitrate = isMobile ? 1500000 : 2500000; // Mobile: 1.5Mbps, Desktop: 2.5Mbps
+                  // Increased bitrate for smoother video: Mobile 3Mbps, Desktop 5Mbps
+                  const videoBitrate = isMobile ? 3000000 : 5000000;
 
                   console.log("🎬 MediaRecorder settings:", {
                     mimeType,
+                    fps: targetFps,
                     bitrate: `${(videoBitrate / 1000000).toFixed(1)}Mbps`,
                     device: isMobile ? "mobile" : "desktop",
                   });
@@ -3595,6 +4306,111 @@ export default function EditPhoto() {
                       return zA - zB;
                     });
 
+                  // ✅ Get filter values for pixel manipulation (Safari compatible)
+                  const videoFilterValues = {
+                    brightness: filters.brightness,
+                    contrast: filters.contrast,
+                    saturate: filters.saturate,
+                    grayscale: filters.grayscale,
+                    sepia: filters.sepia,
+                    blur: filters.blur,
+                    hueRotate: filters.hueRotate
+                  };
+                  
+                  // Check if any filter is active
+                  const isVideoFilterActive = 
+                    filters.brightness !== 100 ||
+                    filters.contrast !== 100 ||
+                    filters.saturate !== 100 ||
+                    filters.grayscale !== 0 ||
+                    filters.sepia !== 0 ||
+                    filters.blur !== 0 ||
+                    filters.hueRotate !== 0;
+                  
+                  console.log("🎬 Video filter active:", isVideoFilterActive, videoFilterValues);
+
+                  // ✅ Helper function to apply filter via pixel manipulation (for video frames)
+                  const applyVideoFilter = (sourceCanvas, filterVals) => {
+                    const tempCtx = sourceCanvas.getContext("2d");
+                    const imageData = tempCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+                    const data = imageData.data;
+                    
+                    const { brightness, contrast, saturate, grayscale, sepia, hueRotate } = filterVals;
+                    
+                    for (let i = 0; i < data.length; i += 4) {
+                      let r = data[i];
+                      let g = data[i + 1];
+                      let b = data[i + 2];
+                      
+                      // Brightness
+                      const brightnessFactor = brightness / 100;
+                      r *= brightnessFactor;
+                      g *= brightnessFactor;
+                      b *= brightnessFactor;
+                      
+                      // Contrast
+                      const contrastFactor = contrast / 100;
+                      const intercept = 128 * (1 - contrastFactor);
+                      r = r * contrastFactor + intercept;
+                      g = g * contrastFactor + intercept;
+                      b = b * contrastFactor + intercept;
+                      
+                      // Grayscale
+                      if (grayscale > 0) {
+                        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+                        const grayFactor = grayscale / 100;
+                        r = r * (1 - grayFactor) + gray * grayFactor;
+                        g = g * (1 - grayFactor) + gray * grayFactor;
+                        b = b * (1 - grayFactor) + gray * grayFactor;
+                      }
+                      
+                      // Sepia
+                      if (sepia > 0) {
+                        const sepiaFactor = sepia / 100;
+                        const sr = 0.393 * r + 0.769 * g + 0.189 * b;
+                        const sg = 0.349 * r + 0.686 * g + 0.168 * b;
+                        const sb = 0.272 * r + 0.534 * g + 0.131 * b;
+                        r = r * (1 - sepiaFactor) + sr * sepiaFactor;
+                        g = g * (1 - sepiaFactor) + sg * sepiaFactor;
+                        b = b * (1 - sepiaFactor) + sb * sepiaFactor;
+                      }
+                      
+                      // Saturate
+                      if (saturate !== 100) {
+                        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+                        const satFactor = saturate / 100;
+                        r = gray + satFactor * (r - gray);
+                        g = gray + satFactor * (g - gray);
+                        b = gray + satFactor * (b - gray);
+                      }
+                      
+                      // Hue Rotate
+                      if (hueRotate !== 0) {
+                        const angle = hueRotate * Math.PI / 180;
+                        const cos = Math.cos(angle);
+                        const sin = Math.sin(angle);
+                        const newR = r * (0.213 + cos * 0.787 - sin * 0.213) + 
+                                     g * (0.715 - cos * 0.715 - sin * 0.715) + 
+                                     b * (0.072 - cos * 0.072 + sin * 0.928);
+                        const newG = r * (0.213 - cos * 0.213 + sin * 0.143) + 
+                                     g * (0.715 + cos * 0.285 + sin * 0.140) + 
+                                     b * (0.072 - cos * 0.072 - sin * 0.283);
+                        const newB = r * (0.213 - cos * 0.213 - sin * 0.787) + 
+                                     g * (0.715 - cos * 0.715 + sin * 0.715) + 
+                                     b * (0.072 + cos * 0.928 + sin * 0.072);
+                        r = newR;
+                        g = newG;
+                        b = newB;
+                      }
+                      
+                      data[i] = Math.max(0, Math.min(255, Math.round(r)));
+                      data[i + 1] = Math.max(0, Math.min(255, Math.round(g)));
+                      data[i + 2] = Math.max(0, Math.min(255, Math.round(b)));
+                    }
+                    
+                    tempCtx.putImageData(imageData, 0, 0);
+                  };
+
                   const activeFilter = [
                     `brightness(${filters.brightness}%)`,
                     `contrast(${filters.contrast}%)`,
@@ -3627,42 +4443,61 @@ export default function EditPhoto() {
                       backgroundImage.naturalWidth > 0
                     ) {
                       try {
-                        if (backgroundPhotoElement) {
-                          withElementTransform(
-                            ctx,
-                            backgroundPhotoElement,
-                            {
-                              width: canvas.width,
-                              height: canvas.height,
-                              x: 0,
-                              y: 0,
-                            },
-                            ({ width, height }) => {
-                              ctx.filter = activeFilter;
-                              applySlotClipPath(
-                                ctx,
-                                backgroundPhotoElement,
-                                width,
-                                height
-                              );
-                              drawMediaCoverInSlot(
-                                ctx,
-                                backgroundImage,
-                                width,
-                                height
-                              );
-                            }
-                          );
+                        // ✅ Apply filter to background using pixel manipulation
+                        if (isVideoFilterActive) {
+                          // Create temp canvas for background
+                          const bgTempCanvas = document.createElement("canvas");
+                          bgTempCanvas.width = canvas.width;
+                          bgTempCanvas.height = canvas.height;
+                          const bgTempCtx = bgTempCanvas.getContext("2d");
+                          
+                          // Draw background to temp canvas
+                          drawMediaCoverInSlot(bgTempCtx, backgroundImage, canvas.width, canvas.height);
+                          
+                          // Apply filter
+                          applyVideoFilter(bgTempCanvas, videoFilterValues);
+                          
+                          // Draw filtered background to main canvas
+                          if (backgroundPhotoElement) {
+                            withElementTransform(
+                              ctx,
+                              backgroundPhotoElement,
+                              {
+                                width: canvas.width,
+                                height: canvas.height,
+                                x: 0,
+                                y: 0,
+                              },
+                              ({ width, height }) => {
+                                applySlotClipPath(ctx, backgroundPhotoElement, width, height);
+                                ctx.drawImage(bgTempCanvas, 0, 0, width, height);
+                              }
+                            );
+                          } else {
+                            ctx.drawImage(bgTempCanvas, 0, 0);
+                          }
                         } else {
-                          ctx.save();
-                          ctx.filter = activeFilter;
-                          drawMediaCoverInSlot(
-                            ctx,
-                            backgroundImage,
-                            canvas.width,
-                            canvas.height
-                          );
-                          ctx.restore();
+                          // No filter - draw directly
+                          if (backgroundPhotoElement) {
+                            withElementTransform(
+                              ctx,
+                              backgroundPhotoElement,
+                              {
+                                width: canvas.width,
+                                height: canvas.height,
+                                x: 0,
+                                y: 0,
+                              },
+                              ({ width, height }) => {
+                                applySlotClipPath(ctx, backgroundPhotoElement, width, height);
+                                drawMediaCoverInSlot(ctx, backgroundImage, width, height);
+                              }
+                            );
+                          } else {
+                            ctx.save();
+                            drawMediaCoverInSlot(ctx, backgroundImage, canvas.width, canvas.height);
+                            ctx.restore();
+                          }
                         }
                       } catch (err) {
                         console.warn("Error drawing background:", err);
@@ -3713,11 +4548,32 @@ export default function EditPhoto() {
                             element,
                             null,
                             ({ width, height }) => {
-                              ctx.filter = activeFilter;
-                              applySlotClipPath(ctx, element, width, height);
-                              ctx.translate(width, 0);
-                              ctx.scale(-1, 1);
-                              drawMediaCoverInSlot(ctx, video, width, height);
+                              // ✅ Draw video to temp canvas first, then apply filter
+                              if (isVideoFilterActive) {
+                                // Create temp canvas for this video frame
+                                const videoTempCanvas = document.createElement("canvas");
+                                videoTempCanvas.width = Math.ceil(width);
+                                videoTempCanvas.height = Math.ceil(height);
+                                const videoTempCtx = videoTempCanvas.getContext("2d");
+                                
+                                // Draw video frame (mirrored) to temp canvas
+                                videoTempCtx.translate(width, 0);
+                                videoTempCtx.scale(-1, 1);
+                                drawMediaCoverInSlot(videoTempCtx, video, width, height);
+                                
+                                // Apply filter via pixel manipulation
+                                applyVideoFilter(videoTempCanvas, videoFilterValues);
+                                
+                                // Draw filtered result to main canvas with clipping
+                                applySlotClipPath(ctx, element, width, height);
+                                ctx.drawImage(videoTempCanvas, 0, 0);
+                              } else {
+                                // No filter - draw directly
+                                applySlotClipPath(ctx, element, width, height);
+                                ctx.translate(width, 0);
+                                ctx.scale(-1, 1);
+                                drawMediaCoverInSlot(ctx, video, width, height);
+                              }
                             }
                           );
                         } catch (err) {
@@ -3893,14 +4749,28 @@ export default function EditPhoto() {
                             // ✅ Reset context properties to ensure transparent PNGs render correctly
                             ctx.globalAlpha = 1;
                             ctx.globalCompositeOperation = "source-over";
-                            ctx.filter = "none";
-                            applySlotClipPath(ctx, element, width, height);
-                            drawMediaCoverInSlot(
-                              ctx,
-                              overlayImage,
-                              width,
-                              height
-                            );
+                            
+                            // ✅ Apply filter using pixel manipulation (Safari compatible)
+                            if (isVideoFilterActive) {
+                              const overlayTempCanvas = document.createElement("canvas");
+                              overlayTempCanvas.width = Math.ceil(width);
+                              overlayTempCanvas.height = Math.ceil(height);
+                              const overlayTempCtx = overlayTempCanvas.getContext("2d");
+                              
+                              // Draw overlay to temp canvas
+                              drawMediaCoverInSlot(overlayTempCtx, overlayImage, width, height);
+                              
+                              // Apply filter
+                              applyVideoFilter(overlayTempCanvas, videoFilterValues);
+                              
+                              // Draw to main canvas with clipping
+                              applySlotClipPath(ctx, element, width, height);
+                              ctx.drawImage(overlayTempCanvas, 0, 0);
+                            } else {
+                              // No filter - draw directly
+                              applySlotClipPath(ctx, element, width, height);
+                              drawMediaCoverInSlot(ctx, overlayImage, width, height);
+                            }
                           }
                         );
                       }
@@ -4016,8 +4886,8 @@ export default function EditPhoto() {
                         video.ended || video.currentTime >= maxDuration
                     );
 
-                    // Log progress every second
-                    if (frameCount % 25 === 0) {
+                    // Log progress every second (30 frames at 30fps)
+                    if (frameCount % 30 === 0) {
                       console.log(
                         `🎬 Recording progress: ${elapsed.toFixed(
                           1
@@ -4058,7 +4928,7 @@ export default function EditPhoto() {
 
                   // Wait for recording to finish
                   console.log("⏳ Waiting for recording to complete...");
-                  setSaveMessage("⏳ Finalizing video...");
+                  setVideoProcessingMessage("⏳ Menyelesaikan rekaman video...");
                   const videoBlob = await recordingPromise;
 
                   // Validate blob
@@ -4089,13 +4959,11 @@ export default function EditPhoto() {
 
                   if (needsConversion) {
                     console.log("⚠️ Video needs conversion:", videoBlob.type);
-                    setSaveMessage(
-                      "🔄 Mengonversi video ke MP4 (ini memakan waktu)..."
-                    );
+                    setVideoProcessingMessage("🔄 Mengonversi video ke format MP4...");
 
                     try {
                       const mp4Blob = await convertBlobToMp4(videoBlob, {
-                        frameRate: 25,
+                        frameRate: 30, // Match recording FPS
                         durationSeconds: maxDuration,
                         outputPrefix: "fremio-video",
                       });
@@ -4145,6 +5013,7 @@ export default function EditPhoto() {
 
                   // Download video
                   console.log("💾 Downloading video...");
+                  setVideoProcessingMessage("💾 Menyimpan video...");
                   const timestamp = new Date()
                     .toISOString()
                     .replace(/[:.]/g, "-");
@@ -4163,20 +5032,19 @@ export default function EditPhoto() {
                     URL.revokeObjectURL(downloadUrl);
                   }, 1000);
 
-                  // Track download analytics
-                  if (frameConfig?.id) {
-                    await trackFrameDownload(
-                      frameConfig.id,
-                      null,
-                      null,
-                      frameConfig.name || frameConfig.id
-                    );
-                    console.log(
-                      "📊 Tracked video download for frame:",
-                      frameConfig.id
-                    );
+                  // Track download analytics - always track even if frameConfig.id is missing
+                  try {
+                    const frameId = frameConfig?.id || "unknown";
+                    const frameName = frameConfig?.name || frameConfig?.id || "Unknown Frame";
+                    await trackFrameDownload(frameId, null, null, frameName);
+                    console.log("📊 Tracked video download for frame:", frameId);
+                  } catch (trackError) {
+                    console.warn("⚠️ Failed to track video download:", trackError);
                   }
 
+                  // Clear loading screen
+                  setVideoProcessingMessage("");
+                  
                   setSaveMessage(
                     downloadExtension === "mp4"
                       ? "✅ Video MP4 berhasil didownload!"
@@ -4191,6 +5059,7 @@ export default function EditPhoto() {
                   });
                 } catch (error) {
                   console.error("❌ Error rendering video:", error);
+                  setVideoProcessingMessage(""); // Clear loading screen on error
                   showToast({
                     type: "error",
                     title: "Render Video Gagal",
@@ -4204,6 +5073,7 @@ export default function EditPhoto() {
                   setSaveMessage("");
                 } finally {
                   setIsSaving(false);
+                  setVideoProcessingMessage(""); // Ensure loading screen is cleared
                 }
               }}
               disabled={(() => {

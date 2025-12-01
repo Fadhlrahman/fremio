@@ -3,41 +3,26 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
-// Check if Firebase is properly configured
-export const isFirebaseConfigured = !!(
-  import.meta.env.VITE_FIREBASE_API_KEY && 
-  import.meta.env.VITE_FIREBASE_PROJECT_ID
-);
+// Firebase configuration - hardcoded for reliability
+const firebaseConfig = {
+  apiKey: "AIzaSyDKFFXhB6z3DDTCEdwJV1FZcQ97pa72ogI",
+  authDomain: "fremio-64884.firebaseapp.com",
+  projectId: "fremio-64884",
+  storageBucket: "fremio-64884.firebasestorage.app",
+  messagingSenderId: "726158761244",
+  appId: "1:726158761244:web:c884d6c0696712cb2f6ed9"
+};
 
-// Only initialize Firebase if credentials are provided
-let app = null;
-let auth = null;
-let db = null;
-let storage = null;
+// Always configured since we have hardcoded values
+export const isFirebaseConfigured = true;
 
-if (isFirebaseConfigured) {
-  // Firebase configuration from environment variables
-  const firebaseConfig = {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId: import.meta.env.VITE_FIREBASE_APP_ID
-  };
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const storage = getStorage(app);
 
-  // Initialize Firebase
-  app = initializeApp(firebaseConfig);
-  auth = getAuth(app);
-  db = getFirestore(app);
-  storage = getStorage(app);
-  
-  console.log('✅ Firebase initialized successfully');
-} else {
-  console.warn('⚠️ Firebase not configured - Running in LocalStorage mode');
-  console.warn('📖 To enable Firebase features, add credentials to .env file');
-  console.warn('📖 See QUICK_START_GUIDE.md for setup instructions');
-}
+console.log('✅ Firebase initialized successfully');
 
 export { auth, db, storage };
 export default app;

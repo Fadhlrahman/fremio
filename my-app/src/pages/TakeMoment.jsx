@@ -18,6 +18,7 @@ import {
   cleanupAllVideoBlobs,
   getMemoryUsage,
 } from "../utils/videoMemoryManager.js";
+import { trackFunnelEvent } from "../services/analyticsService";
 import flipIcon from "../assets/flip.png";
 import fremioLogo from "../assets/logo.svg";
 import { useToast } from "../contexts/ToastContext";
@@ -760,8 +761,45 @@ export default function TakeMoment() {
     pendingStorageTimeoutRef.current = null;
   }, []);
 
+  // Helper to clear large cache items to free up localStorage space
+  const clearLargeCacheItems = useCallback(() => {
+    try {
+      const keys = Object.keys(localStorage);
+      let freedSpace = 0;
+      
+      // Remove large frame slots cache (keep only essential ones)
+      keys.forEach(key => {
+        if (key.startsWith('fremio_frame_slots_')) {
+          const value = localStorage.getItem(key);
+          if (value && value.length > 100000) { // > 100KB
+            localStorage.removeItem(key);
+            freedSpace += value.length;
+            console.log(`🧹 Removed large cache: ${key} (${Math.round(value.length/1024)}KB)`);
+          }
+        }
+      });
+      
+      // Also remove old frame cache versions
+      ['fremio_frames_cache_v1', 'fremio_frames_cache_v2', 'fremio_frames_cache_time_v1', 'fremio_frames_cache_time_v2'].forEach(key => {
+        if (localStorage.getItem(key)) {
+          localStorage.removeItem(key);
+          console.log(`🧹 Removed old cache: ${key}`);
+        }
+      });
+      
+      if (freedSpace > 0) {
+        console.log(`✅ Freed ${Math.round(freedSpace/1024)}KB from localStorage`);
+      }
+    } catch (e) {
+      console.warn('Failed to clear cache:', e);
+    }
+  }, []);
+
   const runStorageWrite = useCallback(() => {
     console.log("💾 [runStorageWrite] Starting...");
+    
+    // Clear large cache items first to make room
+    clearLargeCacheItems();
     
     if (!safeStorage.isAvailable()) {
       console.warn("⚠️ [runStorageWrite] safeStorage not available!");
@@ -857,7 +895,7 @@ export default function TakeMoment() {
     } finally {
       latestStoragePayloadRef.current = { photos: null, videos: null };
     }
-  }, [sanitizeVideosForStorage]);
+  }, [sanitizeVideosForStorage, clearLargeCacheItems]);
 
   const scheduleStorageWrite = useCallback(
     (photos, videos, { immediate = false } = {}) => {
@@ -981,6 +1019,42 @@ export default function TakeMoment() {
     // Clear stale cache (older than 24 hours)
     clearStaleFrameCache();
 
+    // 🎯 PRIORITY 1: Check if frame is already in memory (just set from Frames page)
+    const memoryConfig = frameProvider.getCurrentConfig();
+    const memoryFrameName = frameProvider.getCurrentFrameName();
+    
+    if (memoryConfig?.id || memoryFrameName) {
+      console.log("✅ Frame already in memory from Frames page:", memoryConfig?.id || memoryFrameName);
+      // Frame is fresh from Frames page, use it
+      if (memoryConfig?.maxCaptures) {
+        setMaxCaptures(memoryConfig.maxCaptures);
+      }
+      updateSlotAspectRatio(memoryConfig);
+      persistLayerPlan(memoryConfig);
+      
+      // 🆕 CRITICAL: Ensure localStorage is in sync with memory
+      // This prevents next page load from thinking data is stale
+      const currentTimestamp = safeStorage.getItem("frameConfigTimestamp");
+      if (!currentTimestamp) {
+        console.log("📝 Setting timestamp for memory frame to prevent stale detection");
+        safeStorage.setItem("frameConfigTimestamp", String(Date.now()));
+      }
+      
+      // Also ensure frameConfig is persisted if missing
+      const storedConfig = safeStorage.getJSON("frameConfig");
+      if (!storedConfig?.id && memoryConfig?.id) {
+        console.log("📝 Persisting memory frame to localStorage:", memoryConfig.id);
+        safeStorage.setJSON("frameConfig", {
+          ...memoryConfig,
+          __timestamp: Date.now(),
+          __savedFrom: "TakeMoment_memorySync"
+        });
+        safeStorage.setItem("selectedFrame", memoryConfig.id);
+      }
+      
+      return; // Skip all the localStorage clearing logic
+    }
+
     // 🆕 NEW SESSION LOGIC: Clear old frame data to prevent carryover
     // Only keep frameConfig if it has a fresh timestamp (within last 5 minutes)
     const frameConfigTimestamp = safeStorage.getItem("frameConfigTimestamp");
@@ -1005,10 +1079,85 @@ export default function TakeMoment() {
         // Don't clear activeDraftId - user might want to resume draft
       }
     } else {
-      // No timestamp means very old data or fresh start - clear to be safe
-      console.log("🧹 No timestamp found, clearing old frame data");
-      safeStorage.removeItem("frameConfig");
-      safeStorage.removeItem("selectedFrame");
+      // Check if there's a stored config with valid frame before clearing
+      const storedConfig = safeStorage.getJSON("frameConfig");
+      if (!storedConfig?.id) {
+        // No valid config, safe to clear
+        console.log("🧹 No valid frame data found, clearing");
+        safeStorage.removeItem("frameConfig");
+        safeStorage.removeItem("selectedFrame");
+      } else {
+        console.log("📦 Found existing frameConfig, keeping it:", storedConfig.id);
+      }
+    }
+
+    // CRITICAL: Handle pending frame fetch (from Frames page when slots weren't cached)
+    const pendingFrameFetch = safeStorage.getItem("pendingFrameFetch");
+    if (pendingFrameFetch === "true") {
+      safeStorage.removeItem("pendingFrameFetch");
+      const selectedFrameId = safeStorage.getItem("selectedFrame");
+      
+      if (selectedFrameId) {
+        console.log("🔄 Pending frame fetch detected, loading slots for:", selectedFrameId);
+        
+        // Default slots for 4-photo frame (standard layout)
+        // Values in decimal (0-1) representing percentage of frame dimensions
+        const DEFAULT_SLOTS = [
+          { id: 1, left: 0.05, top: 0.05, width: 0.42, height: 0.20, zIndex: 1, photoIndex: 0, aspectRatio: '4:5' },
+          { id: 2, left: 0.53, top: 0.05, width: 0.42, height: 0.20, zIndex: 1, photoIndex: 1, aspectRatio: '4:5' },
+          { id: 3, left: 0.05, top: 0.28, width: 0.42, height: 0.20, zIndex: 1, photoIndex: 2, aspectRatio: '4:5' },
+          { id: 4, left: 0.53, top: 0.28, width: 0.42, height: 0.20, zIndex: 1, photoIndex: 3, aspectRatio: '4:5' }
+        ];
+        
+        (async () => {
+          try {
+            const { getCustomFrameById } = await import("../services/customFrameService.js");
+            
+            // Try to get frame - single attempt with short timeout
+            let fullFrame = await getCustomFrameById(selectedFrameId);
+            
+            // If no slots, use default slots
+            if (!fullFrame?.slots || fullFrame.slots.length === 0) {
+              console.log("⚠️ No slots found, using default slots");
+              const storedConfig = safeStorage.getJSON("frameConfig");
+              fullFrame = {
+                ...storedConfig,
+                ...fullFrame,
+                slots: DEFAULT_SLOTS,
+                maxCaptures: 4
+              };
+            }
+            
+            console.log("✅ Frame ready with slots:", fullFrame.slots.length);
+            
+            // Set frame via frameProvider
+            await frameProvider.setCustomFrame(fullFrame);
+            
+            const frameConfig = frameProvider.getCurrentConfig();
+            if (frameConfig?.maxCaptures) {
+              setMaxCaptures(frameConfig.maxCaptures);
+            } else {
+              setMaxCaptures(fullFrame.maxCaptures || fullFrame.max_captures || 4);
+            }
+            updateSlotAspectRatio(frameConfig || fullFrame);
+            persistLayerPlan(frameConfig || fullFrame);
+          } catch (error) {
+            console.error("❌ Error fetching pending frame:", error);
+            // Use stored config with default slots as fallback
+            const storedConfig = safeStorage.getJSON("frameConfig");
+            if (storedConfig) {
+              const fallbackFrame = { ...storedConfig, slots: DEFAULT_SLOTS, maxCaptures: 4 };
+              await frameProvider.setCustomFrame(fallbackFrame);
+              setMaxCaptures(4);
+              console.log("✅ Using fallback frame with default slots");
+            } else {
+              alert("Gagal memuat data frame. Silakan pilih frame lagi.");
+              window.location.href = "/frames";
+            }
+          }
+        })();
+        return;
+      }
     }
 
     // CRITICAL: Always check localStorage first for custom frames (from Create page)
@@ -1916,23 +2065,6 @@ export default function TakeMoment() {
               {isVideoProcessing ? "⏳ Sedang menyiapkan..." : "✓ Pilih"}
             </button>
             <button
-              onClick={handleSaveAsDraft}
-              disabled={isVideoProcessing}
-              style={{
-                flex: "1 1 120px",
-                padding: "0.85rem 1.5rem",
-                borderRadius: "999px",
-                border: "none",
-                background: isVideoProcessing ? "#6c757d" : "#E8A889",
-                color: "#fff",
-                fontWeight: 600,
-                cursor: isVideoProcessing ? "not-allowed" : "pointer",
-                boxShadow: "0 16px 32px rgba(232,168,137,0.35)",
-              }}
-            >
-              💾 Draft
-            </button>
-            <button
               onClick={handleRetakePhoto}
               style={{
                 flex: "1 1 120px",
@@ -1965,9 +2097,10 @@ export default function TakeMoment() {
       }
 
       // First, enumerate devices to see what's available
+      let videoDevices = [];
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoDevices = devices.filter(
+        videoDevices = devices.filter(
           (device) => device.kind === "videoinput"
         );
         console.log("📹 Available cameras:", videoDevices.length, videoDevices);
@@ -1980,32 +2113,55 @@ export default function TakeMoment() {
       }
 
       let stream;
+      const hasMultipleCameras = videoDevices.length > 1;
 
-      // Strategy 1: Just ask for video - simplest approach
-      try {
-        console.log("🎥 Trying basic video request");
-        const constraints = { audio: false, video: true };
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-        console.log("✅ Camera started with basic constraints");
-      } catch (err1) {
-        console.error("❌ Basic video failed:", err1.name, err1.message);
-
-        // Strategy 2: Try with specific resolution
+      // Strategy 1: Try with facingMode constraint (works on mobile)
+      if (hasMultipleCameras) {
         try {
-          console.log("🎥 Trying with resolution constraints");
+          console.log(`🎥 Trying with facingMode: ${desiredFacingMode}`);
           const constraints = {
             audio: false,
-            video: { width: 640, height: 480 },
+            video: {
+              facingMode: { ideal: desiredFacingMode },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
           };
           stream = await navigator.mediaDevices.getUserMedia(constraints);
-          console.log("✅ Camera started with resolution");
+          console.log(`✅ Camera started with facingMode: ${desiredFacingMode}`);
+        } catch (err1) {
+          console.warn("⚠️ FacingMode constraint failed:", err1.name, err1.message);
+          stream = null;
+        }
+      }
+
+      // Strategy 2: Fallback - basic video request
+      if (!stream) {
+        try {
+          console.log("🎥 Trying basic video request");
+          const constraints = { audio: false, video: true };
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          console.log("✅ Camera started with basic constraints");
         } catch (err2) {
-          console.error(
-            "❌ Resolution constraints failed:",
-            err2.name,
-            err2.message
-          );
-          throw err2;
+          console.error("❌ Basic video failed:", err2.name, err2.message);
+
+          // Strategy 3: Try with specific resolution
+          try {
+            console.log("🎥 Trying with resolution constraints");
+            const constraints = {
+              audio: false,
+              video: { width: 640, height: 480 },
+            };
+            stream = await navigator.mediaDevices.getUserMedia(constraints);
+            console.log("✅ Camera started with resolution");
+          } catch (err3) {
+            console.error(
+              "❌ Resolution constraints failed:",
+              err3.name,
+              err3.message
+            );
+            throw err3;
+          }
         }
       }
 
@@ -2015,6 +2171,9 @@ export default function TakeMoment() {
 
       cameraStreamRef.current = stream;
       setCameraActive(true);
+      
+      // Note: Mirror state is automatically computed from isUsingBackCamera via useMemo
+      // No need to manually set it - shouldMirrorVideo = !isUsingBackCamera
 
       setTimeout(() => {
         if (videoRef.current) {
@@ -2172,6 +2331,7 @@ export default function TakeMoment() {
       capturedVideos,
       cleanupCapturedPhotoPreview,
       maxCaptures,
+      photosNeeded,
       scheduleStorageWrite,
     ]
   );
@@ -2659,6 +2819,10 @@ export default function TakeMoment() {
 
     replaceCurrentPhoto(payload);
     setShowConfirmation(true);
+    
+    // Track funnel event for photo taken
+    trackFunnelEvent("photo_taken");
+    
     return payload;
   }, [replaceCurrentPhoto, shouldMirrorVideo, blurMode, filterMode]);
 
@@ -3990,10 +4154,33 @@ export default function TakeMoment() {
     console.log("  - capturedPhotosRef.current length:", capturedPhotosRef.current?.length || 0);
     console.log("  - capturedPhotos state length:", capturedPhotos?.length || 0);
     
+    // Always save to window object as backup (survives navigation)
+    try {
+      let backupPhotos = (capturedPhotosRef.current || []).map(p => 
+        typeof p === 'string' ? p : p?.dataUrl || null
+      ).filter(Boolean);
+      
+      if (backupPhotos.length === 0 && capturedPhotos?.length > 0) {
+        backupPhotos = capturedPhotos.map(p => 
+          typeof p === 'string' ? p : p?.dataUrl || null
+        ).filter(Boolean);
+      }
+      
+      if (backupPhotos.length > 0) {
+        window.__fremio_photos = backupPhotos;
+        console.log("💾 Saved photos to window.__fremio_photos:", backupPhotos.length);
+      }
+    } catch (e) {
+      console.warn("Failed to backup photos to window:", e);
+    }
+    
     if (!finalPhotosCheck || finalPhotosCheck.length === 0) {
       console.error("❌ CRITICAL: Photos not saved to localStorage!");
       console.error("  - capturedPhotosRef:", capturedPhotosRef.current);
       console.error("  - Attempting emergency save...");
+      
+      // Clear large cache items first
+      clearLargeCacheItems();
       
       // Emergency direct save - try multiple sources
       try {
@@ -4018,6 +4205,7 @@ export default function TakeMoment() {
         }
       } catch (err) {
         console.error("❌ Emergency save failed:", err);
+        // Photos should still be in window.__fremio_photos as backup
       }
     }
 
@@ -4027,6 +4215,7 @@ export default function TakeMoment() {
     capturedPhotosRef,
     capturedVideosRef,
     cleanUpStorage,
+    clearLargeCacheItems,
     flushStorageWrite,
     getFrameCompressionProfile,
     maxCaptures,
@@ -4529,8 +4718,42 @@ export default function TakeMoment() {
               gridColumn: "2",
               justifySelf: "center",
               minHeight: isMobileVariant ? "48px" : 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
             }}
-          />
+          >
+            {/* Duplicate Mode Toggle - show before camera is activated */}
+            {maxCaptures > 1 && (
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.4rem",
+                  cursor: capturedPhotos.length > 0 ? "not-allowed" : "pointer",
+                  fontSize: isMobileVariant ? "0.88rem" : "0.95rem",
+                  fontWeight: isMobileVariant ? 600 : 500,
+                  color: isDuplicateMode 
+                    ? "#8B5CF6" 
+                    : (isMobileVariant ? "#1E293B" : "#475569"),
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={isDuplicateMode}
+                  onChange={(e) => setIsDuplicateMode(e.target.checked)}
+                  disabled={capturedPhotos.length > 0}
+                  style={{
+                    width: "18px",
+                    height: "18px",
+                    cursor: capturedPhotos.length > 0 ? "not-allowed" : "pointer",
+                    accentColor: "#8B5CF6",
+                  }}
+                />
+                <span>🔁 Duplikat ({photosNeeded} foto)</span>
+              </label>
+            )}
+          </div>
         )}
 
         <button
@@ -4679,29 +4902,48 @@ export default function TakeMoment() {
 
               {renderCountdownOverlay()}
 
+              {/* Flip Camera Button - Mobile Only */}
               {isMobileVariant && cameraActive && !isSwitchingCamera && (
                 <button
                   onClick={handleSwitchCamera}
                   style={{
                     position: "absolute",
-                    top: "14px",
-                    right: "14px",
-                    width: "44px",
-                    height: "44px",
-                    borderRadius: "22px",
+                    top: "12px",
+                    right: "12px",
+                    minWidth: "48px",
+                    height: "48px",
+                    borderRadius: "24px",
                     border: "none",
-                    background: "rgba(15,23,42,0.4)",
+                    background: "rgba(0,0,0,0.5)",
+                    backdropFilter: "blur(8px)",
+                    WebkitBackdropFilter: "blur(8px)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
+                    gap: "6px",
+                    padding: "0 14px",
                     cursor: "pointer",
+                    zIndex: 100,
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
                   }}
                 >
                   <img
                     src={flipIcon}
                     alt="Flip camera"
-                    style={{ width: "20px", height: "20px" }}
+                    style={{ 
+                      width: "22px", 
+                      height: "22px",
+                      filter: "brightness(0) invert(1)",
+                    }}
                   />
+                  <span style={{
+                    color: "#fff",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    whiteSpace: "nowrap",
+                  }}>
+                    {isUsingBackCamera ? "Depan" : "Belakang"}
+                  </span>
                 </button>
               )}
             </>
@@ -5223,11 +5465,7 @@ export default function TakeMoment() {
                 <span>Kembali</span>
               </button>
               <h1 style={headingStyles}>
-                <span style={headingLineOneStyle}>Pilih momen berhargamu</span>
-                <span style={headingLineTwoStyle}>
-                  bersama
-                  <img src={fremioLogo} alt="Fremio" style={headingLogoStyle} />
-                </span>
+                Pilih momen berhargamu bersama fremio
               </h1>
             </div>
 
@@ -5317,11 +5555,7 @@ export default function TakeMoment() {
               marginTop: "0.1rem",
             }}
           >
-            <span style={headingLineOneStyle}>Pilih momen berhargamu</span>
-            <span style={headingLineTwoStyle}>
-              bersama
-              <img src={fremioLogo} alt="Fremio" style={headingLogoStyle} />
-            </span>
+            Pilih momen berhargamu bersama fremio
           </h1>
         </div>
 

@@ -18,6 +18,14 @@ service cloud.firestore {
       allow delete: if false;
     }
     
+    // All users collection (for admin analytics)
+    match /fremio_all_users/{userId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false;
+    }
+    
     // Contact messages
     match /contactMessages/{messageId} {
       allow create: if true;
@@ -32,6 +40,30 @@ service cloud.firestore {
       allow create: if true;
       allow update: if true;
       allow delete: if true;
+    }
+    
+    // Analytics - Sessions (track unique users)
+    match /analytics_sessions/{sessionId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;  // Allow admin to reset
+    }
+    
+    // Analytics - Events (funnel tracking)
+    match /analytics_events/{eventId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if false;
+      allow delete: if true;  // Allow admin to reset
+    }
+    
+    // Analytics - Daily aggregates
+    match /analytics_daily/{dateId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;  // Allow admin to reset
     }
   }
 }

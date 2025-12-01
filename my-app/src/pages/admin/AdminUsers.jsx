@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
-import { isFirebaseConfigured } from "../../config/firebase";
+import { getAllUsers } from "../../services/vpsApiService";
 import "../../styles/admin.css";
 import {
   Users,
@@ -19,6 +19,10 @@ import {
   Trash2,
   Edit,
   ArrowLeft,
+  RefreshCw,
+  Copy,
+  Download,
+  Plus,
 } from "lucide-react";
 
 export default function AdminUsers() {
@@ -27,6 +31,8 @@ export default function AdminUsers() {
 
   const [users, setUsers] = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
+  const [registeredEmails, setRegisteredEmails] = useState([]);
+  const [activeTab, setActiveTab] = useState("emails"); // 'emails' or 'users'
   const [stats, setStats] = useState({
     total: 0,
     kreators: 0,
@@ -40,12 +46,85 @@ export default function AdminUsers() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedUser, setSelectedUser] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserName, setNewUserName] = useState("");
+  const [addingUser, setAddingUser] = useState(false);
 
-  // Fetch users (only if Firebase configured)
+  // Fetch users and registered emails
   useEffect(() => {
     fetchUsers();
+    fetchRegisteredEmails();
   }, []);
 
+  // Fetch registered emails from VPS API
+  const fetchRegisteredEmails = async () => {
+    try {
+      console.log("🔄 Fetching registered users from VPS...");
+      
+      const users = await getAllUsers();
+      
+      const emails = users.map(user => ({
+        id: user.id,
+        email: user.email,
+        name: user.displayName || 'Unknown',
+        role: 'user',
+        status: 'active',
+        createdAt: user.createdAt,
+        lastLoginAt: user.lastLoginAt,
+        loginCount: user.loginCount,
+      }));
+      
+      console.log("✅ Registered emails fetched:", emails.length);
+      setRegisteredEmails(emails);
+    } catch (error) {
+      console.error("❌ Error fetching registered emails:", error);
+    }
+  };
+
+  // Add user manually (simplified - just adds to localStorage for now)
+  const handleAddUser = async () => {
+    if (!newUserEmail.trim()) {
+      alert("Please enter an email address");
+      return;
+    }
+
+    setAddingUser(true);
+    try {
+      const emailLower = newUserEmail.trim().toLowerCase();
+      
+      // For now, just add to localStorage (VPS doesn't support manual user creation without Firebase)
+      const newUser = {
+        id: `manual_${Date.now()}`,
+        email: emailLower,
+        name: newUserName.trim() || newUserEmail.split('@')[0],
+        displayName: newUserName.trim() || newUserEmail.split('@')[0],
+        role: "user",
+        status: "active",
+        createdAt: new Date().toISOString(),
+      };
+
+      // Add to local storage list
+      const storedUsers = JSON.parse(localStorage.getItem("fremio_users") || "[]");
+      storedUsers.push(newUser);
+      localStorage.setItem("fremio_users", JSON.stringify(storedUsers));
+
+      console.log("✅ User added manually:", newUserEmail);
+      alert(`User ${newUserEmail} added successfully!`);
+      
+      // Reset and refresh
+      setNewUserEmail("");
+      setNewUserName("");
+      setShowAddUserModal(false);
+      fetchRegisteredEmails();
+      fetchUsers();
+    } catch (error) {
+      console.error("❌ Error adding user:", error);
+      alert("Failed to add user: " + error.message);
+    }
+    setAddingUser(false);
+  };
   // Filter users based on search and filters
   useEffect(() => {
     let result = [...users];
@@ -331,6 +410,12 @@ export default function AdminUsers() {
           }}
         >
           <StatCard
+            title="Registered Emails"
+            value={registeredEmails.length}
+            icon={<Mail size={20} />}
+            color="#8b5cf6"
+          />
+          <StatCard
             title="Total Users"
             value={stats.total}
             icon={<Users size={20} />}
@@ -341,12 +426,6 @@ export default function AdminUsers() {
             value={stats.kreators}
             icon={<Crown size={20} />}
             color="#f59e0b"
-          />
-          <StatCard
-            title="Regular Users"
-            value={stats.regular}
-            icon={<User size={20} />}
-            color="#10b981"
           />
           <StatCard
             title="Active"
@@ -362,7 +441,266 @@ export default function AdminUsers() {
           />
         </div>
 
-        {/* Search and Filters */}
+        {/* Tab Navigation */}
+        <div style={{ 
+          display: "flex", 
+          gap: "8px", 
+          marginBottom: "24px",
+          borderBottom: "2px solid #e5e7eb",
+          paddingBottom: "0"
+        }}>
+          <button
+            onClick={() => setActiveTab("emails")}
+            style={{
+              padding: "12px 24px",
+              fontSize: "14px",
+              fontWeight: "600",
+              background: activeTab === "emails" ? "#8b5cf6" : "transparent",
+              color: activeTab === "emails" ? "white" : "#6b7280",
+              border: "none",
+              borderRadius: "8px 8px 0 0",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              marginBottom: "-2px",
+              borderBottom: activeTab === "emails" ? "2px solid #8b5cf6" : "2px solid transparent",
+            }}
+          >
+            <Mail size={16} />
+            Registered Emails ({registeredEmails.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("users")}
+            style={{
+              padding: "12px 24px",
+              fontSize: "14px",
+              fontWeight: "600",
+              background: activeTab === "users" ? "#3b82f6" : "transparent",
+              color: activeTab === "users" ? "white" : "#6b7280",
+              border: "none",
+              borderRadius: "8px 8px 0 0",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              marginBottom: "-2px",
+              borderBottom: activeTab === "users" ? "2px solid #3b82f6" : "2px solid transparent",
+            }}
+          >
+            <Users size={16} />
+            User Management ({stats.total})
+          </button>
+        </div>
+
+        {/* Registered Emails Tab */}
+        {activeTab === "emails" && (
+          <div className="admin-card" style={{ marginBottom: "24px" }}>
+            <div className="admin-card-header" style={{ 
+              display: "flex", 
+              justifyContent: "space-between", 
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "12px"
+            }}>
+              <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "8px" }}>
+                <Mail size={20} color="#8b5cf6" />
+                Registered Email List
+              </h3>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  onClick={() => {
+                    fetchRegisteredEmails();
+                    fetchUsers();
+                  }}
+                  style={{
+                    padding: "8px 16px",
+                    fontSize: "13px",
+                    fontWeight: "500",
+                    background: "#f3f4f6",
+                    color: "#374151",
+                    border: "none",
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <RefreshCw size={14} />
+                  Refresh
+                </button>
+                <button
+                  onClick={() => {
+                    const emailList = registeredEmails.map(u => u.email).join('\n');
+                    navigator.clipboard.writeText(emailList);
+                    setCopySuccess(true);
+                    setTimeout(() => setCopySuccess(false), 2000);
+                  }}
+                  style={{
+                    padding: "8px 16px",
+                    fontSize: "13px",
+                    fontWeight: "500",
+                    background: copySuccess ? "#10b981" : "#8b5cf6",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <Copy size={14} />
+                  {copySuccess ? "Copied!" : "Copy All Emails"}
+                </button>
+                <button
+                  onClick={() => {
+                    const csvContent = "Email,Name,Role,Status,Registered At\n" + 
+                      registeredEmails.map(u => 
+                        `${u.email},${u.name},${u.role},${u.status},${u.createdAt || 'N/A'}`
+                      ).join('\n');
+                    const blob = new Blob([csvContent], { type: 'text/csv' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `registered-emails-${new Date().toISOString().split('T')[0]}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  style={{
+                    padding: "8px 16px",
+                    fontSize: "13px",
+                    fontWeight: "500",
+                    background: "#059669",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <Download size={14} />
+                  Export CSV
+                </button>
+                <button
+                  onClick={() => setShowAddUserModal(true)}
+                  style={{
+                    padding: "8px 16px",
+                    fontSize: "13px",
+                    fontWeight: "500",
+                    background: "#3b82f6",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <Plus size={14} />
+                  Add User
+                </button>
+              </div>
+            </div>
+            <div className="admin-card-body">
+              {registeredEmails.length === 0 ? (
+                <div style={{ 
+                  textAlign: "center", 
+                  padding: "48px 20px",
+                  color: "#6b7280"
+                }}>
+                  <Mail size={48} style={{ marginBottom: "16px", opacity: 0.5 }} />
+                  <h4 style={{ margin: "0 0 8px", color: "#374151" }}>No Registered Emails Yet</h4>
+                  <p style={{ margin: 0, fontSize: "14px" }}>
+                    Users who register or login will appear here.
+                  </p>
+                </div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ 
+                    width: "100%", 
+                    borderCollapse: "collapse",
+                    fontSize: "14px"
+                  }}>
+                    <thead>
+                      <tr style={{ borderBottom: "2px solid #e5e7eb" }}>
+                        <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: "600", color: "#374151" }}>#</th>
+                        <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: "600", color: "#374151" }}>Email</th>
+                        <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: "600", color: "#374151" }}>Name</th>
+                        <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: "600", color: "#374151" }}>Role</th>
+                        <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: "600", color: "#374151" }}>Status</th>
+                        <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: "600", color: "#374151" }}>Registered</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {registeredEmails.map((user, index) => (
+                        <tr 
+                          key={user.id} 
+                          style={{ 
+                            borderBottom: "1px solid #f3f4f6",
+                            transition: "background 0.2s"
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = "#f9fafb"}
+                          onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                        >
+                          <td style={{ padding: "12px 16px", color: "#6b7280" }}>{index + 1}</td>
+                          <td style={{ padding: "12px 16px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <Mail size={14} color="#8b5cf6" />
+                              <span style={{ fontWeight: "500" }}>{user.email}</span>
+                            </div>
+                          </td>
+                          <td style={{ padding: "12px 16px", color: "#374151" }}>{user.name}</td>
+                          <td style={{ padding: "12px 16px" }}>
+                            <span style={{
+                              padding: "4px 10px",
+                              borderRadius: "12px",
+                              fontSize: "12px",
+                              fontWeight: "500",
+                              background: user.role === "admin" ? "#fef2f2" : user.role === "kreator" ? "#fef3c7" : "#f3f4f6",
+                              color: user.role === "admin" ? "#dc2626" : user.role === "kreator" ? "#d97706" : "#6b7280",
+                            }}>
+                              {user.role}
+                            </span>
+                          </td>
+                          <td style={{ padding: "12px 16px" }}>
+                            <span style={{
+                              padding: "4px 10px",
+                              borderRadius: "12px",
+                              fontSize: "12px",
+                              fontWeight: "500",
+                              background: user.status === "active" ? "#d1fae5" : "#fee2e2",
+                              color: user.status === "active" ? "#059669" : "#dc2626",
+                            }}>
+                              {user.status}
+                            </span>
+                          </td>
+                          <td style={{ padding: "12px 16px", color: "#6b7280", fontSize: "13px" }}>
+                            {user.createdAt ? new Date(user.createdAt).toLocaleDateString('id-ID', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            }) : 'N/A'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Users Tab - Search and Filters */}
+        {activeTab === "users" && (
+          <>
         <div className="admin-card" style={{ marginBottom: "24px" }}>
           <div className="admin-card-body">
             <div
@@ -534,6 +872,118 @@ export default function AdminUsers() {
                 onDelete={handleDeleteUser}
               />
             ))}
+          </div>
+        )}
+          </>
+        )}
+
+        {/* Add User Modal */}
+        {showAddUserModal && (
+          <div
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: "rgba(0,0,0,0.5)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 10000,
+            }}
+            onClick={() => setShowAddUserModal(false)}
+          >
+            <div
+              style={{
+                background: "white",
+                borderRadius: "16px",
+                padding: "24px",
+                width: "90%",
+                maxWidth: "400px",
+                boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 style={{ margin: "0 0 20px", fontSize: "18px", fontWeight: "600" }}>
+                Add Registered User
+              </h3>
+              <p style={{ margin: "0 0 20px", fontSize: "14px", color: "#6b7280" }}>
+                Manually add an email to the registered users list.
+              </p>
+              
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{ display: "block", marginBottom: "6px", fontSize: "14px", fontWeight: "500" }}>
+                  Email Address *
+                </label>
+                <input
+                  type="email"
+                  value={newUserEmail}
+                  onChange={(e) => setNewUserEmail(e.target.value)}
+                  placeholder="user@example.com"
+                  style={{
+                    width: "100%",
+                    padding: "10px 14px",
+                    border: "1px solid #d1d5db",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                  }}
+                />
+              </div>
+              
+              <div style={{ marginBottom: "24px" }}>
+                <label style={{ display: "block", marginBottom: "6px", fontSize: "14px", fontWeight: "500" }}>
+                  Name (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={newUserName}
+                  onChange={(e) => setNewUserName(e.target.value)}
+                  placeholder="User Name"
+                  style={{
+                    width: "100%",
+                    padding: "10px 14px",
+                    border: "1px solid #d1d5db",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                  }}
+                />
+              </div>
+              
+              <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => setShowAddUserModal(false)}
+                  style={{
+                    padding: "10px 20px",
+                    fontSize: "14px",
+                    fontWeight: "500",
+                    background: "#f3f4f6",
+                    color: "#374151",
+                    border: "none",
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddUser}
+                  disabled={addingUser || !newUserEmail.trim()}
+                  style={{
+                    padding: "10px 20px",
+                    fontSize: "14px",
+                    fontWeight: "500",
+                    background: addingUser ? "#9ca3af" : "#3b82f6",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    cursor: addingUser ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {addingUser ? "Adding..." : "Add User"}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

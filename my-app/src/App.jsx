@@ -122,14 +122,7 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
-            <Route
-              path="take-moment"
-              element={
-                <ProtectedRoute>
-                  <TakeMoment />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="take-moment" element={<TakeMoment />} />
             <Route path="editor" element={<Editor />} />
             <Route path="edit-photo" element={<EditPhoto />} />
             <Route

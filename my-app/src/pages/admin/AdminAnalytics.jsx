@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { isFirebaseConfigured } from "../../config/firebase";
+import { getLeanMetrics, getLeanMetricsFromFirebase } from "../../services/analyticsService";
+import { getAllUsers } from "../../services/userService";
 import "../../styles/admin.css";
 import {
   TrendingUp,
@@ -20,6 +22,12 @@ import {
   ArrowDown,
   Minus,
   ArrowLeft,
+  Target,
+  Repeat,
+  Zap,
+  UserCheck,
+  Cloud,
+  Database,
 } from "lucide-react";
 
 export default function AdminAnalytics() {
@@ -28,6 +36,7 @@ export default function AdminAnalytics() {
 
   const [loading, setLoading] = useState(false);
   const [timeRange, setTimeRange] = useState("7days"); // 7days, 30days, 90days, all
+  const [leanMetrics, setLeanMetrics] = useState(null);
   const [analytics, setAnalytics] = useState({
     overview: {
       totalViews: 0,
@@ -54,6 +63,21 @@ export default function AdminAnalytics() {
   }, [timeRange]);
 
   const loadAnalytics = async () => {
+    setLoading(true);
+    
+    // Load Lean Startup Metrics from Firebase (centralized data from all users)
+    let metrics = null;
+    try {
+      metrics = await getLeanMetricsFromFirebase();
+      setLeanMetrics(metrics);
+      console.log("📊 Loaded metrics:", metrics);
+    } catch (error) {
+      console.error("Error loading Firebase metrics:", error);
+      // Fallback to localStorage
+      metrics = getLeanMetrics();
+      setLeanMetrics(metrics);
+    }
+    
     if (!isFirebaseConfigured) {
       // Load REAL data from localStorage
       const customFrames = JSON.parse(
@@ -165,19 +189,23 @@ export default function AdminAnalytics() {
         time: activity.time || "Just now",
       }));
 
+      // Get unique users from frame_usage (more accurate than users array)
+      const uniqueUserIds = new Set(frameUsage.map(u => u.userId));
+      const actualUserCount = metrics?.totalUsers || uniqueUserIds.size;
+
       setAnalytics({
         overview: {
           totalViews,
           totalDownloads,
           totalLikes,
           totalFrames: customFrames.length,
-          totalUsers: users.length,
+          totalUsers: actualUserCount,
         },
         trends: {
-          viewsTrend: 0, // TODO: Calculate from historical data
+          viewsTrend: metrics?.userGrowthRate || 0,
           downloadsTrend: 0,
           likesTrend: 0,
-          usersTrend: 0,
+          usersTrend: metrics?.userGrowthRate || 0,
         },
         topFrames,
         topUsers,
@@ -189,8 +217,71 @@ export default function AdminAnalytics() {
 
     setLoading(true);
     try {
-      // TODO: Load from Firebase Analytics service
+      // Load analytics from Firebase - get registered users count
       console.log("Loading analytics for:", timeRange);
+      
+      // Get registered users from Firestore
+      const registeredUsers = await getAllUsers();
+      const totalRegisteredUsers = registeredUsers?.length || 0;
+      
+      console.log("📊 Registered users count:", totalRegisteredUsers);
+      
+      // Filter by time range if needed
+      let filteredUsers = registeredUsers || [];
+      const now = new Date();
+      
+      if (timeRange === "7days") {
+        const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        filteredUsers = filteredUsers.filter(user => {
+          const createdAt = user.createdAt?.toDate?.() || new Date(user.createdAt);
+          return createdAt >= sevenDaysAgo;
+        });
+      } else if (timeRange === "30days") {
+        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        filteredUsers = filteredUsers.filter(user => {
+          const createdAt = user.createdAt?.toDate?.() || new Date(user.createdAt);
+          return createdAt >= thirtyDaysAgo;
+        });
+      } else if (timeRange === "90days") {
+        const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+        filteredUsers = filteredUsers.filter(user => {
+          const createdAt = user.createdAt?.toDate?.() || new Date(user.createdAt);
+          return createdAt >= ninetyDaysAgo;
+        });
+      }
+      // "all" = no filter, show all users
+      
+      const userCount = timeRange === "all" ? totalRegisteredUsers : filteredUsers.length;
+      
+      // Calculate trend (compare with previous period)
+      let usersTrend = 0;
+      if (timeRange !== "all" && registeredUsers?.length > 0) {
+        const previousPeriodUsers = registeredUsers.filter(user => {
+          const createdAt = user.createdAt?.toDate?.() || new Date(user.createdAt);
+          const daysAgo = timeRange === "7days" ? 14 : timeRange === "30days" ? 60 : 180;
+          const periodStart = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+          const periodEnd = new Date(now.getTime() - (daysAgo / 2) * 24 * 60 * 60 * 1000);
+          return createdAt >= periodStart && createdAt < periodEnd;
+        }).length;
+        
+        if (previousPeriodUsers > 0) {
+          usersTrend = Math.round(((userCount - previousPeriodUsers) / previousPeriodUsers) * 100);
+        } else if (userCount > 0) {
+          usersTrend = 100;
+        }
+      }
+      
+      setAnalytics(prev => ({
+        ...prev,
+        overview: {
+          ...prev.overview,
+          totalUsers: userCount,
+        },
+        trends: {
+          ...prev.trends,
+          usersTrend: usersTrend,
+        },
+      }));
     } catch (error) {
       console.error("Error loading analytics:", error);
     }
@@ -344,44 +435,323 @@ export default function AdminAnalytics() {
           </div>
         </div>
 
-        {/* Overview Stats */}
+        {/* Overview Stats - Registered Users & Registration Rate */}
         <div
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
             gap: "16px",
             marginBottom: "32px",
+            maxWidth: "520px",
           }}
         >
           <MetricCard
-            icon={<Eye size={24} />}
-            label="Total Views"
-            value={formatNumber(analytics.overview.totalViews)}
-            trend={analytics.trends.viewsTrend}
-            color="#3b82f6"
-          />
-          <MetricCard
-            icon={<Download size={24} />}
-            label="Downloads"
-            value={formatNumber(analytics.overview.totalDownloads)}
-            trend={analytics.trends.downloadsTrend}
-            color="#8b5cf6"
-          />
-          <MetricCard
-            icon={<Heart size={24} />}
-            label="Likes"
-            value={formatNumber(analytics.overview.totalLikes)}
-            trend={analytics.trends.likesTrend}
-            color="#ec4899"
-          />
-          <MetricCard
             icon={<Users size={24} />}
-            label="Total Users"
+            label="Registered Users"
             value={formatNumber(analytics.overview.totalUsers)}
             trend={analytics.trends.usersTrend}
             color="#10b981"
           />
+          <MetricCard
+            icon={<UserCheck size={24} />}
+            label="Registration Rate"
+            value={leanMetrics?.totalUsers > 0 
+              ? `${Math.round((analytics.overview.totalUsers / leanMetrics.totalUsers) * 100)}%`
+              : "0%"
+            }
+            subtitle={`${analytics.overview.totalUsers} dari ${leanMetrics?.totalUsers || 0} visitors`}
+            color="#8b5cf6"
+          />
         </div>
+
+        {/* LEAN STARTUP METRICS */}
+        {leanMetrics && (
+          <>
+            {/* Section Header */}
+            <div style={{ marginBottom: "20px", marginTop: "16px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <h2 style={{ 
+                  fontSize: "20px", 
+                  fontWeight: "700", 
+                  color: "#222",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px"
+                }}>
+                  <Target size={20} style={{ color: "var(--accent)" }} />
+                  Lean Startup Metrics
+                </h2>
+                {/* Data Source Indicator */}
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "6px 12px",
+                  background: leanMetrics.source === 'firebase' ? "#dcfce7" : "#fef3c7",
+                  borderRadius: "20px",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  color: leanMetrics.source === 'firebase' ? "#166534" : "#92400e",
+                }}>
+                  {leanMetrics.source === 'firebase' ? (
+                    <>
+                      <Cloud size={14} />
+                      Data dari Firebase (Semua User)
+                    </>
+                  ) : (
+                    <>
+                      <Database size={14} />
+                      Data Lokal (Hanya Browser Ini)
+                    </>
+                  )}
+                </div>
+              </div>
+              <p style={{ color: "var(--text-secondary)", fontSize: "13px", marginTop: "4px" }}>
+                Actionable metrics untuk pengambilan keputusan
+              </p>
+            </div>
+
+            {/* Lean Metrics Cards */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                gap: "16px",
+                marginBottom: "24px",
+              }}
+            >
+              {/* Activation Rate */}
+              <div className="admin-card" style={{ padding: "20px", textAlign: "center" }}>
+                <div style={{ 
+                  width: "48px", 
+                  height: "48px", 
+                  background: "#dcfce7", 
+                  borderRadius: "12px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  margin: "0 auto 12px"
+                }}>
+                  <Zap size={24} style={{ color: "#22c55e" }} />
+                </div>
+                <div style={{ fontSize: "28px", fontWeight: "800", color: "#222" }}>
+                  {leanMetrics.activationRate}%
+                </div>
+                <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>
+                  Activation Rate
+                </div>
+                <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "8px" }}>
+                  {leanMetrics.activatedUsers} dari {leanMetrics.totalUsers} user download
+                </div>
+              </div>
+
+              {/* Retention Rate */}
+              <div className="admin-card" style={{ padding: "20px", textAlign: "center" }}>
+                <div style={{ 
+                  width: "48px", 
+                  height: "48px", 
+                  background: "#dbeafe", 
+                  borderRadius: "12px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  margin: "0 auto 12px"
+                }}>
+                  <Repeat size={24} style={{ color: "#3b82f6" }} />
+                </div>
+                <div style={{ fontSize: "28px", fontWeight: "800", color: "#222" }}>
+                  {leanMetrics.retentionRate}%
+                </div>
+                <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>
+                  7-Day Retention
+                </div>
+                <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "8px" }}>
+                  {leanMetrics.returningUsers} user kembali
+                </div>
+              </div>
+
+              {/* Growth Rate */}
+              <div className="admin-card" style={{ padding: "20px", textAlign: "center" }}>
+                <div style={{ 
+                  width: "48px", 
+                  height: "48px", 
+                  background: leanMetrics.userGrowthRate >= 0 ? "#dcfce7" : "#fee2e2", 
+                  borderRadius: "12px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  margin: "0 auto 12px"
+                }}>
+                  <TrendingUp size={24} style={{ color: leanMetrics.userGrowthRate >= 0 ? "#22c55e" : "#ef4444" }} />
+                </div>
+                <div style={{ 
+                  fontSize: "28px", 
+                  fontWeight: "800", 
+                  color: leanMetrics.userGrowthRate >= 0 ? "#22c55e" : "#ef4444" 
+                }}>
+                  {leanMetrics.userGrowthRate >= 0 ? "+" : ""}{leanMetrics.userGrowthRate}%
+                </div>
+                <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>
+                  Weekly Growth
+                </div>
+                <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "8px" }}>
+                  {leanMetrics.newUsersThisWeek} new vs {leanMetrics.newUsersLastWeek} last week
+                </div>
+              </div>
+
+              {/* Downloads per User */}
+              <div className="admin-card" style={{ padding: "20px", textAlign: "center" }}>
+                <div style={{ 
+                  width: "48px", 
+                  height: "48px", 
+                  background: "#fae8ff", 
+                  borderRadius: "12px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  margin: "0 auto 12px"
+                }}>
+                  <UserCheck size={24} style={{ color: "#a855f7" }} />
+                </div>
+                <div style={{ fontSize: "28px", fontWeight: "800", color: "#222" }}>
+                  {leanMetrics.downloadsPerUser}
+                </div>
+                <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>
+                  Downloads/User
+                </div>
+                <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "8px" }}>
+                  Engagement metric
+                </div>
+              </div>
+            </div>
+
+            {/* Conversion Funnel */}
+            <div className="admin-card" style={{ padding: "24px", marginBottom: "24px" }}>
+              <h3 style={{ 
+                fontSize: "16px", 
+                fontWeight: "700", 
+                marginBottom: "20px",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px"
+              }}>
+                <BarChart3 size={18} style={{ color: "var(--accent)" }} />
+                Conversion Funnel (7 Hari Terakhir)
+              </h3>
+              
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                {[
+                  { label: "Visitors", value: leanMetrics.funnel.visit, color: "#3b82f6" },
+                  { label: "Frame Views", value: leanMetrics.funnel.frameView, color: "#8b5cf6" },
+                  { label: "Frame Selected", value: leanMetrics.funnel.frameSelect, color: "#ec4899" },
+                  { label: "Photo Taken", value: leanMetrics.funnel.photoTaken, color: "#f97316" },
+                  { label: "Downloaded", value: leanMetrics.funnel.downloaded, color: "#22c55e" },
+                ].map((stage, index, arr) => {
+                  const maxValue = Math.max(...arr.map(s => s.value), 1);
+                  const percentage = maxValue > 0 ? Math.round((stage.value / maxValue) * 100) : 0;
+                  const dropOff = index > 0 && arr[index - 1].value > 0 
+                    ? Math.round(((arr[index - 1].value - stage.value) / arr[index - 1].value) * 100) 
+                    : 0;
+                  
+                  return (
+                    <div key={stage.label}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                        <span style={{ fontSize: "13px", fontWeight: "500" }}>{stage.label}</span>
+                        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                          {index > 0 && dropOff > 0 && (
+                            <span style={{ fontSize: "11px", color: "#ef4444" }}>
+                              -{dropOff}% drop
+                            </span>
+                          )}
+                          <span style={{ fontSize: "13px", fontWeight: "600" }}>{stage.value}</span>
+                        </div>
+                      </div>
+                      <div style={{ 
+                        height: "8px", 
+                        background: "#f3f4f6", 
+                        borderRadius: "4px",
+                        overflow: "hidden"
+                      }}>
+                        <div style={{ 
+                          height: "100%", 
+                          width: `${percentage}%`, 
+                          background: stage.color,
+                          borderRadius: "4px",
+                          transition: "width 0.3s ease"
+                        }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Conversion Rates Summary */}
+              <div style={{ 
+                display: "grid", 
+                gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", 
+                gap: "12px",
+                marginTop: "20px",
+                padding: "16px",
+                background: "#f9fafb",
+                borderRadius: "8px"
+              }}>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: "18px", fontWeight: "700", color: "#8b5cf6" }}>
+                    {leanMetrics.conversionRates.viewToSelect}%
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#6b7280" }}>View → Select</div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: "18px", fontWeight: "700", color: "#ec4899" }}>
+                    {leanMetrics.conversionRates.selectToCapture}%
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#6b7280" }}>Select → Capture</div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: "18px", fontWeight: "700", color: "#22c55e" }}>
+                    {leanMetrics.conversionRates.captureToDownload}%
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#6b7280" }}>Capture → Download</div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: "18px", fontWeight: "700", color: "#3b82f6" }}>
+                    {leanMetrics.conversionRates.overallConversion}%
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#6b7280" }}>Overall</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Active Users */}
+            <div 
+              style={{ 
+                display: "grid", 
+                gridTemplateColumns: "repeat(3, 1fr)", 
+                gap: "16px",
+                marginBottom: "32px"
+              }}
+            >
+              <div className="admin-card" style={{ padding: "20px", textAlign: "center" }}>
+                <div style={{ fontSize: "24px", fontWeight: "800", color: "#3b82f6" }}>
+                  {leanMetrics.dailyActiveUsers}
+                </div>
+                <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>DAU (Today)</div>
+              </div>
+              <div className="admin-card" style={{ padding: "20px", textAlign: "center" }}>
+                <div style={{ fontSize: "24px", fontWeight: "800", color: "#8b5cf6" }}>
+                  {leanMetrics.weeklyActiveUsers}
+                </div>
+                <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>WAU (7 Days)</div>
+              </div>
+              <div className="admin-card" style={{ padding: "20px", textAlign: "center" }}>
+                <div style={{ fontSize: "24px", fontWeight: "800", color: "#22c55e" }}>
+                  {leanMetrics.monthlyActiveUsers}
+                </div>
+                <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>MAU (30 Days)</div>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Charts Row */}
         <div
@@ -430,7 +800,8 @@ export default function AdminAnalytics() {
             <div
               style={{ display: "flex", flexDirection: "column", gap: "12px" }}
             >
-              {analytics.topFrames.map((frame, index) => (
+              {(leanMetrics?.topFrames && leanMetrics.topFrames.length > 0) ? (
+                leanMetrics.topFrames.map((frame, index) => (
                 <div
                   key={frame.id}
                   style={{
@@ -466,6 +837,9 @@ export default function AdminAnalytics() {
                         fontWeight: "600",
                         color: "#222",
                         marginBottom: "2px",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
                       }}
                     >
                       {frame.name}
@@ -476,7 +850,7 @@ export default function AdminAnalytics() {
                         color: "var(--text-secondary)",
                       }}
                     >
-                      by {frame.kreator}
+                      {frame.uniqueUsers} users • {frame.downloads} downloads
                     </div>
                   </div>
                   <div style={{ textAlign: "right" }}>
@@ -495,11 +869,21 @@ export default function AdminAnalytics() {
                         color: "var(--text-secondary)",
                       }}
                     >
-                      views
+                      selects
                     </div>
                   </div>
                 </div>
-              ))}
+              ))
+              ) : (
+                <div style={{ 
+                  padding: "24px", 
+                  textAlign: "center", 
+                  color: "var(--text-secondary)",
+                  fontSize: "14px" 
+                }}>
+                  Belum ada data frame. Data akan muncul setelah user memilih frame.
+                </div>
+              )}
             </div>
           </div>
 
@@ -803,7 +1187,7 @@ export default function AdminAnalytics() {
 }
 
 // Metric Card Component
-function MetricCard({ icon, label, value, trend, color }) {
+function MetricCard({ icon, label, value, trend, color, subtitle }) {
   const getTrendIcon = (trend) => {
     if (trend > 0) return <ArrowUp size={14} />;
     if (trend < 0) return <ArrowDown size={14} />;
@@ -855,6 +1239,17 @@ function MetricCard({ icon, label, value, trend, color }) {
           >
             {value}
           </div>
+          {subtitle && (
+            <div
+              style={{
+                fontSize: "12px",
+                color: "var(--text-secondary)",
+                marginBottom: trend !== undefined ? "8px" : "0",
+              }}
+            >
+              {subtitle}
+            </div>
+          )}
           {trend !== undefined && (
             <div
               style={{

@@ -1,5 +1,6 @@
 .create-page {
   min-height: 100vh;
+  min-height: 100dvh;
   background: linear-gradient(180deg, #f8f5f2 0%, #ffffff 100%);
   padding: 48px 20px 60px;
   box-sizing: border-box;
@@ -43,6 +44,7 @@
   gap: 28px;
   align-items: stretch;
   height: calc(100vh - 120px);
+  height: calc(100dvh - 120px);
 }
 
 .create-preview {
@@ -476,7 +478,7 @@
 
 @media (max-width: 768px) {
   .create-page {
-    padding: 12px 10px 110px;
+    padding: 12px 10px calc(110px + env(safe-area-inset-bottom, 0px));
   }
 
   .create-grid {
@@ -586,6 +588,27 @@
     box-shadow: 0 -16px 32px rgba(44, 31, 29, 0.1);
     border-radius: 28px 28px 0 0;
     z-index: 40;
+  }
+
+  .create-mobile-toolbar--grid {
+    gap: 4px;
+    padding: 12px 12px calc(24px + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(150deg, #fffaf6 0%, #f4e2d8 100%);
+  }
+
+  .create-mobile-toolbar--grid .create-mobile-toolbar__button {
+    padding: 8px 4px;
+    font-size: 11px;
+    min-width: 0;
+  }
+
+  .create-mobile-toolbar__button--back {
+    background: rgba(244, 63, 94, 0.1);
+    color: #e11d48;
+  }
+
+  .create-mobile-toolbar__button--back:active {
+    background: rgba(244, 63, 94, 0.2);
   }
 
   .create-mobile-toolbar__button {

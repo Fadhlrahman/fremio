@@ -1,23 +1,17 @@
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  updateDoc,
-  deleteDoc,
-  query,
-  where,
-  orderBy,
-  serverTimestamp,
-} from "firebase/firestore";
-import { auth, db, isFirebaseConfigured } from "../config/firebase";
-import { COLLECTIONS, USER_ROLES } from "../config/firebaseCollections";
+import { supabase, isSupabaseConfigured } from "../config/supabase";
 
-// LocalStorage key
+// LocalStorage key for fallback
 const USERS_STORAGE_KEY = "fremio_all_users";
 
+// User Roles
+export const USER_ROLES = {
+  ADMIN: "admin",
+  KREATOR: "kreator",
+  USER: "user",
+};
+
 /**
- * User Management Service
+ * User Management Service - SUPABASE VERSION
  * For admin operations on user accounts
  */
 
@@ -27,81 +21,72 @@ const USERS_STORAGE_KEY = "fremio_all_users";
  */
 export async function getAllUsers() {
   try {
-    if (!isFirebaseConfigured || !db) {
-      // LocalStorage mode
+    if (!isSupabaseConfigured || !supabase) {
       const users = getUsersFromLocalStorage();
-      console.log(
-        "📊 getAllUsers - LocalStorage mode:",
-        users.length,
-        "users found"
-      );
-      console.log("📊 Users data:", users);
+      console.log("📊 getAllUsers - LocalStorage mode:", users.length, "users");
       return users;
     }
 
-    try {
-      // Read from fremio_all_users collection (not COLLECTIONS.USERS)
-      const q = query(
-        collection(db, "fremio_all_users"),
-        orderBy("createdAt", "desc")
-      );
+    const { data, error } = await supabase
+      .from('fremio_users')
+      .select('*')
+      .order('created_at', { ascending: false });
 
-      const querySnapshot = await getDocs(q);
-      const users = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      console.log(
-        "📊 getAllUsers - Firestore mode:",
-        users.length,
-        "users found"
-      );
-      return users;
-    } catch (firebaseError) {
-      // Fallback to LocalStorage if Firebase fails
-      console.warn(
-        "Firebase failed, using LocalStorage:",
-        firebaseError.message
-      );
-      const users = getUsersFromLocalStorage();
-      console.log(
-        "📊 getAllUsers - LocalStorage fallback:",
-        users.length,
-        "users found"
-      );
-      return users;
+    if (error) {
+      console.warn("Supabase failed, using LocalStorage:", error.message);
+      return getUsersFromLocalStorage();
     }
+
+    // Map to standard format
+    const users = (data || []).map(u => ({
+      id: u.id,
+      uid: u.uid,
+      email: u.email,
+      name: u.name || u.display_name,
+      displayName: u.display_name,
+      role: u.role || 'user',
+      status: u.status || 'active',
+      createdAt: u.created_at,
+      lastLoginAt: u.last_login_at,
+      updatedAt: u.updated_at,
+    }));
+
+    console.log("📊 getAllUsers - Supabase mode:", users.length, "users");
+    return users;
   } catch (error) {
     console.error("Error fetching all users:", error);
-    return getUsersFromLocalStorage() || [];
+    return getUsersFromLocalStorage();
   }
 }
 
 /**
  * Get user by ID
- * @param {string} userId - User ID
- * @returns {Promise<Object|null>} User data or null
  */
 export async function getUserById(userId) {
   try {
-    if (!isFirebaseConfigured) {
-      // LocalStorage mode
+    if (!isSupabaseConfigured || !supabase) {
       const users = getUsersFromLocalStorage();
-      const user = users.find((u) => u.id === userId || u.uid === userId);
-      return user || null;
+      return users.find(u => u.id === userId || u.uid === userId) || null;
     }
 
-    const userRef = doc(db, COLLECTIONS.USERS, userId);
-    const userSnap = await getDoc(userRef);
+    const { data, error } = await supabase
+      .from('fremio_users')
+      .select('*')
+      .or(`id.eq.${userId},uid.eq.${userId}`)
+      .single();
 
-    if (!userSnap.exists()) {
-      return null;
-    }
+    if (error || !data) return null;
 
     return {
-      id: userSnap.id,
-      ...userSnap.data(),
+      id: data.id,
+      uid: data.uid,
+      email: data.email,
+      name: data.name || data.display_name,
+      displayName: data.display_name,
+      role: data.role,
+      status: data.status,
+      createdAt: data.created_at,
+      lastLoginAt: data.last_login_at,
     };
   } catch (error) {
     console.error("Error fetching user:", error);
@@ -111,10 +96,6 @@ export async function getUserById(userId) {
 
 /**
  * Update user role (admin only)
- * @param {string} userId - User ID
- * @param {string} newRole - New role (admin, kreator, user)
- * @param {string} adminId - Admin performing the action
- * @returns {Promise<Object>} { success, message }
  */
 export async function updateUserRole(userId, newRole, adminId) {
   try {
@@ -122,290 +103,205 @@ export async function updateUserRole(userId, newRole, adminId) {
       return { success: false, message: "Invalid role" };
     }
 
-    if (!isFirebaseConfigured) {
-      // LocalStorage mode
+    if (!isSupabaseConfigured || !supabase) {
       const users = getUsersFromLocalStorage();
-      const index = users.findIndex((u) => u.id === userId);
-
-      if (index === -1) {
-        return { success: false, message: "User not found" };
-      }
+      const index = users.findIndex(u => u.id === userId);
+      if (index === -1) return { success: false, message: "User not found" };
 
       users[index].role = newRole;
-      users[index].isKreator = newRole === USER_ROLES.KREATOR;
       users[index].updatedAt = new Date().toISOString();
-      users[index].lastModifiedBy = adminId;
-
       saveUsersToLocalStorage(users);
       return { success: true, message: `User role updated to ${newRole}` };
     }
 
-    const userRef = doc(db, COLLECTIONS.USERS, userId);
-    const userSnap = await getDoc(userRef);
+    const { error } = await supabase
+      .from('fremio_users')
+      .update({
+        role: newRole,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId);
 
-    if (!userSnap.exists()) {
-      return { success: false, message: "User not found" };
-    }
-
-    await updateDoc(userRef, {
-      role: newRole,
-      isKreator: newRole === USER_ROLES.KREATOR,
-      updatedAt: serverTimestamp(),
-      lastModifiedBy: adminId,
-    });
-
+    if (error) throw error;
     return { success: true, message: `User role updated to ${newRole}` };
   } catch (error) {
     console.error("Error updating user role:", error);
-    return {
-      success: false,
-      message: error.message || "Failed to update user role",
-    };
+    return { success: false, message: error.message || "Failed to update role" };
   }
 }
 
 /**
  * Ban user (admin only)
- * @param {string} userId - User ID
- * @param {string} adminId - Admin performing the action
- * @param {string} reason - Ban reason
- * @returns {Promise<Object>} { success, message }
  */
 export async function banUser(userId, adminId, reason = "") {
   try {
-    if (!isFirebaseConfigured) {
-      // LocalStorage mode
+    if (!isSupabaseConfigured || !supabase) {
       const users = getUsersFromLocalStorage();
-      const index = users.findIndex((u) => u.id === userId);
-
-      if (index === -1) {
-        return { success: false, message: "User not found" };
-      }
+      const index = users.findIndex(u => u.id === userId);
+      if (index === -1) return { success: false, message: "User not found" };
 
       users[index].status = "banned";
-      users[index].bannedAt = new Date().toISOString();
-      users[index].bannedBy = adminId;
       users[index].banReason = reason;
       users[index].updatedAt = new Date().toISOString();
-
       saveUsersToLocalStorage(users);
       return { success: true, message: "User banned successfully" };
     }
 
-    const userRef = doc(db, COLLECTIONS.USERS, userId);
-    const userSnap = await getDoc(userRef);
+    const { error } = await supabase
+      .from('fremio_users')
+      .update({
+        status: 'banned',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId);
 
-    if (!userSnap.exists()) {
-      return { success: false, message: "User not found" };
-    }
-
-    await updateDoc(userRef, {
-      status: "banned",
-      banReason: reason,
-      bannedAt: serverTimestamp(),
-      bannedBy: adminId,
-      updatedAt: serverTimestamp(),
-    });
-
+    if (error) throw error;
     return { success: true, message: "User banned successfully" };
   } catch (error) {
     console.error("Error banning user:", error);
-    return {
-      success: false,
-      message: error.message || "Failed to ban user",
-    };
+    return { success: false, message: error.message || "Failed to ban user" };
   }
 }
 
 /**
  * Unban user (admin only)
- * @param {string} userId - User ID
- * @param {string} adminId - Admin performing the action
- * @returns {Promise<Object>} { success, message }
  */
 export async function unbanUser(userId, adminId) {
   try {
-    if (!isFirebaseConfigured) {
-      // LocalStorage mode
+    if (!isSupabaseConfigured || !supabase) {
       const users = getUsersFromLocalStorage();
-      const index = users.findIndex((u) => u.id === userId);
-
-      if (index === -1) {
-        return { success: false, message: "User not found" };
-      }
+      const index = users.findIndex(u => u.id === userId);
+      if (index === -1) return { success: false, message: "User not found" };
 
       users[index].status = "active";
-      users[index].unbannedAt = new Date().toISOString();
-      users[index].unbannedBy = adminId;
       users[index].banReason = null;
       users[index].updatedAt = new Date().toISOString();
-
       saveUsersToLocalStorage(users);
       return { success: true, message: "User unbanned successfully" };
     }
 
-    const userRef = doc(db, COLLECTIONS.USERS, userId);
-    const userSnap = await getDoc(userRef);
+    const { error } = await supabase
+      .from('fremio_users')
+      .update({
+        status: 'active',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId);
 
-    if (!userSnap.exists()) {
-      return { success: false, message: "User not found" };
-    }
-
-    await updateDoc(userRef, {
-      status: "active",
-      banReason: null,
-      bannedAt: null,
-      bannedBy: null,
-      unbannedAt: serverTimestamp(),
-      unbannedBy: adminId,
-      updatedAt: serverTimestamp(),
-    });
-
+    if (error) throw error;
     return { success: true, message: "User unbanned successfully" };
   } catch (error) {
     console.error("Error unbanning user:", error);
-    return {
-      success: false,
-      message: error.message || "Failed to unban user",
-    };
+    return { success: false, message: error.message || "Failed to unban user" };
   }
 }
 
 /**
  * Delete user (admin only)
- * @param {string} userId - User ID
- * @param {string} adminId - Admin performing the action
- * @returns {Promise<Object>} { success, message }
  */
 export async function deleteUser(userId, adminId) {
   try {
-    if (!isFirebaseConfigured) {
-      // LocalStorage mode
+    if (!isSupabaseConfigured || !supabase) {
       const users = getUsersFromLocalStorage();
-      const user = users.find((u) => u.id === userId);
-
-      if (!user) {
-        return { success: false, message: "User not found" };
-      }
-
-      // Prevent deleting admins
-      if (user.role === USER_ROLES.ADMIN) {
-        return { success: false, message: "Cannot delete admin users" };
-      }
-
-      const filtered = users.filter((u) => u.id !== userId);
+      const filtered = users.filter(u => u.id !== userId);
       saveUsersToLocalStorage(filtered);
       return { success: true, message: "User deleted successfully" };
     }
 
-    const userRef = doc(db, COLLECTIONS.USERS, userId);
-    const userSnap = await getDoc(userRef);
+    const { error } = await supabase
+      .from('fremio_users')
+      .delete()
+      .eq('id', userId);
 
-    if (!userSnap.exists()) {
-      return { success: false, message: "User not found" };
-    }
-
-    const userData = userSnap.data();
-
-    // Prevent deleting admins
-    if (userData.role === USER_ROLES.ADMIN) {
-      return { success: false, message: "Cannot delete admin users" };
-    }
-
-    // TODO: Delete user's frames and applications in a transaction
-    await deleteDoc(userRef);
-
+    if (error) throw error;
     return { success: true, message: "User deleted successfully" };
   } catch (error) {
     console.error("Error deleting user:", error);
-    return {
-      success: false,
-      message: error.message || "Failed to delete user",
-    };
+    return { success: false, message: error.message || "Failed to delete user" };
   }
 }
 
 /**
- * Get user statistics (admin only)
- * @returns {Promise<Object>} Statistics object
+ * Save user to Supabase (for registration/login)
  */
-export async function getUserStats() {
-  try {
-    const allUsers = await getAllUsers();
-
-    const stats = {
-      total: allUsers.length,
-      admins: allUsers.filter((u) => u.role === USER_ROLES.ADMIN).length,
-      kreators: allUsers.filter((u) => u.role === USER_ROLES.KREATOR).length,
-      regular: allUsers.filter((u) => u.role === USER_ROLES.USER).length,
-      active: allUsers.filter((u) => u.status === "active" || !u.status).length,
-      banned: allUsers.filter((u) => u.status === "banned").length,
-    };
-
-    return stats;
-  } catch (error) {
-    console.error("Error fetching user stats:", error);
-    return {
-      total: 0,
-      admins: 0,
-      kreators: 0,
-      regular: 0,
-      active: 0,
-      banned: 0,
-    };
+export async function saveUserToSupabase(userData) {
+  if (!isSupabaseConfigured || !supabase) {
+    console.log("Supabase not configured, saving to localStorage");
+    return saveUserToStorage(userData);
   }
-}
 
-/**
- * Search users by query (admin only)
- * @param {string} searchQuery - Search string
- * @returns {Promise<Array>} Filtered users
- */
-export async function searchUsers(searchQuery) {
   try {
-    const allUsers = await getAllUsers();
+    // Check if user exists by email
+    const { data: existing } = await supabase
+      .from('fremio_users')
+      .select('*')
+      .eq('email', userData.email)
+      .single();
 
-    if (!searchQuery || !searchQuery.trim()) {
-      return allUsers;
+    const userToSave = {
+      uid: userData.uid,
+      email: userData.email,
+      name: userData.name || userData.displayName,
+      display_name: userData.displayName || userData.name,
+      role: userData.role || 'user',
+      status: userData.status || 'active',
+      last_login_at: userData.lastLoginAt || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (existing) {
+      // Update existing user
+      const { error } = await supabase
+        .from('fremio_users')
+        .update(userToSave)
+        .eq('email', userData.email);
+
+      if (error) throw error;
+      console.log("✅ User updated in Supabase:", userData.email);
+    } else {
+      // Insert new user
+      userToSave.created_at = userData.createdAt || new Date().toISOString();
+      const { error } = await supabase
+        .from('fremio_users')
+        .insert(userToSave);
+
+      if (error) throw error;
+      console.log("✅ New user saved to Supabase:", userData.email);
     }
 
-    const query = searchQuery.toLowerCase();
-
-    return allUsers.filter(
-      (user) =>
-        user.displayName?.toLowerCase().includes(query) ||
-        user.email?.toLowerCase().includes(query) ||
-        user.phoneNumber?.toLowerCase().includes(query)
-    );
+    return userToSave;
   } catch (error) {
-    console.error("Error searching users:", error);
-    return [];
+    console.error("Error saving user to Supabase:", error);
+    // Fallback to localStorage
+    return saveUserToStorage(userData);
   }
 }
 
 /**
- * Get users by role (admin only)
- * @param {string} role - User role
- * @returns {Promise<Array>} Filtered users
+ * Get users by role
  */
 export async function getUsersByRole(role) {
   try {
-    if (!isFirebaseConfigured) {
+    if (!isSupabaseConfigured || !supabase) {
       const users = getUsersFromLocalStorage();
-      return users.filter((u) => u.role === role);
+      return users.filter(u => u.role === role);
     }
 
-    const q = query(
-      collection(db, COLLECTIONS.USERS),
-      where("role", "==", role),
-      orderBy("createdAt", "desc")
-    );
+    const { data, error } = await supabase
+      .from('fremio_users')
+      .select('*')
+      .eq('role', role)
+      .order('created_at', { ascending: false });
 
-    const querySnapshot = await getDocs(q);
-
-    return querySnapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
+    if (error) throw error;
+    return (data || []).map(u => ({
+      id: u.id,
+      uid: u.uid,
+      email: u.email,
+      name: u.name,
+      role: u.role,
+      status: u.status,
+      createdAt: u.created_at,
     }));
   } catch (error) {
     console.error("Error fetching users by role:", error);
@@ -414,28 +310,30 @@ export async function getUsersByRole(role) {
 }
 
 /**
- * Get users by status (admin only)
- * @param {string} status - User status (active, banned)
- * @returns {Promise<Array>} Filtered users
+ * Get users by status
  */
 export async function getUsersByStatus(status) {
   try {
-    if (!isFirebaseConfigured) {
+    if (!isSupabaseConfigured || !supabase) {
       const users = getUsersFromLocalStorage();
-      return users.filter((u) => u.status === status);
+      return users.filter(u => u.status === status);
     }
 
-    const q = query(
-      collection(db, COLLECTIONS.USERS),
-      where("status", "==", status),
-      orderBy("createdAt", "desc")
-    );
+    const { data, error } = await supabase
+      .from('fremio_users')
+      .select('*')
+      .eq('status', status)
+      .order('created_at', { ascending: false });
 
-    const querySnapshot = await getDocs(q);
-
-    return querySnapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
+    if (error) throw error;
+    return (data || []).map(u => ({
+      id: u.id,
+      uid: u.uid,
+      email: u.email,
+      name: u.name,
+      role: u.role,
+      status: u.status,
+      createdAt: u.created_at,
     }));
   } catch (error) {
     console.error("Error fetching users by status:", error);
@@ -443,45 +341,31 @@ export async function getUsersByStatus(status) {
   }
 }
 
-// Helper Functions for LocalStorage
+// ============ LocalStorage Helpers ============
 
-/**
- * Get users from localStorage
- */
 function getUsersFromLocalStorage() {
   try {
     const stored = localStorage.getItem(USERS_STORAGE_KEY);
-    console.log("🔍 getUsersFromLocalStorage - Key:", USERS_STORAGE_KEY);
-    console.log("🔍 Raw localStorage data:", stored);
-
     if (stored) {
-      const parsed = JSON.parse(stored);
-      console.log("✅ Parsed users:", parsed);
-      return parsed;
+      return JSON.parse(stored);
     }
 
-    // If no users found, try to initialize with current user
+    // Try current user
     const currentUser = localStorage.getItem("fremio_user");
-    console.log("🔍 Checking fremio_user:", currentUser);
-
     if (currentUser) {
       const userData = JSON.parse(currentUser);
       const initialUser = {
         id: userData.uid || `user_${Date.now()}`,
         email: userData.email,
         name: userData.displayName || userData.email?.split("@")[0] || "",
-        phone: "",
-        role: USER_ROLES.ADMIN, // First user is admin
+        role: USER_ROLES.USER,
         status: "active",
         createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
       };
-      console.log("🆕 Initializing with current user:", initialUser);
       saveUsersToLocalStorage([initialUser]);
       return [initialUser];
     }
 
-    console.log("⚠️ No users found in localStorage");
     return [];
   } catch (error) {
     console.error("Error reading users from localStorage:", error);
@@ -489,9 +373,6 @@ function getUsersFromLocalStorage() {
   }
 }
 
-/**
- * Save users to localStorage
- */
 function saveUsersToLocalStorage(users) {
   try {
     localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
@@ -501,23 +382,19 @@ function saveUsersToLocalStorage(users) {
 }
 
 /**
- * Save user to storage (for registration)
+ * Save user to localStorage
  */
 export function saveUserToStorage(userData) {
   try {
-    console.log("💾 saveUserToStorage called with:", userData);
     const users = getUsersFromLocalStorage();
-
-    // Check if user already exists
     const existingIndex = users.findIndex(
-      (u) => u.email === userData.email || u.id === userData.id
+      u => u.email === userData.email || u.id === userData.id
     );
 
     const userToSave = {
       id: userData.id || userData.uid || `user_${Date.now()}`,
       email: userData.email,
       name: userData.name || userData.displayName || "",
-      phone: userData.phone || "",
       role: userData.role || USER_ROLES.USER,
       status: userData.status || "active",
       createdAt: userData.createdAt || new Date().toISOString(),
@@ -525,16 +402,11 @@ export function saveUserToStorage(userData) {
     };
 
     if (existingIndex !== -1) {
-      // Update existing user
-      console.log("🔄 Updating existing user at index:", existingIndex);
       users[existingIndex] = { ...users[existingIndex], ...userToSave };
     } else {
-      // Add new user
-      console.log("➕ Adding new user");
       users.push(userToSave);
     }
 
-    console.log("💾 Saving users to localStorage:", users);
     saveUsersToLocalStorage(users);
     return userToSave;
   } catch (error) {
@@ -542,3 +414,17 @@ export function saveUserToStorage(userData) {
     return null;
   }
 }
+
+export default {
+  getAllUsers,
+  getUserById,
+  updateUserRole,
+  banUser,
+  unbanUser,
+  deleteUser,
+  saveUserToSupabase,
+  getUsersByRole,
+  getUsersByStatus,
+  saveUserToStorage,
+  USER_ROLES,
+};

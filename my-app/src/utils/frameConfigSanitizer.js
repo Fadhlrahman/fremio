@@ -95,15 +95,30 @@ export const sanitizeFrameConfigForStorage = (config) => {
     metadata: cloneMetadata(config.metadata),
   };
 
-  // For custom frames (from Create page), keep frameImage and preview!
+  // Helper to detect UUID format (Supabase uses UUIDs)
+  const isUUID = (str) => {
+    if (typeof str !== 'string') return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+  };
+
+  // For custom frames (from Create page) OR Supabase frames (UUID), keep frameImage and preview!
   // They are essential for the frame to display correctly
-  const isCustomFrame = config.isCustom || config.id?.startsWith("custom-");
+  const isCustomFrame = config.isCustom || config.id?.startsWith("custom-") || isUUID(config.id);
 
   if (!isCustomFrame) {
     // Only remove frameImage/preview for non-custom frames
     // (regular frames from Frames page can reload these from frameConfigs.js)
     delete sanitized.frameImage;
     delete sanitized.preview;
+  } else {
+    // For Supabase/custom frames, always preserve the image URL (not base64)
+    // This is critical for frame loading when offline or slow connection
+    const imageUrl = config.imagePath || config.frameImage || config.thumbnailUrl || config.image_url;
+    if (imageUrl && !imageUrl.startsWith('data:')) {
+      sanitized.imagePath = imageUrl;
+      sanitized.frameImage = imageUrl;
+      sanitized.image_url = imageUrl;
+    }
   }
   // For custom frames, KEEP frameImage and preview - they're needed!
 

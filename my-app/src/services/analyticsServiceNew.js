@@ -218,20 +218,6 @@ export const trackPageView = (page) => {
 };
 
 /**
- * Track frame view (alias for page view with frame context)
- */
-export const trackFrameView = (frameId, frameName) => {
-  return trackFunnelEvent("frame_view", { frameId, frameName });
-};
-
-/**
- * Track frame download (alias for download)
- */
-export const trackFrameDownload = (frameId, frameName) => {
-  return trackFunnelEvent("download", { frameId, frameName });
-};
-
-/**
  * Track photo taken
  */
 export const trackPhotoTaken = (frameId, frameName) => {
@@ -263,20 +249,12 @@ export const getRecentActivities = () => {
   }
 };
 
-/**
- * Get lean metrics (alias for getLeanMetricsFromFirebase for backward compatibility)
- */
-export const getLeanMetrics = getLeanMetricsFromFirebase;
-
 // Default export for backward compatibility
 export default {
   trackUserSession,
   trackFunnelEvent,
   trackFrameUsageEvent,
-  trackFrameView,
-  trackFrameDownload,
   logActivity,
-  getLeanMetrics,
   getLeanMetricsFromFirebase,
   trackPageView,
   trackPhotoTaken,

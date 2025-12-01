@@ -575,18 +575,29 @@ export class FrameDataProvider {
 
         if (!configSaved && sanitizedConfig) {
           console.warn(
-            "⚠️ Failed to store sanitized frame config, attempting fallback without image data"
+            "⚠️ Failed to store sanitized frame config, attempting fallback without large image data"
           );
           const fallbackConfig = { ...sanitizedConfig };
-          delete fallbackConfig.imagePath;
-          delete fallbackConfig.frameImage;
-          delete fallbackConfig.thumbnailUrl;
+          // Only remove base64 images, keep URL-based images!
+          if (fallbackConfig.imagePath?.startsWith('data:')) {
+            delete fallbackConfig.imagePath;
+          }
+          if (fallbackConfig.frameImage?.startsWith('data:')) {
+            delete fallbackConfig.frameImage;
+          }
+          if (fallbackConfig.thumbnailUrl?.startsWith('data:')) {
+            delete fallbackConfig.thumbnailUrl;
+          }
           configSaved = safeStorage.setJSON("frameConfig", fallbackConfig);
         }
         
-        // Ultimate fallback - save minimal config
+        // Ultimate fallback - save minimal config but KEEP image URL
         if (!configSaved) {
           console.warn("⚠️ Saving minimal config as last resort...");
+          // Get a non-base64 image URL if available
+          const imageUrl = [config.imagePath, config.frameImage, config.thumbnailUrl, config.image_url]
+            .find(url => url && !url.startsWith('data:'));
+          
           const minimalConfig = {
             id: config.id,
             name: config.name,
@@ -594,6 +605,8 @@ export class FrameDataProvider {
             slots: config.slots,
             isCustom: true,
             __timestamp: Date.now(),
+            // Always save image URL for fallback
+            ...(imageUrl && { imagePath: imageUrl, frameImage: imageUrl, image_url: imageUrl }),
           };
           configSaved = safeStorage.setJSON("frameConfig", minimalConfig);
         }

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { auth, db } from "../config/firebase";
+import { auth } from "../config/firebase";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -10,31 +10,24 @@ import {
   EmailAuthProvider,
   sendPasswordResetEmail,
 } from "firebase/auth";
-import { doc, setDoc, getDoc } from "firebase/firestore";
 import userStorage from "../utils/userStorage";
+import { saveUserToVPS } from "../services/vpsApiService";
 
 const AuthContext = createContext();
 
-// Helper function to save user to Firestore
-async function saveUserToFirestore(userData) {
-  if (!db) {
-    console.warn("Firestore not available, skipping save");
-    return;
-  }
-
+// Helper function to save user to VPS server
+async function saveUserToServer(userData) {
   try {
-    const userRef = doc(db, "fremio_all_users", userData.uid);
-    await setDoc(
-      userRef,
-      {
-        ...userData,
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true }
-    );
-    console.log("✅ User saved to Firestore:", userData.email);
+    await saveUserToVPS({
+      uid: userData.uid,
+      email: userData.email,
+      displayName: userData.displayName || userData.name,
+      photoURL: userData.photoURL,
+    });
+    console.log("✅ User saved to VPS server:", userData.email);
   } catch (error) {
-    console.error("❌ Error saving to Firestore:", error);
+    // Non-blocking - just log the error
+    console.warn("⚠️ Failed to save user to VPS (non-blocking):", error);
   }
 }
 
@@ -170,8 +163,10 @@ export function AuthProvider({ children }) {
         createdAt: new Date().toISOString(),
       };
 
-      // Save to Firestore
-      await saveUserToFirestore(newUserData);
+      // Save to VPS server (non-blocking)
+      saveUserToServer(newUserData).catch(err => 
+        console.warn("VPS save failed:", err.message)
+      );
 
       // Also save to localStorage for backward compatibility
       try {
@@ -202,6 +197,8 @@ export function AuthProvider({ children }) {
         message = "Password should be at least 6 characters";
       } else if (error.code === "auth/invalid-email") {
         message = "Invalid email address";
+      } else if (error.code === "auth/network-request-failed") {
+        message = "Network error. Please check your connection";
       }
 
       return { success: false, message };
@@ -210,10 +207,10 @@ export function AuthProvider({ children }) {
 
   async function authenticateUser(email, password) {
     try {
-      // Hardcoded admin login
-      if (email === "admin@admin.com" && password === "admin") {
+      // Hardcoded admin login - NO Firestore dependency
+      if (email === "fremioid@admin.com" && password === "fremioidgacor") {
         const adminUser = {
-          email: "admin@admin.com",
+          email: "fremioid@admin.com",
           displayName: "Administrator",
           role: "admin",
           uid: "admin-uid-001",
@@ -221,34 +218,14 @@ export function AuthProvider({ children }) {
         setUser(adminUser);
         localStorage.setItem("fremio_user", JSON.stringify(adminUser));
 
-        // Save admin to Firestore
-        await saveUserToFirestore({
+        // Try to save to VPS but don't block login if it fails
+        saveUserToServer({
           uid: adminUser.uid,
           email: adminUser.email,
-          name: adminUser.displayName,
           displayName: adminUser.displayName,
-          role: "admin",
-          status: "active",
-          createdAt: new Date().toISOString(),
-        });
+        }).catch(err => console.warn("VPS save failed:", err.message));
 
-        // Also save to localStorage
-        try {
-          const { saveUserToStorage } = await import("../services/userService");
-          saveUserToStorage({
-            id: adminUser.uid,
-            uid: adminUser.uid,
-            email: adminUser.email,
-            name: adminUser.displayName,
-            displayName: adminUser.displayName,
-            role: "admin",
-            status: "active",
-            createdAt: new Date().toISOString(),
-          });
-        } catch (err) {
-          console.error("Error saving admin to storage:", err);
-        }
-
+        console.log("✅ Admin login successful");
         return { success: true, message: "Admin login successful" };
       }
 
@@ -274,8 +251,10 @@ export function AuthProvider({ children }) {
         lastLoginAt: new Date().toISOString(),
       };
 
-      // Save to Firestore
-      await saveUserToFirestore(userData);
+      // Save to VPS server (non-blocking)
+      saveUserToServer(userData).catch(err => 
+        console.warn("VPS save failed:", err.message)
+      );
 
       // Also save to localStorage
       try {
@@ -301,6 +280,12 @@ export function AuthProvider({ children }) {
         message = "Incorrect password";
       } else if (error.code === "auth/invalid-email") {
         message = "Invalid email address";
+      } else if (error.code === "auth/network-request-failed") {
+        message = "Network error. Please check your connection";
+      } else if (error.code === "auth/too-many-requests") {
+        message = "Too many attempts. Please try again later";
+      } else if (error.code === "auth/invalid-credential") {
+        message = "Invalid email or password";
       }
 
       return { success: false, message };

@@ -4,6 +4,11 @@
 import { isSupabaseConfigured } from "../config/supabase";
 import * as supabaseFrameService from "./supabaseFrameService.js";
 
+// Re-export prefetchAllFrameSlots for instant frame selection
+export const prefetchAllFrameSlots = isSupabaseConfigured 
+  ? supabaseFrameService.prefetchAllFrameSlots 
+  : async () => {}; // No-op for Firebase
+
 // Dynamic import Firebase only if needed
 let db, storage, isFirebaseConfigured;
 let collection, doc, getDocs, getDoc, addDoc, updateDoc, deleteDoc, query, orderBy, serverTimestamp;

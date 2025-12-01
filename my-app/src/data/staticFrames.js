@@ -109,6 +109,16 @@ export const STATIC_FRAMES = [
   }
 ];
 
+// Default slots for 4-photo frame (standard layout)
+// Values are in decimal (0-1) representing percentage of frame dimensions
+// These get multiplied by frame width/height (1080x1920) in getCustomFrameConfig
+const DEFAULT_SLOTS = [
+  { id: 1, left: 0.05, top: 0.05, width: 0.42, height: 0.20, zIndex: 1, photoIndex: 0, aspectRatio: '4:5' },
+  { id: 2, left: 0.53, top: 0.05, width: 0.42, height: 0.20, zIndex: 1, photoIndex: 1, aspectRatio: '4:5' },
+  { id: 3, left: 0.05, top: 0.28, width: 0.42, height: 0.20, zIndex: 1, photoIndex: 2, aspectRatio: '4:5' },
+  { id: 4, left: 0.53, top: 0.28, width: 0.42, height: 0.20, zIndex: 1, photoIndex: 3, aspectRatio: '4:5' }
+];
+
 // Process static frames to match expected format
 export const getStaticFrames = () => {
   return STATIC_FRAMES.map(frame => ({
@@ -116,7 +126,7 @@ export const getStaticFrames = () => {
     imagePath: frame.image_url || frame.thumbnail_url,
     thumbnailUrl: frame.thumbnail_url || frame.image_url,
     maxCaptures: frame.max_captures || 4,
-    slots: frame.slots || [],
+    slots: frame.slots && frame.slots.length > 0 ? frame.slots : DEFAULT_SLOTS,
     isStatic: true // Mark as static for debugging
   }));
 };

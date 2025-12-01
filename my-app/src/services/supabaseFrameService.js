@@ -1,10 +1,13 @@
 /**
  * Supabase Frame Service
- * Handles custom frame storage using Supabase
+ * Handles custom frame storage - NOW USES VPS API AS PRIMARY
  */
 
 import { supabase, isSupabaseConfigured } from '../config/supabase.js';
 import { getStaticFrames } from '../data/staticFrames.js';
+
+// VPS API base URL
+const VPS_API_URL = 'http://72.61.210.203/api';
 
 const FRAMES_TABLE = 'frames';
 const FRAMES_BUCKET = 'frames';
@@ -142,8 +145,8 @@ let isFetching = false;
 let fetchPromise = null;
 
 // Use localStorage for persistence across sessions
-const STORAGE_CACHE_KEY = 'fremio_frames_cache_v2';
-const STORAGE_CACHE_TIME_KEY = 'fremio_frames_cache_time_v2';
+const STORAGE_CACHE_KEY = 'fremio_frames_cache_v3';
+const STORAGE_CACHE_TIME_KEY = 'fremio_frames_cache_time_v3';
 
 const loadCacheFromStorage = () => {
   try {
@@ -181,17 +184,18 @@ const saveCacheToStorage = (data) => {
 // - 'slots': Contains slot position data with embedded images
 // - 'layout': Contains full layout JSON with embedded Base64 images (~40MB total!)
 // Including these columns causes query to take ~50 seconds instead of ~1 second
-const fetchFramesFromAPI = async () => {
+const fetchFramesFromAPI = async (timeoutMs = 10000) => {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
   
   const controller = new AbortController();
-  const fetchTimeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+  const fetchTimeout = setTimeout(() => controller.abort(), timeoutMs);
   
   // Only select columns needed for list view - excludes large data columns
   const columns = [
     'id',
     'name',
+    'description',
     'category',
     'image_url',
     'thumbnail_url',
@@ -228,11 +232,11 @@ const fetchFramesFromAPI = async () => {
 
 /**
  * Get all custom frames
- * Version: 10 - Fetch first, static fallback only if fails
+ * Version: 12 - Uses static frames for instant loading, VPS API for custom frames
  */
 export const getAllCustomFrames = async () => {
   const startTime = Date.now();
-  console.log('🔄 getAllCustomFrames v10 - ' + new Date().toISOString());
+  console.log('🔄 getAllCustomFrames v12 - FAST MODE');
   
   // 1. Return fresh in-memory cache if available (less than 30 seconds old)
   if (framesCache && framesCache.length > 0 && (Date.now() - framesCacheTime) < 30000) {
@@ -240,47 +244,54 @@ export const getAllCustomFrames = async () => {
     return framesCache;
   }
   
-  // 2. Try to fetch fresh data from API (with short timeout)
-  if (isSupabaseConfigured && !isFetching) {
-    try {
-      isFetching = true;
-      console.log('📡 v10: Fetching fresh data from API...');
-      
-      const data = await fetchFramesFromAPI();
-      const processedData = processFrameData(data);
-      
-      if (processedData && processedData.length > 0) {
-        framesCache = processedData;
-        framesCacheTime = Date.now();
-        saveCacheToStorage(processedData);
-        
-        const duration = Date.now() - startTime;
-        console.log(`✅ v10: Loaded ${processedData.length} frames in ${duration}ms`);
-        return processedData;
-      }
-    } catch (e) {
-      console.warn('API fetch failed:', e.message);
-    } finally {
-      isFetching = false;
-    }
-  }
-  
-  // 3. Fallback: Try localStorage cache
+  // 2. Load from localStorage cache for instant display
   if (loadCacheFromStorage() && framesCache && framesCache.length > 0) {
     console.log('📦 Returning localStorage cache:', framesCache.length, 'frames');
     return framesCache;
   }
   
-  // 4. Last resort: Return static frames
+  // 3. Use static frames as primary source (instant, no network)
   const staticFrames = getStaticFrames();
-  console.log('📋 Returning static fallback:', staticFrames.length, 'frames');
-  return staticFrames;
+  if (staticFrames && staticFrames.length > 0) {
+    framesCache = staticFrames;
+    framesCacheTime = Date.now();
+    saveCacheToStorage(staticFrames);
+    console.log(`✅ Using static frames: ${staticFrames.length} frames in ${Date.now() - startTime}ms`);
+    return staticFrames;
+  }
+  
+  // 4. Try VPS API as backup
+  try {
+    const response = await fetch(`${VPS_API_URL}/frames`, {
+      signal: AbortSignal.timeout(3000) // 3 second timeout
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      const processed = data.map(f => ({
+        ...f,
+        imagePath: f.imageUrl || f.image_url,
+        maxCaptures: f.slots?.length || 1
+      }));
+      
+      if (processed.length > 0) {
+        framesCache = processed;
+        framesCacheTime = Date.now();
+        saveCacheToStorage(processed);
+        console.log(`✅ VPS frames: ${processed.length} in ${Date.now() - startTime}ms`);
+        return processed;
+      }
+    }
+  } catch (e) {
+    console.warn('VPS API failed:', e.message);
+  }
+  
+  // 5. Empty fallback
+  return [];
 };
 
 // Preload frames when module loads
-if (isSupabaseConfigured) {
-  loadCacheFromStorage();
-}
+loadCacheFromStorage();
 
 // Function to clear cache (call after upload/delete)
 export const clearFramesCache = () => {
@@ -289,35 +300,283 @@ export const clearFramesCache = () => {
   try {
     localStorage.removeItem(STORAGE_CACHE_KEY);
     localStorage.removeItem(STORAGE_CACHE_TIME_KEY);
+    // Also clear frame slots cache
+    const keys = Object.keys(localStorage);
+    keys.forEach(key => {
+      if (key.startsWith('fremio_frame_slots_')) {
+        localStorage.removeItem(key);
+      }
+    });
   } catch (e) {}
   console.log('🗑️ Frames cache cleared');
 };
 
+// Slots prefetch tracking
+let slotsPrefetchInProgress = false;
+let slotsPrefetchPromise = null;
+
 /**
- * Get single frame by ID
+ * Prefetch slots for all frames in background
+ * This makes frame selection instant
+ */
+export const prefetchAllFrameSlots = async (frameIds) => {
+  if (!isSupabaseConfigured || !supabase) return;
+  if (slotsPrefetchInProgress) return slotsPrefetchPromise;
+  
+  // Filter to only frames that don't have cached slots
+  const uncachedIds = frameIds.filter(id => {
+    try {
+      const cached = localStorage.getItem(`fremio_frame_slots_${id}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        // Valid if cached within 1 hour
+        if (parsed?.slots && Date.now() - parsed.cachedAt < 3600000) {
+          return false;
+        }
+      }
+    } catch (e) {}
+    return true;
+  });
+  
+  if (uncachedIds.length === 0) {
+    console.log('⚡ All frame slots already cached');
+    return;
+  }
+  
+  console.log(`🔄 Prefetching slots for ${uncachedIds.length} frames...`);
+  slotsPrefetchInProgress = true;
+  
+  slotsPrefetchPromise = (async () => {
+    try {
+      // Fetch frames in small batches to avoid 500 error
+      const BATCH_SIZE = 5;
+      let successCount = 0;
+      
+      for (let i = 0; i < uncachedIds.length; i += BATCH_SIZE) {
+        const batchIds = uncachedIds.slice(i, i + BATCH_SIZE);
+        
+        try {
+          const { data, error } = await supabase
+            .from(FRAMES_TABLE)
+            .select('id, slots, layout, max_captures, image_url, thumbnail_url, name, description, category')
+            .in('id', batchIds);
+          
+          if (error) {
+            console.warn(`Batch ${i / BATCH_SIZE + 1} prefetch error:`, error.message);
+            continue;
+          }
+          
+          if (data && data.length > 0) {
+            data.forEach(frame => {
+              if (frame.slots) {
+                try {
+                  // Clean slots - remove embedded images to save space
+                  const cleanSlots = frame.slots.map(slot => ({
+                    id: slot.id,
+                    left: slot.left,
+                    top: slot.top,
+                    width: slot.width,
+                    height: slot.height,
+                    zIndex: slot.zIndex,
+                    photoIndex: slot.photoIndex,
+                    aspectRatio: slot.aspectRatio
+                    // Exclude: image, preview, data (large base64)
+                  }));
+                  
+                  const cacheData = {
+                    id: frame.id,
+                    name: frame.name,
+                    description: frame.description,
+                    category: frame.category,
+                    slots: cleanSlots,
+                    maxCaptures: frame.max_captures,
+                    imagePath: frame.image_url || frame.thumbnail_url,
+                    image_url: frame.image_url,
+                    thumbnailUrl: frame.thumbnail_url,
+                    cachedAt: Date.now()
+                  };
+                  
+                  // Check size before saving - max 50KB per frame
+                  const cacheStr = JSON.stringify(cacheData);
+                  if (cacheStr.length < 50000) {
+                    localStorage.setItem(`fremio_frame_slots_${frame.id}`, cacheStr);
+                    successCount++;
+                  } else {
+                    console.warn(`Frame ${frame.id} slots too large (${cacheStr.length} chars), skipping cache`);
+                  }
+                } catch (e) {
+                  console.warn(`Failed to cache frame ${frame.id}:`, e.message);
+                }
+              }
+            });
+          }
+        } catch (e) {
+          console.warn(`Batch ${i / BATCH_SIZE + 1} failed:`, e.message);
+        }
+      }
+      
+      if (successCount > 0) {
+        console.log(`✅ Prefetched slots for ${successCount} frames`);
+      }
+    } catch (e) {
+      console.warn('Slots prefetch failed:', e);
+    } finally {
+      slotsPrefetchInProgress = false;
+    }
+  })();
+  
+  return slotsPrefetchPromise;
+};
+
+/**
+ * Get single frame by ID - FAST VERSION using static frames
  */
 export const getCustomFrameById = async (frameId) => {
-  if (!isSupabaseConfigured || !supabase) return null;
+  const SLOTS_CACHE_KEY = `fremio_frame_slots_${frameId}`;
+  
+  console.log('🔍 getCustomFrameById v2:', frameId);
+  
+  // Helper to try static frames (FASTEST)
+  const tryStaticFrame = () => {
+    try {
+      const staticFrames = getStaticFrames();
+      const frame = staticFrames.find(f => f.id === frameId);
+      if (frame) {
+        console.log('⚡ Found static frame:', frame.name);
+        return frame;
+      }
+    } catch (e) {}
+    return null;
+  };
+  
+  // Helper to try localStorage cache
+  const tryCachedFrame = () => {
+    try {
+      const cached = localStorage.getItem(SLOTS_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.slots) {
+          console.log('📦 Frame from cache:', frameId);
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    return null;
+  };
 
+  // 1. Try static frames FIRST (instant, no network)
+  const staticFrame = tryStaticFrame();
+  if (staticFrame) {
+    return staticFrame;
+  }
+  
+  // 2. Try localStorage cache
+  const cachedFrame = tryCachedFrame();
+  if (cachedFrame) {
+    return cachedFrame;
+  }
+  
+  // 3. Try VPS API (faster than Supabase)
   try {
+    const response = await fetch(`${VPS_API_URL}/frames/${frameId}`, {
+      signal: AbortSignal.timeout(3000)
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data) {
+        const result = {
+          ...data,
+          imagePath: data.imageUrl || data.image_url,
+          maxCaptures: data.slots?.length || 1,
+          cachedAt: Date.now()
+        };
+        
+        // Cache for next time
+        try {
+          localStorage.setItem(SLOTS_CACHE_KEY, JSON.stringify(result));
+        } catch (e) {}
+        
+        console.log('✅ Frame from VPS:', result.name);
+        return result;
+      }
+    }
+  } catch (e) {
+    console.warn('VPS API failed for frame:', e.message);
+  }
+  
+  // 4. Last resort - Supabase (slow)
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    
     const { data, error } = await supabase
       .from(FRAMES_TABLE)
-      .select('*')
+      .select(`
+        id,
+        name,
+        description,
+        category,
+        image_url,
+        thumbnail_url,
+        is_active,
+        popularity,
+        max_captures,
+        slots,
+        layout,
+        created_at,
+        updated_at
+      `)
       .eq('id', frameId)
+      .abortSignal(controller.signal)
       .single();
+    
+    clearTimeout(timeout);
 
-    if (error || !data) return null;
+    if (error || !data) {
+      console.error('Error getting frame by ID:', error);
+      return null;
+    }
 
-    return {
+    const result = {
       ...data,
       maxCaptures: data.max_captures,
       imagePath: data.image_url || data.thumbnail_url,
       thumbnailUrl: data.thumbnail_url,
       createdAt: data.created_at,
-      updatedAt: data.updated_at
+      updatedAt: data.updated_at,
+      cachedAt: Date.now()
     };
+    
+    // Cache to localStorage for next time
+    try {
+      localStorage.setItem(SLOTS_CACHE_KEY, JSON.stringify(result));
+      console.log('💾 Frame slots cached:', frameId);
+    } catch (e) {}
+
+    return result;
   } catch (error) {
     console.error('Error getting frame:', error);
+    
+    // Try localStorage cache as fallback even if expired
+    try {
+      const cached = localStorage.getItem(SLOTS_CACHE_KEY);
+      if (cached) {
+        console.log('⚠️ Using expired cache as fallback:', frameId);
+        return JSON.parse(cached);
+      }
+    } catch (e) {}
+    
+    // Try static frames as last fallback
+    try {
+      const staticFrames = getStaticFrames();
+      const staticFrame = staticFrames.find(f => f.id === frameId);
+      if (staticFrame) {
+        console.log('📦 Using static frame as fallback:', frameId);
+        return staticFrame;
+      }
+    } catch (e) {}
+    
     return null;
   }
 };

@@ -30,6 +30,7 @@ import {
   ArrowDown,
   ChevronsUp,
   ChevronsDown,
+  Grid3X3,
 } from "lucide-react";
 import CanvasPreview from "../components/creator/CanvasPreview.jsx";
 import PropertiesPanel from "../components/creator/PropertiesPanel.jsx";
@@ -3524,48 +3525,120 @@ export default function Create() {
       {isMobileView && (
         <>
           {renderMobilePropertyPanel()}
-          <nav
-            className={`create-mobile-toolbar ${
-              isMobilePropertyToolbar ? "create-mobile-toolbar--properties" : ""
-            }`.trim()}
-          >
-            {(isMobilePropertyToolbar
-              ? mobilePropertyButtons
-              : toolButtons
-            ).map((button) => {
-              const Icon = button.icon;
-              const isActive = isMobilePropertyToolbar
-                ? activeMobileProperty === button.id
-                : Boolean(button.isActive);
-              const label = isMobilePropertyToolbar
-                ? button.label
-                : button.mobileLabel ?? button.label;
-
-              const handleClick = () => {
-                if (isMobilePropertyToolbar) {
-                  setActiveMobileProperty((prev) =>
-                    prev === button.id ? null : button.id
-                  );
-                } else {
-                  handleToolButtonPress(button);
-                }
-              };
-
-              return (
+          {pendingPhotoTool ? (
+            /* Photo Grid Selection Toolbar */
+            <nav className="create-mobile-toolbar create-mobile-toolbar--grid">
+              <button
+                type="button"
+                onClick={() => setPendingPhotoTool(false)}
+                className="create-mobile-toolbar__button create-mobile-toolbar__button--back"
+              >
+                <X size={20} strokeWidth={2.4} />
+                <span>Batal</span>
+              </button>
+              {[
+                { id: "1x1", rows: 1, cols: 1, label: "1×1" },
+                { id: "2x1", rows: 2, cols: 1, label: "2×1" },
+                { id: "1x2", rows: 1, cols: 2, label: "1×2" },
+                { id: "2x2", rows: 2, cols: 2, label: "2×2" },
+                { id: "3x2", rows: 3, cols: 2, label: "3×2" },
+              ].map((grid) => (
                 <button
-                  key={button.id}
+                  key={grid.id}
                   type="button"
-                  onClick={handleClick}
-                  className={`create-mobile-toolbar__button ${
-                    isActive ? "create-mobile-toolbar__button--active" : ""
-                  }`.trim()}
+                  onClick={() => {
+                    setPendingPhotoTool(false);
+                    
+                    // Canvas dimensions from constants
+                    const canvasW = 1080;
+                    const canvasH = 1920;
+                    
+                    // Calculate grid dimensions based on rows/cols
+                    const gapX = 30;
+                    const gapY = 30;
+                    const marginX = 65;
+                    const marginY = 140;
+                    
+                    const availableWidth = canvasW - (2 * marginX) - ((grid.cols - 1) * gapX);
+                    const availableHeight = canvasH - (2 * marginY) - ((grid.rows - 1) * gapY);
+                    
+                    const photoWidth = Math.floor(availableWidth / grid.cols);
+                    const photoHeight = Math.floor(availableHeight / grid.rows);
+                    
+                    let lastAddedId = null;
+                    for (let row = 0; row < grid.rows; row++) {
+                      for (let col = 0; col < grid.cols; col++) {
+                        const x = marginX + (col * (photoWidth + gapX));
+                        const y = marginY + (row * (photoHeight + gapY));
+                        
+                        const newId = addElement("photo", {
+                          x,
+                          y,
+                          width: photoWidth,
+                          height: photoHeight,
+                        });
+                        
+                        if (newId) {
+                          lastAddedId = newId;
+                        }
+                      }
+                    }
+                    
+                    if (lastAddedId) {
+                      selectElement(lastAddedId);
+                    }
+                  }}
+                  className="create-mobile-toolbar__button"
                 >
-                  <Icon size={20} strokeWidth={2.4} />
-                  <span>{label}</span>
+                  <Grid3X3 size={20} strokeWidth={2.4} />
+                  <span>{grid.label}</span>
                 </button>
-              );
-            })}
-          </nav>
+              ))}
+            </nav>
+          ) : (
+            <nav
+              className={`create-mobile-toolbar ${
+                isMobilePropertyToolbar ? "create-mobile-toolbar--properties" : ""
+              }`.trim()}
+            >
+              {(isMobilePropertyToolbar
+                ? mobilePropertyButtons
+                : toolButtons
+              ).map((button) => {
+                const Icon = button.icon;
+                const isActive = isMobilePropertyToolbar
+                  ? activeMobileProperty === button.id
+                  : Boolean(button.isActive);
+                const label = isMobilePropertyToolbar
+                  ? button.label
+                  : button.mobileLabel ?? button.label;
+
+                const handleClick = () => {
+                  if (isMobilePropertyToolbar) {
+                    setActiveMobileProperty((prev) =>
+                      prev === button.id ? null : button.id
+                    );
+                  } else {
+                    handleToolButtonPress(button);
+                  }
+                };
+
+                return (
+                  <button
+                    key={button.id}
+                    type="button"
+                    onClick={handleClick}
+                    className={`create-mobile-toolbar__button ${
+                      isActive ? "create-mobile-toolbar__button--active" : ""
+                    }`.trim()}
+                  >
+                    <Icon size={20} strokeWidth={2.4} />
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          )}
         </>
       )}
 

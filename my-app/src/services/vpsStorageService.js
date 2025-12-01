@@ -58,9 +58,17 @@ export async function uploadToVPS(file, name) {
       
       if (data.success && data.url) {
         console.log(`✅ [VPS Storage] Upload successful via ${endpoint.name}`);
-        console.log('   URL:', data.url);
+        
+        // Convert HTTP VPS URL to HTTPS proxy URL
+        let finalUrl = data.url;
+        if (finalUrl.includes('72.61.210.203')) {
+          finalUrl = finalUrl.replace('http://72.61.210.203', 'https://fremio.id/proxy');
+          console.log('   Converted to HTTPS proxy:', finalUrl);
+        }
+        
+        console.log('   URL:', finalUrl);
         return {
-          url: data.url,
+          url: finalUrl,
           filename: data.filename,
           error: null,
         };
@@ -126,9 +134,17 @@ export async function uploadBase64ToVPS(base64Data, name) {
       
       if (data.success && data.url) {
         console.log(`✅ [VPS Storage] Upload successful via ${endpoint.name}`);
-        console.log('   URL:', data.url);
+        
+        // Convert HTTP VPS URL to HTTPS proxy URL
+        let finalUrl = data.url;
+        if (finalUrl.includes('72.61.210.203')) {
+          finalUrl = finalUrl.replace('http://72.61.210.203', 'https://fremio.id/proxy');
+          console.log('   Converted to HTTPS proxy:', finalUrl);
+        }
+        
+        console.log('   URL:', finalUrl);
         return {
-          url: data.url,
+          url: finalUrl,
           filename: data.filename,
           error: null,
         };

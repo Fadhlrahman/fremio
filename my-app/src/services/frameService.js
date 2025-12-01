@@ -388,27 +388,38 @@ export async function getFrameById(id) {
 
 /**
  * Create new frame
- * Upload gambar ke ImageKit (FREE HTTPS)
+ * Upload gambar ke VPS disk storage (4TB bandwidth!) atau ImageKit sebagai fallback
  */
 export async function createFrame(frameData, imageFile) {
   console.log('📦 [FrameService] Creating frame:', frameData.name);
   
   let imageUrl = null;
   
-  // Upload image to ImageKit (FREE HTTPS)
+  // Upload image to VPS disk storage (preferred) or ImageKit (fallback)
   if (imageFile) {
-    console.log('📤 [FrameService] Uploading image to ImageKit...');
     const safeName = frameData.name.replace(/[^a-zA-Z0-9]/g, '_');
     
-    const uploadResult = await uploadImageSimple(imageFile, safeName, 'frames');
+    // Try VPS storage first (FREE 4TB bandwidth!)
+    console.log('📤 [FrameService] Uploading to VPS disk storage...');
+    const { uploadToVPS } = await import('./vpsStorageService.js');
+    const vpsResult = await uploadToVPS(imageFile, safeName);
     
-    if (uploadResult.error) {
-      console.error('❌ [FrameService] ImageKit upload failed:', uploadResult.error);
-      throw new Error('Gagal upload gambar: ' + uploadResult.error);
+    if (vpsResult.url && !vpsResult.error) {
+      imageUrl = vpsResult.url;
+      console.log('✅ [FrameService] Image uploaded to VPS:', imageUrl);
+    } else {
+      // Fallback to ImageKit if VPS fails
+      console.log('⚠️ [FrameService] VPS upload failed, trying ImageKit...');
+      const uploadResult = await uploadImageSimple(imageFile, safeName, 'frames');
+      
+      if (uploadResult.error) {
+        console.error('❌ [FrameService] ImageKit upload failed:', uploadResult.error);
+        throw new Error('Gagal upload gambar: ' + uploadResult.error);
+      }
+      
+      imageUrl = uploadResult.url;
+      console.log('✅ [FrameService] Image uploaded to ImageKit:', imageUrl);
     }
-    
-    imageUrl = uploadResult.url;
-    console.log('✅ [FrameService] Image uploaded to ImageKit:', imageUrl);
   }
   
   // 🔄 STRATEGY: Create frame di VPS TANPA base64 image (bypass 502 error)
@@ -490,7 +501,7 @@ export async function createFrame(frameData, imageFile) {
 
 /**
  * Update frame
- * Upload gambar baru ke ImageKit (FREE HTTPS)
+ * Upload gambar baru ke VPS disk storage atau ImageKit sebagai fallback
  */
 export async function updateFrame(id, frameData, imageFile = null) {
   console.log(`📦 [FrameService] Updating frame: ${id}`);
@@ -515,21 +526,34 @@ export async function updateFrame(id, frameData, imageFile = null) {
     canvas_background: frameData.canvasBackground || '#f7f1ed',
   };
   
-  // If new image provided, upload to ImageKit
+  // If new image provided, upload to VPS or ImageKit
   if (imageFile) {
-    console.log('📤 [FrameService] Uploading new image to ImageKit...');
     const safeName = frameData.name.replace(/[^a-zA-Z0-9]/g, '_');
     
-    const uploadResult = await uploadImageSimple(imageFile, safeName, 'frames');
+    // Try VPS storage first
+    console.log('📤 [FrameService] Uploading new image to VPS...');
+    const { uploadToVPS } = await import('./vpsStorageService.js');
+    const vpsResult = await uploadToVPS(imageFile, safeName);
     
-    if (uploadResult.error) {
-      console.error('❌ [FrameService] ImageKit upload failed:', uploadResult.error);
-      throw new Error('Gagal upload gambar: ' + uploadResult.error);
+    let newImageUrl;
+    if (vpsResult.url && !vpsResult.error) {
+      newImageUrl = vpsResult.url;
+      console.log('✅ [FrameService] New image uploaded to VPS:', newImageUrl);
+    } else {
+      // Fallback to ImageKit
+      console.log('⚠️ [FrameService] VPS upload failed, trying ImageKit...');
+      const uploadResult = await uploadImageSimple(imageFile, safeName, 'frames');
+      
+      if (uploadResult.error) {
+        console.error('❌ [FrameService] ImageKit upload failed:', uploadResult.error);
+        throw new Error('Gagal upload gambar: ' + uploadResult.error);
+      }
+      
+      newImageUrl = uploadResult.url;
+      console.log('✅ [FrameService] New image uploaded to ImageKit:', newImageUrl);
     }
     
-    const newImageUrl = uploadResult.url;
     payload.image_url = newImageUrl;
-    console.log('✅ [FrameService] New image uploaded to ImageKit:', newImageUrl);
     
     // 🔄 Update frame directly to VPS (no base64)
     console.log('📡 [FrameService] Updating frame directly to VPS...');

@@ -87,35 +87,49 @@ export default function Home() {
       >
         <div className="container">
           <div className="about-content">
-            <h2 className="about-title">
-              <span className="about-title-accent">About&nbsp;</span>
-              <span className="about-title-main">fremio</span>
-            </h2>
+            {/* Cinematic Title */}
+            <div className="about-header fade-in-up">
+              <span className="about-overline">— fremio journey —</span>
+              <h2 className="about-title">
+                <span className="about-title-main">Momen yang Kita Lewatkan</span>
+              </h2>
+            </div>
 
-            <p className="about-tagline">Tangkap momen dengan cara yang berbeda!</p>
-
-            <div className="space-y-8">
-              <p className="about-text">
-                Fremio melihat <strong>momen</strong> sebagai hal yang <strong>unique</strong>. Suatu hari kamu akan melihat ke belakang dan menyadari bahwa bukan <strong>momen besar</strong> yang paling penting, tapi <strong>momen sehari-hari</strong> yang mungkin biasa saja seperti tawa keluarga, candaan teman, atau tatapan lembut pasangan. Suatu hari <strong>rumah akan terasa sepi</strong>, tempat favoritmu terasa hambar. Hal yang paling penting adalah <strong>apa kamu benar-benar di sana</strong> saat itu semua terjadi. <strong>Mari berada di sana, bersama</strong>!
+            {/* Story Block */}
+            <div className="about-story">
+              <div className="story-quote fade-in-up delay-1">"</div>
+              <p className="about-text fade-in-up delay-2">
+                Suatu hari kamu akan melihat ke belakang dan menyadari bahwa bukan <em>momen besar</em> yang paling penting, tapi <em>momen sehari-hari</em> yang mungkin biasa saja—tawa keluarga, candaan teman, tatapan lembut pasangan.
               </p>
+              <p className="about-text about-text-fade fade-in-up delay-3">
+                Suatu hari rumah akan terasa sepi. Tempat favoritmu terasa hambar. Yang paling penting adalah: <strong>apakah kamu benar-benar ada di sana</strong> saat itu semua terjadi?
+              </p>
+              <p className="about-closing fade-in-up delay-4">
+                — Mari berada di sana, bersama —
+              </p>
+            </div>
 
-              {/* Mission & Vision */}
-              <div className="mv-grid">
-                <div className="mv-card">
-                  <div className="mv-icon">👁️</div>
-                  <h3>Our Vision</h3>
-                  <p>
-                    Kami percaya setiap orang termasuk kamu punya cerita sendiri yang layak dirayakan. Fremio ingin menjadi temanmu dalam setiap cerita unik yang terjadi sehari-hari.
-                  </p>
-                </div>
+            {/* Minimal Divider */}
+            <div className="about-divider fade-in-up delay-5">
+              <span></span>
+              <span className="divider-dot">◆</span>
+              <span></span>
+            </div>
 
-                <div className="mv-card">
-                  <div className="mv-icon">🎯</div>
-                  <h3>Our Mission</h3>
-                  <p>
-                    Menyediakan berbagai frame yang pas untuk ceritamu setiap bulannya, sehingga kamu bisa mendapatkan momen yang terasa berbeda.
-                  </p>
-                </div>
+            {/* Vision & Mission - Refined */}
+            <div className="mv-grid">
+              <div className="mv-card fade-in-up delay-5">
+                <span className="mv-label">Vision</span>
+                <p>
+                  Setiap orang punya cerita yang layak dirayakan. Fremio hadir sebagai teman dalam setiap cerita unik yang terjadi sehari-hari.
+                </p>
+              </div>
+
+              <div className="mv-card fade-in-up delay-6">
+                <span className="mv-label">Mission</span>
+                <p>
+                  Menyediakan frame yang pas untuk ceritamu setiap bulannya—agar momen kecil terasa istimewa.
+                </p>
               </div>
             </div>
           </div>

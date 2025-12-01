@@ -135,7 +135,7 @@ export default function Header() {
               className={"nav-link" + (isAboutActive ? " active" : "")}
             >
               <img src={aboutIcon} alt="" className="nav-icon" />
-              <span>About</span>
+              <span>Join the Journey</span>
             </Link>
 
             {/* Route pages */}
@@ -429,7 +429,7 @@ export default function Header() {
             className={"nav-link" + (isAboutActive ? " active" : "")}
           >
             <img src={aboutIcon} alt="" className="nav-icon" />
-            <span>About</span>
+            <span>Join the Journey</span>
           </Link>
           <NavLink
             to="/frames"

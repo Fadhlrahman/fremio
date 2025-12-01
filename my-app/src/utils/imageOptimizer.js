@@ -12,6 +12,27 @@
 
 const WSRV_BASE = 'https://wsrv.nl/';
 
+// Helper: Convert VPS URLs to Cloudflare Pages proxy URLs
+const proxyVpsUrl = (url) => {
+  if (!url) return url;
+  
+  // If URL is from VPS (72.61.210.203), proxy through Cloudflare Pages Function
+  if (url.includes('72.61.210.203')) {
+    const match = url.match(/72\.61\.210\.203(\/.*)/);
+    if (match) {
+      // Use Pages Function proxy at /proxy/...
+      return `https://fremio.id/proxy${match[1]}`;
+    }
+  }
+  
+  // Ensure HTTPS for other URLs
+  if (url.startsWith('http://')) {
+    return url.replace('http://', 'https://');
+  }
+  
+  return url;
+};
+
 /**
  * Optimize image URL using wsrv.nl CDN
  * 
@@ -37,6 +58,14 @@ export const optimizeImage = (imageUrl, options = {}) => {
   // Skip if already optimized via wsrv
   if (imageUrl.includes('wsrv.nl')) return imageUrl;
   
+  // For VPS URLs, use Cloudflare proxy directly (wsrv.nl can't fetch from our proxy)
+  if (imageUrl.includes('72.61.210.203')) {
+    return proxyVpsUrl(imageUrl);
+  }
+  
+  // Proxy VPS URLs through Cloudflare first
+  const proxiedUrl = proxyVpsUrl(imageUrl);
+  
   const {
     width,
     height,
@@ -50,7 +79,7 @@ export const optimizeImage = (imageUrl, options = {}) => {
   } = options;
   
   const params = new URLSearchParams();
-  params.append('url', imageUrl);
+  params.append('url', proxiedUrl);
   
   // Dimensions
   if (width) params.append('w', width);

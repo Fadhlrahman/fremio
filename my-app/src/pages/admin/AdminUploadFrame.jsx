@@ -1,417 +1,947 @@
-import { useState, useEffect, useRef } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { useAuth } from "../../contexts/AuthContext";
-import { motion as Motion } from "framer-motion";
 import {
-  Upload,
-  FileImage,
-  Plus,
-  Trash2,
-  Save,
-  Eye,
-  CheckCircle,
-  ArrowLeft,
-  Settings,
-  Layers,
-  ChevronDown,
-  AlertTriangle,
+  useMemo,
+  useRef,
+  useState,
+  useEffect,
+  useCallback,
+  useLayoutEffect,
+} from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { motion as Motion } from "framer-motion";
+import html2canvas from "html2canvas";
+import {
   CheckCircle2,
+  AlertTriangle,
+  Palette,
+  Image as ImageIcon,
+  Type as TypeIcon,
+  Shapes,
+  UploadCloud,
+  Maximize2,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  CornerDownRight,
+  Settings2,
+  X,
+  Square,
+  Layers,
+  ArrowUp,
+  ArrowDown,
+  ChevronsUp,
+  ChevronsDown,
+  Grid3X3,
+  ArrowLeft,
+  Upload,
+  Save,
 } from "lucide-react";
+import CanvasPreview from "../../components/creator/CanvasPreview.jsx";
+import PropertiesPanel from "../../components/creator/PropertiesPanel.jsx";
+import ColorPicker from "../../components/creator/ColorPicker.jsx";
+import useCreatorStore from "../../store/useCreatorStore.js";
+import {
+  CAPTURED_OVERLAY_Z_OFFSET,
+  NORMAL_ELEMENTS_MIN_Z,
+  BACKGROUND_PHOTO_Z,
+  PHOTO_SLOT_MIN_Z,
+} from "../../constants/layers.js";
+import { useShallow } from "zustand/react/shallow";
+import {
+  CANVAS_WIDTH,
+  CANVAS_HEIGHT,
+} from "../../components/creator/canvasConstants.js";
+import {
+  getFrameById,
+  createFrame,
+  updateFrame,
+} from "../../services/frameService.js";
+import "../Create.css";
 import "../../styles/admin.css";
-import "./AdminUploadFrame.css";
-import { saveCustomFrame, getStorageInfo, getCustomFrameById } from "../../services/customFrameService";
-import { quickDetectSlots } from "../../utils/slotDetector";
 
 const panelMotion = {
   hidden: { opacity: 0, y: 16 },
   visible: { opacity: 1, y: 0 },
 };
 
+// Helper functions
+const parseNumericValue = (value, fallback = 0) => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return fallback;
+};
+
+const addRoundedRectPath = (ctx, x, y, width, height, radius) => {
+  const effectiveRadius = Math.max(
+    0,
+    Math.min(radius, Math.min(width, height) / 2)
+  );
+  if (effectiveRadius === 0) {
+    ctx.beginPath();
+    ctx.rect(x, y, width, height);
+    ctx.closePath();
+    return;
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(x + effectiveRadius, y);
+  ctx.lineTo(x + width - effectiveRadius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + effectiveRadius);
+  ctx.lineTo(x + width, y + height - effectiveRadius);
+  ctx.quadraticCurveTo(
+    x + width,
+    y + height,
+    x + width - effectiveRadius,
+    y + height
+  );
+  ctx.lineTo(x + effectiveRadius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - effectiveRadius);
+  ctx.lineTo(x, y + effectiveRadius);
+  ctx.quadraticCurveTo(x, y, x + effectiveRadius, y);
+  ctx.closePath();
+};
+
+const withTimeout = (
+  promise,
+  { timeoutMs = 10000, timeoutMessage, onTimeout } = {}
+) => {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return promise;
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timerId = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      onTimeout?.();
+      const err = new Error(
+        timeoutMessage || `Operation timed out after ${timeoutMs}ms`
+      );
+      err.name = "TimeoutError";
+      reject(err);
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timerId);
+        resolve(value);
+      })
+      .catch((error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timerId);
+        reject(error);
+      });
+  });
+};
+
+const prepareCanvasExportClone = (rootNode) => {
+  if (!rootNode) return;
+
+  try {
+    rootNode.setAttribute("data-export-clone", "true");
+
+    // 1. Remove elements marked for export ignore
+    const ignoreNodes = rootNode.querySelectorAll("[data-export-ignore]");
+    ignoreNodes.forEach((node) => node.remove());
+
+    // 2. Remove ALL resize handles - react-rnd creates them in various ways
+    // Target by class names
+    const resizeHandles = rootNode.querySelectorAll(
+      ".react-rnd-handle, .creator-resize-wrapper, [class*='react-rnd'], [class*='resize'], [class*='handle']"
+    );
+    resizeHandles.forEach((node) => {
+      if (!node.classList.contains('creator-element')) {
+        node.remove();
+      }
+    });
+
+    // 3. Remove resize handles by inline style patterns (cursor: *-resize)
+    const allElements = rootNode.querySelectorAll('*');
+    allElements.forEach((el) => {
+      // Check inline style for cursor resize
+      const inlineStyle = el.getAttribute('style') || '';
+      if (inlineStyle.includes('resize') || inlineStyle.includes('cursor')) {
+        // Check if this looks like a resize handle (small, positioned absolutely)
+        const width = parseInt(el.style.width) || el.offsetWidth || 0;
+        const height = parseInt(el.style.height) || el.offsetHeight || 0;
+        
+        // Resize handles are typically small (< 50px)
+        if ((width > 0 && width < 50) || (height > 0 && height < 50)) {
+          if (!el.classList.contains('creator-element') && !el.querySelector('img')) {
+            el.remove();
+            return;
+          }
+        }
+      }
+      
+      // 4. Remove any small circular elements (likely resize dots)
+      const borderRadius = el.style.borderRadius || '';
+      if (borderRadius === '50%' || borderRadius.includes('50%')) {
+        const width = parseInt(el.style.width) || el.offsetWidth || 0;
+        if (width < 40) { // Small circular element = resize dot
+          el.remove();
+          return;
+        }
+      }
+      
+      // 5. Hide elements with very high z-index (resize handles use z-index 9999)
+      const zIndexStyle = el.style.zIndex;
+      const zIndex = parseInt(zIndexStyle) || 0;
+      if (zIndex >= 9999 && !el.classList.contains('creator-element') && !el.querySelector('img')) {
+        el.style.display = 'none';
+        el.style.visibility = 'hidden';
+        el.style.opacity = '0';
+      }
+    });
+
+    // 6. Make photo slots completely transparent (they are just placeholders)
+    const photoSlots = rootNode.querySelectorAll(".creator-element--type-photo");
+    photoSlots.forEach((slot) => {
+      slot.style.background = "transparent";
+      slot.style.backgroundColor = "transparent";
+      slot.style.boxShadow = "none";
+      slot.style.color = "transparent";
+      slot.style.textShadow = "none";
+      slot.style.fontSize = "0px";
+      slot.style.filter = "none";
+      slot.style.mixBlendMode = "normal";
+      slot.style.border = "none";
+      slot.style.outline = "none";
+      // Remove all children (labels, icons, etc.)
+      const children = Array.from(slot.children || []);
+      children.forEach((child) => slot.removeChild(child));
+    });
+    
+    // 7. HIDE overlay upload elements when in EDIT MODE
+    // In EDIT mode: background-photo-1 contains the frame image, overlay elements are restored from layout.elements
+    // We need to hide overlay elements to prevent "baking" them twice into the frame image
+    // In CREATE mode: all upload elements are part of the frame, so don't hide anything
+    const uploadElements = rootNode.querySelectorAll(".creator-element--type-upload");
+    const hasBackgroundPhoto = rootNode.querySelector('[data-element-id="background-photo-1"]') !== null;
+    
+    if (hasBackgroundPhoto) {
+      // EDIT MODE: Hide all upload elements except background-photo-1
+      // These overlays are saved separately in layout.elements
+      uploadElements.forEach((el) => {
+        const elementId = el.getAttribute("data-element-id");
+        if (elementId !== "background-photo-1") {
+          console.log("[Export] EDIT MODE - Hiding overlay:", elementId, "- saved separately in layout.elements");
+          el.style.display = "none";
+          el.style.visibility = "hidden";
+          el.style.opacity = "0";
+        }
+      });
+    } else {
+      // CREATE MODE: All upload elements are captured into frame image
+      console.log("[Export] CREATE MODE - Including all", uploadElements.length, "upload elements in frame image");
+    }
+
+    // Reorder DOM elements by z-index
+    const creatorElements = Array.from(
+      rootNode.querySelectorAll(".creator-element")
+    );
+
+    if (creatorElements.length > 0) {
+      const parent = creatorElements[0].parentNode;
+      const sorted = creatorElements.sort((a, b) => {
+        const aZ =
+          Number.parseFloat(a.getAttribute("data-element-zindex")) ||
+          Number.parseFloat(a.style.zIndex) ||
+          0;
+        const bZ =
+          Number.parseFloat(b.getAttribute("data-element-zindex")) ||
+          Number.parseFloat(b.style.zIndex) ||
+          0;
+        return aZ - bZ;
+      });
+
+      sorted.forEach((el) => el.remove());
+      sorted.forEach((el) => {
+        const dataZ = el.getAttribute("data-element-zindex");
+        if (dataZ && Number.isFinite(Number.parseFloat(dataZ))) {
+          el.style.zIndex = dataZ;
+        }
+        parent.appendChild(el);
+      });
+    }
+  } catch (error) {
+    console.error("Error preparing canvas export clone:", error);
+  }
+};
+
+const normalizePhotoLayering = (elements = []) => {
+  if (!Array.isArray(elements) || elements.length === 0) {
+    return elements;
+  }
+
+  let didMutate = false;
+
+  const normalizedElements = elements.map((element) => {
+    if (!element || typeof element !== "object") return element;
+    if (element.type === "background-photo") return element;
+
+    if (Number.isFinite(element.zIndex)) {
+      return element;
+    }
+
+    const absoluteMin = BACKGROUND_PHOTO_Z + 1;
+    let defaultZ = NORMAL_ELEMENTS_MIN_Z;
+
+    if (element.type === "photo" || element.type === "upload") {
+      defaultZ = PHOTO_SLOT_MIN_Z;
+    }
+
+    let desiredZ = defaultZ;
+    if (desiredZ < absoluteMin) {
+      desiredZ = absoluteMin;
+    }
+
+    didMutate = true;
+    return { ...element, zIndex: desiredZ };
+  });
+
+  return didMutate ? normalizedElements : elements;
+};
+
 export default function AdminUploadFrame() {
+  console.log("[AdminUploadFrame] Component rendering...");
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const editFrameId = searchParams.get("edit");
-  const { user } = useAuth();
+  const isEditMode = Boolean(editFrameId);
+
   const fileInputRef = useRef(null);
+  const uploadPurposeRef = useRef("upload");
+  const toastTimeoutRef = useRef(null);
+  const previewFrameRef = useRef(null);
+  const loadedFrameIdRef = useRef(null); // Track which frame was loaded to prevent duplicates
 
-  // Edit mode state
-  const [isEditMode, setIsEditMode] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [isMobileView, setIsMobileView] = useState(false);
+  const [activeMobileProperty, setActiveMobileProperty] = useState(null);
+  const [showCanvasSizeInProperties, setShowCanvasSizeInProperties] = useState(false);
+  const [gradientColor1, setGradientColor1] = useState("#667eea");
+  const [gradientColor2, setGradientColor2] = useState("#764ba2");
+  const [canvasAspectRatio, setCanvasAspectRatio] = useState("9:16");
+  const [isBackgroundLocked, setIsBackgroundLocked] = useState(false);
+  const [pendingPhotoTool, setPendingPhotoTool] = useState(false);
+  const [previewConstraints, setPreviewConstraints] = useState({
+    maxWidth: 460,
+    maxHeight: 480,
+  });
 
-  // State declarations FIRST
+  // Frame metadata
   const [frameName, setFrameName] = useState("");
   const [frameDescription, setFrameDescription] = useState("");
-  const [frameCategory, setFrameCategory] = useState("custom");
-  const [maxCaptures, setMaxCaptures] = useState(3);
-  const [duplicatePhotos, setDuplicatePhotos] = useState(false);
+  const [frameCategory, setFrameCategory] = useState("Fremio Series");
 
-  // Frame image
-  const [frameImageFile, setFrameImageFile] = useState(null);
-  const [frameImagePreview, setFrameImagePreview] = useState("");
-
-  // Slots configuration
-  const [slots, setSlots] = useState([]);
-  const [autoDetecting, setAutoDetecting] = useState(false);
-  const [selectedSlotIndex, setSelectedSlotIndex] = useState(null);
-
-  // UI State
-  const [saving, setSaving] = useState(false);
-  const [activePanel, setActivePanel] = useState("upload"); // upload, slots, settings
-  const [showFrameSettings, setShowFrameSettings] = useState(true);
-  const [toast, setToast] = useState(null);
-
-  // Toast helper
-  const showToast = (type, message, duration = 3000) => {
+  const showToast = useCallback((type, message, duration = 3200) => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
     setToast({ type, message });
-    setTimeout(() => setToast(null), duration);
-  };
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimeoutRef.current = null;
+    }, duration);
+  }, []);
 
-  console.log("🎨 AdminUploadFrame component rendered");
-  console.log("👤 Current user:", user);
-  console.log("✏️ Edit mode:", editFrameId ? `Editing frame ${editFrameId}` : "New frame");
-  
-  // Get Firebase storage info on mount
-  useEffect(() => {
-    getStorageInfo(); // Just call it for debugging
-  }, []); // Run only once on mount
+  const {
+    elements,
+    selectedElementId,
+    canvasBackground,
+    addElement,
+    addUploadElement,
+    addBackgroundPhoto,
+    updateElement,
+    selectElement,
+    setCanvasBackground,
+    removeElement,
+    duplicateElement,
+    toggleLock,
+    resizeUploadImage,
+    bringToFront,
+    sendToBack,
+    bringForward,
+    sendBackward,
+    clearSelection,
+    fitBackgroundPhotoToCanvas,
+    setElements,
+    reset,
+  } = useCreatorStore(
+    useShallow((state) => ({
+      elements: state.elements,
+      selectedElementId: state.selectedElementId,
+      canvasBackground: state.canvasBackground,
+      addElement: state.addElement,
+      addUploadElement: state.addUploadElement,
+      addBackgroundPhoto: state.addBackgroundPhoto,
+      updateElement: state.updateElement,
+      selectElement: state.selectElement,
+      setCanvasBackground: state.setCanvasBackground,
+      removeElement: state.removeElement,
+      duplicateElement: state.duplicateElement,
+      toggleLock: state.toggleLock,
+      resizeUploadImage: state.resizeUploadImage,
+      bringToFront: state.bringToFront,
+      sendToBack: state.sendToBack,
+      bringForward: state.bringForward,
+      sendBackward: state.sendBackward,
+      clearSelection: state.clearSelection,
+      fitBackgroundPhotoToCanvas: state.fitBackgroundPhotoToCanvas,
+      setElements: state.setElements,
+      reset: state.reset,
+    }))
+  );
 
-  // Load frame data when in edit mode
+  const selectedElement = useMemo(() => {
+    if (selectedElementId === "background") return "background";
+    return elements.find((el) => el.id === selectedElementId) || null;
+  }, [elements, selectedElementId]);
+
+  const backgroundPhotoElement = useMemo(
+    () => elements.find((el) => el.type === "background-photo") || null,
+    [elements]
+  );
+
+  const selectedElementObject =
+    selectedElement && selectedElement !== "background" ? selectedElement : null;
+  const isBackgroundSelected = selectedElement === "background";
+  const isMobilePropertyToolbar =
+    isMobileView && (isBackgroundSelected || Boolean(selectedElementObject));
+
+  // Load frame for edit mode OR reset for new upload
   useEffect(() => {
+    // For new upload (no editFrameId), always reset canvas
+    if (!editFrameId) {
+      console.log("[AdminUploadFrame] New upload mode - resetting canvas");
+      loadedFrameIdRef.current = null;
+      reset?.();
+      setFrameName("");
+      setFrameDescription("");
+      setFrameCategory("Fremio Series");
+      return;
+    }
+
+    // Skip if already loaded this frame
+    if (loadedFrameIdRef.current === editFrameId) {
+      console.log("[AdminUploadFrame] Frame already loaded, skipping:", editFrameId);
+      return;
+    }
+
+    console.log("[AdminUploadFrame] Loading frame for edit:", editFrameId);
+    
+    // Reset canvas and form before loading new frame
+    reset?.();
+    setFrameName("");
+    setFrameDescription("");
+    setFrameCategory("Fremio Series");
+
     const loadFrameForEdit = async () => {
-      if (!editFrameId) return;
-      
-      setIsEditMode(true);
-      
+
+      setLoading(true);
       try {
-        console.log("📥 Loading frame for edit:", editFrameId);
-        const frame = await getCustomFrameById(editFrameId);
-        
+        console.log("Fetching frame:", editFrameId);
+        const frame = await getFrameById(editFrameId);
+
         if (frame) {
-          console.log("✅ Frame loaded:", frame);
+          console.log("Frame data:", frame);
           
-          // Set basic info
+          // Mark as loaded BEFORE adding elements
+          loadedFrameIdRef.current = editFrameId;
+          
+          // Set metadata
           setFrameName(frame.name || "");
           setFrameDescription(frame.description || "");
-          setFrameCategory(frame.category || "custom");
-          setMaxCaptures(frame.maxCaptures || frame.slots?.length || 3);
-          setDuplicatePhotos(frame.duplicatePhotos || false);
-          
-          // Set frame image preview
-          if (frame.imagePath || frame.thumbnailUrl) {
-            setFrameImagePreview(frame.imagePath || frame.thumbnailUrl);
+          setFrameCategory(frame.category || "Fremio Series");
+
+          // Build all elements first, then set them at once
+          const newElements = [];
+
+          // Add frame image as background-photo (at z-index 0, behind photo slots)
+          if (frame.imagePath || frame.image_url) {
+            const imageUrl = frame.imagePath || frame.image_url;
+            console.log("Adding frame image as background:", imageUrl);
+            
+            newElements.push({
+              id: "background-photo-1",
+              type: "background-photo",
+              x: 0,
+              y: 0,
+              width: CANVAS_WIDTH,
+              height: CANVAS_HEIGHT,
+              rotation: 0,
+              zIndex: 0, // Background is at z-index 0
+              isLocked: false,
+              data: {
+                image: imageUrl,
+                objectFit: "cover",
+                borderRadius: 0,
+                label: "Background",
+              },
+            });
+          } else {
+            console.warn("No frame image found! frame.imagePath:", frame.imagePath, "frame.image_url:", frame.image_url);
           }
-          
-          // Set slots
+
+          // Convert slots to photo elements (z-index 1, above background)
           if (frame.slots && frame.slots.length > 0) {
-            setSlots(frame.slots);
-            console.log("📍 Slots loaded:", frame.slots.length);
+            console.log("Adding", frame.slots.length, "photo slots");
+            
+            frame.slots.forEach((slot, index) => {
+              // Slots are stored as fractions (0-1), convert to pixels
+              const x = (slot.left || 0) * CANVAS_WIDTH;
+              const y = (slot.top || 0) * CANVAS_HEIGHT;
+              const width = (slot.width || 0.3) * CANVAS_WIDTH;
+              const height = (slot.height || 0.2) * CANVAS_HEIGHT;
+              
+              newElements.push({
+                id: slot.id || crypto.randomUUID(),
+                type: "photo",
+                x,
+                y,
+                width,
+                height,
+                rotation: 0,
+                zIndex: 1, // Photo slots at z-index 1
+                isLocked: false,
+                data: {
+                  photoIndex: slot.photoIndex ?? index,
+                  aspectRatio: slot.aspectRatio || "4:5",
+                  image: null,
+                  borderRadius: slot.borderRadius || 0,
+                },
+              });
+            });
           }
+          
+          // Restore other elements (upload overlays, text, shape) from layout
+          if (frame.layout?.elements && Array.isArray(frame.layout.elements)) {
+            console.log("Restoring", frame.layout.elements.length, "overlay elements from layout");
+            frame.layout.elements.forEach((el) => {
+              // Convert normalized positions back to absolute
+              const restoredElement = {
+                ...el,
+                x: el.xNorm !== undefined ? el.xNorm * CANVAS_WIDTH : el.x,
+                y: el.yNorm !== undefined ? el.yNorm * CANVAS_HEIGHT : el.y,
+                width: el.widthNorm !== undefined ? el.widthNorm * CANVAS_WIDTH : el.width,
+                height: el.heightNorm !== undefined ? el.heightNorm * CANVAS_HEIGHT : el.height,
+                // Overlay elements should be above photo slots
+                zIndex: Math.max(el.zIndex || 10, 10),
+              };
+              
+              // For upload elements, recalculate height using aspect ratio
+              if (el.type === "upload" && el.data?.imageAspectRatio) {
+                restoredElement.height = restoredElement.width / el.data.imageAspectRatio;
+              }
+              
+              // Remove normalized properties
+              delete restoredElement.xNorm;
+              delete restoredElement.yNorm;
+              delete restoredElement.widthNorm;
+              delete restoredElement.heightNorm;
+              
+              newElements.push(restoredElement);
+            });
+          }
+
+          // Set all elements at once
+          console.log("Setting", newElements.length, "elements");
+          setElements(newElements);
         } else {
-          console.error("❌ Frame not found:", editFrameId);
-          alert("Frame tidak ditemukan!");
+          console.error("Frame not found:", editFrameId);
+          showToast("error", "Frame tidak ditemukan!");
           navigate("/admin/frames");
         }
       } catch (error) {
-        console.error("❌ Error loading frame:", error);
-        alert("Gagal memuat frame: " + error.message);
-      }
-    };
-    
-    loadFrameForEdit();
-  }, [editFrameId, navigate]);
-
-  // Handle frame image upload with auto slot detection
-  const handleImageUpload = async (e) => {
-    console.log("🖼️ handleImageUpload triggered");
-    const file = e.target.files[0];
-    console.log("📁 Selected file:", file);
-
-    if (!file) {
-      console.log("❌ No file selected");
-      return;
-    }
-
-    // Validate file type
-    if (!file.type.startsWith("image/png")) {
-      console.log("❌ Invalid file type:", file.type);
-      alert("Hanya file PNG yang diperbolehkan");
-      return;
-    }
-
-    // Validate file size (max 5MB)
-    const maxSize = 5 * 1024 * 1024; // 5MB
-    if (file.size > maxSize) {
-      console.log("❌ File too large:", file.size, "bytes");
-      alert(
-        `File terlalu besar! Maksimal 5MB.\n\nUkuran file: ${(
-          file.size /
-          1024 /
-          1024
-        ).toFixed(2)}MB\n\nSilakan compress image terlebih dahulu.`
-      );
-      return;
-    }
-
-    console.log("✅ Valid PNG file:", file.name, "Size:", file.size, "bytes");
-    setFrameImageFile(file);
-
-    // Create preview
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      console.log("✅ Preview created successfully");
-      setFrameImagePreview(reader.result);
-
-      // Auto-detect slots from transparent areas
-      console.log("🔍 Starting automatic slot detection...");
-      setAutoDetecting(true);
-
-      try {
-        const detectedSlots = await quickDetectSlots(reader.result);
-        console.log("✅ Auto-detected slots:", detectedSlots.length);
-
-        if (detectedSlots.length > 0) {
-          setSlots(detectedSlots);
-          setMaxCaptures(detectedSlots.length);
-          alert(
-            `🎯 Berhasil mendeteksi ${detectedSlots.length} slot foto secara otomatis!\n\n` +
-              `Anda dapat edit posisi slot jika perlu, atau langsung upload frame.`
-          );
-        } else {
-          console.log("⚠️ No slots detected, user can add manually");
-          alert(
-            "⚠️ Tidak ada area transparan yang terdeteksi.\n\n" +
-              "Gunakan tombol 'Add Slot' untuk menambah slot secara manual."
-          );
-        }
-      } catch (error) {
-        console.error("❌ Error detecting slots:", error);
-        alert(
-          "⚠️ Gagal mendeteksi slot otomatis.\n\n" +
-            "Gunakan tombol 'Add Slot' untuk menambah slot secara manual."
-        );
+        console.error("Error loading frame:", error);
+        showToast("error", "Gagal memuat frame: " + error.message);
       } finally {
-        setAutoDetecting(false);
+        setLoading(false);
       }
     };
-    reader.readAsDataURL(file);
-  };
 
-  // Add new slot
-  const addSlot = () => {
-    const newSlot = {
-      id: `slot_${slots.length + 1}`,
-      left: 0.1,
-      top: 0.1,
-      width: 0.4,
-      height: 0.3,
-      aspectRatio: "4:5",
-      zIndex: 2,
-      photoIndex: slots.length % maxCaptures,
+    loadFrameForEdit();
+  }, [editFrameId]); // Only depend on editFrameId
+
+  const getCanvasDimensions = useCallback((ratio) => {
+    const defaultDimensions = { width: CANVAS_WIDTH, height: CANVAS_HEIGHT };
+    if (typeof ratio !== "string") return defaultDimensions;
+
+    const [rawWidth, rawHeight] = ratio.split(":").map(Number);
+    const ratioWidth =
+      Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : null;
+    const ratioHeight =
+      Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : null;
+
+    if (!ratioWidth || !ratioHeight) return defaultDimensions;
+
+    if (ratioHeight >= ratioWidth) {
+      return {
+        width: CANVAS_WIDTH,
+        height: Math.round((CANVAS_WIDTH * ratioHeight) / ratioWidth),
+      };
+    }
+
+    return {
+      width: Math.round((CANVAS_HEIGHT * ratioWidth) / ratioHeight),
+      height: CANVAS_HEIGHT,
     };
-    setSlots([...slots, newSlot]);
-  };
+  }, []);
 
-  // Update slot configuration
-  const updateSlot = (index, field, value) => {
-    const updatedSlots = [...slots];
-    updatedSlots[index] = {
-      ...updatedSlots[index],
-      [field]:
-        field === "left" ||
-        field === "top" ||
-        field === "width" ||
-        field === "height"
-          ? parseFloat(value)
-          : value,
+  // Tool buttons
+  const toolButtons = useMemo(
+    () => [
+      {
+        id: "photo",
+        icon: ImageIcon,
+        label: "Slot Foto",
+        mobileLabel: "Foto",
+      },
+      { id: "shape", icon: Shapes, label: "Bentuk", mobileLabel: "Bentuk" },
+      { id: "text", icon: TypeIcon, label: "Teks", mobileLabel: "Teks" },
+      {
+        id: "upload",
+        icon: UploadCloud,
+        label: "Upload",
+        mobileLabel: "Upload",
+      },
+      {
+        id: "background",
+        icon: Palette,
+        label: "Latar",
+        mobileLabel: "Latar",
+        isActive: selectedElementId === "background",
+      },
+    ],
+    [selectedElementId]
+  );
+
+  const handleToolButtonPress = useCallback(
+    (button) => {
+      clearSelection();
+      setActiveMobileProperty(null);
+
+      switch (button.id) {
+        case "photo":
+          setPendingPhotoTool(true);
+          break;
+        case "shape":
+          addElement("shape");
+          break;
+        case "text":
+          addElement("text");
+          break;
+        case "upload":
+          uploadPurposeRef.current = "upload";
+          fileInputRef.current?.click();
+          break;
+        case "background":
+          selectElement("background");
+          break;
+      }
+    },
+    [addElement, clearSelection, selectElement]
+  );
+
+  const handleFileChange = useCallback(
+    async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const dataUrl = reader.result;
+
+        if (uploadPurposeRef.current === "background") {
+          addBackgroundPhoto(dataUrl);
+        } else {
+          addUploadElement(dataUrl);
+        }
+      };
+      reader.readAsDataURL(file);
+
+      event.target.value = "";
+    },
+    [addBackgroundPhoto, addUploadElement]
+  );
+
+  const triggerBackgroundUpload = useCallback(() => {
+    uploadPurposeRef.current = "background";
+    fileInputRef.current?.click();
+  }, []);
+
+  // Listen for background upload request from PropertiesPanel
+  useEffect(() => {
+    const handleBackgroundUploadRequest = () => {
+      console.log("Background upload requested via custom event");
+      triggerBackgroundUpload();
     };
-    setSlots(updatedSlots);
-  };
 
-  // Delete slot
-  const deleteSlot = (index) => {
-    const newSlots = slots.filter((_, i) => i !== index);
-    setSlots(newSlots);
-    // Update maxCaptures to match slot count
-    setMaxCaptures(newSlots.length);
-  };
+    window.addEventListener("creator:request-background-upload", handleBackgroundUploadRequest);
+    return () => {
+      window.removeEventListener("creator:request-background-upload", handleBackgroundUploadRequest);
+    };
+  }, [triggerBackgroundUpload]);
 
-  // Save frame
-  const handleSaveFrame = async () => {
-    console.log("🔥 handleSaveFrame called");
-    console.log("📝 Frame name:", frameName);
-    console.log("🖼️ Frame image file:", frameImageFile);
-    console.log("📍 Slots:", slots);
+  const toggleBackgroundLock = useCallback(() => {
+    setIsBackgroundLocked((prev) => !prev);
+  }, []);
+
+  const resetBackground = useCallback(() => {
+    setCanvasBackground("#ffffff");
+    const bgPhoto = elements.find((el) => el.type === "background-photo");
+    if (bgPhoto) {
+      removeElement(bgPhoto.id);
+    }
+  }, [elements, removeElement, setCanvasBackground]);
+
+  // Handle upload frame
+  const handleUploadFrame = async () => {
+    if (saving) return;
 
     // Validation
     if (!frameName.trim()) {
-      alert("Nama frame harus diisi");
+      showToast("error", "Nama frame harus diisi");
       return;
     }
 
-    if (!frameImageFile) {
-      alert("Upload gambar frame terlebih dahulu");
+    const photoElements = elements.filter((el) => el.type === "photo");
+    if (photoElements.length === 0) {
+      showToast("error", "Tambahkan minimal 1 slot foto");
       return;
     }
 
-    if (slots.length === 0) {
-      alert("Tambahkan minimal 1 slot foto");
+    // Check for upload element (frame artwork)
+    const uploadElements = elements.filter((el) => el.type === "upload");
+    if (uploadElements.length === 0) {
+      showToast("error", "Upload gambar frame terlebih dahulu");
       return;
     }
 
     setSaving(true);
-    console.log("💾 Starting save process...");
-
-    // Add timeout protection
-    const timeoutId = setTimeout(() => {
-      console.error("⏰ Save timeout after 30 seconds");
-      setSaving(false);
-      alert(
-        "❌ Timeout: Proses simpan terlalu lama.\n\n" +
-        "Kemungkinan penyebab:\n" +
-        "- File image terlalu besar\n" +
-        "- LocalStorage penuh\n" +
-        "- Browser memory issue\n\n" +
-        "Coba:\n" +
-        "1. Compress image (< 500KB)\n" +
-        "2. Clear browser cache\n" +
-        "3. Reload page dan coba lagi"
-      );
-    }, 30000); // 30 seconds timeout
 
     try {
-      // Create frame configuration object with unique ID (name + timestamp)
-      const uniqueId = frameName.toLowerCase().replace(/\s+/g, "-") + "-" + Date.now();
+      // ===== SIMPLE APPROACH: Use the TOP overlay image directly =====
+      // Find the upload element with HIGHEST zIndex (the overlay/frame)
+      // This preserves transparency from the original PNG!
+      const sortedUploads = [...uploadElements].sort((a, b) => (b.zIndex || 0) - (a.zIndex || 0));
+      const topOverlay = sortedUploads[0];
       
-      // IMPORTANT: Use slots.length as the source of truth for maxCaptures
-      const actualMaxCaptures = slots.length;
-      console.log("📊 Actual slot count:", actualMaxCaptures);
+      // Get the ORIGINAL image data (not the resized display version)
+      const originalImageData = topOverlay.data?.originalImage || topOverlay.data?.image;
       
-      const frameConfig = {
-        id: uniqueId,
-        name: frameName,
-        description: frameDescription,
+      if (!originalImageData) {
+        showToast("error", "Gambar overlay tidak ditemukan");
+        setSaving(false);
+        return;
+      }
+      
+      console.log("📸 Using top overlay image directly (preserving transparency)");
+      console.log("  - Overlay ID:", topOverlay.id);
+      console.log("  - zIndex:", topOverlay.zIndex);
+      console.log("  - Image data length:", originalImageData.length);
+      
+      // Convert data URL to blob/file
+      const response = await fetch(originalImageData);
+      const blob = await response.blob();
+      
+      // Determine file type from blob or data URL
+      const isPng = blob.type === "image/png" || originalImageData.includes("data:image/png");
+      const extension = isPng ? "png" : "jpg";
+      const mimeType = isPng ? "image/png" : "image/jpeg";
+      
+      const imageFile = new File([blob], `frame-${Date.now()}.${extension}`, { type: mimeType });
+      console.log(`  - File type: ${mimeType}, size: ${Math.round(blob.size / 1024)}KB`);
+
+      // Prepare slots data
+      const W = CANVAS_WIDTH;
+      const H = CANVAS_HEIGHT;
+      const slots = photoElements.map((el, index) => ({
+        id: el.id,
+        left: (el.x || 0) / W,
+        top: (el.y || 0) / H,
+        width: (el.width || 300) / W,
+        height: (el.height || 200) / H,
+        aspectRatio: el.data?.aspectRatio || "4:5",
+        zIndex: 2, // Photo slots at z-index 2 (like old system)
+        photoIndex: el.data?.photoIndex ?? index,
+        borderRadius: el.data?.borderRadius || 0,
+      }));
+
+      // Prepare frame data (simple, like old system)
+      const frameData = {
+        name: frameName.trim(),
+        description: frameDescription.trim(),
         category: frameCategory,
-        maxCaptures: actualMaxCaptures, // Use actual slot count
-        duplicatePhotos,
-        slots: slots.map((slot, idx) => ({
-          ...slot,
-          left: parseFloat(slot.left),
-          top: parseFloat(slot.top),
-          width: parseFloat(slot.width),
-          height: parseFloat(slot.height),
-          zIndex: parseInt(slot.zIndex),
-          photoIndex: idx, // Re-index based on actual position
-        })),
-        layout: {
-          aspectRatio: "9:16",
-          orientation: "portrait",
-          backgroundColor: "#ffffff",
-        },
+        maxCaptures: slots.length,
+        max_captures: slots.length,
+        slots,
       };
 
-      console.log("📦 Frame config created:", frameConfig);
+      console.log("Uploading frame...", {
+        name: frameData.name,
+        category: frameData.category,
+        slots: slots.length,
+        isEditMode,
+        editFrameId,
+      });
 
-      // Always use LocalStorage mode for admin uploads to avoid Firebase permission issues
-      console.log("💾 Using LocalStorage mode (Admin Direct Upload)");
-      
-      const result = await saveCustomFrame(
-        {
-          ...frameConfig,
-          createdBy: user?.email || "admin",
-        },
-        frameImageFile
-      );
-
-      console.log("✅ Save result:", result);
+      let result;
+      if (isEditMode && editFrameId) {
+        // Update existing frame
+        result = await updateFrame(editFrameId, frameData, imageFile);
+      } else {
+        // Create new frame
+        result = await createFrame(frameData, imageFile);
+      }
 
       if (result.success) {
-        clearTimeout(timeoutId); // Clear timeout on success
-        
-        alert(
-          "✅ Frame berhasil disimpan ke Firebase!\n\n" +
-          "Frame ID: " + (result.frameId || frameConfig.id) + "\n\n" +
-          "Frame sekarang tersedia di halaman Frames untuk semua user."
+        showToast(
+          "success",
+          isEditMode
+            ? "Frame berhasil diupdate!"
+            : "Frame berhasil diupload!"
         );
-        navigate("/admin/frames");
+        
+        // Navigate after short delay
+        setTimeout(() => {
+          navigate("/admin/frames");
+        }, 1500);
       } else {
-        clearTimeout(timeoutId);
         throw new Error(result.message || "Failed to save frame");
       }
     } catch (error) {
-      clearTimeout(timeoutId); // Clear timeout on error
-      console.error("❌ Error saving frame:", error);
-      console.error("❌ Error stack:", error.stack);
-      
-      // Better error message
-      let errorMessage = error.message;
-      
-      if (error.message.includes("quota") || error.message.includes("Quota")) {
-        errorMessage = 
-          "❌ LocalStorage Penuh!\n\n" +
-          "Solusi:\n" +
-          "1. Compress image Anda (<200KB)\n" +
-          "2. Hapus frame lama di console:\n" +
-          "   window.storageDebug.clearFrames(true)\n" +
-          "3. Clear browser cache\n\n" +
-          "Tips: Gunakan tinypng.com untuk compress image";
-      }
-      
-      alert("Gagal menyimpan frame:\n\n" + errorMessage);
+      console.error("Error uploading frame:", error);
+      showToast("error", "Gagal menyimpan frame: " + error.message);
     } finally {
       setSaving(false);
-      console.log("🏁 Save process completed");
     }
   };
 
-  // Tool buttons for the sidebar
-  const toolButtons = [
-    {
-      id: "upload",
-      label: "Upload Frame",
-      icon: Upload,
-      isActive: activePanel === "upload",
-    },
-    {
-      id: "slots",
-      label: "Photo Slots",
-      icon: Layers,
-      isActive: activePanel === "slots",
-    },
-    {
-      id: "settings",
-      label: "Frame Settings",
-      icon: Settings,
-      isActive: activePanel === "settings",
-    },
-  ];
+  // Mobile property panel
+  const mobilePropertyButtons = useMemo(() => {
+    if (!isMobilePropertyToolbar) return [];
 
-  // Convert aspect ratio string to CSS value
-  const getAspectRatioCSS = (ratio) => {
-    switch (ratio) {
-      case "1:1": return "1/1";
-      case "4:5": return "4/5";
-      case "3:4": return "3/4";
-      case "16:9": return "16/9";
-      case "9:16": return "9/16";
-      default: return "4/5";
+    if (isBackgroundSelected) {
+      return [
+        { id: "background-color", label: "Warna", icon: Palette },
+        {
+          id: "background-photo",
+          label: backgroundPhotoElement ? "Foto" : "Tambah Foto",
+          icon: ImageIcon,
+        },
+      ];
     }
-  };
+
+    if (!selectedElementObject) return [];
+
+    switch (selectedElementObject.type) {
+      case "text":
+        return [
+          { id: "text-edit", label: "Edit", icon: TypeIcon },
+          { id: "text-font", label: "Font", icon: TypeIcon },
+          { id: "text-color", label: "Warna", icon: Palette },
+          { id: "text-size", label: "Ukuran", icon: Maximize2 },
+          { id: "text-align", label: "Rata", icon: AlignCenter },
+          { id: "layer-order", label: "Lapisan", icon: Layers },
+        ];
+      case "shape":
+        return [
+          { id: "shape-color", label: "Warna", icon: Palette },
+          { id: "shape-size", label: "Ukuran", icon: Maximize2 },
+          { id: "shape-radius", label: "Sudut", icon: CornerDownRight },
+          { id: "shape-outline", label: "Outline", icon: Square },
+          { id: "layer-order", label: "Lapisan", icon: Layers },
+        ];
+      case "photo":
+        return [
+          { id: "photo-color", label: "Warna", icon: Palette },
+          { id: "photo-fit", label: "Gaya", icon: Settings2 },
+          { id: "photo-size", label: "Ukuran", icon: Maximize2 },
+          { id: "photo-radius", label: "Sudut", icon: CornerDownRight },
+          { id: "photo-outline", label: "Outline", icon: Square },
+          { id: "layer-order", label: "Lapisan", icon: Layers },
+        ];
+      case "upload":
+        return [
+          { id: "photo-color", label: "Warna", icon: Palette },
+          { id: "photo-fit", label: "Gaya", icon: Settings2 },
+          { id: "photo-size", label: "Ukuran", icon: Maximize2 },
+          { id: "photo-radius", label: "Sudut", icon: CornerDownRight },
+          { id: "upload-outline", label: "Outline", icon: Square },
+          { id: "layer-order", label: "Lapisan", icon: Layers },
+        ];
+      default:
+        return [];
+    }
+  }, [isMobilePropertyToolbar, isBackgroundSelected, backgroundPhotoElement, selectedElementObject]);
+
+  // Responsive handling
+  useEffect(() => {
+    const checkMobile = () => setIsMobileView(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
+  // Compute preview constraints
+  useLayoutEffect(() => {
+    const computeConstraints = () => {
+      if (!previewFrameRef.current) return;
+      const rect = previewFrameRef.current.getBoundingClientRect();
+      setPreviewConstraints({
+        maxWidth: Math.max(200, rect.width - 20),
+        maxHeight: Math.max(200, rect.height - 20),
+      });
+    };
+
+    computeConstraints();
+    window.addEventListener("resize", computeConstraints);
+    return () => window.removeEventListener("resize", computeConstraints);
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="create-page" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ textAlign: "center" }}>
+          <div className="create-save__spinner" style={{ width: 48, height: 48, margin: "0 auto 16px" }}>
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" style={{ width: "100%", height: "100%" }}>
+              <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+          </div>
+          <p style={{ color: "#5c4941" }}>Memuat frame...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="admin-upload-page">
-      {/* Toast Notification */}
+    <div className="create-page">
+      {/* Toast */}
       {toast && (
         <Motion.div
-          className="admin-upload-toast-wrapper"
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0 }}
+          className="create-toast-wrapper"
+          initial={{ opacity: 0, y: -12, scale: 0.94 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -12, scale: 0.94 }}
+          transition={{ type: "spring", stiffness: 460, damping: 26 }}
         >
           <div
-            className={`admin-upload-toast ${
-              toast.type === "success"
-                ? "admin-upload-toast--success"
-                : "admin-upload-toast--error"
-            }`}
+            className={"create-toast " + (toast.type === "success" ? "create-toast--success" : "create-toast--error")}
           >
             {toast.type === "success" ? (
               <CheckCircle2 size={18} strokeWidth={2.5} />
@@ -423,46 +953,47 @@ export default function AdminUploadFrame() {
         </Motion.div>
       )}
 
-      <div className="admin-upload-grid">
+      <div className="create-grid">
         {/* Left Panel - Tools */}
-        <Motion.aside
-          variants={panelMotion}
-          initial="hidden"
-          animate="visible"
-          transition={{ delay: 0.05 }}
-          className="admin-upload-panel--tools"
-        >
-          <h2 className="admin-upload-panel__title">Tools</h2>
-          <div className="admin-upload-tools__list">
-            {toolButtons.map((button) => {
-              const IconComponent = button.icon;
-              return (
-                <button
-                  key={button.id}
-                  type="button"
-                  onClick={() => setActivePanel(button.id)}
-                  className={`admin-upload-tools__button ${
-                    button.isActive ? "admin-upload-tools__button--active" : ""
-                  }`.trim()}
-                >
-                  <IconComponent size={20} strokeWidth={2} />
-                  <span>{button.label}</span>
-                </button>
-              );
-            })}
+        {!isMobileView && (
+          <Motion.aside
+            variants={panelMotion}
+            initial="hidden"
+            animate="visible"
+            transition={{ delay: 0.05 }}
+            className="create-panel create-panel--tools"
+          >
+            <h2 className="create-panel__title">Tools</h2>
+            <div className="create-tools__list">
+              {toolButtons.map((button) => {
+                const IconComponent = button.icon;
+                return (
+                  <button
+                    key={button.id}
+                    type="button"
+                    onClick={() => handleToolButtonPress(button)}
+                    className={"create-tools__button " + (button.isActive ? "create-tools__button--active" : "")}
+                  >
+                    <IconComponent size={20} strokeWidth={2} />
+                    <span>{button.label}</span>
+                  </button>
+                );
+              })}
 
-            <div style={{ marginTop: "auto", paddingTop: "20px", borderTop: "1px solid rgba(224,183,169,0.3)" }}>
-              <button
-                type="button"
-                onClick={() => navigate("/admin")}
-                className="admin-upload-tools__button"
-              >
-                <ArrowLeft size={20} strokeWidth={2} />
-                <span>Kembali</span>
-              </button>
+              {/* Back button */}
+              <div style={{ marginTop: "auto", paddingTop: "20px", borderTop: "1px solid rgba(224,183,169,0.3)" }}>
+                <button
+                  type="button"
+                  onClick={() => navigate("/admin/frames")}
+                  className="create-tools__button"
+                >
+                  <ArrowLeft size={20} strokeWidth={2} />
+                  <span>Kembali</span>
+                </button>
+              </div>
             </div>
-          </div>
-        </Motion.aside>
+          </Motion.aside>
+        )}
 
         {/* Center - Preview */}
         <Motion.section
@@ -470,478 +1001,324 @@ export default function AdminUploadFrame() {
           initial="hidden"
           animate="visible"
           transition={{ delay: 0.1 }}
-          className="admin-upload-preview"
+          className="create-preview"
         >
-          <h2 className="admin-upload-preview__title">
+          <h2 className="create-preview__title">
             {isEditMode ? "Edit Frame" : "Upload Frame"}
           </h2>
 
-          <div className="admin-upload-preview__body">
-            <div className="admin-upload-preview__frame">
-              {frameImagePreview ? (
-                <>
-                  {/* Frame Image */}
-                  <img
-                    src={frameImagePreview}
-                    alt="Frame Preview"
-                    style={{
-                      position: "absolute",
-                      inset: 0,
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "contain",
-                      zIndex: 3,
-                    }}
-                  />
-                  {/* Slot overlays */}
-                  {slots.map((slot, index) => (
-                    <div
-                      key={index}
-                      className={`admin-upload-preview-slot ${
-                        selectedSlotIndex === index ? "admin-upload-preview-slot--selected" : ""
-                      }`}
-                      style={{
-                        left: `${slot.left * 100}%`,
-                        top: `${slot.top * 100}%`,
-                        width: `${slot.width * 100}%`,
-                        aspectRatio: getAspectRatioCSS(slot.aspectRatio),
-                        zIndex: 1,
-                      }}
-                      onClick={() => {
-                        setSelectedSlotIndex(index);
-                        setActivePanel("slots");
-                      }}
-                    >
-                      <span className="admin-upload-preview-slot__label">
-                        Slot {index + 1}
-                      </span>
-                    </div>
-                  ))}
-                  {/* Success badge */}
-                  <div className="admin-upload-badge admin-upload-badge--success" style={{
-                    position: "absolute",
-                    top: "12px",
-                    right: "12px",
-                    zIndex: 10,
-                  }}>
-                    <CheckCircle size={14} />
-                    Uploaded
-                  </div>
-                </>
-              ) : (
-                /* Upload Zone */
-                <div
-                  className={`admin-upload-zone ${autoDetecting ? "admin-upload-zone--active" : ""}`}
-                  onClick={() => fileInputRef.current?.click()}
-                  style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}
-                >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/png"
-                    onChange={handleImageUpload}
-                    style={{ display: "none" }}
-                  />
-                  {autoDetecting ? (
-                    <>
-                      <div className="admin-upload-zone__icon">
-                        <Eye size={64} />
-                      </div>
-                      <p className="admin-upload-zone__title">Mendeteksi slot...</p>
-                      <p className="admin-upload-zone__subtitle">Mencari area transparan pada frame</p>
-                    </>
-                  ) : (
-                    <>
-                      <div className="admin-upload-zone__icon">
-                        <Upload size={64} />
-                      </div>
-                      <p className="admin-upload-zone__title">Upload Frame PNG</p>
-                      <p className="admin-upload-zone__subtitle">Klik untuk memilih file (max 5MB)</p>
-                    </>
-                  )}
-                </div>
-              )}
+          <div className="create-preview__body">
+            <div
+              ref={previewFrameRef}
+              className="create-preview__frame"
+              data-canvas-ratio={canvasAspectRatio}
+            >
+              <CanvasPreview
+                elements={elements}
+                selectedElementId={selectedElementId}
+                canvasBackground={canvasBackground}
+                aspectRatio={canvasAspectRatio}
+                previewConstraints={previewConstraints}
+                onSelect={(id) => {
+                  setActiveMobileProperty(null);
+                  if (id === null) {
+                    clearSelection();
+                  } else if (id === "background") {
+                    selectElement("background");
+                  } else {
+                    selectElement(id);
+                  }
+                }}
+                onUpdate={updateElement}
+                onBringToFront={bringToFront}
+                onRemove={removeElement}
+                onDuplicate={duplicateElement}
+                onToggleLock={toggleLock}
+                onResizeUpload={resizeUploadImage}
+                isBackgroundLocked={isBackgroundLocked}
+                onToggleBackgroundLock={toggleBackgroundLock}
+                onResetBackground={resetBackground}
+              />
             </div>
           </div>
 
-          {/* Save Button */}
+          {/* Upload/Update Button */}
           <Motion.button
             type="button"
-            onClick={handleSaveFrame}
-            disabled={saving || !frameName || !frameImageFile || slots.length === 0}
-            className="admin-upload-save"
+            onClick={handleUploadFrame}
+            disabled={saving}
+            className="create-save"
             whileTap={{ scale: 0.97 }}
             whileHover={{ y: -3 }}
           >
             {saving ? (
               <>
                 <svg
-                  className="admin-upload-save__spinner"
+                  className="create-save__spinner"
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
                   viewBox="0 0 24 24"
                 >
                   <circle
-                    style={{ opacity: 0.25 }}
+                    className="create-save__spinner-track"
                     cx="12"
                     cy="12"
                     r="10"
                     stroke="currentColor"
                     strokeWidth="4"
-                  />
+                  ></circle>
                   <path
-                    style={{ opacity: 0.75 }}
+                    className="create-save__spinner-head"
                     fill="currentColor"
                     d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
+                  ></path>
                 </svg>
-                Menyimpan...
+                {isEditMode ? "Mengupdate..." : "Mengupload..."}
               </>
             ) : (
               <>
-                <Save size={18} strokeWidth={2.5} />
-                Simpan Frame
+                {isEditMode ? (
+                  <Save size={18} strokeWidth={2.5} />
+                ) : (
+                  <Upload size={18} strokeWidth={2.5} />
+                )}
+                {isEditMode ? "Update Frame" : "Upload Frame"}
               </>
             )}
           </Motion.button>
         </Motion.section>
 
         {/* Right Panel - Properties */}
-        <Motion.aside
-          variants={panelMotion}
-          initial="hidden"
-          animate="visible"
-          transition={{ delay: 0.15 }}
-          className="admin-upload-panel--properties"
-        >
-          <h2 className="admin-upload-panel__title">Properties</h2>
-          <div className="admin-upload-panel__body">
-            {/* Frame Settings Section */}
-            {activePanel === "settings" && (
-              <div>
-                <div className="admin-upload-properties__section">
-                  <label className="admin-upload-properties__label">Nama Frame *</label>
+        {!isMobileView && (
+          <Motion.aside
+            variants={panelMotion}
+            initial="hidden"
+            animate="visible"
+            transition={{ delay: 0.15 }}
+            className="create-panel create-panel--properties"
+          >
+            <h2 className="create-panel__title">Properties</h2>
+            <div className="create-panel__body">
+              {/* Frame Metadata Section */}
+              <div style={{ marginBottom: "20px", padding: "16px", background: "rgba(224,183,169,0.1)", borderRadius: "12px" }}>
+                <h3 style={{ fontSize: "13px", fontWeight: 600, color: "#5c4941", marginBottom: "12px" }}>
+                  Info Frame
+                </h3>
+                <div style={{ marginBottom: "12px" }}>
+                  <label style={{ display: "block", fontSize: "12px", color: "#8b7355", marginBottom: "4px" }}>
+                    Nama Frame *
+                  </label>
                   <input
                     type="text"
                     value={frameName}
                     onChange={(e) => setFrameName(e.target.value)}
-                    className="admin-upload-properties__input"
                     placeholder="contoh: FremioSeries-red-3"
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      border: "1px solid rgba(224,183,169,0.5)",
+                      borderRadius: "8px",
+                      fontSize: "13px",
+                      background: "white",
+                    }}
                   />
                 </div>
-
-                <div className="admin-upload-properties__section">
-                  <label className="admin-upload-properties__label">Deskripsi</label>
+                <div style={{ marginBottom: "12px" }}>
+                  <label style={{ display: "block", fontSize: "12px", color: "#8b7355", marginBottom: "4px" }}>
+                    Deskripsi
+                  </label>
                   <textarea
                     value={frameDescription}
                     onChange={(e) => setFrameDescription(e.target.value)}
-                    rows={3}
-                    className="admin-upload-properties__input"
-                    style={{ resize: "vertical" }}
                     placeholder="Deskripsi frame..."
+                    rows={2}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      border: "1px solid rgba(224,183,169,0.5)",
+                      borderRadius: "8px",
+                      fontSize: "13px",
+                      background: "white",
+                      resize: "vertical",
+                    }}
                   />
                 </div>
-
-                <div className="admin-upload-properties__section">
-                  <label className="admin-upload-properties__label">Kategori</label>
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", color: "#8b7355", marginBottom: "4px" }}>
+                    Kategori
+                  </label>
                   <select
                     value={frameCategory}
                     onChange={(e) => setFrameCategory(e.target.value)}
-                    className="admin-upload-properties__select"
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      border: "1px solid rgba(224,183,169,0.5)",
+                      borderRadius: "8px",
+                      fontSize: "13px",
+                      background: "white",
+                      cursor: "pointer",
+                    }}
                   >
-                    <option value="custom">Custom</option>
-                    <option value="fremio-series">Fremio Series</option>
-                    <option value="inspired-by">Inspired By</option>
-                    <option value="music">Music</option>
-                    <option value="seasonal">Seasonal</option>
+                    <option value="Fremio Series">Fremio Series</option>
+                    <option value="Sport Series">Sport Series</option>
+                    <option value="Inspired By">Inspired By</option>
+                    <option value="Music">Music</option>
+                    <option value="Seasonal">Seasonal</option>
+                    <option value="Custom">Custom</option>
                   </select>
                 </div>
-
-                <div className="admin-upload-properties__section">
-                  <label className="admin-upload-properties__label">Jumlah Foto</label>
-                  <input
-                    type="number"
-                    value={maxCaptures}
-                    onChange={(e) => setMaxCaptures(parseInt(e.target.value) || 1)}
-                    min="1"
-                    max="10"
-                    className="admin-upload-properties__input"
-                  />
-                </div>
-
-                <div className="admin-upload-properties__section">
-                  <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
-                    <input
-                      type="checkbox"
-                      checked={duplicatePhotos}
-                      onChange={(e) => setDuplicatePhotos(e.target.checked)}
-                      style={{ width: "18px", height: "18px" }}
-                    />
-                    <span style={{ fontSize: "13px", color: "#5c4941" }}>Duplikasi foto ke semua slot</span>
-                  </label>
-                </div>
               </div>
-            )}
 
-            {/* Upload Panel */}
-            {activePanel === "upload" && (
-              <div>
-                <div className="admin-upload-properties__section">
-                  <label className="admin-upload-properties__label">Frame Image</label>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="admin-upload-btn admin-upload-btn--secondary"
-                    style={{ width: "100%" }}
-                  >
-                    <Upload size={18} />
-                    {frameImageFile ? "Ganti File" : "Pilih File PNG"}
-                  </button>
-                  
-                  {frameImageFile && (
-                    <div className="admin-upload-file-info">
-                      <FileImage size={20} className="admin-upload-file-info__icon" />
-                      <div className="admin-upload-file-info__details">
-                        <p className="admin-upload-file-info__name">{frameImageFile.name}</p>
-                        <p className="admin-upload-file-info__size">
-                          {(frameImageFile.size / 1024).toFixed(1)} KB
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
+              {/* Element Properties */}
+              <PropertiesPanel
+                selectedElement={selectedElement}
+                canvasBackground={canvasBackground}
+                onBackgroundChange={(color) => setCanvasBackground(color)}
+                onUpdateElement={updateElement}
+                onDeleteElement={removeElement}
+                clearSelection={clearSelection}
+                onSelectBackgroundPhoto={() => {
+                  if (isBackgroundLocked) {
+                    showToast("info", "Background dikunci. Unlock untuk mengedit.", 2000);
+                    return;
+                  }
+                  if (backgroundPhotoElement) {
+                    selectElement(backgroundPhotoElement.id);
+                  } else {
+                    triggerBackgroundUpload();
+                  }
+                }}
+                onFitBackgroundPhoto={fitBackgroundPhotoToCanvas}
+                backgroundPhoto={backgroundPhotoElement}
+                onBringToFront={bringToFront}
+                onSendToBack={sendToBack}
+                onBringForward={bringForward}
+                onSendBackward={sendBackward}
+                canvasAspectRatio={canvasAspectRatio}
+                onCanvasAspectRatioChange={(ratio) => {
+                  setCanvasAspectRatio(ratio);
+                }}
+                showCanvasSizeMode={showCanvasSizeInProperties}
+                gradientColor1={gradientColor1}
+                gradientColor2={gradientColor2}
+                setGradientColor1={setGradientColor1}
+                setGradientColor2={setGradientColor2}
+                isBackgroundLocked={isBackgroundLocked}
+                onToggleBackgroundLock={toggleBackgroundLock}
+                pendingPhotoTool={pendingPhotoTool}
+                onConfirmAddPhoto={(rows, cols) => {
+                  rows = rows || 1;
+                  cols = cols || 1;
+                  setPendingPhotoTool(false);
 
-                {frameImagePreview && (
-                  <div className="admin-upload-properties__section">
-                    <button
-                      onClick={async () => {
-                        setAutoDetecting(true);
-                        try {
-                          const detectedSlots = await quickDetectSlots(frameImagePreview);
-                          if (detectedSlots.length > 0) {
-                            setSlots(detectedSlots);
-                            setMaxCaptures(detectedSlots.length);
-                            showToast("success", `Berhasil mendeteksi ${detectedSlots.length} slot!`);
-                          } else {
-                            showToast("error", "Tidak ada area transparan terdeteksi");
-                          }
-                        } catch (error) {
-                          console.error("❌ Error re-detecting slots:", error);
-                          showToast("error", "Gagal mendeteksi slot");
-                        } finally {
-                          setAutoDetecting(false);
-                        }
-                      }}
-                      disabled={autoDetecting}
-                      className="admin-upload-btn admin-upload-btn--secondary"
-                      style={{ width: "100%", opacity: autoDetecting ? 0.6 : 1 }}
-                    >
-                      <Eye size={18} />
-                      {autoDetecting ? "Mendeteksi..." : "Re-detect Slots"}
-                    </button>
-                  </div>
-                )}
+                  const canvasW = 1080;
+                  const canvasH = 1920;
+                  const gapX = 30;
+                  const gapY = 30;
+                  const marginX = 65;
+                  const marginY = 140;
 
-                {/* Quick Frame Settings in Upload Panel */}
-                <div className="admin-upload-frame-settings">
-                  <div
-                    className="admin-upload-frame-settings__header"
-                    onClick={() => setShowFrameSettings(!showFrameSettings)}
-                  >
-                    <span className="admin-upload-frame-settings__title">
-                      <Settings size={16} />
-                      Frame Settings
-                    </span>
-                    <ChevronDown
-                      size={18}
-                      className={`admin-upload-frame-settings__toggle ${showFrameSettings ? "admin-upload-frame-settings__toggle--open" : ""}`}
-                    />
-                  </div>
-                  {showFrameSettings && (
-                    <div className="admin-upload-frame-settings__body">
-                      <div>
-                        <label className="admin-upload-properties__label" style={{ marginBottom: "6px" }}>Nama Frame *</label>
-                        <input
-                          type="text"
-                          value={frameName}
-                          onChange={(e) => setFrameName(e.target.value)}
-                          className="admin-upload-properties__input"
-                          placeholder="contoh: FremioSeries-red-3"
-                        />
-                      </div>
-                      <div>
-                        <label className="admin-upload-properties__label" style={{ marginBottom: "6px" }}>Kategori</label>
-                        <select
-                          value={frameCategory}
-                          onChange={(e) => setFrameCategory(e.target.value)}
-                          className="admin-upload-properties__select"
-                        >
-                          <option value="custom">Custom</option>
-                          <option value="fremio-series">Fremio Series</option>
-                          <option value="inspired-by">Inspired By</option>
-                          <option value="music">Music</option>
-                          <option value="seasonal">Seasonal</option>
-                        </select>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+                  const availableWidth = canvasW - 2 * marginX - (cols - 1) * gapX;
+                  const availableHeight = canvasH - 2 * marginY - (rows - 1) * gapY;
 
-            {/* Slots Panel */}
-            {activePanel === "slots" && (
-              <div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
-                  <span className="admin-upload-properties__label" style={{ margin: 0 }}>
-                    Photo Slots ({slots.length})
-                  </span>
-                  <button
-                    onClick={addSlot}
-                    className="admin-upload-btn admin-upload-btn--primary"
-                    style={{ padding: "8px 12px", fontSize: "12px" }}
-                  >
-                    <Plus size={14} />
-                    Add
-                  </button>
-                </div>
+                  const photoWidth = Math.floor(availableWidth / cols);
+                  const photoHeight = Math.floor(availableHeight / rows);
 
-                {slots.length === 0 ? (
-                  <div className="admin-upload-empty">
-                    <Layers size={40} className="admin-upload-empty__icon" />
-                    <p className="admin-upload-empty__title">
-                      {frameImagePreview ? "Slot akan terdeteksi otomatis" : "Upload frame terlebih dahulu"}
-                    </p>
-                    <p className="admin-upload-empty__subtitle">
-                      {frameImagePreview
-                        ? "Klik 'Re-detect' atau tambahkan manual"
-                        : "Area transparan akan terdeteksi sebagai slot"}
-                    </p>
-                  </div>
-                ) : (
-                  slots.map((slot, index) => (
-                    <div
-                      key={index}
-                      className={`admin-upload-slot-card ${selectedSlotIndex === index ? "admin-upload-slot-card--selected" : ""}`}
-                      onClick={() => setSelectedSlotIndex(index)}
-                    >
-                      <div className="admin-upload-slot-card__header">
-                        <span className="admin-upload-slot-card__title">Slot {index + 1}</span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteSlot(index);
-                          }}
-                          className="admin-upload-slot-card__delete"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
+                  let lastAddedId = null;
+                  for (let row = 0; row < rows; row++) {
+                    for (let col = 0; col < cols; col++) {
+                      const x = marginX + col * (photoWidth + gapX);
+                      const y = marginY + row * (photoHeight + gapY);
 
-                      <div className="admin-upload-slot-card__grid">
-                        <div className="admin-upload-slot-card__field">
-                          <label className="admin-upload-slot-card__field-label">Kiri</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            max="1"
-                            value={slot.left}
-                            onChange={(e) => updateSlot(index, "left", e.target.value)}
-                            className="admin-upload-slot-card__field-input"
-                          />
-                        </div>
-                        <div className="admin-upload-slot-card__field">
-                          <label className="admin-upload-slot-card__field-label">Atas</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            max="1"
-                            value={slot.top}
-                            onChange={(e) => updateSlot(index, "top", e.target.value)}
-                            className="admin-upload-slot-card__field-input"
-                          />
-                        </div>
-                        <div className="admin-upload-slot-card__field">
-                          <label className="admin-upload-slot-card__field-label">Lebar</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            max="1"
-                            value={slot.width}
-                            onChange={(e) => updateSlot(index, "width", e.target.value)}
-                            className="admin-upload-slot-card__field-input"
-                          />
-                        </div>
-                        <div className="admin-upload-slot-card__field">
-                          <label className="admin-upload-slot-card__field-label">Tinggi</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            max="1"
-                            value={slot.height}
-                            onChange={(e) => updateSlot(index, "height", e.target.value)}
-                            className="admin-upload-slot-card__field-input"
-                          />
-                        </div>
-                        <div className="admin-upload-slot-card__field" style={{ gridColumn: "span 2" }}>
-                          <label className="admin-upload-slot-card__field-label">Aspect Ratio</label>
-                          <select
-                            value={slot.aspectRatio || "4:5"}
-                            onChange={(e) => updateSlot(index, "aspectRatio", e.target.value)}
-                            className="admin-upload-slot-card__field-input"
-                            style={{ cursor: "pointer" }}
-                          >
-                            <option value="4:5">4:5 (Portrait)</option>
-                            <option value="1:1">1:1 (Square)</option>
-                            <option value="16:9">16:9 (Landscape)</option>
-                            <option value="3:4">3:4 (Portrait)</option>
-                            <option value="9:16">9:16 (Tall)</option>
-                          </select>
-                        </div>
-                        <div className="admin-upload-slot-card__field" style={{ gridColumn: "span 2" }}>
-                          <label className="admin-upload-slot-card__field-label">Index Foto</label>
-                          <select
-                            value={slot.photoIndex}
-                            onChange={(e) => updateSlot(index, "photoIndex", e.target.value)}
-                            className="admin-upload-slot-card__field-input"
-                            style={{ cursor: "pointer" }}
-                          >
-                            {Array.from({ length: maxCaptures }, (_, i) => (
-                              <option key={i} value={i}>Foto {i + 1}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
+                      const newId = addElement("photo", {
+                        x,
+                        y,
+                        width: photoWidth,
+                        height: photoHeight,
+                      });
 
-            {/* Action Buttons */}
-            <div className="admin-upload-actions">
-              <button
-                onClick={() => navigate("/admin/frames")}
-                className="admin-upload-btn admin-upload-btn--secondary"
-              >
-                Batal
-              </button>
-              <button
-                onClick={handleSaveFrame}
-                disabled={saving || !frameName || !frameImageFile || slots.length === 0}
-                className="admin-upload-btn admin-upload-btn--primary"
-                style={{ opacity: saving ? 0.6 : 1 }}
-              >
-                <Save size={16} />
-                {saving ? "Menyimpan..." : "Simpan"}
-              </button>
+                      if (newId) {
+                        lastAddedId = newId;
+                      }
+                    }
+                  }
+
+                  if (lastAddedId) {
+                    selectElement(lastAddedId);
+                  }
+                }}
+                onCancelPhotoTool={() => setPendingPhotoTool(false)}
+              />
             </div>
-          </div>
-        </Motion.aside>
+          </Motion.aside>
+        )}
       </div>
+
+      {/* Mobile toolbar */}
+      {isMobileView && (
+        <nav
+          className={"create-mobile-toolbar " + (isMobilePropertyToolbar ? "create-mobile-toolbar--properties" : "")}
+        >
+          {/* Back button for mobile */}
+          <button
+            type="button"
+            onClick={() => navigate("/admin/frames")}
+            className="create-mobile-toolbar__button"
+          >
+            <ArrowLeft size={20} strokeWidth={2.4} />
+            <span>Back</span>
+          </button>
+
+          {(isMobilePropertyToolbar ? mobilePropertyButtons : toolButtons).map(
+            (button) => {
+              const Icon = button.icon;
+              const isActive = isMobilePropertyToolbar
+                ? activeMobileProperty === button.id
+                : Boolean(button.isActive);
+              const label = isMobilePropertyToolbar
+                ? button.label
+                : button.mobileLabel ?? button.label;
+
+              const handleClick = () => {
+                if (isMobilePropertyToolbar) {
+                  setActiveMobileProperty((prev) =>
+                    prev === button.id ? null : button.id
+                  );
+                } else {
+                  handleToolButtonPress(button);
+                }
+              };
+
+              return (
+                <button
+                  key={button.id}
+                  type="button"
+                  onClick={handleClick}
+                  className={"create-mobile-toolbar__button " + (isActive ? "create-mobile-toolbar__button--active" : "")}
+                >
+                  <Icon size={20} strokeWidth={2.4} />
+                  <span>{label}</span>
+                </button>
+              );
+            }
+          )}
+        </nav>
+      )}
+
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        style={{
+          position: "absolute",
+          left: "-9999px",
+          opacity: 0,
+          pointerEvents: "none",
+        }}
+        onChange={handleFileChange}
+      />
     </div>
   );
 }

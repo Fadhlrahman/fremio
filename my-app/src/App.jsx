@@ -158,8 +158,8 @@ export default function App() {
             <Route index element={<AdminDashboard />} />
             <Route path="dashboard" element={<AdminDashboard />} />
             <Route path="frames" element={<AdminFrames />} />
-            <Route path="upload-frame" element={<AdminFrameCreator />} />
-            <Route path="upload-frame-old" element={<AdminUploadFrame />} />
+            <Route path="upload-frame" element={<AdminUploadFrame />} />
+            <Route path="frame-creator" element={<AdminFrameCreator />} />
             <Route path="users" element={<AdminUsers />} />
             <Route path="categories" element={<AdminCategories />} />
             <Route path="analytics" element={<AdminAnalytics />} />

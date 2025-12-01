@@ -2,7 +2,26 @@
 /* Handle client-side routing for React Router */
 
 export async function onRequest(context) {
-  const { request, next, env } = context;
+  const { request, next } = context;
+  const url = new URL(request.url);
+  
+  // IMPORTANT: Let API routes pass through to their handlers WITHOUT modification
+  if (url.pathname.startsWith('/api/')) {
+    console.log('[Middleware] API route, passing through:', url.pathname);
+    return next();
+  }
+  
+  // Let VPS proxy routes pass through
+  if (url.pathname.startsWith('/vps/')) {
+    console.log('[Middleware] VPS route, passing through:', url.pathname);
+    return next();
+  }
+  
+  // Let proxy routes pass through
+  if (url.pathname.startsWith('/proxy/')) {
+    console.log('[Middleware] Proxy route, passing through:', url.pathname);
+    return next();
+  }
   
   try {
     // Try to get the asset
@@ -13,14 +32,8 @@ export async function onRequest(context) {
       return response;
     }
     
-    // If 404 and not an API call or asset, serve index.html for SPA routing
-    const url = new URL(request.url);
-    
-    // Skip for API routes, assets, etc.
-    if (
-      url.pathname.startsWith('/api/') ||
-      url.pathname.includes('.') // Has file extension
-    ) {
+    // If has file extension, return 404
+    if (url.pathname.includes('.')) {
       return response;
     }
     

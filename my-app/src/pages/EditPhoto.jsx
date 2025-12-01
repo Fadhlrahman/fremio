@@ -120,10 +120,17 @@ export default function EditPhoto() {
     const scaledPhotoHeight = viewportHeight * scale;
     
     // How much the photo extends beyond viewport on each side
-    // At scale 1: maxPan = 0 (photo exactly fits viewport)
-    // At scale 2: maxPan = viewportSize/2 (photo is 2x, so can move half viewport distance)
-    const maxPanX = Math.max(0, (scaledPhotoWidth - viewportWidth) / 2);
-    const maxPanY = Math.max(0, (scaledPhotoHeight - viewportHeight) / 2);
+    // At scale 1: Allow some pan for repositioning (25% of viewport)
+    // At higher scales: More pan allowed proportionally
+    const basePanX = viewportWidth * 0.25; // Allow 25% pan even at scale 1
+    const basePanY = viewportHeight * 0.25;
+    
+    const scalePanX = Math.max(0, (scaledPhotoWidth - viewportWidth) / 2);
+    const scalePanY = Math.max(0, (scaledPhotoHeight - viewportHeight) / 2);
+    
+    // Use the larger of base pan or scale-based pan
+    const maxPanX = Math.max(basePanX, scalePanX);
+    const maxPanY = Math.max(basePanY, scalePanY);
     
     return { maxPanX, maxPanY };
   }, []);
@@ -326,7 +333,10 @@ export default function EditPhoto() {
   });
 
   // Handle wheel event for trackpad pinch-to-zoom on desktop
-  // Trackpad pinch gestures fire wheel events with ctrlKey = true
+  // On MacOS: Trackpad pinch gestures can fire as:
+  // 1. Wheel events with ctrlKey = true (Chrome)
+  // 2. Wheel events with small deltaY and deltaMode = 0 (Some browsers)
+  // 3. GestureEvent (Safari - handled separately)
   const handlePhotoWheel = useCallback((e, photoId, containerEl) => {
     // Only handle if this photo is selected
     if (selectedPhotoId !== photoId) return;
@@ -342,10 +352,23 @@ export default function EditPhoto() {
     const viewportWidth = rect ? rect.width * scaleFactor : 1080;
     const viewportHeight = rect ? rect.height * scaleFactor : 1080;
     
-    // ctrlKey indicates trackpad pinch gesture
+    // Detect pinch gesture:
+    // - ctrlKey is true for Chrome/Firefox trackpad pinch
+    // - On Mac Safari, pinch uses GestureEvent, but wheel events still fire
+    // - We also check for very small deltaX (indicates pinch, not scroll)
+    const isPinchGesture = e.ctrlKey || (Math.abs(e.deltaX) < 1 && Math.abs(e.deltaY) < 50 && e.deltaMode === 0);
+    
+    console.log("🖱️ Wheel event:", { 
+      ctrlKey: e.ctrlKey, 
+      deltaY: e.deltaY.toFixed(2), 
+      deltaX: e.deltaX.toFixed(2),
+      deltaMode: e.deltaMode,
+      isPinch: isPinchGesture,
+      selected: selectedPhotoId
+    });
+    
     if (e.ctrlKey) {
-      // Pinch-to-zoom: deltaY controls zoom level
-      // Negative deltaY = zoom in, Positive deltaY = zoom out
+      // Definite pinch-to-zoom (Chrome/Firefox on Mac)
       const zoomSensitivity = 0.01;
       const zoomDelta = -e.deltaY * zoomSensitivity;
       let newScale = currentTransform.scale * (1 + zoomDelta);
@@ -360,7 +383,7 @@ export default function EditPhoto() {
       const newX = clamp(currentTransform.x, -maxPanX, maxPanX);
       const newY = clamp(currentTransform.y, -maxPanY, maxPanY);
       
-      console.log("🖱️ Desktop pinch zoom, scale:", newScale.toFixed(2));
+      console.log("🔍 Pinch zoom (ctrlKey), scale:", newScale.toFixed(2));
       
       updatePhotoTransform(photoId, {
         scale: newScale,
@@ -388,6 +411,109 @@ export default function EditPhoto() {
     }
   }, [selectedPhotoId, getPhotoTransform, updatePhotoTransform, clamp, calculatePanConstraints]);
 
+  // Safari-specific gesture events for pinch-to-zoom
+  const handleGestureChange = useCallback((e, photoId, containerEl) => {
+    if (selectedPhotoId !== photoId) return;
+    
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const currentTransform = getPhotoTransform(photoId);
+    
+    // e.scale is the cumulative scale factor (1.0 = no change)
+    // We apply it relative to a base scale
+    let newScale = currentTransform.scale * e.scale;
+    
+    // Clamp scale (1x to 4x)
+    newScale = clamp(newScale, 1, 4);
+    
+    console.log("🔍 Safari gesture zoom, scale:", newScale.toFixed(2), "gesture.scale:", e.scale.toFixed(2));
+    
+    const rect = containerEl?.getBoundingClientRect();
+    const scaleFactor = 4;
+    const viewportWidth = rect ? rect.width * scaleFactor : 1080;
+    const viewportHeight = rect ? rect.height * scaleFactor : 1080;
+    
+    const { maxPanX, maxPanY } = calculatePanConstraints(newScale, viewportWidth, viewportHeight);
+    const newX = clamp(currentTransform.x, -maxPanX, maxPanX);
+    const newY = clamp(currentTransform.y, -maxPanY, maxPanY);
+    
+    updatePhotoTransform(photoId, {
+      scale: newScale,
+      x: newX,
+      y: newY,
+    });
+  }, [selectedPhotoId, getPhotoTransform, updatePhotoTransform, clamp, calculatePanConstraints]);
+
+  // Attach native event listeners for Safari gesture events
+  // React doesn't support GestureEvent, so we need to add them manually
+  useEffect(() => {
+    if (!selectedPhotoId) return;
+    
+    const containerEl = photoContainerRefs.current[selectedPhotoId];
+    if (!containerEl) return;
+    
+    let gestureStartScale = 1;
+    
+    const handleGestureStart = (e) => {
+      e.preventDefault();
+      gestureStartScale = getPhotoTransform(selectedPhotoId).scale;
+      console.log("🤏 Gesture start, base scale:", gestureStartScale.toFixed(2));
+    };
+    
+    const handleGestureChangeNative = (e) => {
+      e.preventDefault();
+      
+      const currentTransform = getPhotoTransform(selectedPhotoId);
+      
+      // e.scale is relative to gesture start
+      let newScale = gestureStartScale * e.scale;
+      newScale = clamp(newScale, 1, 4);
+      
+      console.log("🔍 Gesture change, scale:", newScale.toFixed(2));
+      
+      const rect = containerEl.getBoundingClientRect();
+      const scaleFactor = 4;
+      const viewportWidth = rect.width * scaleFactor;
+      const viewportHeight = rect.height * scaleFactor;
+      
+      const { maxPanX, maxPanY } = calculatePanConstraints(newScale, viewportWidth, viewportHeight);
+      const newX = clamp(currentTransform.x, -maxPanX, maxPanX);
+      const newY = clamp(currentTransform.y, -maxPanY, maxPanY);
+      
+      updatePhotoTransform(selectedPhotoId, {
+        scale: newScale,
+        x: newX,
+        y: newY,
+      });
+    };
+    
+    const handleGestureEnd = (e) => {
+      e.preventDefault();
+      console.log("🤏 Gesture end");
+    };
+    
+    // Add native event listeners (Safari)
+    containerEl.addEventListener('gesturestart', handleGestureStart, { passive: false });
+    containerEl.addEventListener('gesturechange', handleGestureChangeNative, { passive: false });
+    containerEl.addEventListener('gestureend', handleGestureEnd, { passive: false });
+    
+    // Also prevent default wheel to avoid page zoom
+    const handleWheelNative = (e) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+      }
+    };
+    containerEl.addEventListener('wheel', handleWheelNative, { passive: false });
+    
+    return () => {
+      containerEl.removeEventListener('gesturestart', handleGestureStart);
+      containerEl.removeEventListener('gesturechange', handleGestureChangeNative);
+      containerEl.removeEventListener('gestureend', handleGestureEnd);
+      containerEl.removeEventListener('wheel', handleWheelNative);
+    };
+  }, [selectedPhotoId, getPhotoTransform, updatePhotoTransform, clamp, calculatePanConstraints]);
+
   // Handle mouse down for desktop click-drag pan
   const handlePhotoMouseDown = useCallback((e, photoId, containerEl) => {
     // Only left mouse button
@@ -397,6 +523,7 @@ export default function EditPhoto() {
     if (selectedPhotoId !== photoId) return;
     
     e.preventDefault();
+    e.stopPropagation();
     
     const state = mouseStateRef.current;
     state.isDragging = true;
@@ -405,7 +532,7 @@ export default function EditPhoto() {
     state.activePhotoId = photoId;
     state.containerRect = containerEl?.getBoundingClientRect();
     
-    console.log("🖱️ Desktop drag started for photo:", photoId);
+    console.log("🖱️ Desktop drag started for photo:", photoId, "at", e.clientX, e.clientY);
   }, [selectedPhotoId]);
 
   // Handle mouse move for desktop drag pan
@@ -417,10 +544,11 @@ export default function EditPhoto() {
     if (selectedPhotoId !== photoId) return;
     
     e.preventDefault();
+    e.stopPropagation();
     
     const currentTransform = getPhotoTransform(photoId);
     
-    // Calculate pan delta
+    // Calculate pan delta - multiply by scale factor for canvas coordinates
     const scaleFactor = 4; // Canvas is displayed at 0.25 scale
     const deltaX = (e.clientX - state.lastMouseX) * scaleFactor;
     const deltaY = (e.clientY - state.lastMouseY) * scaleFactor;
@@ -430,11 +558,14 @@ export default function EditPhoto() {
     const viewportHeight = rect ? rect.height * scaleFactor : 1080;
     
     // Calculate constraints based on current scale
+    // Allow panning even at scale 1 (useful for repositioning)
     const { maxPanX, maxPanY } = calculatePanConstraints(currentTransform.scale, viewportWidth, viewportHeight);
     
     // Apply delta and clamp
     const newX = clamp(currentTransform.x + deltaX, -maxPanX, maxPanX);
     const newY = clamp(currentTransform.y + deltaY, -maxPanY, maxPanY);
+    
+    console.log("🖱️ Drag move, delta:", deltaX.toFixed(0), deltaY.toFixed(0), "pos:", newX.toFixed(0), newY.toFixed(0));
     
     updatePhotoTransform(photoId, {
       scale: currentTransform.scale,
@@ -452,18 +583,11 @@ export default function EditPhoto() {
     
     if (state.activePhotoId !== photoId) return;
     
-    const currentTransform = getPhotoTransform(photoId);
-    
     state.isDragging = false;
     state.activePhotoId = null;
     
-    // If scale is below threshold, reset to 1
-    if (currentTransform.scale < 1.05) {
-      updatePhotoTransform(photoId, { scale: 1, x: 0, y: 0 });
-    }
-    
     console.log("🖱️ Desktop drag ended for photo:", photoId);
-  }, [getPhotoTransform, updatePhotoTransform]);
+  }, []);
 
   // Global mouse event listeners for desktop drag (to handle mouse leaving element)
   useEffect(() => {
@@ -505,15 +629,13 @@ export default function EditPhoto() {
       if (!state.isDragging || !state.activePhotoId) return;
       
       const photoId = state.activePhotoId;
-      const currentTransform = getPhotoTransform(photoId);
+      
+      console.log("🖱️ Desktop drag ended for photo:", photoId);
       
       state.isDragging = false;
       state.activePhotoId = null;
       
-      // If scale is below threshold, reset to 1
-      if (currentTransform.scale < 1.05) {
-        updatePhotoTransform(photoId, { scale: 1, x: 0, y: 0 });
-      }
+      // Don't auto-reset - let user keep their pan position
     };
     
     document.addEventListener('mousemove', handleGlobalMouseMove);
@@ -2739,6 +2861,9 @@ export default function EditPhoto() {
                         onTouchMove={(e) => handlePhotoTouchMove(e, photoId)}
                         onTouchEnd={(e) => handlePhotoTouchEnd(e, photoId)}
                         onWheel={(e) => handlePhotoWheel(e, photoId, e.currentTarget)}
+                        onGestureStart={(e) => { e.preventDefault(); }}
+                        onGestureChange={(e) => handleGestureChange(e, photoId, e.currentTarget)}
+                        onGestureEnd={(e) => { e.preventDefault(); }}
                         onMouseDown={(e) => handlePhotoMouseDown(e, photoId, e.currentTarget)}
                         onMouseMove={(e) => handlePhotoMouseMove(e, photoId)}
                         onMouseUp={(e) => handlePhotoMouseUp(e, photoId)}
@@ -2820,6 +2945,102 @@ export default function EditPhoto() {
               )}
             </div>
           </div>
+
+          {/* Selected Photo Controls - Desktop Pinch-to-Zoom Instructions */}
+          {selectedPhotoId && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "1rem",
+                padding: "0.75rem 1rem",
+                background: "linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)",
+                borderRadius: "12px",
+                margin: "0.5rem 0",
+                boxShadow: "0 4px 12px rgba(79, 70, 229, 0.3)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  color: "white",
+                  fontSize: "0.875rem",
+                }}
+              >
+                <span style={{ fontSize: "1.25rem" }}>🔍</span>
+                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                  <span style={{ fontWeight: "600" }}>Foto Terpilih</span>
+                  <span style={{ fontSize: "0.75rem", opacity: 0.9 }}>
+                    Pinch trackpad untuk zoom • Scroll untuk geser
+                  </span>
+                </div>
+              </div>
+              
+              {/* Zoom level indicator */}
+              {getPhotoTransform(selectedPhotoId).scale > 1 && (
+                <div
+                  style={{
+                    background: "rgba(255,255,255,0.2)",
+                    padding: "0.25rem 0.75rem",
+                    borderRadius: "8px",
+                    color: "white",
+                    fontSize: "0.875rem",
+                    fontWeight: "600",
+                  }}
+                >
+                  {getPhotoTransform(selectedPhotoId).scale.toFixed(1)}x
+                </div>
+              )}
+              
+              {/* Reset zoom button */}
+              {getPhotoTransform(selectedPhotoId).scale > 1 && (
+                <button
+                  onClick={() => {
+                    updatePhotoTransform(selectedPhotoId, { scale: 1, x: 0, y: 0 });
+                  }}
+                  style={{
+                    background: "rgba(255,255,255,0.2)",
+                    border: "none",
+                    padding: "0.5rem 0.75rem",
+                    borderRadius: "8px",
+                    color: "white",
+                    fontSize: "0.75rem",
+                    fontWeight: "500",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.25rem",
+                  }}
+                >
+                  ↺ Reset
+                </button>
+              )}
+              
+              {/* Done button */}
+              <button
+                onClick={() => setSelectedPhotoId(null)}
+                style={{
+                  background: "white",
+                  border: "none",
+                  padding: "0.5rem 1.25rem",
+                  borderRadius: "8px",
+                  color: "#4F46E5",
+                  fontSize: "0.875rem",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.25rem",
+                  boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                }}
+              >
+                ✓ Selesai
+              </button>
+            </div>
+          )}
 
           {/* Filter Buttons */}
           <div

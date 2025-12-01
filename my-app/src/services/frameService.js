@@ -1,443 +1,840 @@
 /**
- * Frame Service - Scalable frame management system
- * Supports thousands of frames with lazy loading, caching, and pagination
+ * Frame Service - SIMPLIFIED VERSION
+ * Single file untuk semua operasi frame
+ * Langsung ke VPS API tanpa layer tambahan
+ * Gambar di-upload ke ImageKit (FREE, HTTPS)
  */
 
-import { db } from '../config/firebase.js';
-import {
-  collection,
-  getDocs,
-  getDoc,
-  doc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  query,
-  where,
-  orderBy,
-  limit as fsLimit,
-  startAfter
-} from 'firebase/firestore';
+import { uploadImageSimple } from './imagekitService.js';
 
-class FrameService {
-  constructor() {
-    this.cache = new Map();
-    this.apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:3001';
-    this.itemsPerPage = 20;
-    this.categories = new Map();
-    this.preloadedFrames = new Set([
-      'FremioSeries-blue-2', 'FremioSeries-babyblue-3', 'FremioSeries-black-3',
-      'FremioSeries-blue-3', 'FremioSeries-cream-3', 'FremioSeries-green-3',
-      'FremioSeries-maroon-3', 'FremioSeries-orange-3', 'FremioSeries-pink-3',
-      'FremioSeries-purple-3', 'FremioSeries-white-3', 'FremioSeries-blue-4'
-    ]); // Most common frames
-    this.lastVisible = null; // For pagination
-  }
+// Multiple fallback URLs - try each one until success
+// Using /vps/frames path which maps to Pages Function at functions/vps/frames.js
+const API_URLS = [
+  'https://fremio-api-proxy.array111103.workers.dev/api',  // Primary Cloudflare Worker
+  '/vps',  // Local Pages Function fallback (functions/vps/frames.js)
+];
 
-  /**
-   * Get frames with pagination and filtering
-   * @param {Object} options - Query options
-   * @param {number} options.page - Page number (1-based)
-   * @param {number} options.limit - Items per page
-   * @param {string} options.category - Frame category filter
-   * @param {string} options.search - Search query
-   * @param {string} options.sortBy - Sort field (name, popularity, date)
-   * @param {string} options.sortOrder - Sort order (asc, desc)
-   * @returns {Promise<Object>} Paginated frame data
-   */
-  // Get frames from Firestore with optional category, search, and pagination
-  async getFrames(options = {}) {
-    const {
-      page = 1,
-      limit = this.itemsPerPage,
-      category = null,
-      search = null,
-      sortBy = 'popularity',
-      sortOrder = 'desc'
-    } = options;
+// Use local Pages Function for ImageKit uploads
+const LOCAL_API = '/api';
 
-    const cacheKey = this.generateCacheKey('frames', options);
-    if (this.cache.has(cacheKey)) {
-      return this.cache.get(cacheKey);
-    }
-
-    try {
-      const framesCol = collection(db, 'frames');
-      let q = query(framesCol);
-      if (category) {
-        q = query(q, where('category', '==', category));
-      }
-      if (search) {
-        // Firestore doesn't support full text search, so we filter after fetch
-      }
-      q = query(q, orderBy(sortBy, sortOrder === 'desc' ? 'desc' : 'asc'), fsLimit(limit));
-
-      const snapshot = await getDocs(q);
-      const frames = [];
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data();
-        frames.push({ id: docSnap.id, ...data });
-      });
-
-      // Simple search filter (client-side)
-      let filteredFrames = frames;
-      if (search) {
-        filteredFrames = frames.filter(f =>
-          f.name?.toLowerCase().includes(search.toLowerCase()) ||
-          f.description?.toLowerCase().includes(search.toLowerCase())
-        );
-      }
-
-      // Pagination info (Firestore pagination is cursor-based, not page-based)
-      const pagination = {
-        page,
-        limit,
-        total: frames.length,
-        totalPages: 1,
-        hasNext: false,
-        hasPrev: page > 1
-      };
-
-      const result = {
-        frames: filteredFrames,
-        pagination,
-        filters: { category, search }
-      };
-      this.cache.set(cacheKey, result);
-      return result;
-    } catch (error) {
-      console.error('❌ Error fetching frames from Firestore:', error);
-      return this.getFallbackFrames();
-    }
-  }
-
-  /**
-   * Get single frame configuration by ID
-   * @param {string} frameId - Frame identifier
-   * @returns {Promise<Object>} Frame configuration
-   */
-  // Get single frame by ID from Firestore
-  async getFrameById(frameId) {
-    const cacheKey = `frame_${frameId}`;
-    if (this.cache.has(cacheKey)) {
-      return this.cache.get(cacheKey);
-    }
-    try {
-      const frameRef = doc(db, 'frames', frameId);
-      const docSnap = await getDoc(frameRef);
-      if (docSnap.exists()) {
-        const frame = { id: docSnap.id, ...docSnap.data() };
-        this.cache.set(cacheKey, frame);
-        return frame;
-      }
-      // Fallback to preloaded frame if not found
-      if (this.preloadedFrames.has(frameId)) {
-        const frame = await this.getPreloadedFrame(frameId);
-        this.cache.set(cacheKey, frame);
-        return frame;
-      }
-      return null;
-    } catch (error) {
-      console.error(`❌ Error fetching frame ${frameId} from Firestore:`, error);
-      return null;
-    }
-  }
-
-  // Add new frame to Firestore (admin only)
-  async addFrame(frameData) {
-    try {
-      const framesCol = collection(db, 'frames');
-      const docRef = await addDoc(framesCol, frameData);
-      return docRef.id;
-    } catch (error) {
-      console.error('❌ Error adding frame to Firestore:', error);
-      throw error;
-    }
-  }
-
-  // Update frame in Firestore (admin only)
-  async updateFrame(frameId, frameData) {
-    try {
-      const frameRef = doc(db, 'frames', frameId);
-      await updateDoc(frameRef, frameData);
-      return true;
-    } catch (error) {
-      console.error('❌ Error updating frame in Firestore:', error);
-      throw error;
-    }
-  }
-
-  // Delete frame from Firestore (admin only)
-  async deleteFrame(frameId) {
-    try {
-      const frameRef = doc(db, 'frames', frameId);
-      await deleteDoc(frameRef);
-      return true;
-    } catch (error) {
-      console.error('❌ Error deleting frame from Firestore:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get frame categories for filtering
-   * @returns {Promise<Array>} Available categories
-   */
-  async getCategories() {
-    if (this.categories.size > 0) {
-      return Array.from(this.categories.values());
-    }
-
-    try {
-      // For development, return mock categories
-      const categories = [
-        { id: 'portrait', name: 'Portrait', count: 450 },
-        { id: 'landscape', name: 'Landscape', count: 320 },
-        { id: 'square', name: 'Square', count: 280 },
-        { id: 'collage', name: 'Collage', count: 890 },
-        { id: 'vintage', name: 'Vintage', count: 150 },
-        { id: 'modern', name: 'Modern', count: 200 },
-        { id: 'seasonal', name: 'Seasonal', count: 180 },
-        { id: 'event', name: 'Event', count: 320 }
-      ];
-
-      categories.forEach(cat => this.categories.set(cat.id, cat));
-      return categories;
-    } catch (error) {
-      console.error('❌ Error fetching categories:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Search frames with autocomplete suggestions
-   * @param {string} query - Search query
-   * @param {number} limit - Max suggestions
-   * @returns {Promise<Array>} Search suggestions
-   */
-  async searchFrames(query, limit = 10) {
-    if (!query || query.length < 2) return [];
-
-    const cacheKey = `search_${query}_${limit}`;
-    if (this.cache.has(cacheKey)) {
-      return this.cache.get(cacheKey);
-    }
-
-    try {
-      // Mock search results
-      const suggestions = [
-        { id: 'wedding_classic', name: 'Wedding Classic', category: 'event' },
-        { id: 'birthday_fun', name: 'Birthday Fun', category: 'event' },
-        { id: 'vintage_polaroid', name: 'Vintage Polaroid', category: 'vintage' },
-        { id: 'modern_grid', name: 'Modern Grid', category: 'modern' }
-      ].filter(frame => 
-        frame.name.toLowerCase().includes(query.toLowerCase())
-      ).slice(0, limit);
-
-      this.cache.set(cacheKey, suggestions);
-      return suggestions;
-    } catch (error) {
-      console.error('❌ Error searching frames:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Preload popular frames for better performance
-   */
-  async preloadPopularFrames() {
-    try {
-      const popularFrames = [
-        'FremioSeries-blue-2',
-        'FremioSeries-blue-3',
-        'FremioSeries-blue-4'
-      ];
-      
-      const promises = popularFrames.map(frameId => 
-        this.getFrameById(frameId)
-      );
-
-      await Promise.all(promises);
-      console.log('✅ Popular frames preloaded');
-    } catch (error) {
-      console.error('❌ Error preloading frames:', error);
-    }
-  }
-
-  /**
-   * Clear cache (useful for memory management)
-   */
-  clearCache() {
-    this.cache.clear();
-    console.log('🗑️ Frame cache cleared');
-  }
-
-  /**
-   * Generate cache key from options
-   */
-  generateCacheKey(prefix, options) {
-    const key = Object.entries(options)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([k, v]) => `${k}=${v}`)
-      .join('&');
-    return `${prefix}_${key}`;
-  }
-
-  /**
-   * Mock frames for development (will be replaced with API calls)
-   */
-  async getMockFrames(options) {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    const { page = 1, limit = 20, category = null, search = null } = options;
+// Helper untuk API calls with multiple fallbacks
+async function apiCall(endpoint, options = {}) {
+  const timestamp = Date.now();
+  const method = options.method || 'GET';
+  
+  console.log(`📡 [FrameService] ${method} ${endpoint}`);
+  
+  let lastError = null;
+  
+  // Try each API URL in order
+  for (let i = 0; i < API_URLS.length; i++) {
+    const baseUrl = API_URLS[i];
+    const url = `${baseUrl}${endpoint}${endpoint.includes('?') ? '&' : '?'}_t=${timestamp}`;
     
-    // Generate mock frames
-    const totalFrames = 2500; // Simulate thousands of frames
-    const startIndex = (page - 1) * limit;
-    
-    const frames = [];
-    for (let i = startIndex; i < Math.min(startIndex + limit, totalFrames); i++) {
-      const frameId = `frame_${i + 1}`;
-      const categories = ['portrait', 'landscape', 'square', 'collage', 'vintage', 'modern'];
-      const randomCategory = categories[i % categories.length];
-      
-      // Skip if category filter doesn't match
-      if (category && randomCategory !== category) continue;
-      
-      frames.push({
-        id: frameId,
-        name: `Frame ${i + 1}`,
-        description: `Beautiful frame design #${i + 1}`,
-        category: randomCategory,
-        maxCaptures: (i % 4) + 2, // 2-5 captures
-        thumbnailUrl: `/api/frames/${frameId}/thumbnail`,
-        imageUrl: `/api/frames/${frameId}/image`,
-        popularity: Math.floor(Math.random() * 1000),
-        tags: ['photo', 'frame', randomCategory],
-        createdAt: new Date(Date.now() - Math.random() * 31536000000), // Random date within last year
-        slots: this.generateMockSlots((i % 4) + 2)
-      });
-    }
-
-    return {
-      frames,
-      pagination: {
-        page,
-        limit,
-        total: totalFrames,
-        totalPages: Math.ceil(totalFrames / limit),
-        hasNext: page * limit < totalFrames,
-        hasPrev: page > 1
-      },
-      filters: {
-        category,
-        search
-      }
-    };
-  }
-
-  /**
-   * Mock frame by ID for development
-   */
-  async getMockFrameById(frameId) {
-    // Check if it's a legacy frame
-    const legacyFrames = await this.getPreloadedFrame(frameId);
-    if (legacyFrames) return legacyFrames;
-
-    // Generate mock frame
-    return {
-      id: frameId,
-      name: `Frame ${frameId}`,
-      description: `Mock frame for ${frameId}`,
-      category: 'modern',
-      maxCaptures: 3,
-      imageUrl: `/api/frames/${frameId}/image`,
-      slots: this.generateMockSlots(3),
-      layout: {
-        aspectRatio: '9:16',
-        orientation: 'portrait',
-        backgroundColor: '#ffffff'
-      }
-    };
-  }
-
-  /**
-   * Get preloaded frame configuration (legacy frames)
-   */
-  async getPreloadedFrame(frameId) {
-    // Dynamic import for legacy frames
     try {
-      const { getFrameConfig } = await import('../config/frameConfigs.js');
-      return getFrameConfig(frameId);
-    } catch (error) {
-      console.error(`❌ Error loading preloaded frame ${frameId}:`, error);
-      return null;
-    }
-  }
-
-  /**
-   * Generate mock slots for development
-   */
-  generateMockSlots(count) {
-    const slots = [];
-    for (let i = 0; i < count; i++) {
-      slots.push({
-        id: `slot_${i + 1}`,
-        left: 0.1 + (i % 2) * 0.45,
-        top: 0.1 + Math.floor(i / 2) * 0.4,
-        width: 0.35,
-        height: 0.35,
-        aspectRatio: '4:5',
-        zIndex: 2
+      console.log(`   Trying API ${i + 1}/${API_URLS.length}: ${baseUrl}`);
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+      
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
       });
-    }
-    return slots;
-  }
-
-  /**
-   * Fallback frames when API fails
-   */
-  getFallbackFrames() {
-    return {
-      frames: [
-        {
-          id: 'FremioSeries-blue-2',
-          name: 'Fremio Series Blue 2 Foto',
-          description: '2 slot foto vertikal - Blue Frame',
-          category: 'portrait',
-          maxCaptures: 2,
-          thumbnailUrl: '/src/assets/frames/FremioSeries/FremioSeries-2/FremioSeries-blue-2.png'
-        },
-        {
-          id: 'FremioSeries-blue-3',
-          name: 'Fremio Series Blue 6 Foto',
-          description: '3 foto x 2 = 6 slot photobooth klasik - Blue Frame',
-          category: 'photobooth',
-          maxCaptures: 3,
-          thumbnailUrl: '/src/assets/frames/FremioSeries/FremioSeries-3/FremioSeries-blue-3.png'
-        },
-        {
-          id: 'FremioSeries-blue-4',
-          name: 'Fremio Series Blue 4 Foto',
-          description: '4 slot foto grid 2x2 - Blue Frame',
-          category: 'grid',
-          maxCaptures: 4,
-          thumbnailUrl: '/src/assets/frames/FremioSeries/FremioSeries-4/FremioSeries-blue-4.png'
-        }
-      ],
-      pagination: {
-        page: 1,
-        limit: 20,
-        total: 3,
-        totalPages: 1,
-        hasNext: false,
-        hasPrev: false
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
+      
+      const data = await response.json();
+      console.log(`✅ [FrameService] API ${i + 1} succeeded`);
+      return data;
+      
+    } catch (error) {
+      console.warn(`⚠️ [FrameService] API ${i + 1} failed: ${error.message}`);
+      lastError = error;
+      // Continue to next fallback
+    }
+  }
+  
+  // All APIs failed
+  console.error(`❌ [FrameService] All ${API_URLS.length} APIs failed`);
+  throw lastError || new Error('All API endpoints failed');
+}
+
+// LocalStorage key for ImageKit URL mapping
+const IMAGEKIT_URL_MAP_KEY = 'fremio_imagekit_urls';
+
+// Get ImageKit URL mapping from localStorage
+function getImageKitUrlMap() {
+  try {
+    const stored = localStorage.getItem(IMAGEKIT_URL_MAP_KEY);
+    return stored ? JSON.parse(stored) : {};
+  } catch {
+    return {};
+  }
+}
+
+// =====================================================
+// LAYOUT STORAGE - VPS tidak menyimpan layout, jadi kita simpan di localStorage
+// =====================================================
+const FRAME_LAYOUT_MAP_KEY = 'fremio_frame_layout_map';
+
+// Get layout map from localStorage
+function getFrameLayoutMap() {
+  try {
+    const stored = localStorage.getItem(FRAME_LAYOUT_MAP_KEY);
+    return stored ? JSON.parse(stored) : {};
+  } catch (e) {
+    console.warn('⚠️ [FrameService] Failed to get layout map:', e);
+    return {};
+  }
+}
+
+// Save frame layout to localStorage
+function saveFrameLayout(frameId, layout, canvasBackground) {
+  try {
+    const map = getFrameLayoutMap();
+    map[frameId] = { 
+      layout: layout || null,
+      canvasBackground: canvasBackground || '#f7f1ed',
+      savedAt: Date.now()
+    };
+    localStorage.setItem(FRAME_LAYOUT_MAP_KEY, JSON.stringify(map));
+    console.log('💾 [FrameService] Saved layout for frame:', frameId, 'elements:', layout?.elements?.length || 0);
+  } catch (e) {
+    console.warn('⚠️ [FrameService] Failed to save layout:', e);
+  }
+}
+
+// Get frame layout from localStorage
+function getFrameLayout(frameId) {
+  const map = getFrameLayoutMap();
+  return map[frameId] || null;
+}
+
+// Save ImageKit URL mapping to localStorage
+function saveImageKitUrl(frameId, imagekitUrl) {
+  try {
+    const map = getImageKitUrlMap();
+    map[frameId] = imagekitUrl;
+    localStorage.setItem(IMAGEKIT_URL_MAP_KEY, JSON.stringify(map));
+    console.log('💾 [FrameService] Saved ImageKit URL for frame:', frameId);
+  } catch (e) {
+    console.warn('⚠️ [FrameService] Failed to save ImageKit URL:', e);
+  }
+}
+
+// Get ImageKit URL for a frame (if available)
+function getImageKitUrl(frameId) {
+  const map = getImageKitUrlMap();
+  return map[frameId] || null;
+}
+
+// Helper: Get the best image URL for a frame
+// Prioritizes: ImageKit URL > Supabase URL > VPS proxy URL
+function getBestImageUrl(frameId, originalUrl) {
+  if (!originalUrl) return null;
+  
+  // Check if we have an ImageKit URL stored for this frame
+  const imagekitUrl = getImageKitUrl(frameId);
+  if (imagekitUrl) {
+    console.log('🔄 [FrameService] Using stored ImageKit URL for frame:', frameId);
+    return imagekitUrl;
+  }
+  
+  // If URL is already from ImageKit, use it directly
+  if (originalUrl.includes('imagekit.io')) {
+    return originalUrl;
+  }
+  
+  // If URL is from Supabase, use it directly (HTTPS)
+  if (originalUrl.includes('supabase.co')) {
+    return originalUrl;
+  }
+  
+  // If URL is from VPS (72.61.210.203), proxy through Cloudflare Pages Function
+  if (originalUrl.includes('72.61.210.203')) {
+    const match = originalUrl.match(/72\.61\.210\.203(\/.*)/);
+    if (match) {
+      return `https://fremio.id/proxy${match[1]}`;
+    }
+  }
+  
+  // For other URLs, just ensure HTTPS
+  if (originalUrl.startsWith('http://')) {
+    return originalUrl.replace('http://', 'https://');
+  }
+  
+  return originalUrl;
+}
+
+// Legacy function - kept for compatibility
+function proxyImageUrl(url) {
+  if (!url) return url;
+  
+  // If URL is already HTTPS and not VPS, return as-is
+  if (url.includes('imagekit.io') || url.includes('supabase.co')) {
+    return url;
+  }
+  
+  // If URL is from VPS (72.61.210.203), proxy through Cloudflare Pages Function
+  if (url.includes('72.61.210.203')) {
+    const match = url.match(/72\.61\.210\.203(\/.*)/);
+    if (match) {
+      return `https://fremio.id/proxy${match[1]}`;
+    }
+  }
+  
+  // For other URLs, just ensure HTTPS
+  if (url.startsWith('http://')) {
+    return url.replace('http://', 'https://');
+  }
+  
+  return url;
+}
+
+// ==================== FRAME OPERATIONS ====================
+
+// LocalStorage cache key for emergency fallback
+const FRAMES_CACHE_KEY = 'fremio_frames_cache';
+
+// Static backup file URL (updated manually when VPS is accessible)
+const STATIC_BACKUP_URL = '/data/frames-backup.json';
+
+// Get cached frames from localStorage
+function getCachedFrames() {
+  try {
+    const cached = localStorage.getItem(FRAMES_CACHE_KEY);
+    if (cached) {
+      const data = JSON.parse(cached);
+      if (data.frames && Array.isArray(data.frames)) {
+        console.log(`📦 [FrameService] Using cached frames (${data.frames.length} frames)`);
+        return data.frames;
+      }
+    }
+  } catch (e) {
+    console.warn('⚠️ [FrameService] Failed to get cached frames:', e);
+  }
+  return null;
+}
+
+// Fetch from static backup file
+async function fetchStaticBackup() {
+  try {
+    console.log('📦 [FrameService] Trying static backup file...');
+    const response = await fetch(`${STATIC_BACKUP_URL}?_t=${Date.now()}`);
+    if (response.ok) {
+      const data = await response.json();
+      if (Array.isArray(data) && data.length > 0) {
+        console.log(`✅ [FrameService] Got ${data.length} frames from static backup`);
+        return data;
+      }
+    }
+  } catch (e) {
+    console.warn('⚠️ [FrameService] Failed to fetch static backup:', e);
+  }
+  return null;
+}
+
+// Save frames to localStorage cache
+function cacheFrames(frames) {
+  try {
+    localStorage.setItem(FRAMES_CACHE_KEY, JSON.stringify({
+      frames: frames,
+      timestamp: Date.now(),
+      source: 'api'
+    }));
+    console.log(`💾 [FrameService] Cached ${frames.length} frames to localStorage`);
+  } catch (e) {
+    console.warn('⚠️ [FrameService] Failed to cache frames:', e);
+  }
+}
+
+/**
+ * Get all frames
+ */
+export async function getAllFrames() {
+  console.log('📦 [FrameService] Getting all frames...');
+  
+  // Helper to map frames to consistent format
+  const mapFrames = (data) => {
+    return data.map(f => {
+      const imageUrl = getBestImageUrl(f.id, f.image_url);
+      return {
+        id: f.id,
+        name: f.name,
+        description: f.description || '',
+        category: f.category,
+        image_url: imageUrl,
+        thumbnail_url: imageUrl,
+        imagePath: imageUrl,
+        thumbnailUrl: imageUrl,
+        maxCaptures: f.max_captures || 4,
+        max_captures: f.max_captures || 4,
+        slots: f.slots || [],
+        is_active: f.is_active,
+        sort_order: f.sort_order,
+        created_at: f.created_at,
+        updated_at: f.updated_at,
+      };
+    });
+  };
+  
+  try {
+    const data = await apiCall('/frames');
+    console.log(`✅ [FrameService] Got ${data.length} frames from API`);
+    
+    // Cache successful result
+    cacheFrames(data);
+    
+    return mapFrames(data);
+    
+  } catch (error) {
+    console.error('❌ [FrameService] API failed, checking fallbacks...');
+    
+    // Fallback 1: Try localStorage cache
+    const cached = getCachedFrames();
+    if (cached && cached.length > 0) {
+      console.log(`🔄 [FrameService] Using ${cached.length} cached frames from localStorage`);
+      return mapFrames(cached);
+    }
+    
+    // Fallback 2: Try static backup file
+    const staticData = await fetchStaticBackup();
+    if (staticData && staticData.length > 0) {
+      console.log(`🔄 [FrameService] Using ${staticData.length} frames from static backup`);
+      // Cache for next time
+      cacheFrames(staticData);
+      return mapFrames(staticData);
+    }
+    
+    // No fallbacks available
+    console.error('❌ [FrameService] All fallbacks failed');
+    throw error;
+  }
+}
+
+/**
+ * Get frame by ID - with localStorage/static fallback
+ */
+export async function getFrameById(id) {
+  console.log(`📦 [FrameService] Getting frame: ${id}`);
+  
+  // Helper to format frame data
+  const formatFrame = (f) => {
+    const imageUrl = getBestImageUrl(f.id, f.image_url);
+    const storedLayoutData = getFrameLayout(f.id);
+    
+    return {
+      id: f.id,
+      name: f.name,
+      description: f.description || '',
+      category: f.category,
+      image_url: imageUrl,
+      imagePath: imageUrl,
+      thumbnailUrl: imageUrl,
+      maxCaptures: f.max_captures || 4,
+      max_captures: f.max_captures || 4,
+      slots: f.slots || [],
+      is_active: f.is_active,
+      sort_order: f.sort_order,
+      layout: storedLayoutData?.layout || null,
+      canvasBackground: storedLayoutData?.canvasBackground || '#f7f1ed',
+    };
+  };
+  
+  try {
+    const f = await apiCall(`/frames/${id}`);
+    console.log('✅ [FrameService] Frame loaded from API:', f.name);
+    return formatFrame(f);
+    
+  } catch (error) {
+    console.warn(`⚠️ [FrameService] API failed for frame ${id}, checking cache...`);
+    
+    // Fallback 1: Try to find in localStorage cache
+    const cached = getCachedFrames();
+    if (cached && cached.length > 0) {
+      const frame = cached.find(f => f.id === id);
+      if (frame) {
+        console.log(`🔄 [FrameService] Found frame ${id} in localStorage cache`);
+        return formatFrame(frame);
+      }
+    }
+    
+    // Fallback 2: Try static backup file
+    const staticData = await fetchStaticBackup();
+    if (staticData && staticData.length > 0) {
+      const frame = staticData.find(f => f.id === id);
+      if (frame) {
+        console.log(`🔄 [FrameService] Found frame ${id} in static backup`);
+        // Cache for next time
+        cacheFrames(staticData);
+        return formatFrame(frame);
+      }
+    }
+    
+    // Frame not found in any fallback
+    console.error(`❌ [FrameService] Frame ${id} not found in any source`);
+    throw error;
+  }
+}
+
+/**
+ * Create new frame
+ * Upload gambar ke ImageKit (FREE HTTPS)
+ */
+export async function createFrame(frameData, imageFile) {
+  console.log('📦 [FrameService] Creating frame:', frameData.name);
+  
+  let imageUrl = null;
+  
+  // Upload image to ImageKit (FREE HTTPS)
+  if (imageFile) {
+    console.log('📤 [FrameService] Uploading image to ImageKit...');
+    const safeName = frameData.name.replace(/[^a-zA-Z0-9]/g, '_');
+    
+    const uploadResult = await uploadImageSimple(imageFile, safeName, 'frames');
+    
+    if (uploadResult.error) {
+      console.error('❌ [FrameService] ImageKit upload failed:', uploadResult.error);
+      throw new Error('Gagal upload gambar: ' + uploadResult.error);
+    }
+    
+    imageUrl = uploadResult.url;
+    console.log('✅ [FrameService] Image uploaded to ImageKit:', imageUrl);
+  }
+  
+  // 🔄 STRATEGY: Create frame di VPS TANPA base64 image (bypass 502 error)
+  // Hanya kirim metadata, ImageKit URL disimpan di localStorage
+  console.log('📡 [FrameService] Creating frame directly to VPS (no base64)...');
+  
+  const vpsPayload = {
+    name: frameData.name,
+    description: frameData.description || '',
+    category: frameData.category || 'Fremio Series',
+    max_captures: frameData.maxCaptures || frameData.max_captures || 1,
+    slots: frameData.slots || [],
+    // VPS doesn't store these, but we send anyway
+    image_url: imageUrl,
+  };
+  
+  try {
+    // Try direct VPS endpoint (no image)
+    const data = await apiCall('/frames', {
+      method: 'POST',
+      body: JSON.stringify(vpsPayload),
+    });
+    
+    console.log('✅ [FrameService] Frame created:', data.id);
+    
+    // 🔑 Save ImageKit URL to localStorage mapping
+    if (imageUrl && data.id) {
+      saveImageKitUrl(data.id, imageUrl);
+      console.log('💾 [FrameService] Saved ImageKit URL mapping for frame:', data.id);
+    }
+    
+    // 🔑 Save layout to localStorage (VPS doesn't store this)
+    if (data.id && frameData.layout) {
+      saveFrameLayout(data.id, frameData.layout, frameData.canvasBackground);
+    }
+    
+    return { success: true, frameId: data.id, frame: data };
+    
+  } catch (vpsError) {
+    console.error('❌ [FrameService] VPS create failed:', vpsError.message);
+    
+    // Fallback: Generate local ID and save to localStorage only
+    console.log('⚠️ [FrameService] Using localStorage-only fallback...');
+    
+    const localId = `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Save to localStorage
+    if (imageUrl) {
+      saveImageKitUrl(localId, imageUrl);
+    }
+    if (frameData.layout) {
+      saveFrameLayout(localId, frameData.layout, frameData.canvasBackground);
+    }
+    
+    // Save frame metadata to localStorage
+    const localFrames = JSON.parse(localStorage.getItem('fremio_local_frames') || '[]');
+    localFrames.push({
+      id: localId,
+      name: frameData.name,
+      description: frameData.description || '',
+      category: frameData.category || 'Fremio Series',
+      max_captures: frameData.maxCaptures || frameData.max_captures || 1,
+      slots: frameData.slots || [],
+      image_url: imageUrl,
+      created_at: new Date().toISOString(),
+    });
+    localStorage.setItem('fremio_local_frames', JSON.stringify(localFrames));
+    
+    console.log('✅ [FrameService] Frame saved to localStorage:', localId);
+    
+    return { 
+      success: true, 
+      frameId: localId, 
+      frame: { id: localId, name: frameData.name, image_url: imageUrl },
+      isLocal: true 
     };
   }
 }
 
-// Singleton instance
-export const frameService = new FrameService();
-export default frameService;
+/**
+ * Update frame
+ * Upload gambar baru ke ImageKit (FREE HTTPS)
+ */
+export async function updateFrame(id, frameData, imageFile = null) {
+  console.log(`📦 [FrameService] Updating frame: ${id}`);
+  console.log('📦 [FrameService] Update data:', {
+    name: frameData.name,
+    description: frameData.description,
+    category: frameData.category,
+    max_captures: frameData.max_captures || frameData.maxCaptures,
+    slots: `[${(frameData.slots || []).length} slots]`,
+    hasNewImage: !!imageFile
+  });
+  
+  // Prepare update payload
+  const payload = {
+    name: frameData.name,
+    description: frameData.description || '',
+    category: frameData.category || 'Fremio Series',
+    max_captures: frameData.max_captures || frameData.maxCaptures || 1,
+    slots: Array.isArray(frameData.slots) ? frameData.slots : [],
+    // Include layout for elements (upload, text, shape)
+    layout: frameData.layout || null,
+    canvas_background: frameData.canvasBackground || '#f7f1ed',
+  };
+  
+  // If new image provided, upload to ImageKit
+  if (imageFile) {
+    console.log('📤 [FrameService] Uploading new image to ImageKit...');
+    const safeName = frameData.name.replace(/[^a-zA-Z0-9]/g, '_');
+    
+    const uploadResult = await uploadImageSimple(imageFile, safeName, 'frames');
+    
+    if (uploadResult.error) {
+      console.error('❌ [FrameService] ImageKit upload failed:', uploadResult.error);
+      throw new Error('Gagal upload gambar: ' + uploadResult.error);
+    }
+    
+    const newImageUrl = uploadResult.url;
+    payload.image_url = newImageUrl;
+    console.log('✅ [FrameService] New image uploaded to ImageKit:', newImageUrl);
+    
+    // 🔄 Update frame directly to VPS (no base64)
+    console.log('📡 [FrameService] Updating frame directly to VPS...');
+    try {
+      const data = await apiCall(`/frames/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      
+      console.log('✅ [FrameService] Frame updated successfully!');
+      
+      // 🔑 Save ImageKit URL to localStorage mapping
+      saveImageKitUrl(id, newImageUrl);
+      console.log('💾 [FrameService] Saved ImageKit URL mapping for frame:', id);
+      
+      // 🔑 Save layout to localStorage (VPS doesn't store this)
+      if (frameData.layout) {
+        saveFrameLayout(id, frameData.layout, frameData.canvasBackground);
+      }
+      
+      return { success: true, frame: data };
+      
+    } catch (vpsError) {
+      console.error('❌ [FrameService] VPS update failed:', vpsError.message);
+      
+      // Still save to localStorage even if VPS fails
+      saveImageKitUrl(id, newImageUrl);
+      if (frameData.layout) {
+        saveFrameLayout(id, frameData.layout, frameData.canvasBackground);
+      }
+      
+      console.log('✅ [FrameService] Saved to localStorage despite VPS error');
+      return { success: true, frame: { id, ...frameData, image_url: newImageUrl }, isLocalOnly: true };
+    }
+  }
+  
+  // No new image, just update metadata via VPS
+  const data = await apiCall(`/frames/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+  
+  console.log('✅ [FrameService] Frame updated successfully!');
+  console.log('✅ [FrameService] Updated frame:', data.name);
+  
+  // 🔑 Save layout to localStorage (VPS doesn't store this)
+  if (frameData.layout) {
+    saveFrameLayout(id, frameData.layout, frameData.canvasBackground);
+  }
+  
+  return { success: true, frame: data };
+}
+
+/**
+ * Delete frame
+ */
+export async function deleteFrame(id) {
+  console.log(`📦 [FrameService] Deleting frame: ${id}`);
+  
+  await apiCall(`/frames/${id}`, {
+    method: 'DELETE',
+  });
+  
+  console.log('✅ [FrameService] Frame deleted');
+  return { success: true };
+}
+
+/**
+ * Increment frame stats (views, uses)
+ */
+export async function incrementFrameStat(id, stat = 'uses') {
+  try {
+    await apiCall(`/frames/${id}/${stat}`, {
+      method: 'POST',
+    });
+    return { success: true };
+  } catch (e) {
+    console.warn(`⚠️ [FrameService] Failed to increment ${stat}:`, e.message);
+    return { success: false };
+  }
+}
+
+/**
+ * Batch update sort orders
+ */
+export async function batchUpdateSortOrders(updates) {
+  console.log(`📦 [FrameService] Batch updating ${updates.length} sort orders...`);
+  
+  const data = await apiCall('/frames/batch-sort', {
+    method: 'PUT',
+    body: JSON.stringify({ updates }),
+  });
+  
+  console.log('✅ [FrameService] Sort orders updated');
+  return { success: true, data };
+}
+
+/**
+ * Update category sort order
+ */
+export async function updateCategorySortOrder(category, sortOrder) {
+  console.log(`📦 [FrameService] Updating category sort order: ${category} = ${sortOrder}`);
+  
+  const data = await apiCall('/frames/category-sort', {
+    method: 'PUT',
+    body: JSON.stringify({ category, sort_order: sortOrder }),
+  });
+  
+  return { success: true, data };
+}
+
+/**
+ * Get frame config for EditPhoto page
+ */
+export async function getFrameConfig(frameId) {
+  const frame = await getFrameById(frameId);
+  if (!frame) return null;
+
+  const W = 1080;
+  const H = 1920;
+
+  return {
+    id: frame.id,
+    name: frame.name,
+    description: frame.description,
+    maxCaptures: frame.maxCaptures,
+    duplicatePhotos: frame.duplicatePhotos || false,
+    imagePath: frame.imagePath,
+    frameImage: frame.imagePath,
+    thumbnailUrl: frame.thumbnailUrl,
+    slots: frame.slots,
+    designer: {
+      elements: (frame.slots || []).map((s, i) => ({
+        id: s.id || "photo_" + (i + 1),
+        type: "photo",
+        x: s.left * W,
+        y: s.top * H,
+        width: s.width * W,
+        height: s.height * H,
+        zIndex: s.zIndex || 2,
+        data: {
+          photoIndex: s.photoIndex !== undefined ? s.photoIndex : i,
+          image: null,
+          aspectRatio: s.aspectRatio || "4:5",
+        },
+      })),
+    },
+    layout: frame.layout || {
+      aspectRatio: "9:16",
+      orientation: "portrait",
+      backgroundColor: "#ffffff",
+    },
+    category: frame.category,
+    isCustom: frame.isCustom || false,
+  };
+}
+
+/**
+ * Prefetch all frame slots (for instant frame selection)
+ */
+export async function prefetchAllFrameSlots() {
+  try {
+    const frames = await getAllFrames();
+    console.log(`✅ [FrameService] Prefetched ${frames.length} frames`);
+    return frames;
+  } catch (e) {
+    console.warn('⚠️ [FrameService] Prefetch failed:', e.message);
+    return [];
+  }
+}
+
+// ==================== HELPERS ====================
+
+/**
+ * Compress image to reduce file size
+ * Target: < 500KB untuk menghindari 413 error
+ */
+async function compressImage(file, maxSizeKB = 500) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Keep original dimensions for frame quality
+      canvas.width = img.width;
+      canvas.height = img.height;
+      
+      ctx.drawImage(img, 0, 0);
+      
+      // Start with quality 0.8, reduce if needed
+      let quality = 0.8;
+      let result = canvas.toDataURL('image/jpeg', quality);
+      
+      // Reduce quality until under max size
+      while (result.length > maxSizeKB * 1024 * 1.37 && quality > 0.3) {
+        quality -= 0.1;
+        result = canvas.toDataURL('image/jpeg', quality);
+        console.log(`🔄 [FrameService] Compressing... quality=${quality.toFixed(1)}, size=${Math.round(result.length / 1024 / 1.37)}KB`);
+      }
+      
+      // If still too large, also reduce dimensions
+      if (result.length > maxSizeKB * 1024 * 1.37 && img.width > 1080) {
+        const scale = 1080 / img.width;
+        canvas.width = 1080;
+        canvas.height = img.height * scale;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        result = canvas.toDataURL('image/jpeg', 0.7);
+        console.log(`🔄 [FrameService] Resized to 1080px, size=${Math.round(result.length / 1024 / 1.37)}KB`);
+      }
+      
+      console.log(`✅ [FrameService] Final compressed size: ${Math.round(result.length / 1024 / 1.37)}KB`);
+      
+      // Convert base64 to Blob, then to File
+      fetch(result)
+        .then(res => res.blob())
+        .then(blob => {
+          const compressedFile = new File([blob], file.name, { type: 'image/jpeg' });
+          resolve(compressedFile);
+        })
+        .catch(reject);
+    };
+    
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Failed to load image for compression'));
+    };
+    
+    img.src = url;
+  });
+}
+
+/**
+ * Convert File to base64 string (with compression)
+ */
+async function fileToBase64(file) {
+  // Check if file needs compression (> 400KB)
+  if (file.size > 400 * 1024) {
+    console.log(`📦 [FrameService] Image size: ${Math.round(file.size / 1024)}KB, compressing...`);
+    const compressedFile = await compressImage(file, 400);
+    console.log(`✅ [FrameService] Compressed from ${Math.round(file.size / 1024)}KB to ${Math.round(compressedFile.size / 1024)}KB`);
+    file = compressedFile;
+  }
+  
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Get storage info (legacy, returns dummy data)
+ */
+export function getStorageInfo() {
+  return {
+    totalMB: "Cloud",
+    framesMB: "Cloud", 
+    availableMB: "Unlimited",
+    isNearLimit: false,
+    isFull: false,
+  };
+}
+
+// ==================== LEGACY EXPORTS ====================
+// Backward compatibility untuk kode lama
+
+export const getAllCustomFrames = getAllFrames;
+export const getCustomFrameById = getFrameById;
+export const saveCustomFrame = createFrame;
+export const addCustomFrame = createFrame; // Alias for saveCustomFrame
+export const updateCustomFrame = async (id, updates, imageFile) => {
+  return updateFrame(id, updates, imageFile);
+};
+export const deleteCustomFrame = deleteFrame;
+export const incrementFrameStats = incrementFrameStat;
+export const getCustomFrameConfig = getFrameConfig;
+export const clearFramesCache = () => {
+  console.log('🗑️ [FrameService] clearFramesCache called (always fresh data)');
+};
+
+export default {
+  getAllFrames,
+  getFrameById,
+  createFrame,
+  updateFrame,
+  deleteFrame,
+  incrementFrameStat,
+  batchUpdateSortOrders,
+  updateCategorySortOrder,
+  getFrameConfig,
+  prefetchAllFrameSlots,
+  getStorageInfo,
+  // Legacy
+  getAllCustomFrames: getAllFrames,
+  getCustomFrameById: getFrameById,
+  saveCustomFrame: createFrame,
+  updateCustomFrame: updateFrame,
+  deleteCustomFrame: deleteFrame,
+  incrementFrameStats: incrementFrameStat,
+  getCustomFrameConfig: getFrameConfig,
+  clearFramesCache: () => {},
+};

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { isFirebaseConfigured } from "../../config/firebase";
-import { getAllCustomFrames } from "../../services/customFrameService";
+import { getAllCustomFrames, clearFramesCache } from "../../services/customFrameService";
 import { getUnreadMessagesCount } from "../../services/contactMessageService";
 import { getAllUsers } from "../../services/userService";
 import { getAffiliateStats } from "../../services/affiliateService";
@@ -21,6 +21,7 @@ import {
   Heart,
   Mail,
   Handshake,
+  RefreshCw,
 } from "lucide-react";
 
 export default function AdminDashboard() {
@@ -37,44 +38,78 @@ export default function AdminDashboard() {
     pendingAffiliates: 0,
     totalAffiliates: 0,
   });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // Load REAL stats from localStorage
-  const loadStats = async () => {
+  // Load stats from VPS API and other sources
+  const loadStats = async (forceRefresh = false) => {
     try {
-      console.log("📊 AdminDashboard - Loading stats...");
-      const frames = getAllCustomFrames();
-      console.log("📊 Frames loaded:", frames.length);
+      console.log("📊 AdminDashboard - Loading stats...", forceRefresh ? "(force refresh)" : "");
+      setLoading(true);
+      
+      // Clear cache if force refresh
+      if (forceRefresh) {
+        try {
+          clearFramesCache();
+        } catch (e) {
+          console.warn("Could not clear frames cache");
+        }
+      }
+      
+      // Load frames from VPS (this is working)
+      let frames = [];
+      try {
+        frames = await getAllCustomFrames();
+        console.log("📊 Frames loaded:", frames?.length || 0);
+      } catch (e) {
+        console.warn("⚠️ Failed to load frames:", e.message);
+      }
 
-      const usersData = await getAllUsers();
-      console.log("📊 Users loaded:", usersData.length, usersData);
+      // Load users (from Supabase/localStorage fallback)
+      let usersData = [];
+      try {
+        usersData = await getAllUsers();
+        console.log("📊 Users loaded:", usersData?.length || 0);
+      } catch (e) {
+        console.warn("⚠️ Failed to load users:", e.message);
+      }
 
-      const usage = JSON.parse(localStorage.getItem("frame_usage") || "[]");
-      const unreadMessages = await getUnreadMessagesCount();
-      const affiliateStats = await getAffiliateStats();
+      // Load other stats
+      let unreadMessages = 0;
+      try {
+        unreadMessages = await getUnreadMessagesCount();
+      } catch (e) {
+        console.warn("⚠️ Failed to load messages count");
+      }
 
-      const totalViews = usage.reduce((sum, u) => sum + (u.views || 0), 0);
-      const totalDownloads = usage.reduce(
-        (sum, u) => sum + (u.downloads || 0),
-        0
-      );
-      const totalLikes = usage.reduce((sum, u) => sum + (u.likes || 0), 0);
+      let affiliateStats = { pending: 0, total: 0 };
+      try {
+        affiliateStats = await getAffiliateStats();
+      } catch (e) {
+        console.warn("⚠️ Failed to load affiliate stats");
+      }
+
+      // Calculate stats from frames data (VPS stores views, uses, likes per frame)
+      const totalViews = frames?.reduce((sum, f) => sum + (f.views || 0), 0) || 0;
+      const totalDownloads = frames?.reduce((sum, f) => sum + (f.downloads || f.uses || 0), 0) || 0;
+      const totalLikes = frames?.reduce((sum, f) => sum + (f.likes || 0), 0) || 0;
 
       const newStats = {
-        totalFrames: frames.length,
-        totalUsers: usersData.length,
+        totalFrames: frames?.length || 0,
+        totalUsers: usersData?.length || 0,
         totalViews,
         totalDownloads,
         totalLikes,
-        unreadMessages,
-        pendingAffiliates: affiliateStats.pending,
-        totalAffiliates: affiliateStats.total,
+        unreadMessages: unreadMessages || 0,
+        pendingAffiliates: affiliateStats?.pending || 0,
+        totalAffiliates: affiliateStats?.total || 0,
       };
 
       console.log("📊 Final stats:", newStats);
       setStats(newStats);
     } catch (error) {
       console.error("Error loading stats:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -161,6 +196,39 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
+
+        {/* Stats Header with Refresh Button */}
+        <div style={{ 
+          display: "flex", 
+          justifyContent: "space-between", 
+          alignItems: "center", 
+          marginBottom: "16px" 
+        }}>
+          <h2 style={{ margin: 0, fontSize: "18px", fontWeight: "700", color: "#333" }}>
+            Overview Stats
+          </h2>
+          <button
+            onClick={() => loadStats(true)}
+            disabled={loading}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "8px 14px",
+              background: loading ? "#f0f0f0" : "#fff",
+              border: "1px solid #e0b7a9",
+              borderRadius: "8px",
+              fontSize: "13px",
+              fontWeight: "600",
+              color: "#e0b7a9",
+              cursor: loading ? "not-allowed" : "pointer",
+              transition: "all 0.2s",
+            }}
+          >
+            <RefreshCw size={14} style={{ animation: loading ? "spin 1s linear infinite" : "none" }} />
+            {loading ? "Loading..." : "Refresh"}
+          </button>
+        </div>
 
         {/* Overview Stats */}
         <div

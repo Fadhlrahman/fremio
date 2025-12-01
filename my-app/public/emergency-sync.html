@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Emergency Frame Sync - Fremio</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; background: #fef3c7; }
+    .box { background: white; padding: 20px; border-radius: 10px; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .success { background: #d4edda; color: #155724; padding: 10px; border-radius: 5px; margin: 10px 0; }
+    .error { background: #f8d7da; color: #721c24; padding: 10px; border-radius: 5px; margin: 10px 0; }
+    .info { background: #d1ecf1; color: #0c5460; padding: 10px; border-radius: 5px; margin: 10px 0; }
+    button { padding: 15px 30px; font-size: 16px; margin: 10px 5px; cursor: pointer; border: none; border-radius: 8px; }
+    .btn-primary { background: #4f46e5; color: white; }
+    .btn-danger { background: #dc2626; color: white; }
+    pre { background: #f4f4f4; padding: 10px; overflow-x: auto; font-size: 11px; max-height: 300px; }
+    h1 { color: #92400e; }
+  </style>
+</head>
+<body>
+  <h1>🚨 Emergency Frame Sync</h1>
+  
+  <div class="box">
+    <h2>Status</h2>
+    <div id="status" class="info">Ready for sync</div>
+  </div>
+  
+  <div class="box">
+    <h2>Step 1: Paste VPS Data</h2>
+    <p>Run this command in your terminal to get VPS data:</p>
+    <pre>curl http://72.61.210.203/api/frames</pre>
+    <p>Then paste the JSON result here:</p>
+    <textarea id="vpsData" style="width: 100%; height: 200px; font-family: monospace;" placeholder='Paste the JSON array here, e.g. [{"id":1,"name":"Frame 1",...},...]'></textarea>
+  </div>
+  
+  <div class="box">
+    <h2>Step 2: Sync to LocalStorage</h2>
+    <button class="btn-primary" onclick="syncToLocalStorage()">💾 Sync Now</button>
+    <button class="btn-danger" onclick="clearLocalStorage()">🗑️ Clear LocalStorage</button>
+  </div>
+  
+  <div class="box">
+    <h2>Current LocalStorage Data</h2>
+    <pre id="localStorage">Loading...</pre>
+    <button onclick="showLocalStorage()">🔄 Refresh</button>
+  </div>
+  
+  <div class="box">
+    <h2>Step 3: Go to Admin</h2>
+    <a href="/admin/frames"><button class="btn-primary">➡️ Go to Admin Frames</button></a>
+  </div>
+
+  <script>
+    const CACHE_KEY = 'fremio_frames_cache';
+    const IMAGEKIT_MAP_KEY = 'fremio_imagekit_urls';
+    
+    function showStatus(msg, type = 'info') {
+      const el = document.getElementById('status');
+      el.className = type;
+      el.innerHTML = msg;
+    }
+    
+    function showLocalStorage() {
+      const el = document.getElementById('localStorage');
+      const cache = localStorage.getItem(CACHE_KEY);
+      const imagekit = localStorage.getItem(IMAGEKIT_MAP_KEY);
+      
+      let text = '--- Frames Cache ---\n';
+      if (cache) {
+        try {
+          const data = JSON.parse(cache);
+          text += `Frames: ${data.frames?.length || 0}\n`;
+          text += `Timestamp: ${data.timestamp ? new Date(data.timestamp).toLocaleString() : 'N/A'}\n`;
+          text += '\nFirst 3 frames:\n';
+          (data.frames || []).slice(0, 3).forEach(f => {
+            text += `- ${f.id}: ${f.name} (${f.category})\n`;
+          });
+        } catch (e) {
+          text += 'Parse error: ' + e.message;
+        }
+      } else {
+        text += 'No cache found';
+      }
+      
+      text += '\n\n--- ImageKit URLs ---\n';
+      if (imagekit) {
+        try {
+          const data = JSON.parse(imagekit);
+          const keys = Object.keys(data);
+          text += `Total: ${keys.length} mappings\n`;
+          keys.slice(0, 5).forEach(k => {
+            text += `- ${k}: ${data[k].substring(0, 50)}...\n`;
+          });
+        } catch (e) {
+          text += 'Parse error: ' + e.message;
+        }
+      } else {
+        text += 'No ImageKit mappings found';
+      }
+      
+      el.textContent = text;
+    }
+    
+    function syncToLocalStorage() {
+      const input = document.getElementById('vpsData').value.trim();
+      
+      if (!input) {
+        showStatus('❌ Please paste VPS data first!', 'error');
+        return;
+      }
+      
+      try {
+        const frames = JSON.parse(input);
+        
+        if (!Array.isArray(frames)) {
+          showStatus('❌ Data must be an array!', 'error');
+          return;
+        }
+        
+        // Create cache object
+        const cacheData = {
+          frames: frames,
+          timestamp: Date.now(),
+          source: 'emergency_sync'
+        };
+        
+        localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+        
+        // Also create ImageKit URL map from VPS URLs
+        const imagekitMap = {};
+        frames.forEach(f => {
+          if (f.image_url && f.id) {
+            // If VPS stores a URL, save it to mapping
+            if (f.image_url.includes('imagekit.io')) {
+              imagekitMap[f.id] = f.image_url;
+            }
+          }
+        });
+        
+        if (Object.keys(imagekitMap).length > 0) {
+          localStorage.setItem(IMAGEKIT_MAP_KEY, JSON.stringify(imagekitMap));
+        }
+        
+        showStatus(`✅ Synced ${frames.length} frames to localStorage!`, 'success');
+        showLocalStorage();
+        
+      } catch (e) {
+        showStatus('❌ Invalid JSON: ' + e.message, 'error');
+      }
+    }
+    
+    function clearLocalStorage() {
+      if (!confirm('Are you sure you want to clear frame data from localStorage?')) {
+        return;
+      }
+      
+      localStorage.removeItem(CACHE_KEY);
+      showStatus('🗑️ LocalStorage cleared', 'info');
+      showLocalStorage();
+    }
+    
+    // Show current data on load
+    showLocalStorage();
+  </script>
+</body>
+</html>

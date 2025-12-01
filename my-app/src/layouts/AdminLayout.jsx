@@ -19,6 +19,7 @@ import {
   Handshake,
   PanelLeftClose,
   PanelLeft,
+  Shapes,
 } from "lucide-react";
 
 export default function AdminLayout() {
@@ -67,6 +68,7 @@ export default function AdminLayout() {
     { path: "/admin/dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { path: "/admin/frames", icon: FileImage, label: "Manage Frames" },
     { path: "/admin/upload-frame", icon: Upload, label: "Upload Frame" },
+    { path: "/admin/frame-creator", icon: Shapes, label: "Frame Creator" },
     { path: "/admin/users", icon: Users, label: "Users" },
     { path: "/admin/categories", icon: FolderOpen, label: "Categories" },
     { path: "/admin/analytics", icon: BarChart3, label: "Analytics" },

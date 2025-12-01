@@ -17,6 +17,40 @@ export const BUCKETS = {
 const R2_PUBLIC_URL = import.meta.env.VITE_R2_PUBLIC_URL || null;
 
 /**
+ * Ensure bucket exists (create if not)
+ */
+async function ensureBucketExists(bucketName) {
+  try {
+    // Try to get bucket info
+    const { data: buckets, error } = await supabase.storage.listBuckets();
+    
+    if (error) {
+      console.warn('⚠️ Could not list buckets:', error.message);
+      return true; // Continue anyway, bucket might exist
+    }
+    
+    const bucketExists = buckets?.some(b => b.name === bucketName);
+    
+    if (!bucketExists) {
+      console.log(`📦 Creating bucket: ${bucketName}`);
+      const { error: createError } = await supabase.storage.createBucket(bucketName, {
+        public: true,
+        fileSizeLimit: 5242880, // 5MB
+      });
+      
+      if (createError && !createError.message.includes('already exists')) {
+        console.warn('⚠️ Could not create bucket:', createError.message);
+      }
+    }
+    
+    return true;
+  } catch (e) {
+    console.warn('⚠️ Bucket check failed:', e.message);
+    return true; // Continue anyway
+  }
+}
+
+/**
  * Upload file to storage
  * @param {string} bucket - Bucket name
  * @param {string} path - File path in bucket
@@ -31,15 +65,21 @@ export async function uploadFile(bucket, path, file, options = {}) {
       return uploadToLocalStorage(bucket, path, file);
     }
 
+    // Ensure bucket exists
+    await ensureBucketExists(bucket);
+
+    console.log(`📤 Uploading to Supabase: ${bucket}/${path} (${Math.round(file.size/1024)}KB)`);
+
     const { data, error } = await supabase.storage
       .from(bucket)
       .upload(path, file, {
         cacheControl: options.cacheControl || '3600',
-        upsert: options.upsert || false,
+        upsert: options.upsert !== undefined ? options.upsert : true, // Default upsert true
         contentType: options.contentType || file.type
       });
 
     if (error) {
+      console.error('❌ Supabase upload error:', error);
       return { url: null, error: error.message };
     }
 
@@ -48,6 +88,7 @@ export async function uploadFile(bucket, path, file, options = {}) {
       .from(bucket)
       .getPublicUrl(data.path);
 
+    console.log('✅ Uploaded to Supabase:', publicUrl);
     return { url: publicUrl, error: null };
   } catch (error) {
     console.error('Upload error:', error);

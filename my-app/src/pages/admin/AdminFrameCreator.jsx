@@ -32,6 +32,7 @@ import {
 } from "../../components/creator/canvasConstants.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { saveCustomFrame, getCustomFrameById, updateCustomFrame } from "../../services/customFrameService.js";
+import { uploadImageSimple } from "../../services/imagekitService.js";
 import "../Create.css";
 
 const panelMotion = {
@@ -196,7 +197,7 @@ export default function AdminFrameCreator() {
               });
             }
             
-            // Add photo slots
+            // Add photo slots - ALWAYS use low zIndex (1) so they appear BELOW overlay elements
             if (frame.slots && Array.isArray(frame.slots)) {
               console.log("📸 Adding photo slots:", frame.slots.length);
               frame.slots.forEach((slot, index) => {
@@ -207,7 +208,7 @@ export default function AdminFrameCreator() {
                   y: slot.top * CANVAS_HEIGHT,
                   width: slot.width * CANVAS_WIDTH,
                   height: slot.height * CANVAS_HEIGHT,
-                  zIndex: slot.zIndex || 2,
+                  zIndex: 1, // Always low z-index for photo slots
                   data: {
                     photoIndex: slot.photoIndex !== undefined ? slot.photoIndex : index,
                     borderRadius: slot.borderRadius || 0,
@@ -217,17 +218,33 @@ export default function AdminFrameCreator() {
             }
             
             // Restore other elements (upload, text, shape) from layout.elements
+            // These should have HIGHER zIndex than photo slots
             if (frame.layout?.elements && Array.isArray(frame.layout.elements)) {
               console.log("📦 Restoring other elements:", frame.layout.elements.length, frame.layout.elements);
               frame.layout.elements.forEach((el) => {
-                console.log("🔄 Restoring element:", el.type, el.id);
+                console.log("🔄 Restoring element:", el.type, el.id, "zIndex:", el.zIndex, "aspectRatio:", el.data?.imageAspectRatio);
+                
                 // Convert normalized positions back to absolute positions
+                let restoredWidth = el.widthNorm !== undefined ? el.widthNorm * CANVAS_WIDTH : el.width;
+                let restoredHeight = el.heightNorm !== undefined ? el.heightNorm * CANVAS_HEIGHT : el.height;
+                
+                // For upload elements, recalculate dimensions using stored aspect ratio
+                // This ensures the image maintains its correct proportions
+                if (el.type === "upload" && el.data?.imageAspectRatio) {
+                  const aspectRatio = el.data.imageAspectRatio;
+                  // Use width as base and recalculate height to maintain aspect ratio
+                  restoredHeight = restoredWidth / aspectRatio;
+                  console.log("📐 Recalculated dimensions:", { width: restoredWidth, height: restoredHeight, aspectRatio });
+                }
+                
                 const restoredElement = {
                   ...el,
                   x: el.xNorm !== undefined ? el.xNorm * CANVAS_WIDTH : el.x,
                   y: el.yNorm !== undefined ? el.yNorm * CANVAS_HEIGHT : el.y,
-                  width: el.widthNorm !== undefined ? el.widthNorm * CANVAS_WIDTH : el.width,
-                  height: el.heightNorm !== undefined ? el.heightNorm * CANVAS_HEIGHT : el.height,
+                  width: restoredWidth,
+                  height: restoredHeight,
+                  // Ensure overlay elements (upload/text/shape) are ABOVE photo slots
+                  zIndex: Math.max(el.zIndex || 10, 10),
                 };
                 // Remove normalized properties
                 delete restoredElement.xNorm;
@@ -444,58 +461,132 @@ export default function AdminFrameCreator() {
       return;
     }
 
+    // Background photo is optional - can use solid color background instead
     const backgroundPhoto = elements.find((el) => el.type === "background-photo");
-    if (!backgroundPhoto) {
-      showToast("error", "Upload gambar frame terlebih dahulu!");
-      return;
-    }
 
     setSaving(true);
 
     try {
       const { width: canvasWidth, height: canvasHeight } = getCanvasDimensions(canvasAspectRatio);
 
-      // Get the original frame image from background-photo element
-      // The image is stored in data.image by useCreatorStore
-      const frameImageDataUrl = backgroundPhoto.data?.image || backgroundPhoto.data?.src || backgroundPhoto.src;
-      
-      console.log("🖼️ Background photo element:", backgroundPhoto);
-      console.log("🖼️ Frame image data URL length:", frameImageDataUrl?.length || 0);
-      
-      // Check if it's a URL (edit mode with existing image) or data URL (new upload)
-      const isExistingUrl = frameImageDataUrl?.startsWith("http");
-      
+      let frameImageDataUrl = null;
       let frameImageBlob = null;
-      if (!isExistingUrl && frameImageDataUrl) {
-        // Convert data URL to blob for new upload
-        frameImageBlob = await (await fetch(frameImageDataUrl)).blob();
-        console.log("📸 Frame image blob size:", frameImageBlob.size, "bytes");
+      let isExistingUrl = false;
+
+      if (backgroundPhoto) {
+        // Get the original frame image from background-photo element
+        // The image is stored in data.image by useCreatorStore
+        frameImageDataUrl = backgroundPhoto.data?.image || backgroundPhoto.data?.src || backgroundPhoto.src;
+        
+        console.log("🖼️ Background photo element:", backgroundPhoto);
+        console.log("🖼️ Frame image data URL length:", frameImageDataUrl?.length || 0);
+        
+        // Check if it's a URL (edit mode with existing image) or data URL (new upload)
+        isExistingUrl = frameImageDataUrl?.startsWith("http");
+        
+        if (!isExistingUrl && frameImageDataUrl) {
+          // Convert data URL to blob for new upload
+          frameImageBlob = await (await fetch(frameImageDataUrl)).blob();
+          console.log("📸 Frame image blob size:", frameImageBlob.size, "bytes");
+        }
+      } else {
+        // No background photo - capture canvas as frame image
+        console.log("🎨 No background photo, capturing canvas...");
+        
+        if (previewFrameRef.current) {
+          try {
+            const canvas = await html2canvas(previewFrameRef.current, {
+              scale: 2,
+              useCORS: true,
+              allowTaint: true,
+              backgroundColor: canvasBackground || "#ffffff",
+            });
+            frameImageDataUrl = canvas.toDataURL("image/png", 0.9);
+            frameImageBlob = await (await fetch(frameImageDataUrl)).blob();
+            console.log("📸 Canvas captured, blob size:", frameImageBlob.size, "bytes");
+          } catch (err) {
+            console.error("❌ Failed to capture canvas:", err);
+            showToast("error", "Gagal membuat gambar frame dari canvas");
+            setSaving(false);
+            return;
+          }
+        }
       }
 
       // Convert photo slots to normalized values
+      // Photo slots ALWAYS use low zIndex (1) so overlay elements appear above them
       const slots = photoElements.map((el, index) => ({
         id: el.id,
         left: el.x / canvasWidth,
         top: el.y / canvasHeight,
         width: el.width / canvasWidth,
         height: el.height / canvasHeight,
-        zIndex: el.zIndex || 2,
+        zIndex: 1, // Always low z-index for photo slots
         photoIndex: index,
         borderRadius: el.data?.borderRadius || 0,
       }));
 
       // Collect non-photo elements (upload, text, shape) for storage in layout
       // Exclude background-photo and photo elements as they are stored separately
-      const otherElements = elements
-        .filter(el => el.type !== "photo" && el.type !== "background-photo")
-        .map(el => ({
+      // For upload elements with images, upload to ImageKit first
+      const otherElements = [];
+      
+      for (const el of elements.filter(e => e.type !== "photo" && e.type !== "background-photo")) {
+        const elementToSave = {
           ...el,
           // Normalize positions to percentages for responsive storage
           xNorm: el.x / canvasWidth,
           yNorm: el.y / canvasHeight,
           widthNorm: el.width / canvasWidth,
           heightNorm: el.height / canvasHeight,
-        }));
+        };
+        
+        // If this is an upload element with a data URL image, upload to ImageKit
+        // Use originalImage if available (better quality, preserves transparency)
+        const imageToUpload = el.data?.originalImage || el.data?.image;
+        if (el.type === "upload" && imageToUpload && imageToUpload.startsWith("data:")) {
+          console.log("📤 Uploading overlay element image to ImageKit...");
+          console.log("📤 Using original image:", !!el.data?.originalImage);
+          try {
+            // Convert data URL to blob - preserve PNG format for transparency
+            const dataUrl = imageToUpload;
+            const mimeMatch = dataUrl.match(/data:([^;]+);/);
+            const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+            
+            // Use proper base64 to blob conversion
+            const base64Data = dataUrl.split(',')[1];
+            const binaryString = atob(base64Data);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+            const blob = new Blob([bytes], { type: mimeType });
+            
+            console.log("📤 Blob created:", { size: blob.size, type: blob.type });
+            
+            // Upload to ImageKit - use .png extension for transparency
+            const safeName = `overlay_${el.id.substring(0, 8)}.png`;
+            const uploadResult = await uploadImageSimple(blob, safeName, 'frame-overlays');
+            
+            if (uploadResult.url) {
+              console.log("✅ Overlay uploaded to ImageKit:", uploadResult.url);
+              // Replace data URL with ImageKit URL
+              // Remove originalImage from saved data to reduce storage
+              const { originalImage, ...restData } = elementToSave.data || {};
+              elementToSave.data = {
+                ...restData,
+                image: uploadResult.url,
+              };
+            } else {
+              console.warn("⚠️ Failed to upload overlay, keeping data URL");
+            }
+          } catch (err) {
+            console.warn("⚠️ Error uploading overlay:", err, err.stack);
+          }
+        }
+        
+        otherElements.push(elementToSave);
+      }
 
       console.log("📦 Other elements to save:", otherElements.length, otherElements.map(e => ({ type: e.type, id: e.id })));
 

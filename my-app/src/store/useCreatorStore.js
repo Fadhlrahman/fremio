@@ -563,13 +563,16 @@ export const useCreatorStore = create((set, get) => ({
         width = height * aspectRatio;
       }
       
-      // Create display version (smaller)
+      // Create display version (smaller) - PRESERVE TRANSPARENCY
       const displayCanvas = document.createElement('canvas');
       displayCanvas.width = Math.round(width);
       displayCanvas.height = Math.round(height);
-      const displayCtx = displayCanvas.getContext('2d');
+      const displayCtx = displayCanvas.getContext('2d', { alpha: true });
+      // Clear canvas with transparent background
+      displayCtx.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
       displayCtx.drawImage(img, 0, 0, Math.round(width), Math.round(height));
-      const displayImageDataUrl = displayCanvas.toDataURL('image/png', 0.95);
+      // Use PNG format to preserve transparency
+      const displayImageDataUrl = displayCanvas.toDataURL('image/png');
       
       // Center the element on canvas
       const x = Math.round((CANVAS_WIDTH - width) / 2);

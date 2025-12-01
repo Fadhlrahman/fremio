@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { getAllCustomFrames, deleteCustomFrame } from "../../services/customFrameService";
-import { batchUpdateSortOrders, updateCategorySortOrder } from "../../services/supabaseFrameService";
+import { batchUpdateSortOrders, updateCategorySortOrder, clearFramesCache } from "../../services/supabaseFrameService";
 import { imagePresets } from "../../utils/imageOptimizer";
 import { ChevronUp, ChevronDown, GripVertical, Save, ArrowUp, ArrowDown } from "lucide-react";
 
@@ -32,8 +32,15 @@ const AdminFrames = () => {
       const MAX_RETRIES = 3;
       console.log(`🔄 AdminFrames: Loading frames... (attempt ${retryCount + 1}/${MAX_RETRIES + 1})`);
       
+      // Clear cache on first attempt to ensure fresh data
+      if (retryCount === 0) {
+        clearFramesCache();
+        console.log("🧹 AdminFrames: Cache cleared for fresh data");
+      }
+      
       try {
-        const data = await getAllCustomFrames();
+        // Force refresh to bypass any browser/CDN cache
+        const data = await getAllCustomFrames(true);
         console.log("✅ AdminFrames: Frames loaded, count:", data?.length || 0);
         
         if ((!data || data.length === 0) && retryCount < MAX_RETRIES) {

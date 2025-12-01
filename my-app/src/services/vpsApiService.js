@@ -1,10 +1,11 @@
 /**
  * VPS API Service
  * Connects to Fremio's own VPS server (Hostinger)
- * Replaces Supabase for all database operations
+ * Uses Cloudflare Worker proxy for HTTPS
  */
 
-const API_BASE_URL = 'http://72.61.210.203/api';
+// Use Cloudflare Worker proxy for HTTPS
+const API_BASE_URL = 'https://fremio-api-proxy.array111103.workers.dev/api';
 
 // Helper function for API calls with error handling
 async function apiCall(endpoint, options = {}) {
@@ -163,6 +164,38 @@ export async function deleteFrame(id) {
   }
 }
 
+// Upload frame with base64 image
+export async function uploadFrameWithImage(frameData, imageBase64) {
+  try {
+    const result = await apiCall('/frames/base64', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: frameData.name,
+        description: frameData.description || '',
+        category: frameData.category || 'Lainnya',
+        max_captures: frameData.maxCaptures || 4,
+        slots: frameData.slots || [],
+        image: imageBase64,
+      }),
+    });
+    console.log('✅ Frame uploaded to VPS:', result.id);
+    return result;
+  } catch (error) {
+    console.error('Failed to upload frame:', error);
+    throw error;
+  }
+}
+
+// Increment frame view count
+export async function incrementFrameView(frameId) {
+  try {
+    await apiCall(`/frames/${frameId}/view`, { method: 'POST' });
+  } catch (error) {
+    // Non-blocking
+    console.warn('Failed to increment frame view:', error);
+  }
+}
+
 // ===== ANALYTICS OPERATIONS =====
 export async function trackSession(sessionData) {
   try {
@@ -246,6 +279,8 @@ export const vpsApi = {
   createFrame,
   updateFrame,
   deleteFrame,
+  uploadFrameWithImage,
+  incrementFrameView,
   
   // Analytics
   trackSession,

@@ -1666,28 +1666,29 @@ function CanvasPreviewComponent({
                   : undefined
               }
               resizeHandleWrapperClassName="creator-resize-wrapper"
+              resizeHandleWrapperStyle={{ 'data-export-ignore': 'true' }}
               resizeHandleComponent={{
-                top: <div className="react-rnd-handle react-rnd-handle-top" />,
+                top: <div className="react-rnd-handle react-rnd-handle-top" data-export-ignore="true" />,
                 right: (
-                  <div className="react-rnd-handle react-rnd-handle-right" />
+                  <div className="react-rnd-handle react-rnd-handle-right" data-export-ignore="true" />
                 ),
                 bottom: (
-                  <div className="react-rnd-handle react-rnd-handle-bottom" />
+                  <div className="react-rnd-handle react-rnd-handle-bottom" data-export-ignore="true" />
                 ),
                 left: (
-                  <div className="react-rnd-handle react-rnd-handle-left" />
+                  <div className="react-rnd-handle react-rnd-handle-left" data-export-ignore="true" />
                 ),
                 topRight: (
-                  <div className="react-rnd-handle react-rnd-handle-topRight" />
+                  <div className="react-rnd-handle react-rnd-handle-topRight" data-export-ignore="true" />
                 ),
                 bottomRight: (
-                  <div className="react-rnd-handle react-rnd-handle-bottomRight" />
+                  <div className="react-rnd-handle react-rnd-handle-bottomRight" data-export-ignore="true" />
                 ),
                 bottomLeft: (
-                  <div className="react-rnd-handle react-rnd-handle-bottomLeft" />
+                  <div className="react-rnd-handle react-rnd-handle-bottomLeft" data-export-ignore="true" />
                 ),
                 topLeft: (
-                  <div className="react-rnd-handle react-rnd-handle-topLeft" />
+                  <div className="react-rnd-handle react-rnd-handle-topLeft" data-export-ignore="true" />
                 ),
               }}
               onResizeStart={(e) => {

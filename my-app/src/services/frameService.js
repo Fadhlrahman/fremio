@@ -267,11 +267,38 @@ const ALLOWED_FRAME_IDS = [
   '8a9875dd-5960-4bec-9475-1071a5eb8af4', // Pixel Fun Adventure
 ];
 
+// TEMPORARY: Force use static frames only (bypass API and cache)
+const USE_STATIC_FRAMES_ONLY = true;
+
 /**
  * Get all frames
  */
 export async function getAllFrames() {
   console.log('📦 [FrameService] Getting all frames...');
+  
+  // TEMPORARY: Langsung return static frames, skip API dan cache
+  if (USE_STATIC_FRAMES_ONLY) {
+    console.log('🎯 [FrameService] Using STATIC FRAMES ONLY mode');
+    const staticData = await fetchStaticBackup();
+    if (staticData && staticData.length > 0) {
+      console.log(`✅ [FrameService] Returning ${staticData.length} static frames`);
+      return staticData.map(f => ({
+        id: f.id,
+        name: f.name,
+        description: f.description || '',
+        category: f.category,
+        image_url: f.image_url,
+        thumbnail_url: f.thumbnail_url || f.image_url,
+        imagePath: f.image_url,
+        thumbnailUrl: f.thumbnail_url || f.image_url,
+        maxCaptures: f.max_captures || 4,
+        max_captures: f.max_captures || 4,
+        slots: f.slots || [],
+        is_active: true,
+        sort_order: f.sort_order || 0,
+      }));
+    }
+  }
   
   // Helper to map frames to consistent format
   const mapFrames = (data) => {

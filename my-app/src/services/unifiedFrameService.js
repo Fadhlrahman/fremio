@@ -1,0 +1,441 @@
+// ============================================
+// UNIFIED FRAME SERVICE
+// Switches between Firebase and VPS based on config
+// ============================================
+
+import { isVPSMode, VPS_API_URL } from '../config/backend';
+
+// Import Firebase service (will be used in Firebase mode)
+let firebaseFrameService = null;
+
+// Lazy load Firebase frame service only when needed
+const getFirebaseService = async () => {
+  if (!firebaseFrameService) {
+    const module = await import('./customFrameService');
+    firebaseFrameService = module.default || module;
+  }
+  return firebaseFrameService;
+};
+
+// VPS Frame Client
+class VPSFrameClient {
+  constructor() {
+    this.baseUrl = VPS_API_URL;
+  }
+
+  getToken() {
+    // Try both possible token keys
+    const token = localStorage.getItem('fremio_token') || localStorage.getItem('auth_token');
+    console.log('🔑 getToken called, token exists:', !!token);
+    return token;
+  }
+
+  async request(endpoint, options = {}) {
+    const token = this.getToken();
+    
+    if (!token && options.method && options.method !== 'GET') {
+      console.warn('⚠️ No auth token found for authenticated request:', endpoint);
+    }
+    
+    const headers = {
+      ...(options.headers || {}),
+      ...(token && { 'Authorization': `Bearer ${token}` })
+    };
+
+    // Don't set Content-Type for FormData
+    if (!(options.body instanceof FormData)) {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    console.log(`📤 Request to ${endpoint}:`, { 
+      method: options.method || 'GET', 
+      hasToken: !!token,
+      isFormData: options.body instanceof FormData 
+    });
+
+    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      ...options,
+      headers
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error(`❌ Request failed (${response.status}):`, data);
+      throw new Error(data.error || data.message || 'Request failed');
+    }
+
+    return data;
+  }
+
+  // Get all frames
+  async getAllFrames() {
+    try {
+      const data = await this.request('/frames');
+      // Handle both array and object response
+      const frames = Array.isArray(data) ? data : (data.frames || []);
+      return frames.map(frame => {
+        // Use imageUrl from backend if available, otherwise construct from image_path or imagePath
+        const imagePath = frame.image_path || frame.imagePath;
+        let imageUrl = frame.imageUrl;
+        
+        if (!imageUrl && imagePath) {
+          imageUrl = imagePath.startsWith('http')
+            ? imagePath
+            : `${this.baseUrl.replace('/api', '')}${imagePath}`;
+        }
+        
+        return {
+          ...frame,
+          imageUrl,
+          imagePath,
+          thumbnailUrl: imageUrl
+        };
+      });
+    } catch (error) {
+      console.error('Error getting frames:', error);
+      return [];
+    }
+  }
+
+  // Get frame by ID
+  async getFrameById(id) {
+    try {
+      const data = await this.request(`/frames/${id}`);
+      const frame = data.frame || data;
+      return {
+        ...frame,
+        imageUrl: frame.image_path?.startsWith('http')
+          ? frame.image_path
+          : `${this.baseUrl.replace('/api', '')}${frame.image_path}`,
+        imagePath: frame.image_path
+      };
+    } catch (error) {
+      console.error('Error getting frame:', error);
+      return null;
+    }
+  }
+
+  // Get frame config for EditPhoto
+  async getFrameConfig(id) {
+    try {
+      const data = await this.request(`/frames/${id}/config`);
+      return data;
+    } catch (error) {
+      console.error('Error getting frame config:', error);
+      return null;
+    }
+  }
+
+  // Create frame (admin only)
+  async createFrame(frameData, imageFile = null) {
+    console.log('📤 [createFrame] ENTRY - frameData keys:', Object.keys(frameData));
+    console.log('📤 [createFrame] ENTRY - frameData.layout exists:', !!frameData.layout);
+    console.log('📤 [createFrame] ENTRY - frameData.layout type:', typeof frameData.layout);
+    
+    if (frameData.layout) {
+      console.log('📤 [createFrame] ENTRY - layout keys:', Object.keys(frameData.layout));
+      console.log('📤 [createFrame] ENTRY - layout.elements:', frameData.layout.elements);
+    }
+    
+    // Upload image first if provided
+    if (imageFile) {
+      try {
+        const uploadResult = await this.uploadFrameImage(imageFile);
+        if (uploadResult.imagePath) {
+          frameData.imagePath = uploadResult.imagePath;
+          frameData.image_path = uploadResult.imagePath;
+        }
+      } catch (err) {
+        console.error('Error uploading frame image:', err);
+      }
+    }
+    
+    console.log('📤 [createFrame] AFTER UPLOAD - frameData.layout exists:', !!frameData.layout);
+    
+    // Ensure layout is properly included
+    const bodyToSend = {
+      ...frameData,
+      layout: frameData.layout || { elements: [] }
+    };
+    
+    console.log('📤 [createFrame] bodyToSend.layout:', bodyToSend.layout);
+    console.log('📤 [createFrame] bodyToSend.layout.elements count:', bodyToSend.layout?.elements?.length);
+    
+    return await this.request('/frames', {
+      method: 'POST',
+      body: JSON.stringify(bodyToSend)
+    });
+  }
+
+  // Update frame (admin only)
+  async updateFrame(id, frameData, imageFile = null) {
+    // Upload new image if provided
+    if (imageFile) {
+      try {
+        const uploadResult = await this.uploadFrameImage(imageFile);
+        if (uploadResult.imagePath) {
+          frameData.imagePath = uploadResult.imagePath;
+          frameData.image_path = uploadResult.imagePath;
+        }
+      } catch (err) {
+        console.error('Error uploading frame image:', err);
+      }
+    }
+    
+    console.log('📤 [vpsClient.updateFrame] frameData.layout exists:', !!frameData.layout);
+    console.log('📤 [vpsClient.updateFrame] frameData.layout.elements:', frameData.layout?.elements?.length);
+    
+    return await this.request(`/frames/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(frameData)
+    });
+  }
+
+  // Delete frame (admin only)
+  async deleteFrame(id) {
+    return await this.request(`/frames/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Upload frame image (admin only)
+  async uploadFrameImage(file) {
+    const formData = new FormData();
+    // Ensure file has proper name and type for multer validation
+    const fileName = file.name || `frame_${Date.now()}.webp`;
+    const fileType = file.type || 'image/webp';
+    const blob = new Blob([file], { type: fileType });
+    formData.append('image', blob, fileName);
+    return await this.request('/upload/frame', {
+      method: 'POST',
+      body: formData
+    });
+  }
+
+  // Save frame with image (admin only)
+  async saveFrame(frameData, imageFile) {
+    // Upload image first if provided
+    if (imageFile) {
+      const uploadResult = await this.uploadFrameImage(imageFile);
+      frameData.imagePath = uploadResult.imagePath;
+      frameData.image_path = uploadResult.imagePath;
+    }
+
+    console.log('📤 [saveFrame] frameData.layout exists:', !!frameData.layout);
+    console.log('📤 [saveFrame] frameData.layout.elements:', frameData.layout?.elements?.length);
+
+    // Create frame - include ALL fields from frameData
+    const result = await this.createFrame({
+      id: frameData.id || `frame_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      name: frameData.name,
+      description: frameData.description || '',
+      category: frameData.category || 'custom',
+      categories: frameData.categories,
+      image_path: frameData.imagePath || frameData.image_path,
+      slots: frameData.slots || [],
+      max_captures: frameData.maxCaptures || frameData.slots?.length || 1,
+      maxCaptures: frameData.maxCaptures || frameData.slots?.length || 1,
+      // Include layout with elements (overlays, uploads, etc.)
+      layout: frameData.layout || { elements: [] },
+      canvasBackground: frameData.canvasBackground,
+      canvasWidth: frameData.canvasWidth,
+      canvasHeight: frameData.canvasHeight,
+      createdBy: frameData.createdBy,
+      duplicatePhotos: frameData.duplicatePhotos
+    });
+
+    return { success: true, frameId: result.frame?.id };
+  }
+
+  // Increment download/use count
+  async incrementStats(id, stat = 'download') {
+    try {
+      await this.request(`/frames/${id}/${stat}`, { method: 'POST' });
+    } catch (error) {
+      console.error('Error incrementing stats:', error);
+    }
+  }
+}
+
+// Create VPS client instance
+const vpsClient = new VPSFrameClient();
+
+// Unified frame service
+const unifiedFrameService = {
+  // Get all frames
+  async getAllFrames() {
+    if (isVPSMode()) {
+      return await vpsClient.getAllFrames();
+    }
+    const firebaseSvc = await getFirebaseService();
+    return await firebaseSvc.getAllCustomFrames();
+  },
+
+  // Alias for getAllFrames (compatibility)
+  async getAllCustomFrames() {
+    return await this.getAllFrames();
+  },
+
+  // Get frame by ID
+  async getFrameById(id) {
+    if (isVPSMode()) {
+      return await vpsClient.getFrameById(id);
+    }
+    const firebaseSvc = await getFirebaseService();
+    return await firebaseSvc.getCustomFrameById(id);
+  },
+
+  // Alias (compatibility)
+  async getCustomFrameById(id) {
+    return await this.getFrameById(id);
+  },
+
+  // Get frame config for EditPhoto
+  async getFrameConfig(id) {
+    if (isVPSMode()) {
+      return await vpsClient.getFrameConfig(id);
+    }
+    const firebaseSvc = await getFirebaseService();
+    return await firebaseSvc.getCustomFrameConfig(id);
+  },
+
+  // Alias (compatibility)
+  async getCustomFrameConfig(id) {
+    return await this.getFrameConfig(id);
+  },
+
+  // Save frame (admin)
+  async saveFrame(frameData, imageFile = null) {
+    if (isVPSMode()) {
+      return await vpsClient.saveFrame(frameData, imageFile);
+    }
+    const firebaseSvc = await getFirebaseService();
+    return await firebaseSvc.saveCustomFrame(frameData, imageFile);
+  },
+
+  // Alias (compatibility)
+  async saveCustomFrame(frameData, imageFile = null) {
+    return await this.saveFrame(frameData, imageFile);
+  },
+
+  // Create frame (admin) - alias for saveFrame
+  async createFrame(frameData, imageFile = null) {
+    return await this.saveFrame(frameData, imageFile);
+  },
+
+  // Update frame (admin)
+  async updateFrame(id, updates, imageFile = null) {
+    console.log('📤 [unified.updateFrame] updates.layout exists:', !!updates.layout);
+    console.log('📤 [unified.updateFrame] updates.layout.elements:', updates.layout?.elements?.length);
+    
+    if (isVPSMode()) {
+      if (imageFile) {
+        const uploadResult = await vpsClient.uploadFrameImage(imageFile);
+        updates.image_path = uploadResult.imagePath;
+      }
+      return await vpsClient.updateFrame(id, updates);
+    }
+    const firebaseSvc = await getFirebaseService();
+    return await firebaseSvc.updateCustomFrame(id, updates, imageFile);
+  },
+
+  // Alias (compatibility)
+  async updateCustomFrame(id, updates, imageFile = null) {
+    return await this.updateFrame(id, updates, imageFile);
+  },
+
+  // Delete frame (admin)
+  async deleteFrame(id) {
+    if (isVPSMode()) {
+      return await vpsClient.deleteFrame(id);
+    }
+    const firebaseSvc = await getFirebaseService();
+    return await firebaseSvc.deleteCustomFrame(id);
+  },
+
+  // Alias (compatibility)
+  async deleteCustomFrame(id) {
+    return await this.deleteFrame(id);
+  },
+
+  // Increment stats
+  async incrementStats(id, stat = 'uses') {
+    if (isVPSMode()) {
+      return await vpsClient.incrementStats(id, stat === 'uses' ? 'download' : stat);
+    }
+    const firebaseSvc = await getFirebaseService();
+    return await firebaseSvc.incrementFrameStats?.(id, stat);
+  },
+
+  // Alias (compatibility)
+  async incrementFrameStats(id, stat = 'uses') {
+    return await this.incrementStats(id, stat);
+  },
+
+  // Update display order for multiple frames
+  async updateFramesOrder(frameOrders) {
+    // frameOrders is an array of { id, displayOrder }
+    if (isVPSMode()) {
+      // Update each frame's displayOrder
+      const results = await Promise.all(
+        frameOrders.map(({ id, displayOrder }) => 
+          vpsClient.updateFrame(id, { displayOrder })
+        )
+      );
+      return { success: true, results };
+    }
+    // Firebase mode
+    const firebaseSvc = await getFirebaseService();
+    const results = await Promise.all(
+      frameOrders.map(({ id, displayOrder }) => 
+        firebaseSvc.updateCustomFrame(id, { displayOrder })
+      )
+    );
+    return { success: true, results };
+  },
+
+  // Clear all frames (admin)
+  async clearAllFrames() {
+    if (isVPSMode()) {
+      // VPS: Get all frames and delete each
+      const frames = await vpsClient.getAllFrames();
+      for (const frame of frames) {
+        await vpsClient.deleteFrame(frame.id);
+      }
+      return { success: true };
+    }
+    const firebaseSvc = await getFirebaseService();
+    return await firebaseSvc.clearAllCustomFrames?.();
+  },
+
+  // Get storage info
+  getStorageInfo() {
+    if (isVPSMode()) {
+      return {
+        totalMB: 'VPS',
+        framesMB: 'VPS',
+        availableMB: 'Unlimited',
+        isNearLimit: false,
+        isFull: false,
+        isVPS: true
+      };
+    }
+    return {
+      totalMB: 'Cloud',
+      framesMB: 'Cloud',
+      availableMB: 'Unlimited',
+      isNearLimit: false,
+      isFull: false,
+      isFirebase: true
+    };
+  },
+
+  // Check mode
+  isVPSMode() {
+    return isVPSMode();
+  }
+};
+
+export default unifiedFrameService;
+export { VPSFrameClient };

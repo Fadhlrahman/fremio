@@ -31,7 +31,7 @@ import {
   CANVAS_HEIGHT,
 } from "../../components/creator/canvasConstants.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
-import { saveCustomFrame, getCustomFrameById, updateCustomFrame } from "../../services/customFrameService.js";
+import unifiedFrameService from "../../services/unifiedFrameService";
 import { uploadImageSimple } from "../../services/imagekitService.js";
 import "../Create.css";
 
@@ -151,7 +151,7 @@ export default function AdminFrameCreator() {
         setIsEditMode(true);
         try {
           console.log("📝 Loading frame for edit:", editFrameId);
-          const frame = await getCustomFrameById(editFrameId);
+          const frame = await unifiedFrameService.getFrameById(editFrameId);
           
           if (frame) {
             console.log("✅ Frame loaded:", frame);
@@ -624,7 +624,7 @@ export default function AdminFrameCreator() {
       if (isEditMode && editFrameId) {
         // Update existing frame
         console.log("📝 Updating frame:", editFrameId);
-        result = await updateCustomFrame(editFrameId, frameData, frameImageBlob);
+        result = await unifiedFrameService.updateFrame(editFrameId, frameData, frameImageBlob);
         if (result.success) {
           showToast("success", `Frame "${frameName}" berhasil diupdate!`);
         }
@@ -634,7 +634,7 @@ export default function AdminFrameCreator() {
         if (!frameImageBlob) {
           throw new Error("Gambar frame tidak ditemukan! Pastikan sudah upload gambar di Background.");
         }
-        result = await saveCustomFrame(frameData, frameImageBlob);
+        result = await unifiedFrameService.createFrame(frameData, frameImageBlob);
         if (result.success) {
           showToast("success", `Frame "${frameName}" berhasil diupload!`);
         }

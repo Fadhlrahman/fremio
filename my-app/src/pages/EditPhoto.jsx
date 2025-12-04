@@ -17,19 +17,19 @@ import { imagePresets, getOriginalUrl } from "../utils/imageOptimizer";
 // Pre-import frequently used modules to avoid dynamic import delays
 let draftStorageModule = null;
 let draftHelpersModule = null;
-let customFrameServiceModule = null;
+let unifiedFrameServiceModule = null;
 
 // Preload modules in background
 const preloadModules = async () => {
   try {
-    const [draftStorage, draftHelpers, customFrameService] = await Promise.all([
+    const [draftStorage, draftHelpers, unifiedFrameService] = await Promise.all([
       import("../utils/draftStorage.js"),
       import("../utils/draftHelpers.js"),
-      import("../services/customFrameService.js"),
+      import("../services/unifiedFrameService"),
     ]);
     draftStorageModule = draftStorage;
     draftHelpersModule = draftHelpers;
-    customFrameServiceModule = customFrameService;
+    unifiedFrameServiceModule = unifiedFrameService;
     console.log("✅ EditPhoto modules preloaded");
   } catch (e) {
     console.warn("⚠️ Module preload failed:", e);
@@ -55,6 +55,12 @@ export default function EditPhoto() {
   // Photo zoom/pan transforms - keyed by element id or photo index
   const [photoTransforms, setPhotoTransforms] = useState({});
   const [selectedPhotoId, setSelectedPhotoId] = useState(null);
+  
+  // Photo swap feature - track first photo selected for swapping
+  const [swapSourceId, setSwapSourceId] = useState(null);
+  
+  // Hover state for photo slots
+  const [hoveredPhotoId, setHoveredPhotoId] = useState(null);
 
   // Filter states.
   const [filters, setFilters] = useState({
@@ -68,6 +74,70 @@ export default function EditPhoto() {
   });
   const [activeFilter, setActiveFilter] = useState(null);
   const photosFilled = React.useRef(false);
+
+  // Handler for swapping photos between two slots
+  const swapPhotos = useCallback((sourceId, targetId) => {
+    console.log("🔄 Swapping photos:", sourceId, "↔", targetId);
+    
+    setDesignerElements(prev => {
+      const newElements = [...prev];
+      const sourceIndex = newElements.findIndex(el => el.id === sourceId);
+      const targetIndex = newElements.findIndex(el => el.id === targetId);
+      
+      if (sourceIndex === -1 || targetIndex === -1) {
+        console.warn("⚠️ Could not find elements for swap");
+        return prev;
+      }
+      
+      const sourceEl = newElements[sourceIndex];
+      const targetEl = newElements[targetIndex];
+      
+      // Only swap if both are photo slots (have photoIndex)
+      if (typeof sourceEl.data?.photoIndex !== 'number' || typeof targetEl.data?.photoIndex !== 'number') {
+        console.warn("⚠️ Can only swap photo slots");
+        return prev;
+      }
+      
+      // Swap the image data between the two elements
+      const sourceImage = sourceEl.data?.image;
+      const targetImage = targetEl.data?.image;
+      
+      newElements[sourceIndex] = {
+        ...sourceEl,
+        data: {
+          ...sourceEl.data,
+          image: targetImage,
+        }
+      };
+      
+      newElements[targetIndex] = {
+        ...targetEl,
+        data: {
+          ...targetEl.data,
+          image: sourceImage,
+        }
+      };
+      
+      console.log("✅ Photos swapped successfully");
+      return newElements;
+    });
+    
+    // Also swap the transforms (zoom/pan state)
+    setPhotoTransforms(prev => {
+      const sourceTransform = prev[sourceId] || { scale: 1, x: 0, y: 0 };
+      const targetTransform = prev[targetId] || { scale: 1, x: 0, y: 0 };
+      
+      return {
+        ...prev,
+        [sourceId]: targetTransform,
+        [targetId]: sourceTransform,
+      };
+    });
+    
+    // Clear selection after swap
+    setSwapSourceId(null);
+    setSelectedPhotoId(null);
+  }, []);
 
   // Handler for updating photo transforms (zoom/pan)
   const updatePhotoTransform = useCallback((photoId, newTransform) => {
@@ -657,10 +727,24 @@ export default function EditPhoto() {
     
     const state = touchStateRef.current;
     
+    // Track if this is a simple tap (for clearing selection)
+    let tapStartTime = 0;
+    let tapStartX = 0;
+    let tapStartY = 0;
+    let hasMoved = false;
+    
     const handleGlobalTouchStart = (e) => {
-      if (!selectedPhotoId) return;
-      
       const touches = e.touches;
+      
+      // Track potential tap
+      if (touches.length === 1) {
+        tapStartTime = Date.now();
+        tapStartX = touches[0].clientX;
+        tapStartY = touches[0].clientY;
+        hasMoved = false;
+      }
+      
+      if (!selectedPhotoId) return;
       
       // If photo is selected but not yet active (first touch was outside photo area)
       // We activate it for global gestures
@@ -677,6 +761,7 @@ export default function EditPhoto() {
         e.preventDefault();
         state.isPinching = true;
         state.isDragging = false;
+        hasMoved = true; // Pinch is not a tap
         state.initialDistance = getDistance(touches[0], touches[1]);
         
         const currentTransform = getPhotoTransform(state.activePhotoId);
@@ -698,9 +783,19 @@ export default function EditPhoto() {
     };
     
     const handleGlobalTouchMove = (e) => {
+      const touches = e.touches;
+      
+      // Check if moved significantly (more than 10px = not a tap)
+      if (touches.length >= 1) {
+        const dx = Math.abs(touches[0].clientX - tapStartX);
+        const dy = Math.abs(touches[0].clientY - tapStartY);
+        if (dx > 10 || dy > 10) {
+          hasMoved = true;
+        }
+      }
+      
       if (!selectedPhotoId || !state.activePhotoId) return;
       
-      const touches = e.touches;
       const photoId = state.activePhotoId;
       
       // Handle pinch zoom from anywhere
@@ -766,9 +861,32 @@ export default function EditPhoto() {
     };
     
     const handleGlobalTouchEnd = (e) => {
+      const touches = e.touches;
+      const changedTouches = e.changedTouches;
+      
+      // Check if this was a simple tap (short duration, no movement)
+      const tapDuration = Date.now() - tapStartTime;
+      const isQuickTap = tapDuration < 300 && !hasMoved;
+      
+      // If it was a quick tap and we have selection, check if tap was outside photo
+      if (isQuickTap && (selectedPhotoId || swapSourceId) && changedTouches.length > 0) {
+        const touch = changedTouches[0];
+        const element = document.elementFromPoint(touch.clientX, touch.clientY);
+        const isOnPhoto = element?.closest('[data-photo-container="true"]');
+        
+        if (!isOnPhoto) {
+          console.log("👆 Quick tap outside photo detected - clearing selection");
+          setSwapSourceId(null);
+          setSelectedPhotoId(null);
+          state.activePhotoId = null;
+          state.isDragging = false;
+          state.isPinching = false;
+          return; // Don't process further
+        }
+      }
+      
       if (!selectedPhotoId || !state.activePhotoId) return;
       
-      const touches = e.touches;
       const photoId = state.activePhotoId;
       
       if (touches.length < 2) {
@@ -777,11 +895,11 @@ export default function EditPhoto() {
       
       if (touches.length === 0) {
         state.isDragging = false;
+        
         const currentTransform = getPhotoTransform(photoId);
         if (currentTransform.scale < 1.05) {
           updatePhotoTransform(photoId, { scale: 1, x: 0, y: 0 });
         }
-        // Don't clear activePhotoId here - keep it active for continued interaction
       } else if (touches.length === 1) {
         // Switch from pinch to drag
         state.isDragging = true;
@@ -790,17 +908,38 @@ export default function EditPhoto() {
       }
     };
     
+    // Handle tap outside to clear selection
+    const handleGlobalClick = (e) => {
+      // Only process if we have a selected photo
+      if (!selectedPhotoId && !swapSourceId) return;
+      
+      // Check if click/tap was on a photo container
+      const isOnPhoto = e.target.closest('[data-photo-container="true"]');
+      
+      // If not on photo, clear selection
+      if (!isOnPhoto) {
+        console.log("👆 Global tap outside photo - clearing selection");
+        setSwapSourceId(null);
+        setSelectedPhotoId(null);
+        state.activePhotoId = null;
+        state.isDragging = false;
+        state.isPinching = false;
+      }
+    };
+    
     // Add global listeners
     document.addEventListener('touchstart', handleGlobalTouchStart, { passive: false });
     document.addEventListener('touchmove', handleGlobalTouchMove, { passive: false });
     document.addEventListener('touchend', handleGlobalTouchEnd, { passive: false });
+    document.addEventListener('click', handleGlobalClick, { passive: true });
     
     return () => {
       document.removeEventListener('touchstart', handleGlobalTouchStart);
       document.removeEventListener('touchmove', handleGlobalTouchMove);
       document.removeEventListener('touchend', handleGlobalTouchEnd);
+      document.removeEventListener('click', handleGlobalClick);
     };
-  }, [selectedPhotoId, getDistance, getPhotoTransform, updatePhotoTransform, clamp, calculatePanConstraints]);
+  }, [selectedPhotoId, swapSourceId, getDistance, getPhotoTransform, updatePhotoTransform, clamp, calculatePanConstraints]);
 
   // Effect to prevent browser default gestures on photo containers
   // This is needed because React's onTouchStart/Move are passive by default
@@ -1309,9 +1448,9 @@ export default function EditPhoto() {
           
           try {
             // Use preloaded module or fallback to dynamic import
-            const { getCustomFrameConfig } = customFrameServiceModule || 
-              await import("../services/customFrameService.js");
-            const freshConfig = await getCustomFrameConfig(
+            const frameService = unifiedFrameServiceModule?.default || 
+              (await import("../services/unifiedFrameService")).default;
+            const freshConfig = await frameService.getFrameConfig(
               selectedFrameId || config?.id
             );
             if (freshConfig) {
@@ -1406,9 +1545,9 @@ export default function EditPhoto() {
             console.log("🔄 Attempting to load Supabase frame from service...");
             try {
               // Use preloaded module or fallback
-              const { getCustomFrameConfig } = customFrameServiceModule || 
-                await import("../services/customFrameService.js");
-              config = await getCustomFrameConfig(selectedFrameId);
+              const frameService = unifiedFrameServiceModule?.default || 
+                (await import("../services/unifiedFrameService")).default;
+              config = await frameService.getFrameConfig(selectedFrameId);
               if (config) {
                 console.log(
                   "✅ Successfully loaded custom frame from service:",
@@ -1725,14 +1864,42 @@ export default function EditPhoto() {
             // This handles buggy slot data where photoIndex might be wrong (e.g., 2,3 instead of 0,1)
             let photoIndex = photoEl.data?.photoIndex;
             
-            // Validate photoIndex - if it's undefined or out of range, use idx instead
-            if (photoIndex === undefined || photoIndex >= resolvedPhotos.length) {
+            // Validate photoIndex - if it's undefined or not a number, use idx
+            if (typeof photoIndex !== 'number') {
               console.warn(`⚠️ Invalid photoIndex ${photoIndex} for slot ${idx}, using idx as fallback`);
               photoIndex = idx;
             }
             
+            // CRITICAL: Duplicate photos in PAIRS if we have fewer photos than slots
+            // Pattern: Photo 1 → Slot 0,1 | Photo 2 → Slot 2,3 | Photo 3 → Slot 4,5
+            // This means: effectivePhotoIndex = Math.floor(slotIndex / 2)
+            let effectivePhotoIndex;
+            const totalSlots = photoElements.length;
+            const totalPhotos = resolvedPhotos.length;
+            
+            // If we have fewer photos than slots, use paired duplication
+            // Each photo should fill 2 consecutive slots
+            if (totalPhotos > 0 && totalSlots > totalPhotos) {
+              // Calculate how many slots each photo should fill
+              const slotsPerPhoto = Math.ceil(totalSlots / totalPhotos);
+              // Use idx (slot position) to determine which photo
+              effectivePhotoIndex = Math.floor(idx / slotsPerPhoto);
+              // Make sure we don't exceed available photos
+              if (effectivePhotoIndex >= totalPhotos) {
+                effectivePhotoIndex = totalPhotos - 1;
+              }
+              console.log(`🔁 Slot ${idx}: photoIndex ${photoIndex} -> effectivePhotoIndex ${effectivePhotoIndex} (paired duplication, ${slotsPerPhoto} slots per photo)`);
+            } else {
+              // Normal case: use photoIndex directly, but validate it
+              effectivePhotoIndex = photoIndex;
+              if (totalPhotos > 0 && effectivePhotoIndex >= totalPhotos) {
+                effectivePhotoIndex = effectivePhotoIndex % totalPhotos;
+                console.log(`🔁 Slot ${idx}: photoIndex ${photoIndex} wrapped to effectivePhotoIndex ${effectivePhotoIndex}`);
+              }
+            }
+            
             // Try to get photo data directly from resolvedPhotos (loaded earlier)
-            let photoData = resolvedPhotos[photoIndex];
+            let photoData = resolvedPhotos[effectivePhotoIndex];
             
             // Extra safety: ensure photoData is a string
             if (photoData && typeof photoData !== 'string') {
@@ -1747,7 +1914,7 @@ export default function EditPhoto() {
             }
             
             // DEBUG: Log original element coordinates as plain string for easy reading
-            console.log(`🖼️ Setting up photo slot ${idx}: photoIndex=${photoIndex}, hasPhotoData=${!!photoData}, originalX=${photoEl.x}, originalY=${photoEl.y}, originalWidth=${photoEl.width}, originalHeight=${photoEl.height}, originalZIndex=${photoEl.zIndex}`);
+            console.log(`🖼️ Setting up photo slot ${idx}: photoIndex=${photoIndex}, effectivePhotoIndex=${effectivePhotoIndex}, hasPhotoData=${!!photoData}, originalX=${photoEl.x}, originalY=${photoEl.y}, originalWidth=${photoEl.width}, originalHeight=${photoEl.height}, originalZIndex=${photoEl.zIndex}`);
             
             return {
               ...photoEl,
@@ -1755,30 +1922,141 @@ export default function EditPhoto() {
               data: {
                 ...photoEl.data,
                 image: photoData || null, // Fill with actual photo data!
-                photoIndex,
+                photoIndex: effectivePhotoIndex, // Use effective index for proper mapping
               },
             };
           });
 
           // Get other designer elements (text, shapes, uploads)
+          // These include overlay images from frame design
+          console.log("🔍 [DEBUG] Looking for overlay elements in config.designer.elements:");
+          console.log("   Total elements:", config.designer.elements.length);
+          config.designer.elements.forEach((el, i) => {
+            console.log(`   [${i}] type=${el?.type}, zIndex=${el?.zIndex}, __isOverlay=${el?.data?.__isOverlay}, hasImage=${!!el?.data?.image}`);
+          });
+          
+          // CRITICAL: Also check layout.elements for overlay elements that might not be in designer.elements
+          // This handles the case where overlay was saved in layout but not properly restored to designer
+          console.log("🔍 [DEBUG] Also checking config.layout.elements:", config.layout?.elements?.length || 0);
+          const layoutOverlayElements = [];
+          if (config.layout?.elements && Array.isArray(config.layout.elements)) {
+            const canvasW = config.canvasWidth || config.designer?.canvasWidth || 1080;
+            const canvasH = config.canvasHeight || config.designer?.canvasHeight || 1920;
+            
+            config.layout.elements.forEach((el, idx) => {
+              console.log(`   Layout[${idx}]: type=${el?.type}, zIndex=${el?.zIndex}, __isOverlay=${el?.data?.__isOverlay}, hasImage=${!!el?.data?.image}`);
+              
+              // Check if this is an overlay element (upload with image, no photoIndex)
+              const isOverlay = 
+                el.type === 'upload' && 
+                el.data?.image && 
+                el.data?.photoIndex === undefined;
+              
+              if (isOverlay) {
+                // Check if this overlay is already in designer.elements
+                const alreadyInDesigner = config.designer.elements.some(
+                  (de) => de.id === el.id || 
+                         (de.type === 'upload' && de.data?.image === el.data?.image)
+                );
+                
+                if (!alreadyInDesigner) {
+                  console.log("✅ Found overlay in layout.elements not in designer:", el.id);
+                  // Convert normalized positions to absolute positions
+                  const restoredOverlay = {
+                    ...el,
+                    x: el.xNorm !== undefined ? Math.round(el.xNorm * canvasW) : el.x,
+                    y: el.yNorm !== undefined ? Math.round(el.yNorm * canvasH) : el.y,
+                    width: el.widthNorm !== undefined ? Math.round(el.widthNorm * canvasW) : el.width,
+                    height: el.heightNorm !== undefined ? Math.round(el.heightNorm * canvasH) : el.height,
+                    zIndex: Math.max(el.zIndex || 0, 500 + idx),
+                    data: {
+                      ...el.data,
+                      __isOverlay: true,
+                    },
+                  };
+                  layoutOverlayElements.push(restoredOverlay);
+                }
+              }
+            });
+          }
+          console.log("📦 [DEBUG] Additional overlays from layout.elements:", layoutOverlayElements.length);
+          
           const otherDesignerElems = config.designer.elements.filter(
             (el) =>
               el &&
               el.type !== "photo" &&
               el.type !== "background-photo" &&
               !el?.data?.__capturedOverlay
-          );
+          ).map((el, idx) => {
+            // If already marked as overlay from backend, ensure high zIndex
+            if (el.data?.__isOverlay) {
+              console.log("✅ Found overlay element from backend:", el.id, "original zIndex:", el.zIndex);
+              return {
+                ...el,
+                zIndex: Math.max(el.zIndex || 0, 500 + idx), // Ensure overlay is always on top
+              };
+            }
+            
+            // Check if this is an overlay element (upload with external URL, no photoIndex)
+            const isOverlay = 
+              el.type === "upload" && 
+              el.data?.image && 
+              typeof el.data.image === "string" &&
+              (el.data.image.startsWith("http://") || el.data.image.startsWith("https://")) &&
+              el.data?.photoIndex === undefined;
+            
+            if (isOverlay) {
+              console.log("✅ Detected overlay element:", el.id, "assigning zIndex:", 500 + idx);
+              return {
+                ...el,
+                zIndex: 500 + idx, // Assign high zIndex for overlay
+                data: {
+                  ...el.data,
+                  __isOverlay: true, // Mark as overlay for rendering
+                }
+              };
+            }
+            return el;
+          });
+          
+          // Combine with overlay elements from layout.elements
+          const allOtherElems = [...otherDesignerElems, ...layoutOverlayElements];
+          
+          console.log("📦 [DEBUG] otherDesignerElems count:", otherDesignerElems.length);
+          console.log("📦 [DEBUG] allOtherElems count (with layout overlays):", allOtherElems.length);
+          allOtherElems.forEach((el, i) => {
+            console.log(`   [${i}] type=${el?.type}, zIndex=${el?.zIndex}, __isOverlay=${el?.data?.__isOverlay}, hasImage=${!!el?.data?.image}`);
+          });
 
           // Combine all elements
-          const allDesignerElements = [
-            ...photoAsUploadElements,
-            ...otherDesignerElems,
-          ];
-          setDesignerElements(allDesignerElements);
-          console.log(
-            "✅ Loaded designer elements:",
-            allDesignerElements.length
-          );
+            // Ensure overlay elements always have high zIndex (>=500)
+            const fixedDesignerElements = [
+              ...photoAsUploadElements,
+              ...allOtherElems,
+            ].map((el, idx) => {
+              if (
+                el &&
+                el.type === "upload" &&
+                el.data?.image &&
+                el.data?.photoIndex === undefined
+              ) {
+                // Overlay element: force zIndex >= 500
+                return {
+                  ...el,
+                  zIndex: Math.max(el.zIndex || 0, 500 + idx),
+                  data: {
+                    ...el.data,
+                    __isOverlay: true,
+                  },
+                };
+              }
+              return el;
+            });
+            setDesignerElements(fixedDesignerElements);
+            console.log(
+              "✅ Loaded designer elements (fixed zIndex):",
+              fixedDesignerElements.length
+            );
 
           // Load background photo
           const backgroundPhoto = config.designer.elements.find(
@@ -1854,6 +2132,9 @@ export default function EditPhoto() {
             const canvasWidth = config.layout?.canvasWidth || config.designer?.canvasWidth || 1080;
             const canvasHeight = config.layout?.canvasHeight || config.designer?.canvasHeight || 1920;
             
+            const totalSlots = config.slots.length;
+            const totalPhotos = resolvedPhotos.length;
+            
             const photoElementsFromSlots = config.slots.map((slot, idx) => {
               // Convert normalized coordinates (0-1) to pixels
               const x = (slot.left || 0) * canvasWidth;
@@ -1861,9 +2142,20 @@ export default function EditPhoto() {
               const width = (slot.width || 0.5) * canvasWidth;
               const height = (slot.height || 0.5) * canvasHeight;
               
-              // Get photo data
-              const photoIndex = slot.photoIndex !== undefined ? slot.photoIndex : idx;
-              let photoData = resolvedPhotos[photoIndex];
+              // PAIRED DUPLICATION: Calculate effective photo index
+              let effectivePhotoIndex;
+              if (totalPhotos > 0 && totalSlots > totalPhotos) {
+                const slotsPerPhoto = Math.ceil(totalSlots / totalPhotos);
+                effectivePhotoIndex = Math.floor(idx / slotsPerPhoto);
+                if (effectivePhotoIndex >= totalPhotos) {
+                  effectivePhotoIndex = totalPhotos - 1;
+                }
+              } else {
+                const originalPhotoIndex = slot.photoIndex !== undefined ? slot.photoIndex : idx;
+                effectivePhotoIndex = totalPhotos > 0 ? originalPhotoIndex % totalPhotos : originalPhotoIndex;
+              }
+              
+              let photoData = resolvedPhotos[effectivePhotoIndex];
               
               // Normalize photo data
               if (photoData && typeof photoData !== 'string') {
@@ -1872,7 +2164,7 @@ export default function EditPhoto() {
                 else photoData = null;
               }
               
-              console.log(`   Slot ${idx}: x=${x.toFixed(0)}, y=${y.toFixed(0)}, w=${width.toFixed(0)}, h=${height.toFixed(0)}, photoIndex=${photoIndex}, hasPhoto=${!!photoData}`);
+              console.log(`   Slot ${idx}: x=${x.toFixed(0)}, y=${y.toFixed(0)}, w=${width.toFixed(0)}, h=${height.toFixed(0)}, effectivePhotoIndex=${effectivePhotoIndex}, hasPhoto=${!!photoData}`);
               
               return {
                 id: slot.id || `photo_slot_${idx}`,
@@ -1884,7 +2176,7 @@ export default function EditPhoto() {
                 zIndex: slot.zIndex || 2,
                 rotation: slot.rotation || 0,
                 data: {
-                  photoIndex,
+                  photoIndex: effectivePhotoIndex,
                   image: photoData || null,
                   aspectRatio: slot.aspectRatio || "4:5",
                   borderRadius: slot.borderRadius ?? 0, // Use 0 as default, respect 0 value from admin
@@ -1939,10 +2231,14 @@ export default function EditPhoto() {
     );
 
     // Check if any elements need filling - support both "upload" and "photo" types
-    // CRITICAL FIX: Also include photo elements WITHOUT photoIndex (they will get auto-assigned)
+    // CRITICAL FIX: Exclude overlay elements (decorative uploads with __isOverlay flag)
     const photoSlots = designerElements.filter(
-      (el) => el.type === "upload" || el.type === "photo"
+      (el) => (el.type === "upload" || el.type === "photo") && !el.data?.__isOverlay
     );
+    
+    // Count overlay elements for debugging
+    const overlayElements = designerElements.filter((el) => el.data?.__isOverlay);
+    console.log(`🖼️ Photo fill: ${photoSlots.length} photo slots, ${overlayElements.length} overlays (excluded from fill)`);
 
     const needsFilling = photoSlots.some((el) => !el.data?.image);
 
@@ -1962,28 +2258,26 @@ export default function EditPhoto() {
     console.log(`   Found ${photoSlots.length} photo slots`);
     console.log(`   Available photos: ${photos.length}`);
 
-    // DUPLICATE MODE FIX: If we have fewer photos than slots, duplicate photos
-    // This handles cases where TakeMoment didn't duplicate photos properly
+    // PAIRED DUPLICATION: Each photo fills 2 consecutive slots
+    // Pattern: Photo 1 → Slot 1,2 | Photo 2 → Slot 3,4 | Photo 3 → Slot 5,6
     let photosToUse = [...photos];
     if (photosToUse.length > 0 && photosToUse.length < photoSlots.length) {
-      console.log("🔁 [EDITPHOTO] Duplicating photos to fill slots...");
+      console.log("🔁 [EDITPHOTO] Duplicating photos in PAIRS to fill slots...");
       console.log(`   - Original photos: ${photosToUse.length}`);
       console.log(`   - Photo slots: ${photoSlots.length}`);
       
-      // Calculate how many times each photo needs to be duplicated
+      // Create paired duplication: each photo appears twice consecutively
       const duplicatedPhotos = [];
-      const ratio = Math.ceil(photoSlots.length / photosToUse.length);
-      
       for (let i = 0; i < photosToUse.length; i++) {
-        for (let j = 0; j < ratio; j++) {
-          if (duplicatedPhotos.length < photoSlots.length) {
-            duplicatedPhotos.push(photosToUse[i]);
-          }
-        }
+        // Add each photo twice for paired slots
+        duplicatedPhotos.push(photosToUse[i]);
+        duplicatedPhotos.push(photosToUse[i]);
       }
       
+      // Trim to match slot count
       photosToUse = duplicatedPhotos.slice(0, photoSlots.length);
-      console.log(`   - After duplication: ${photosToUse.length} photos`);
+      console.log(`   - After paired duplication: ${photosToUse.length} photos`);
+      console.log(`   - Pattern: Photo 1→Slot 1,2 | Photo 2→Slot 3,4 | Photo 3→Slot 5,6`);
     }
 
     // Build a map of photo slots for auto-index assignment
@@ -1991,7 +2285,8 @@ export default function EditPhoto() {
     
     const updatedElements = designerElements.map((el, idx) => {
       // Support both "upload" (built-in frames) and "photo" (custom frames) types
-      if (el.type === "upload" || el.type === "photo") {
+      // CRITICAL: Skip overlay elements - they should keep their original image
+      if ((el.type === "upload" || el.type === "photo") && !el.data?.__isOverlay) {
         // CRITICAL FIX: Auto-assign photoIndex if not defined, using sequential counter
         let photoIndex = el.data?.photoIndex;
         
@@ -2455,6 +2750,10 @@ export default function EditPhoto() {
             @keyframes spin {
               to { transform: rotate(360deg); }
             }
+            @keyframes pulse {
+              0%, 100% { opacity: 1; }
+              50% { opacity: 0.85; }
+            }
           `}</style>
         </div>
       )}
@@ -2526,80 +2825,24 @@ export default function EditPhoto() {
         </div>
       )}
 
-      {/* Selected Photo Indicator & Controls */}
-      {selectedPhotoId && (
-        <div
-          style={{
-            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-            color: "white",
-            padding: "12px 16px",
-            borderRadius: "12px",
-            fontSize: "13px",
-            fontWeight: "500",
-            marginBottom: "8px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "12px",
-            width: "100%",
-            maxWidth: "320px",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span>✨</span>
-            <span>Foto terpilih - pinch untuk zoom</span>
-          </div>
-          <button
-            onClick={() => {
-              // Clear active photo state for global handlers
-              touchStateRef.current.activePhotoId = null;
-              touchStateRef.current.isDragging = false;
-              touchStateRef.current.isPinching = false;
-              // Just deselect - keep the zoom/pan transform
-              setSelectedPhotoId(null);
-            }}
-            style={{
-              background: "rgba(255,255,255,0.2)",
-              border: "none",
-              color: "white",
-              padding: "6px 12px",
-              borderRadius: "8px",
-              fontSize: "12px",
-              fontWeight: "600",
-              cursor: "pointer",
-            }}
-          >
-            Selesai
-          </button>
-        </div>
-      )}
-
-      {/* Zoom Active Indicator */}
-      {Object.keys(photoTransforms).some(key => photoTransforms[key]?.scale > 1) && (
-        <div
-          style={{
-            background: "rgba(16, 185, 129, 0.1)",
-            border: "1px solid rgba(16, 185, 129, 0.3)",
-            color: "#059669",
-            padding: "10px 16px",
-            borderRadius: "12px",
-            fontSize: "13px",
-            fontWeight: "500",
-            marginBottom: "8px",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-          }}
-        >
-          <span>🔍</span>
-          <span>Foto di-zoom. Double tap untuk reset.</span>
-        </div>
-      )}
-
       {/* Photo Preview */}
       {frameConfig && (
         <div
           ref={previewContainerRef}
+          onClick={(e) => {
+            // Clear selection when clicking on empty area (not on a photo)
+            if (e.target === e.currentTarget || !e.target.closest('[data-photo-container="true"]')) {
+              if (swapSourceId || selectedPhotoId) {
+                console.log("👆 Clicked outside photo - clearing selection");
+                setSwapSourceId(null);
+                setSelectedPhotoId(null);
+                // Clear touch state
+                touchStateRef.current.activePhotoId = null;
+                touchStateRef.current.isDragging = false;
+                touchStateRef.current.isPinching = false;
+              }
+            }
+          }}
           style={{
             display: "flex",
             flexDirection: "column",
@@ -2612,6 +2855,19 @@ export default function EditPhoto() {
         >
           {/* Frame Canvas Container */}
           <div
+            onClick={(e) => {
+              // Clear selection when clicking on canvas area (not on a photo)
+              if (!e.target.closest('[data-photo-container="true"]')) {
+                if (swapSourceId || selectedPhotoId) {
+                  console.log("👆 Clicked on canvas - clearing selection");
+                  setSwapSourceId(null);
+                  setSelectedPhotoId(null);
+                  touchStateRef.current.activePhotoId = null;
+                  touchStateRef.current.isDragging = false;
+                  touchStateRef.current.isPinching = false;
+                }
+              }
+            }}
             style={{
               background: "white",
               padding: "1rem",
@@ -2668,9 +2924,12 @@ export default function EditPhoto() {
               )}
 
               {/* LAYER 2 & 3: Designer Elements (photos as uploads, text, shapes, real uploads) */}
+              {/* Sort elements by zIndex to ensure proper layering (higher zIndex = rendered on top) */}
               {designerElements &&
                 designerElements.length > 0 &&
-                designerElements.map((element, idx) => {
+                [...designerElements]
+                  .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
+                  .map((element, idx) => {
                   if (!element || !element.type) return null;
                   
                   // DEBUG: Log each element being rendered
@@ -2684,6 +2943,7 @@ export default function EditPhoto() {
                     zIndex: element.zIndex,
                     hasImage: !!element.data?.image,
                     photoIndex: element.data?.photoIndex,
+                    __isOverlay: element.data?.__isOverlay,
                   });
                   
                   const elemZIndex = Number.isFinite(element.zIndex)
@@ -2760,9 +3020,64 @@ export default function EditPhoto() {
                     const hasImage = !!element.data?.image;
                     const isPhotoSlot =
                       typeof element.data?.photoIndex === "number";
+                    const isOverlay = element.data?.__isOverlay === true;
+
+                    // FIXED: Overlay elements must always be ABOVE photo slots
+                    // Photo slots: zIndex 100-199
+                    // Overlay elements: zIndex 500+ (always on top)
+                    let finalZIndex;
+                    if (isOverlay) {
+                      // Overlay must be on top - use high zIndex
+                      finalZIndex = Number.isFinite(element.zIndex) && element.zIndex >= 500 
+                        ? element.zIndex 
+                        : 500 + idx;
+                    } else if (isPhotoSlot) {
+                      // Photo slots should have lower zIndex (below overlays)
+                      finalZIndex = Number.isFinite(element.zIndex) 
+                        ? Math.min(element.zIndex, 199) // Cap at 199 so overlays are always on top
+                        : 100 + idx;
+                    } else {
+                      finalZIndex = elemZIndex;
+                    }
 
                     // DEBUG: Log photo slot rendering - print values directly for easy reading
-                    console.log(`📷 Photo slot render: hasImage=${hasImage}, isPhotoSlot=${isPhotoSlot}, x=${element.x}, y=${element.y}, width=${element.width}, height=${element.height}, zIndex=${elemZIndex}`);
+                    console.log(`📷 Element render: hasImage=${hasImage}, isPhotoSlot=${isPhotoSlot}, isOverlay=${isOverlay}, x=${element.x}, y=${element.y}, width=${element.width}, height=${element.height}, originalZIndex=${element.zIndex}, finalZIndex=${finalZIndex}`);
+
+                    // Render overlay elements (decorative frame overlays)
+                    if (isOverlay && hasImage) {
+                      return (
+                        <div
+                          key={`overlay-${element.id || idx}`}
+                          style={{
+                            position: "absolute",
+                            left: `${element.x || 0}px`,
+                            top: `${element.y || 0}px`,
+                            width: `${element.width || 100}px`,
+                            height: `${element.height || 100}px`,
+                            zIndex: finalZIndex,
+                            pointerEvents: "none", // Overlay is not interactive
+                            overflow: "hidden",
+                          }}
+                        >
+                          <img
+                            src={element.data.image}
+                            alt="Frame overlay"
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: element.data?.objectFit || "contain",
+                              display: "block",
+                              pointerEvents: "none",
+                            }}
+                            draggable={false}
+                            onError={(e) => {
+                              console.warn("⚠️ Overlay image failed to load:", element.data.image);
+                              e.target.style.display = "none";
+                            }}
+                          />
+                        </div>
+                      );
+                    }
 
                     if (!hasImage && isPhotoSlot) {
                       console.warn(
@@ -2781,7 +3096,7 @@ export default function EditPhoto() {
                             top: `${element.y || 0}px`,
                             width: `${element.width || 100}px`,
                             height: `${element.height || 100}px`,
-                            zIndex: elemZIndex,
+                            zIndex: finalZIndex,
                             pointerEvents: "none",
                             borderRadius: `${
                               element.data?.borderRadius ?? 0
@@ -2809,21 +3124,36 @@ export default function EditPhoto() {
                     const photoId = element.id || `photo-${idx}`;
                     const photoTransform = getPhotoTransform(photoId);
                     const isSelected = selectedPhotoId === photoId;
+                    const isSwapSource = swapSourceId === photoId;
 
-                    // Handle click for selection (works better than touch on scaled elements)
+                    // Handle click/tap for photo swap (mobile-friendly: single tap)
                     const handlePhotoClick = (e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      console.log("📱 Photo clicked:", photoId, "currently selected:", selectedPhotoId);
+                      console.log("📱 Photo tapped:", photoId, "swapSource:", swapSourceId);
                       
-                      if (selectedPhotoId === photoId) {
-                        // Already selected - deselect
-                        setSelectedPhotoId(null);
-                      } else {
-                        // Select this photo
-                        setSelectedPhotoId(photoId);
+                      // If there's a swap source and we tapped a different photo, perform swap
+                      if (swapSourceId && swapSourceId !== photoId) {
+                        console.log("🔄 Performing swap:", swapSourceId, "↔", photoId);
+                        swapPhotos(swapSourceId, photoId);
+                        return;
                       }
+                      
+                      // If this photo is already the swap source, cancel swap mode
+                      if (swapSourceId === photoId) {
+                        console.log("❌ Cancelling swap mode");
+                        setSwapSourceId(null);
+                        setSelectedPhotoId(null);
+                        return;
+                      }
+                      
+                      // First tap - immediately enter swap mode (mobile-friendly)
+                      console.log("🔀 Entering swap mode for:", photoId);
+                      setSwapSourceId(photoId);
+                      setSelectedPhotoId(photoId);
                     };
+
+                    const isHovered = hoveredPhotoId === photoId;
 
                     return (
                       <div
@@ -2841,20 +3171,40 @@ export default function EditPhoto() {
                           top: `${element.y || 0}px`,
                           width: `${element.width || 100}px`,
                           height: `${element.height || 100}px`,
-                          zIndex: isSelected ? 9000 : elemZIndex, // Bring selected photo to front for easier interaction
-                          pointerEvents: "auto", // Enable touch events
+                          zIndex: isSelected || isSwapSource ? 9000 : finalZIndex,
+                          pointerEvents: "auto",
                           borderRadius: `${element.data?.borderRadius ?? 0}px`,
                           overflow: "hidden",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
                           background: "transparent",
-                          touchAction: "none", // Always disable browser gestures on photo containers
+                          touchAction: "none",
                           WebkitUserSelect: "none",
                           userSelect: "none",
-                          outline: isSelected ? "3px solid #4F46E5" : "none",
-                          boxShadow: isSelected ? "0 0 0 6px rgba(79,70,229,0.3)" : "none",
-                          cursor: isSelected ? "move" : "pointer",
+                          // Hover effect - subtle scale and shadow
+                          transform: isHovered && !isSelected && !isSwapSource ? "scale(1.02)" : "scale(1)",
+                          transition: "transform 0.2s ease-out, box-shadow 0.2s ease-out, outline 0.2s ease-out",
+                          // Visual states: swap source (orange), selected (blue), swap target hint (green dashed), hover (subtle glow)
+                          outline: isSwapSource 
+                            ? "4px solid #F59E0B" 
+                            : isSelected 
+                              ? "3px solid #4F46E5" 
+                              : swapSourceId 
+                                ? "3px dashed #10B981" 
+                                : isHovered
+                                  ? "2px solid rgba(79, 70, 229, 0.5)"
+                                  : "none",
+                          boxShadow: isSwapSource 
+                            ? "0 0 0 8px rgba(245,158,11,0.3)" 
+                            : isSelected 
+                              ? "0 0 0 6px rgba(79,70,229,0.3)" 
+                              : swapSourceId 
+                                ? "0 0 0 4px rgba(16,185,129,0.2)" 
+                                : isHovered
+                                  ? "0 4px 12px rgba(79, 70, 229, 0.25), 0 0 0 3px rgba(79, 70, 229, 0.1)"
+                                  : "none",
+                          cursor: swapSourceId ? "pointer" : isSelected ? "move" : "pointer",
                         }}
                         onClick={handlePhotoClick}
                         onTouchStart={(e) => handlePhotoTouchStart(e, photoId, e.currentTarget)}
@@ -2867,6 +3217,8 @@ export default function EditPhoto() {
                         onMouseDown={(e) => handlePhotoMouseDown(e, photoId, e.currentTarget)}
                         onMouseMove={(e) => handlePhotoMouseMove(e, photoId)}
                         onMouseUp={(e) => handlePhotoMouseUp(e, photoId)}
+                        onMouseEnter={() => setHoveredPhotoId(photoId)}
+                        onMouseLeave={() => setHoveredPhotoId(null)}
                       >
                         <img
                           src={element.data.image}
@@ -2945,102 +3297,6 @@ export default function EditPhoto() {
               )}
             </div>
           </div>
-
-          {/* Selected Photo Controls - Desktop Pinch-to-Zoom Instructions */}
-          {selectedPhotoId && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "1rem",
-                padding: "0.75rem 1rem",
-                background: "linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)",
-                borderRadius: "12px",
-                margin: "0.5rem 0",
-                boxShadow: "0 4px 12px rgba(79, 70, 229, 0.3)",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.5rem",
-                  color: "white",
-                  fontSize: "0.875rem",
-                }}
-              >
-                <span style={{ fontSize: "1.25rem" }}>🔍</span>
-                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                  <span style={{ fontWeight: "600" }}>Foto Terpilih</span>
-                  <span style={{ fontSize: "0.75rem", opacity: 0.9 }}>
-                    Pinch trackpad untuk zoom • Scroll untuk geser
-                  </span>
-                </div>
-              </div>
-              
-              {/* Zoom level indicator */}
-              {getPhotoTransform(selectedPhotoId).scale > 1 && (
-                <div
-                  style={{
-                    background: "rgba(255,255,255,0.2)",
-                    padding: "0.25rem 0.75rem",
-                    borderRadius: "8px",
-                    color: "white",
-                    fontSize: "0.875rem",
-                    fontWeight: "600",
-                  }}
-                >
-                  {getPhotoTransform(selectedPhotoId).scale.toFixed(1)}x
-                </div>
-              )}
-              
-              {/* Reset zoom button */}
-              {getPhotoTransform(selectedPhotoId).scale > 1 && (
-                <button
-                  onClick={() => {
-                    updatePhotoTransform(selectedPhotoId, { scale: 1, x: 0, y: 0 });
-                  }}
-                  style={{
-                    background: "rgba(255,255,255,0.2)",
-                    border: "none",
-                    padding: "0.5rem 0.75rem",
-                    borderRadius: "8px",
-                    color: "white",
-                    fontSize: "0.75rem",
-                    fontWeight: "500",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.25rem",
-                  }}
-                >
-                  ↺ Reset
-                </button>
-              )}
-              
-              {/* Done button */}
-              <button
-                onClick={() => setSelectedPhotoId(null)}
-                style={{
-                  background: "white",
-                  border: "none",
-                  padding: "0.5rem 1.25rem",
-                  borderRadius: "8px",
-                  color: "#4F46E5",
-                  fontSize: "0.875rem",
-                  fontWeight: "600",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.25rem",
-                  boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-                }}
-              >
-                ✓ Selesai
-              </button>
-            </div>
-          )}
 
           {/* Filter Buttons */}
           <div

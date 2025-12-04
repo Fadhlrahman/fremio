@@ -1,8 +1,8 @@
 // Test data for development - creates sample photos and custom test frame
-// ⚠️ UPDATED: Now uses custom frames instead of hardcoded configs
+// ⚠️ UPDATED: Now uses unified frame service
 
 import safeStorage from "./safeStorage.js";
-import { addCustomFrame } from "../services/customFrameService.js";
+import unifiedFrameService from "../services/unifiedFrameService";
 
 export function createSampleData() {
   // Create sample base64 photos (small colored rectangles)
@@ -52,7 +52,7 @@ export function createSampleData() {
   };
 
   // Add test frame to custom frames
-  addCustomFrame(testFrame);
+  unifiedFrameService.createFrame(testFrame);
 
   // Set it as selected frame
   safeStorage.setJSON("selectedFrame", {

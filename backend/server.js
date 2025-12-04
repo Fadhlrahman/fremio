@@ -5,6 +5,8 @@ import compression from "compression";
 import morgan from "morgan";
 import dotenv from "dotenv";
 import path from "path";
+import fs from "fs";
+import https from "https";
 import { fileURLToPath } from "url";
 import { initializeFirebase } from "./config/firebase.js";
 import storageService from "./services/storageService.js";
@@ -29,6 +31,7 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: false,  // Disable CSP for development
 }));
 app.use(compression());
 app.use(morgan("dev"));
@@ -50,6 +53,13 @@ const publicDir = process.env.STATIC_DIR || path.join(__dirname, "public");
 app.use("/static", express.static(publicDir, {
   maxAge: "1y",
   immutable: true,
+}));
+
+// Serve uploaded files (frames, thumbnails)
+const uploadsDir = path.join(__dirname, "uploads");
+app.use("/uploads", express.static(uploadsDir, {
+  maxAge: "30d",
+  etag: true,
 }));
 
 // Health check
@@ -104,29 +114,52 @@ const startServer = async () => {
       storageService.cleanupTempFiles(hours);
     }, 6 * 60 * 60 * 1000);
 
-    // Start server
-    app.listen(PORT, () => {
-      console.log("");
-      console.log("🚀 ============================================");
-      console.log(`🚀 Fremio Backend API running on port ${PORT}`);
-      console.log(`🚀 Environment: ${process.env.NODE_ENV || "development"}`);
-      console.log(`🚀 Frontend URL: ${process.env.FRONTEND_URL}`);
-      console.log("🚀 ============================================");
-      console.log("");
-      console.log("📋 Available endpoints:");
-      console.log("   GET  /health");
-      console.log("   POST /api/auth/register");
-      console.log("   GET  /api/auth/me");
-      console.log("   GET  /api/frames");
-      console.log("   POST /api/frames");
-      console.log("   GET  /api/drafts");
-      console.log("   POST /api/upload/image");
-      console.log("   POST /api/analytics/track");
-      console.log("   GET  /api/static/frames");
-      console.log("   POST /api/static/frames");
-      console.log("   GET  /static/frames/:filename (direct image access)");
-      console.log("");
-    });
+    // Check for HTTPS certificates
+    const certPath = path.join(__dirname, 'localhost+3.pem');
+    const keyPath = path.join(__dirname, 'localhost+3-key.pem');
+    const useHttps = fs.existsSync(certPath) && fs.existsSync(keyPath);
+
+    if (useHttps) {
+      // Start HTTPS server
+      const httpsOptions = {
+        key: fs.readFileSync(keyPath),
+        cert: fs.readFileSync(certPath),
+      };
+      
+      https.createServer(httpsOptions, app).listen(PORT, '0.0.0.0', () => {
+        console.log("");
+        console.log("🔒 ============================================");
+        console.log(`🔒 Fremio Backend API running on HTTPS port ${PORT}`);
+        console.log(`🔒 Environment: ${process.env.NODE_ENV || "development"}`);
+        console.log(`🔒 Access from phone: https://192.168.100.160:${PORT}`);
+        console.log("🔒 ============================================");
+        console.log("");
+      });
+    } else {
+      // Start HTTP server (fallback)
+      app.listen(PORT, '0.0.0.0', () => {
+        console.log("");
+        console.log("🚀 ============================================");
+        console.log(`🚀 Fremio Backend API running on port ${PORT}`);
+        console.log(`🚀 Environment: ${process.env.NODE_ENV || "development"}`);
+        console.log(`🚀 Frontend URL: ${process.env.FRONTEND_URL}`);
+        console.log("🚀 ============================================");
+        console.log("");
+        console.log("📋 Available endpoints:");
+        console.log("   GET  /health");
+        console.log("   POST /api/auth/register");
+        console.log("   GET  /api/auth/me");
+        console.log("   GET  /api/frames");
+        console.log("   POST /api/frames");
+        console.log("   GET  /api/drafts");
+        console.log("   POST /api/upload/image");
+        console.log("   POST /api/analytics/track");
+        console.log("   GET  /api/static/frames");
+        console.log("   POST /api/static/frames");
+        console.log("   GET  /static/frames/:filename (direct image access)");
+        console.log("");
+      });
+    }
   } catch (error) {
     console.error("❌ Failed to start server:", error);
     process.exit(1);

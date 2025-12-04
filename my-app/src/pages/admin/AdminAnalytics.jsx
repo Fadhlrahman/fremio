@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
-import { isFirebaseConfigured } from "../../config/firebase";
+import { isVPSMode } from "../../config/backend";
 import { getLeanMetrics, getLeanMetricsFromFirebase } from "../../services/analyticsService";
 import { getAllUsers } from "../../services/userService";
 import "../../styles/admin.css";
@@ -36,7 +36,42 @@ export default function AdminAnalytics() {
 
   const [loading, setLoading] = useState(false);
   const [timeRange, setTimeRange] = useState("7days"); // 7days, 30days, 90days, all
-  const [leanMetrics, setLeanMetrics] = useState(null);
+  
+  // Default lean metrics structure to prevent undefined errors
+  const defaultLeanMetrics = {
+    totalVisitors: 0,
+    uniqueVisitors: 0,
+    totalPhotosTaken: 0,
+    totalDownloads: 0,
+    totalShares: 0,
+    conversionRate: 0,
+    topFrames: [],
+    dailyStats: [],
+    dailyActiveUsers: 0,
+    weeklyActiveUsers: 0,
+    monthlyActiveUsers: 0,
+    funnel: {
+      visit: 0,
+      frameView: 0,
+      frameSelect: 0,
+      photoTaken: 0,
+      downloaded: 0,
+    },
+    conversionRates: {
+      viewToSelect: 0,
+      selectToCapture: 0,
+      captureToDownload: 0,
+      overallConversion: 0,
+    },
+    registeredUsers: 0,
+    registrationRate: 0,
+    registrations7Days: 0,
+    previousRegistrations7Days: 0,
+    avgDownloadsPerUser: 0,
+    topCreators: [],
+  };
+  
+  const [leanMetrics, setLeanMetrics] = useState(defaultLeanMetrics);
   const [analytics, setAnalytics] = useState({
     overview: {
       totalViews: 0,
@@ -65,22 +100,38 @@ export default function AdminAnalytics() {
   const loadAnalytics = async () => {
     setLoading(true);
     
-    // Load Lean Startup Metrics from Firebase (centralized data from all users)
+    // Load Lean Startup Metrics from API/Firebase
     let metrics = null;
     try {
       metrics = await getLeanMetricsFromFirebase();
-      setLeanMetrics(metrics);
+      // Merge with defaults to ensure all properties exist
+      setLeanMetrics({
+        ...defaultLeanMetrics,
+        ...metrics,
+        funnel: {
+          ...defaultLeanMetrics.funnel,
+          ...(metrics?.funnel || {}),
+        },
+        conversionRates: {
+          ...defaultLeanMetrics.conversionRates,
+          ...(metrics?.conversionRates || {}),
+        },
+      });
       console.log("📊 Loaded metrics:", metrics);
     } catch (error) {
-      console.error("Error loading Firebase metrics:", error);
-      // Fallback to localStorage
-      metrics = getLeanMetrics();
-      setLeanMetrics(metrics);
+      console.error("Error loading metrics:", error);
+      // Use defaults on error
+      setLeanMetrics(defaultLeanMetrics);
     }
     
-    if (!isFirebaseConfigured) {
-      // Load REAL data from localStorage
-      const customFrames = JSON.parse(
+    // In VPS mode, skip localStorage loading - we get data from API
+    if (isVPSMode()) {
+      setLoading(false);
+      return;
+    }
+    
+    // Load REAL data from localStorage (non-VPS mode)
+    const customFrames = JSON.parse(
         localStorage.getItem("custom_frames") || "[]"
       );
       const frameUsage = JSON.parse(
@@ -212,80 +263,7 @@ export default function AdminAnalytics() {
         categoryStats: categoryStatsArray,
         recentActivity,
       });
-      return;
-    }
-
-    setLoading(true);
-    try {
-      // Load analytics from Firebase - get registered users count
-      console.log("Loading analytics for:", timeRange);
-      
-      // Get registered users from Firestore
-      const registeredUsers = await getAllUsers();
-      const totalRegisteredUsers = registeredUsers?.length || 0;
-      
-      console.log("📊 Registered users count:", totalRegisteredUsers);
-      
-      // Filter by time range if needed
-      let filteredUsers = registeredUsers || [];
-      const now = new Date();
-      
-      if (timeRange === "7days") {
-        const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        filteredUsers = filteredUsers.filter(user => {
-          const createdAt = user.createdAt?.toDate?.() || new Date(user.createdAt);
-          return createdAt >= sevenDaysAgo;
-        });
-      } else if (timeRange === "30days") {
-        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        filteredUsers = filteredUsers.filter(user => {
-          const createdAt = user.createdAt?.toDate?.() || new Date(user.createdAt);
-          return createdAt >= thirtyDaysAgo;
-        });
-      } else if (timeRange === "90days") {
-        const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-        filteredUsers = filteredUsers.filter(user => {
-          const createdAt = user.createdAt?.toDate?.() || new Date(user.createdAt);
-          return createdAt >= ninetyDaysAgo;
-        });
-      }
-      // "all" = no filter, show all users
-      
-      const userCount = timeRange === "all" ? totalRegisteredUsers : filteredUsers.length;
-      
-      // Calculate trend (compare with previous period)
-      let usersTrend = 0;
-      if (timeRange !== "all" && registeredUsers?.length > 0) {
-        const previousPeriodUsers = registeredUsers.filter(user => {
-          const createdAt = user.createdAt?.toDate?.() || new Date(user.createdAt);
-          const daysAgo = timeRange === "7days" ? 14 : timeRange === "30days" ? 60 : 180;
-          const periodStart = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
-          const periodEnd = new Date(now.getTime() - (daysAgo / 2) * 24 * 60 * 60 * 1000);
-          return createdAt >= periodStart && createdAt < periodEnd;
-        }).length;
-        
-        if (previousPeriodUsers > 0) {
-          usersTrend = Math.round(((userCount - previousPeriodUsers) / previousPeriodUsers) * 100);
-        } else if (userCount > 0) {
-          usersTrend = 100;
-        }
-      }
-      
-      setAnalytics(prev => ({
-        ...prev,
-        overview: {
-          ...prev.overview,
-          totalUsers: userCount,
-        },
-        trends: {
-          ...prev.trends,
-          usersTrend: usersTrend,
-        },
-      }));
-    } catch (error) {
-      console.error("Error loading analytics:", error);
-    }
-    setLoading(false);
+      setLoading(false);
   };
 
   const formatNumber = (num) => {
@@ -345,17 +323,16 @@ export default function AdminAnalytics() {
       }}
     >
       <div style={{ maxWidth: "1120px", margin: "0 auto", padding: "0 16px" }}>
-        {/* Firebase Warning Banner */}
-        {!isFirebaseConfigured && (
-          <div className="admin-alert">
-            <AlertCircle size={24} className="admin-alert-icon" />
+        {/* VPS Mode Banner */}
+        {isVPSMode() && (
+          <div className="admin-alert" style={{ background: "#e0f2fe", borderColor: "#0ea5e9" }}>
+            <Database size={24} className="admin-alert-icon" style={{ color: "#0284c7" }} />
             <div>
-              <h3 className="admin-alert-title">
-                LocalStorage Mode - Real Data
+              <h3 className="admin-alert-title" style={{ color: "#0369a1" }}>
+                VPS Mode - PostgreSQL Database
               </h3>
-              <p className="admin-alert-message">
-                Firebase is not configured. You're viewing real analytics data
-                from localStorage. Setup Firebase for cloud-based analytics.
+              <p className="admin-alert-message" style={{ color: "#0369a1" }}>
+                Analytics data is stored on your VPS server with PostgreSQL.
               </p>
             </div>
           </div>

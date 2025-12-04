@@ -92,7 +92,7 @@ const defaultPropsByType = (type) => {
           objectFit: 'contain',
           label: 'Unggahan',
           fill: '#d1e3f0',
-          borderRadius: scaleUniformValue(24),
+          borderRadius: 0,
           stroke: null,
           strokeWidth: 0
         }
@@ -529,18 +529,10 @@ export const useCreatorStore = create((set, get) => ({
     return element.id;
   },
   addUploadElement: (imageDataUrl) => {
-    // First, create the element and get its ID
-    const id = get().addElement('upload', {
-      x: Math.round((CANVAS_WIDTH - DEFAULT_UPLOAD_WIDTH) / 2),
-      y: Math.round((CANVAS_HEIGHT - DEFAULT_UPLOAD_HEIGHT) / 2),
-      data: {
-        image: imageDataUrl,
-        objectFit: 'contain',
-        label: 'Unggahan'
-      }
-    });
+    // Generate ID first
+    const id = `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // Now load image to get dimensions and resize the element
+    // Load image FIRST to get dimensions before adding to canvas
     const img = new Image();
     
     img.onload = () => {
@@ -578,34 +570,48 @@ export const useCreatorStore = create((set, get) => ({
       const x = Math.round((CANVAS_WIDTH - width) / 2);
       const y = Math.round((CANVAS_HEIGHT - height) / 2);
 
-      // Update the element using its ID (not by searching for image)
-      set((prev) => {
-        const mapped = prev.elements.map((el) =>
-          el.id === id
-            ? {
-                ...el,
-                width: Math.round(width),
-                height: Math.round(height),
-                x,
-                y,
-                data: {
-                  ...el.data,
-                  image: displayImageDataUrl, // Use smaller version for display
-                  originalImage: imageDataUrl, // Keep original for high-quality resize
-                  imageAspectRatio: aspectRatio,
-                  objectFit: 'contain'
-                }
-              }
-            : el
-        );
-        return {
-          elements: syncCreatorElements(mapped)
-        };
-      });
+      // NOW add the element with correct dimensions
+      const state = get();
+      const nextZIndex = state.lastZIndex + 1;
+      
+      const element = {
+        id,
+        type: 'upload',
+        x,
+        y,
+        width: Math.round(width),
+        height: Math.round(height),
+        zIndex: nextZIndex,
+        locked: false,
+        data: {
+          image: displayImageDataUrl,
+          originalImage: imageDataUrl,
+          imageAspectRatio: aspectRatio,
+          objectFit: 'contain',
+          label: 'Unggahan',
+          borderRadius: 0
+        }
+      };
+      
+      set((prev) => ({
+        elements: syncCreatorElements([...prev.elements, element]),
+        selectedElementId: id,
+        lastZIndex: nextZIndex
+      }));
     };
     
     img.onerror = () => {
-      console.error('[addUploadElement] Failed to load image for resizing');
+      console.error('[addUploadElement] Failed to load image');
+      // Still add element but with placeholder
+      get().addElement('upload', {
+        x: Math.round((CANVAS_WIDTH - DEFAULT_UPLOAD_WIDTH) / 2),
+        y: Math.round((CANVAS_HEIGHT - DEFAULT_UPLOAD_HEIGHT) / 2),
+        data: {
+          image: imageDataUrl,
+          objectFit: 'contain',
+          label: 'Unggahan'
+        }
+      });
     };
     
     // Start loading the image

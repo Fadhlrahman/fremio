@@ -1111,10 +1111,10 @@ export default function TakeMoment() {
         
         (async () => {
           try {
-            const { getCustomFrameById } = await import("../services/customFrameService.js");
+            const unifiedFrameService = (await import("../services/unifiedFrameService")).default;
             
             // Try to get frame - single attempt with short timeout
-            let fullFrame = await getCustomFrameById(selectedFrameId);
+            let fullFrame = await unifiedFrameService.getFrameById(selectedFrameId);
             
             // If no slots, use default slots
             if (!fullFrame?.slots || fullFrame.slots.length === 0) {

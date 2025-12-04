@@ -1,28 +1,30 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
+// ============================================
+// FIREBASE - DISABLED (Using VPS Authentication)
+// ============================================
+// This file is kept for backward compatibility
+// All auth now uses VPS JWT via AuthContext
 
-// Firebase configuration - hardcoded for reliability
-const firebaseConfig = {
-  apiKey: "AIzaSyDKFFXhB6z3DDTCEdwJV1FZcQ97pa72ogI",
-  authDomain: "fremio-64884.firebaseapp.com",
-  projectId: "fremio-64884",
-  storageBucket: "fremio-64884.firebasestorage.app",
-  messagingSenderId: "726158761244",
-  appId: "1:726158761244:web:c884d6c0696712cb2f6ed9"
-};
+// Check if Firebase credentials are configured
+const isFirebaseCredentialsAvailable = !!(
+  import.meta.env.VITE_FIREBASE_API_KEY &&
+  import.meta.env.VITE_FIREBASE_PROJECT_ID
+);
 
-// Always configured since we have hardcoded values
-export const isFirebaseConfigured = true;
+// VPS Mode check
+const isVPSMode = import.meta.env.VITE_BACKEND_MODE === 'vps';
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const storage = getStorage(app);
+// Firebase is disabled in VPS mode
+export const isFirebaseConfigured = false;
 
-console.log('✅ Firebase initialized successfully');
+// Null exports for backward compatibility
+export const auth = null;
+export const db = null;
+export const storage = null;
 
-export { auth, db, storage };
-export default app;
+if (isVPSMode) {
+  console.log('🔧 VPS Mode: Firebase disabled, using VPS JWT Auth');
+} else if (!isFirebaseCredentialsAvailable) {
+  console.warn('⚠️ Firebase credentials not configured');
+}
+
+export default null;

@@ -1,41 +1,28 @@
-import { createClient } from '@supabase/supabase-js';
+// ============================================
+// SUPABASE - DISABLED (Using VPS PostgreSQL)
+// ============================================
+// This file is kept for backward compatibility
+// All data now stored in VPS PostgreSQL
 
-// Check if Supabase is properly configured
-export const isSupabaseConfigured = !!(
-  import.meta.env.VITE_SUPABASE_URL && 
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+// VPS Mode check
+const isVPSMode = import.meta.env.VITE_BACKEND_MODE === 'vps';
 
-// Check if Firebase is configured (for backward compatibility)
-export const isFirebaseConfigured = !!(
-  import.meta.env.VITE_FIREBASE_API_KEY && 
-  import.meta.env.VITE_FIREBASE_PROJECT_ID
-);
+// Check if Supabase is configured (for backward compatibility)
+export const isSupabaseConfigured = false;
 
-// Determine which backend to use
-export const useSupabase = isSupabaseConfigured;
-export const useFirebase = !isSupabaseConfigured && isFirebaseConfigured;
+// Firebase is also disabled
+export const isFirebaseConfigured = false;
 
-// Initialize Supabase client
-let supabase = null;
+// Use VPS for everything
+export const useSupabase = false;
+export const useFirebase = false;
+export const useVPS = true;
 
-if (isSupabaseConfigured) {
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Null Supabase client
+const supabase = null;
 
-  supabase = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: {
-      autoRefreshToken: true,
-      persistSession: true,
-      detectSessionInUrl: true
-    }
-  });
-
-  console.log('✅ Supabase initialized successfully');
-} else if (!isFirebaseConfigured) {
-  console.warn('⚠️ No backend configured - Running in LocalStorage mode');
-  console.warn('📖 To enable cloud features, add Supabase or Firebase credentials to .env file');
-  console.warn('📖 See DEPLOYMENT_GUIDE.md for setup instructions');
+if (isVPSMode) {
+  console.log('🔧 VPS Mode: Supabase disabled, using VPS PostgreSQL');
 }
 
 export { supabase };

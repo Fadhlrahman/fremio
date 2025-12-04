@@ -4,18 +4,31 @@ import tailwindcss from "@tailwindcss/vite";
 import fs from 'fs'
 import path from 'path'
 
-const resolveCertPath = (filename) => {
-  const localPath = path.resolve(__dirname, filename)
-  if (fs.existsSync(localPath)) {
-    return localPath
+// Check if we should use HTTPS (only if certs exist AND not local dev)
+const shouldUseHttps = () => {
+  // Enable HTTPS for camera access on non-localhost
+  if (process.env.VITE_DISABLE_HTTPS === 'true') {
+    return false;
   }
+  const certPath = path.resolve(__dirname, 'localhost+3.pem')
+  const keyPath = path.resolve(__dirname, 'localhost+3-key.pem')
+  return fs.existsSync(certPath) && fs.existsSync(keyPath)
+}
 
-  const parentPath = path.resolve(__dirname, '..', filename)
-  if (fs.existsSync(parentPath)) {
-    return parentPath
+const getHttpsConfig = () => {
+  if (!shouldUseHttps()) {
+    return false;
   }
-
-  throw new Error(`HTTPS dev certificate not found: ${filename}. Run 'mkcert localhost 127.0.0.1 ::1 192.168.100.181' inside the project and ensure the generated files are present.`)
+  
+  try {
+    return {
+      cert: fs.readFileSync(path.resolve(__dirname, 'localhost+3.pem')),
+      key: fs.readFileSync(path.resolve(__dirname, 'localhost+3-key.pem')),
+    }
+  } catch (e) {
+    console.warn('⚠️ HTTPS certs not found, using HTTP');
+    return false;
+  }
 }
 
 // https://vite.dev/config/
@@ -24,10 +37,8 @@ export default defineConfig({
   base: process.env.NODE_ENV === 'production' ? "/" : "/fremio/", // production: /, development: /fremio/
   server: {
     host: '0.0.0.0',
-    https: {
-      cert: fs.readFileSync(resolveCertPath('localhost+3.pem')),
-      key: fs.readFileSync(resolveCertPath('localhost+3-key.pem')),
-    }
+    port: 5180,
+    https: getHttpsConfig()
   },
   optimizeDeps: {
     exclude: ['@ffmpeg/ffmpeg']

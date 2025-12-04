@@ -5,7 +5,22 @@ const cloneSlots = (slots) => {
 
 const cloneLayout = (layout) => {
   if (!layout || typeof layout !== "object") return undefined;
-  return { ...layout };
+  
+  // Deep clone layout including elements array
+  const cloned = { ...layout };
+  
+  // Properly clone elements array if it exists
+  if (Array.isArray(layout.elements)) {
+    cloned.elements = layout.elements.map(el => {
+      if (!el || typeof el !== 'object') return el;
+      return {
+        ...el,
+        data: el.data ? { ...el.data } : undefined,
+      };
+    });
+  }
+  
+  return cloned;
 };
 
 const cloneMetadata = (metadata) => {
@@ -93,6 +108,9 @@ export const sanitizeFrameConfigForStorage = (config) => {
     slots: cloneSlots(config.slots),
     layout: cloneLayout(config.layout),
     metadata: cloneMetadata(config.metadata),
+    // Preserve canvas dimensions - essential for overlay positioning
+    canvasWidth: config.canvasWidth,
+    canvasHeight: config.canvasHeight,
   };
 
   // Helper to detect UUID format (Supabase uses UUIDs)

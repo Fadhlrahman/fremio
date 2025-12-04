@@ -9,3 +9,4 @@ export { default } from './frameService.js';
 
 // Legacy compatibility
 export const isSupabaseConfigured = false;
+

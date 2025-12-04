@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
-import { isFirebaseConfigured } from "../../config/firebase";
-import { getAllCustomFrames, clearFramesCache } from "../../services/customFrameService";
+import { isVPSMode } from "../../config/backend";
+import unifiedFrameService from "../../services/unifiedFrameService";
 import { getUnreadMessagesCount } from "../../services/contactMessageService";
 import { getAllUsers } from "../../services/userService";
 import { getAffiliateStats } from "../../services/affiliateService";
@@ -46,19 +46,15 @@ export default function AdminDashboard() {
       console.log("📊 AdminDashboard - Loading stats...", forceRefresh ? "(force refresh)" : "");
       setLoading(true);
       
-      // Clear cache if force refresh
+      // Force refresh flag (no longer using clearFramesCache)
       if (forceRefresh) {
-        try {
-          clearFramesCache();
-        } catch (e) {
-          console.warn("Could not clear frames cache");
-        }
+        console.log("🔄 Force refresh requested");
       }
       
-      // Load frames from VPS (this is working)
+      // Load frames using unified service
       let frames = [];
       try {
-        frames = await getAllCustomFrames();
+        frames = await unifiedFrameService.getAllFrames();
         console.log("📊 Frames loaded:", frames?.length || 0);
       } catch (e) {
         console.warn("⚠️ Failed to load frames:", e.message);
@@ -139,13 +135,13 @@ export default function AdminDashboard() {
       }}
     >
       <div style={{ maxWidth: "1120px", margin: "0 auto", padding: "0 16px" }}>
-        {/* Firebase Warning Banner */}
-        {!isFirebaseConfigured && (
+        {/* VPS Mode Info Banner */}
+        {isVPSMode() && (
           <div
             style={{
               marginBottom: "24px",
-              background: "#fef9c3",
-              border: "1px solid #fde047",
+              background: "#dcfce7",
+              border: "1px solid #86efac",
               borderRadius: "14px",
               padding: "16px 18px",
             }}
@@ -153,44 +149,29 @@ export default function AdminDashboard() {
             <div
               style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}
             >
-              <AlertCircle
+              <Shield
                 size={24}
-                style={{ color: "#ca8a04", flexShrink: 0, marginTop: "2px" }}
+                style={{ color: "#16a34a", flexShrink: 0, marginTop: "2px" }}
               />
               <div>
                 <h3
                   style={{
                     fontSize: "14px",
                     fontWeight: "700",
-                    color: "#854d0e",
+                    color: "#166534",
                     marginBottom: "4px",
                   }}
                 >
-                  LocalStorage Mode - UI Preview Only
+                  VPS Mode Active
                 </h3>
                 <p
                   style={{
                     fontSize: "14px",
-                    color: "#a16207",
-                    marginBottom: "8px",
+                    color: "#15803d",
+                    marginBottom: "0",
                   }}
                 >
-                  Firebase is not configured. You're viewing the admin UI with
-                  demo data. To enable full functionality (data management,
-                  approvals, etc.), please setup Firebase.
-                </p>
-                <p style={{ fontSize: "12px", color: "#ca8a04" }}>
-                  📖 See{" "}
-                  <code
-                    style={{
-                      background: "#fef08a",
-                      padding: "2px 6px",
-                      borderRadius: "4px",
-                    }}
-                  >
-                    QUICK_START_GUIDE.md
-                  </code>{" "}
-                  for setup instructions
+                  Data disimpan di VPS backend dengan PostgreSQL database.
                 </p>
               </div>
             </div>

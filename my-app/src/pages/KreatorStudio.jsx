@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useCanCreateFrames } from '../hooks/useUserRole';
-import { getKreatorFrames, getFrameStats } from '../services/frameManagementService';
+import unifiedFrameService from '../services/unifiedFrameService';
 import { FRAME_STATUS } from '../config/firebaseCollections';
 import { 
   Plus, 
@@ -43,14 +43,33 @@ export default function KreatorStudio() {
   const fetchData = async () => {
     setLoading(true);
 
-    const statusFilter = filterStatus === 'all' ? null : filterStatus;
-    const [framesData, statsData] = await Promise.all([
-      getKreatorFrames(currentUser.uid, statusFilter),
-      getFrameStats(currentUser.uid),
-    ]);
+    try {
+      // Get all frames and filter by creator
+      const allFrames = await unifiedFrameService.getAllFrames();
+      const kreatorFrames = allFrames.filter(f => f.createdBy === currentUser.uid || f.createdBy === currentUser.email);
+      
+      // Calculate stats
+      const statsData = {
+        total: kreatorFrames.length,
+        draft: kreatorFrames.filter(f => f.status === 'draft').length,
+        pending: kreatorFrames.filter(f => f.status === 'pending').length,
+        approved: kreatorFrames.filter(f => f.status === 'approved' || !f.status).length,
+        rejected: kreatorFrames.filter(f => f.status === 'rejected').length,
+      };
 
-    setFrames(framesData);
-    setStats(statsData);
+      // Filter by status if needed
+      const statusFilter = filterStatus === 'all' ? null : filterStatus;
+      const filteredFrames = statusFilter 
+        ? kreatorFrames.filter(f => f.status === statusFilter)
+        : kreatorFrames;
+
+      setFrames(filteredFrames);
+      setStats(statsData);
+    } catch (error) {
+      console.error("Error fetching kreator data:", error);
+      setFrames([]);
+    }
+    
     setLoading(false);
   };
 

@@ -1288,7 +1288,9 @@ function CanvasPreviewComponent({
         className="relative mx-auto overflow-hidden shadow-[0_42px_90px_rgba(58,38,32,0.28)]"
         style={{
           background: canvasBackground,
-          border: "4px solid rgba(92, 62, 48, 0.65)",
+          border: "none",
+          outline: "4px solid rgba(92, 62, 48, 0.65)",
+          outlineOffset: "-4px",
           boxShadow:
             "0 42px 90px rgba(58,38,32,0.28), 0 0 0 2px rgba(255,255,255,0.18) inset",
           borderRadius: 0,
@@ -1666,7 +1668,6 @@ function CanvasPreviewComponent({
                   : undefined
               }
               resizeHandleWrapperClassName="creator-resize-wrapper"
-              resizeHandleWrapperStyle={{ 'data-export-ignore': 'true' }}
               resizeHandleComponent={{
                 top: <div className="react-rnd-handle react-rnd-handle-top" data-export-ignore="true" />,
                 right: (
@@ -1830,7 +1831,14 @@ function CanvasPreviewComponent({
                 borderRadius: elementBorderRadius,
                 backgroundColor: "transparent",
                 touchAction: isBackgroundPhoto ? "none" : "auto",
-                pointerEvents: isCapturedOverlayElement ? "none" : "auto",
+                // Background photo should NOT block clicks on elements above it when not selected
+                // When selected, allow interaction for dragging/resizing
+                // Upload/overlay elements have higher zIndex and should always be clickable
+                pointerEvents: isCapturedOverlayElement 
+                  ? "none" 
+                  : (isBackgroundPhoto && !isSelected) 
+                    ? "none" 
+                    : "auto",
               }}
               className={elementClassName}
               ref={(instance) => {

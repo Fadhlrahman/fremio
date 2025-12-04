@@ -1,5 +1,5 @@
 import express from "express";
-import { verifyToken } from "../middleware/auth.js";
+import { verifyToken, requireAdmin } from "../middleware/auth.js";
 import {
   uploadImage,
   uploadVideo,
@@ -7,8 +7,68 @@ import {
   handleUploadError,
 } from "../middleware/upload.js";
 import storageService from "../services/storageService.js";
+import { v4 as uuidv4 } from "uuid";
+import sharp from "sharp";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const router = express.Router();
+
+/**
+ * POST /api/upload/frame
+ * Upload frame image (admin only)
+ * Converts to WebP for optimization
+ */
+router.post(
+  "/frame",
+  verifyToken,
+  requireAdmin,
+  uploadImage,
+  handleUploadError,
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "Tidak ada file yang diupload" });
+      }
+
+      const filename = `${uuidv4()}.webp`;
+      const uploadDir = path.join(__dirname, "../uploads/frames");
+      const filepath = path.join(uploadDir, filename);
+
+      // Ensure directory exists
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+
+      // Process and optimize image with Sharp
+      await sharp(req.file.buffer)
+        .webp({ quality: 85 })
+        .resize(1080, 1920, {
+          fit: "inside",
+          withoutEnlargement: true,
+        })
+        .toFile(filepath);
+
+      const imageUrl = `/uploads/frames/${filename}`;
+
+      console.log(`📸 Frame image uploaded: ${filename}`);
+
+      res.json({
+        success: true,
+        message: "Gambar berhasil diupload",
+        imagePath: imageUrl,
+        filename,
+      });
+    } catch (error) {
+      console.error("Upload frame error:", error);
+      res.status(500).json({ error: "Gagal upload gambar" });
+    }
+  }
+);
 
 /**
  * POST /api/upload/image

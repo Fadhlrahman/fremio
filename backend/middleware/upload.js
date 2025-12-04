@@ -13,14 +13,15 @@ const fileFilter = (req, file, cb) => {
   const allowedImageTypes = /jpeg|jpg|png|gif|webp/;
   const allowedVideoTypes = /mp4|webm|mov/;
 
-  const extname = path.extname(file.originalname).toLowerCase();
+  const extname = path.extname(file.originalname || '').toLowerCase();
   const mimetype = file.mimetype;
 
   if (file.fieldname === "image") {
-    const isValidImage =
-      allowedImageTypes.test(extname.slice(1)) && mimetype.startsWith("image/");
+    // Allow if mimetype is valid image, even without extension
+    const isValidMimetype = mimetype && mimetype.startsWith("image/");
+    const isValidExt = extname ? allowedImageTypes.test(extname.slice(1)) : true;
 
-    if (isValidImage) {
+    if (isValidMimetype && isValidExt) {
       cb(null, true);
     } else {
       cb(new Error("Only image files (jpeg, jpg, png, gif, webp) are allowed"));

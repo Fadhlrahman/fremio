@@ -96,23 +96,19 @@ export default function AdminSettings() {
   };
 
   const loadFirebaseStats = async () => {
-    if (!isFirebaseConfigured) return;
-
     try {
       const { getUserStats } = await import("../../services/userService");
-      const { getFrameStats } = await import(
-        "../../services/frameManagementService"
-      );
+      const unifiedFrameService = (await import("../../services/unifiedFrameService")).default;
 
       const userStats = await getUserStats();
-      const frameStats = await getFrameStats();
+      const frames = await unifiedFrameService.getAllFrames();
 
       setTotalUsers(userStats.total);
-      setTotalFrames(frameStats.total);
-      // Database size calculation would require additional Firebase APIs
+      setTotalFrames(frames?.length || 0);
+      // Database size calculation would require additional APIs
       setDatabaseSize("N/A");
     } catch (error) {
-      console.error("Error loading Firebase stats:", error);
+      console.error("Error loading stats:", error);
     }
   };
 

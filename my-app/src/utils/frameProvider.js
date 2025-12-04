@@ -6,7 +6,7 @@ import {
   getAllFrames,
   preloadFrameConfigs,
 } from "../config/frameConfigManager.js";
-import { getCustomFrameConfig, getAllCustomFrames } from "../services/customFrameService.js";
+import unifiedFrameService from "../services/unifiedFrameService";
 import safeStorage from "./safeStorage.js";
 import userStorage from "./userStorage.js";
 import { sanitizeFrameConfigForStorage } from "./frameConfigSanitizer.js";
@@ -39,6 +39,9 @@ export class FrameDataProvider {
   async setCustomFrame(frameData) {
     console.log(`🎨 setCustomFrame called with:`, frameData);
     console.log(`📊 Frame data keys:`, Object.keys(frameData));
+    console.log(`📦 frameData.layout:`, frameData.layout);
+    console.log(`📦 frameData.layout?.elements:`, frameData.layout?.elements);
+    console.log(`📦 frameData.designer:`, frameData.designer);
 
     if (!frameData || !frameData.id) {
       console.error("❌ Frame data is required to set custom frame.");
@@ -57,6 +60,7 @@ export class FrameDataProvider {
       console.log(`🔍 Frame data check:`);
       console.log(`  - Has slots: ${hasSlots} (${frameData.slots?.length || 0} slots)`);
       console.log(`  - Has image: ${hasImage}`);
+      console.log(`  - Has layout.elements: ${frameData.layout?.elements?.length || 0} elements`);
       
       if (hasSlots && hasImage) {
         // Frame data is complete, use it directly!
@@ -64,6 +68,11 @@ export class FrameDataProvider {
         
         // Get the frame image URL
         const frameImageUrl = frameData.imagePath || frameData.thumbnailUrl || frameData.image_url;
+        
+        // Get canvas dimensions from frameData, default to 1080x1920
+        const canvasWidth = frameData.canvasWidth || 1080;
+        const canvasHeight = frameData.canvasHeight || 1920;
+        console.log(`📐 Canvas dimensions: ${canvasWidth}x${canvasHeight}`);
         
         // Build designer elements: start with background-photo, then add photo slots
         const designerElements = [];
@@ -75,8 +84,8 @@ export class FrameDataProvider {
             type: "background-photo",
             x: 0,
             y: 0,
-            width: 1080,
-            height: 1920,
+            width: canvasWidth,
+            height: canvasHeight,
             zIndex: 0,
             data: {
               image: frameImageUrl,
@@ -93,10 +102,10 @@ export class FrameDataProvider {
             designerElements.push({
               id: slot.id || `photo_${index + 1}`,
               type: "photo",
-              x: slot.left * 1080,
-              y: slot.top * 1920,
-              width: slot.width * 1080,
-              height: slot.height * 1920,
+              x: slot.left * canvasWidth,
+              y: slot.top * canvasHeight,
+              width: slot.width * canvasWidth,
+              height: slot.height * canvasHeight,
               zIndex: slot.zIndex || 2,
               data: {
                 photoIndex: slot.photoIndex !== undefined ? slot.photoIndex : index,
@@ -108,27 +117,54 @@ export class FrameDataProvider {
         }
         
         // Also restore other elements (upload, text, shape) from layout.elements if available
+        console.log("🔍 [DEBUG] frameData.layout:", frameData.layout);
+        console.log("🔍 [DEBUG] frameData.layout?.elements:", frameData.layout?.elements);
         if (frameData.layout?.elements && Array.isArray(frameData.layout.elements)) {
           console.log("📦 Restoring other elements from layout.elements:", frameData.layout.elements.length);
-          frameData.layout.elements.forEach((el) => {
+          frameData.layout.elements.forEach((el, idx) => {
+            console.log(`  📦 Processing layout.elements[${idx}]:`, {
+              type: el.type,
+              id: el.id,
+              zIndex: el.zIndex,
+              hasImage: !!el.data?.image,
+              __isOverlay: el.data?.__isOverlay,
+            });
             // Convert normalized positions back to absolute positions
             const restoredElement = {
               ...el,
-              x: el.xNorm !== undefined ? el.xNorm * 1080 : el.x,
-              y: el.yNorm !== undefined ? el.yNorm * 1920 : el.y,
-              width: el.widthNorm !== undefined ? el.widthNorm * 1080 : el.width,
-              height: el.heightNorm !== undefined ? el.heightNorm * 1920 : el.height,
+              x: el.xNorm !== undefined ? el.xNorm * canvasWidth : el.x,
+              y: el.yNorm !== undefined ? el.yNorm * canvasHeight : el.y,
+              width: el.widthNorm !== undefined ? el.widthNorm * canvasWidth : el.width,
+              height: el.heightNorm !== undefined ? el.heightNorm * canvasHeight : el.height,
             };
             // Remove normalized properties
             delete restoredElement.xNorm;
             delete restoredElement.yNorm;
             delete restoredElement.widthNorm;
             delete restoredElement.heightNorm;
+            
+            // Mark upload elements with images as overlays (decorative elements)
+            // These are different from photo slots which have photoIndex
+            // IMPORTANT: Overlays must have HIGH zIndex to appear ABOVE photo slots
+            if (restoredElement.type === 'upload' && 
+                restoredElement.data?.image && 
+                restoredElement.data?.photoIndex === undefined) {
+              // Ensure overlay has zIndex >= 500 so it's always above photo slots
+              restoredElement.zIndex = Math.max(restoredElement.zIndex || 0, 500 + idx);
+              restoredElement.data = {
+                ...restoredElement.data,
+                __isOverlay: true,
+              };
+              console.log("✅ Marked overlay element:", restoredElement.id, "with zIndex:", restoredElement.zIndex);
+            }
+            
             designerElements.push(restoredElement);
           });
         }
         
         // Build config from frameData (don't rely on localStorage)
+        // CRITICAL: Always use our rebuilt designerElements which includes overlay elements
+        // Don't use frameData.designer directly as it may not have properly processed overlay elements
         config = {
           id: frameData.id,
           name: frameData.name,
@@ -139,10 +175,13 @@ export class FrameDataProvider {
           frameImage: frameImageUrl,
           thumbnailUrl: frameData.thumbnailUrl || frameData.imagePath,
           slots: frameData.slots,
-          designer: frameData.designer || { 
-            elements: designerElements,
-            canvasWidth: 1080,
-            canvasHeight: 1920,
+          canvasWidth: canvasWidth,
+          canvasHeight: canvasHeight,
+          designer: { 
+            elements: designerElements, // Always use our rebuilt elements with overlays
+            canvasWidth: canvasWidth,
+            canvasHeight: canvasHeight,
+            background: frameData.canvasBackground || frameData.designer?.background || "#ffffff",
           },
           layout: frameData.layout || {
             aspectRatio: "9:16",
@@ -156,16 +195,21 @@ export class FrameDataProvider {
           ...(frameData.isCustom !== undefined && { isCustom: frameData.isCustom }),
         };
         
+        console.log("📦 [DEBUG] designerElements built:", designerElements.length);
+        designerElements.forEach((el, i) => {
+          console.log(`  [${i}] type=${el.type}, id=${el.id?.slice(0,8)}, zIndex=${el.zIndex}, __isOverlay=${el.data?.__isOverlay}`);
+        });
+        
         console.log("✅ Config built successfully from frameData");
         console.log("   isCustom:", config.isCustom, "(from frameData.isCustom:", frameData.isCustom, ")");
       } else {
         // Incomplete data, try to fetch from service
         console.log("📦 Incomplete data, trying to fetch from service");
-        config = await getCustomFrameConfig(frameData.id);
+        config = await unifiedFrameService.getFrameConfig(frameData.id);
         
         if (!config) {
           console.error(`❌ Frame "${frameData.id}" not found in service`);
-          const allFrames = await getAllCustomFrames();
+          const allFrames = await unifiedFrameService.getAllFrames();
           console.error(`   Available frames:`, allFrames.map(f => f.id));
           throw new Error(`Custom frame config for "${frameData.id}" not found`);
         }
@@ -221,7 +265,7 @@ export class FrameDataProvider {
         // Try custom frames from service
         else {
           // Check if it's a custom frame from admin upload
-          const customConfig = await getCustomFrameConfig(frameName);
+          const customConfig = await unifiedFrameService.getFrameConfig(frameName);
           if (customConfig) {
             config = customConfig;
             console.log(`✅ Found custom frame: ${frameName}`);

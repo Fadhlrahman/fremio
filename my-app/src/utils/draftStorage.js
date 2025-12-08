@@ -9,21 +9,38 @@ import {
 
 const STORAGE_KEY = "fremio-creator-drafts";
 const USE_INDEXEDDB = true; // Enable IndexedDB for larger storage capacity
-const USE_CLOUD_SYNC = true; // Enable Firestore cloud sync
+
+// DISABLED: Firebase cloud sync is not used in VPS mode
+// Cloud sync now uses VPS backend via draftService.js (called from Create.jsx)
+const USE_CLOUD_SYNC = false; // Disabled - using VPS backend instead of Firebase
 
 const ensureArray = (value) => (Array.isArray(value) ? value : []);
 
 // Get current user ID from localStorage
+// CRITICAL: Wait for auth initialization, never return "guest" if user is logged in
 const getCurrentUserId = () => {
   try {
-    const userStr = localStorage.getItem("fremio_user");
+    // Check multiple times to ensure storage is ready
+    let userStr = null;
+    for (let i = 0; i < 3; i++) {
+      userStr = localStorage.getItem("fremio_user") || sessionStorage.getItem("fremio_user_cache");
+      if (userStr) break;
+    }
+    
     if (userStr) {
       const user = JSON.parse(userStr);
-      return user?.email || user?.id || "guest";
+      const userId = user?.email || user?.id;
+      if (userId) {
+        console.log('🔑 [getCurrentUserId] Found user:', userId);
+        return userId;
+      }
     }
   } catch (error) {
-    console.error("Failed to get current user:", error);
+    console.error("❌ Failed to get current user:", error);
   }
+  
+  // Only return guest as last resort
+  console.warn('⚠️ [getCurrentUserId] Returning guest - no user found in localStorage');
   return "guest";
 };
 
@@ -98,17 +115,38 @@ export const loadDrafts = async () => {
   }
 };
 
-export const getDraftById = async (id) => {
-  const currentUserId = getCurrentUserId();
+export const getDraftById = async (id, userEmail = null) => {
+  // Use provided userEmail if available, otherwise fall back to getCurrentUserId()
+  // This bypasses localStorage timing issues when called from Create.jsx
+  const currentUserId = userEmail || getCurrentUserId();
+  console.log(`🔍 [getDraftById] Looking for draft ${id} with userId: "${currentUserId}"`);
 
   if (USE_INDEXEDDB) {
     try {
       const draft = await indexedDBStorage.getDraft(id);
+      
+      // CRITICAL: If currentUserId is "guest" but draft has a real user, this is an auth timing issue
+      if (draft && currentUserId === "guest" && draft.userId && draft.userId !== "guest") {
+        console.error(`🚨 AUTH TIMING ISSUE: Draft belongs to ${draft.userId} but currentUserId is guest!`);
+        console.error(`   This means authentication hasn't initialized yet.`);
+        console.error(`   Caller should provide userEmail parameter to bypass localStorage.`);
+        return null;
+      }
+      
       // Verify draft belongs to current user
       if (draft && draft.userId === currentUserId) {
+        console.log(`✅ [getDraftById] Draft ${id} found and belongs to user ${currentUserId}`);
         return draft;
       }
-      console.warn(`⚠️ Draft ${id} not found or belongs to different user`);
+      // Enhanced logging for debugging userId mismatch
+      if (draft) {
+        console.warn(`⚠️ Draft ${id} belongs to different user:`);
+        console.warn(`   Draft userId: "${draft.userId}"`);
+        console.warn(`   Current userId: "${currentUserId}"`);
+        console.warn(`   Match: ${draft.userId === currentUserId}`);
+      } else {
+        console.warn(`⚠️ Draft ${id} not found in IndexedDB`);
+      }
       return null;
     } catch (error) {
       console.error(
@@ -188,8 +226,8 @@ const persistDraftsToLocalStorage = async (drafts) => {
 
 const buildSavedDraft = (incoming, nowIso, existing, id) => {
   const currentUserId = getCurrentUserId();
-
-  return {
+  
+  const result = {
     ...existing,
     ...incoming,
     id,
@@ -198,6 +236,15 @@ const buildSavedDraft = (incoming, nowIso, existing, id) => {
     createdAt: existing?.createdAt ?? incoming.createdAt ?? nowIso,
     updatedAt: nowIso,
   };
+  
+  // Debug logging for userId tracking - use string interpolation for better visibility
+  console.log(`🔍 [buildSavedDraft] userId resolution for ${id.substring(0, 20)}:`);
+  console.log(`   incoming.userId: "${incoming.userId}"`);
+  console.log(`   existing.userId: "${existing?.userId}"`);
+  console.log(`   currentUserId: "${currentUserId}"`);
+  console.log(`   FINAL userId: "${result.userId}"`);
+  
+  return result;
 };
 
 const saveDraftToIndexedDB = async (incoming, nowIso) => {

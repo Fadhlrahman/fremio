@@ -2,7 +2,7 @@ import multer from "multer";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 
-const MAX_IMAGE_SIZE = parseInt(process.env.MAX_IMAGE_SIZE) || 5 * 1024 * 1024; // 5MB
+const MAX_IMAGE_SIZE = parseInt(process.env.MAX_IMAGE_SIZE) || 50 * 1024 * 1024; // 50MB
 const MAX_VIDEO_SIZE = parseInt(process.env.MAX_VIDEO_SIZE) || 50 * 1024 * 1024; // 50MB
 
 // Memory storage for direct upload to Firebase Storage

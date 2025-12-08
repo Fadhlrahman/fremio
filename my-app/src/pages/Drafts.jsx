@@ -88,9 +88,8 @@ export default function Drafts() {
     if (!draft) return;
     setErrorMessage("");
 
-    // Navigate to Create page with draft ID
-    // User will see the frame and can click "Gunakan Frame Ini" button there
-    navigate("/create", { state: { draftId: draft.id } });
+    // Navigate to Create editor with draft ID
+    navigate("/create/editor", { state: { draftId: draft.id } });
 
     // Set active draft in storage for Create page to load (use userStorage)
     userStorage.setItem("activeDraftId", draft.id);
@@ -358,7 +357,7 @@ export default function Drafts() {
               }}
             >
               <Link
-                to="/create"
+                to="/create/editor"
                 style={{
                   padding: "10px 20px",
                   background: "linear-gradient(to right, #e0b7a9, #c89585)",
@@ -467,7 +466,7 @@ export default function Drafts() {
                   digunakan kembali.
                 </p>
                 <Link
-                  to="/create"
+                  to="/create/editor"
                   style={{
                     display: "inline-block",
                     padding: "12px 24px",

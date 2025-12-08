@@ -89,6 +89,7 @@ export function AuthProvider({ children }) {
 
   /**
    * Register new user via VPS API
+   * Auto-login setelah registrasi berhasil
    */
   async function register(userData) {
     try {
@@ -102,6 +103,8 @@ export function AuthProvider({ children }) {
         body: JSON.stringify({
           email,
           password,
+          firstName,
+          lastName,
           displayName:
             displayName ||
             `${firstName || ""} ${lastName || ""}`.trim() ||
@@ -114,16 +117,29 @@ export function AuthProvider({ children }) {
       if (!response.ok) {
         return {
           success: false,
-          message: data.error || data.errors?.[0]?.msg || "Registration failed",
+          message: data.error || data.message || data.errors?.[0]?.msg || "Registration failed",
         };
       }
 
       console.log("✅ User registered successfully:", data.user.email);
 
-      // Don't auto-login after registration, let user login manually
+      // Auto-login: simpan token dan user data
+      if (data.token && data.user) {
+        const newUser = {
+          id: data.user.id,
+          uid: data.user.id,
+          email: data.user.email,
+          displayName: data.user.displayName,
+          role: data.user.role,
+        };
+        
+        saveAuth(newUser, data.token);
+        console.log("✅ Auto-login successful after registration");
+      }
+
       return {
         success: true,
-        message: data.message || "Registrasi berhasil! Silakan login.",
+        message: data.message || "Registrasi berhasil!",
         user: data.user,
       };
     } catch (error) {

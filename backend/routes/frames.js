@@ -45,7 +45,7 @@ router.get(
         SELECT id, name, description, category, image_path, thumbnail_path, 
                slots, max_captures, is_premium, is_active, view_count, 
                download_count, created_by, created_at, updated_at,
-               layout, canvas_background, canvas_width, canvas_height
+               layout, canvas_background, canvas_width, canvas_height, display_order
         FROM frames 
         WHERE is_active = true
       `;
@@ -58,7 +58,7 @@ router.get(
         paramIndex++;
       }
 
-      queryText += ` ORDER BY created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+      queryText += ` ORDER BY display_order ASC, created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
       queryParams.push(limit, offset);
 
       const result = await pool.query(queryText, queryParams);
@@ -77,10 +77,14 @@ router.get(
       const frames = result.rows.map((frame) => {
         const slots = typeof frame.slots === "string" ? JSON.parse(frame.slots) : (frame.slots || []);
         const layout = typeof frame.layout === "string" ? JSON.parse(frame.layout) : (frame.layout || {});
-        // Use relative path - frontend will construct full URL based on API base
+        // Construct full URL for images
+        const baseUrl = "https://api.fremio.id";
         const imageUrl = frame.image_path?.startsWith("http")
           ? frame.image_path
-          : frame.image_path;
+          : `${baseUrl}${frame.image_path}`;
+        const thumbnailUrl = (frame.thumbnail_path || frame.image_path)?.startsWith("http")
+          ? (frame.thumbnail_path || frame.image_path)
+          : `${baseUrl}${frame.thumbnail_path || frame.image_path}`;
         
         return {
           id: frame.id,
@@ -89,7 +93,7 @@ router.get(
           category: frame.category,
           imagePath: frame.image_path,
           imageUrl: imageUrl,
-          thumbnailUrl: frame.thumbnail_path || frame.image_path,
+          thumbnailUrl: thumbnailUrl,
           slots: slots,
           maxCaptures: frame.max_captures,
           isPremium: frame.is_premium,
@@ -99,6 +103,7 @@ router.get(
           createdBy: frame.created_by,
           createdAt: frame.created_at,
           updatedAt: frame.updated_at,
+          displayOrder: frame.display_order ?? 999,
           // Include layout with elements for overlay/background
           layout: {
             aspectRatio: layout.aspectRatio || "9:16",
@@ -167,10 +172,10 @@ router.get("/:id", optionalAuth, async (req, res) => {
         description: frame.description,
         category: frame.category,
         imagePath: frame.image_path,
-        // Use relative path - frontend will construct full URL based on API base
+        // Construct full URL for images
         imageUrl: frame.image_path?.startsWith("http")
           ? frame.image_path
-          : frame.image_path,
+          : `https://api.fremio.id${frame.image_path}`,
         slots: typeof frame.slots === "string" ? JSON.parse(frame.slots) : frame.slots,
         layout: typeof frame.layout === "string" ? JSON.parse(frame.layout) : frame.layout,
         canvasBackground: frame.canvas_background,
@@ -221,10 +226,10 @@ router.get("/:id/config", optionalAuth, async (req, res) => {
     const W = frame.canvas_width || 1080;
     const H = frame.canvas_height || 1920;
     
-    // Build image URL - use relative path, frontend constructs full URL
+    // Build image URL - use full URL
     const imageUrl = frame.image_path?.startsWith("http")
       ? frame.image_path
-      : frame.image_path;
+      : `https://api.fremio.id${frame.image_path}`;
 
     // Build designer elements from slots (photo placeholders)
     const photoElements = slots.map((s, i) => ({
@@ -513,6 +518,8 @@ router.put("/:id", verifyToken, requireAdmin, async (req, res) => {
       image_path,
       is_active,
       is_premium,
+      displayOrder,
+      display_order,
     } = req.body;
 
     // Build dynamic update query
@@ -567,6 +574,10 @@ router.put("/:id", verifyToken, requireAdmin, async (req, res) => {
     if (is_premium !== undefined) {
       updates.push(`is_premium = $${paramIndex++}`);
       values.push(is_premium);
+    }
+    if (displayOrder !== undefined || display_order !== undefined) {
+      updates.push(`display_order = $${paramIndex++}`);
+      values.push(parseInt(displayOrder ?? display_order));
     }
 
     updates.push(`updated_at = NOW()`);

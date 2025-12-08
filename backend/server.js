@@ -3,6 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
 import morgan from "morgan";
+import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
@@ -14,7 +15,7 @@ import storageService from "./services/storageService.js";
 // Routes
 import authRoutes from "./routes/auth.js";
 import framesRoutes from "./routes/frames.js";
-import draftsRoutes from "./routes/drafts.js";
+import draftsRoutes from "./routes/drafts-pg.js";  // Use PostgreSQL version
 import uploadRoutes from "./routes/upload.js";
 import analyticsRoutes from "./routes/analytics.js";
 import staticRoutes from "./routes/static.js";
@@ -27,6 +28,55 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const isProduction = process.env.NODE_ENV === 'production';
+
+// CRITICAL: Trust proxy for nginx reverse proxy
+// This allows express-rate-limit to see real client IPs from X-Forwarded-For
+app.set('trust proxy', 1);
+
+// Rate limiting configuration
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: isProduction ? 500 : 1000, // Increased limit: 500 in prod, 1000 in dev
+  message: {
+    success: false,
+    message: 'Terlalu banyak permintaan, coba lagi dalam 15 menit'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Use real client IP from X-Forwarded-For header (nginx sets this)
+  keyGenerator: (req) => {
+    return req.ip || req.headers['x-forwarded-for']?.split(',')[0] || req.connection.remoteAddress;
+  },
+  // Skip rate limiting for OPTIONS preflight requests
+  skip: (req) => req.method === 'OPTIONS',
+});
+
+// Stricter rate limit for auth routes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: isProduction ? 50 : 100, // Limit login attempts
+  message: {
+    success: false,
+    message: 'Terlalu banyak percobaan login, coba lagi dalam 15 menit'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.method === 'OPTIONS',
+});
+
+// Upload rate limit
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: isProduction ? 100 : 200, // Limit uploads per hour
+  message: {
+    success: false,
+    message: 'Terlalu banyak upload, coba lagi dalam 1 jam'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.method === 'OPTIONS',
+});
 
 // Middleware
 app.use(helmet({
@@ -34,14 +84,17 @@ app.use(helmet({
   contentSecurityPolicy: false,  // Disable CSP for development
 }));
 app.use(compression());
-app.use(morgan("dev"));
+app.use(morgan(isProduction ? "combined" : "dev"));
+
+// Apply general rate limiting
+app.use(generalLimiter);
 
 // CORS - Allow all origins for static files and API
 app.use(
   cors({
     origin: true, // Allow all origins
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
@@ -68,6 +121,7 @@ app.get("/health", (req, res) => {
     success: true,
     message: "Fremio Backend API is running",
     timestamp: new Date().toISOString(),
+    environment: isProduction ? 'production' : 'development'
   });
 });
 
@@ -76,11 +130,11 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", port: PORT, timestamp: new Date().toISOString() });
 });
 
-// API Routes
-app.use("/api/auth", authRoutes);
+// API Routes - Apply specific rate limiters
+app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/frames", framesRoutes);
 app.use("/api/drafts", draftsRoutes);
-app.use("/api/upload", uploadRoutes);
+app.use("/api/upload", uploadLimiter, uploadRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/static", staticRoutes);
 

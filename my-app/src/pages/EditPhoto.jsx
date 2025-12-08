@@ -1032,15 +1032,58 @@ export default function EditPhoto() {
 
     const loadFrameData = async () => {
       try {
+        // CRITICAL FIX: Check for shared frame in sessionStorage FIRST
+        // Shared frames are stored in sessionStorage to avoid conflicts with user's personal drafts
+        const SHARED_FRAME_KEY = '__fremio_shared_frame_temp__';
+        let sharedFrameData = null;
+        try {
+          const rawSharedData = sessionStorage.getItem(SHARED_FRAME_KEY);
+          if (rawSharedData) {
+            sharedFrameData = JSON.parse(rawSharedData);
+            console.log("🔗 [SHARED FRAME] Found in sessionStorage:", {
+              hasFrameConfig: !!sharedFrameData?.frameConfig,
+              hasDraftData: !!sharedFrameData?.draftData
+            });
+          }
+        } catch (e) {
+          console.warn("⚠️ Failed to read shared frame from sessionStorage:", e);
+        }
+        
         // CRITICAL FIX: Use userStorage for activeDraftId (Create.jsx uses userStorage which prefixes with user email)
-        const activeDraftId = userStorage.getItem("activeDraftId");
+        let activeDraftId = userStorage.getItem("activeDraftId");
+        
         console.log("🔍 activeDraftId from userStorage:", activeDraftId);
+        console.log("🔍 Has shared frame in session:", !!sharedFrameData);
+        
         let recoveryDraft;
         const loadDraftForRecovery = async () => {
-          if (recoveryDraft !== undefined || !activeDraftId) {
+          if (recoveryDraft !== undefined) {
             return recoveryDraft ?? null;
           }
+          
           try {
+            // PRIORITY 1: Check for shared frame in sessionStorage
+            if (sharedFrameData?.draftData) {
+              console.log("✅ [SHARED FRAME] Using draft data from sessionStorage");
+              recoveryDraft = {
+                id: sharedFrameData.draftData.id,
+                title: sharedFrameData.draftData.title,
+                aspectRatio: sharedFrameData.draftData.aspectRatio,
+                elements: sharedFrameData.draftData.elements,
+                canvasBackground: sharedFrameData.draftData.canvasBackground,
+                canvasWidth: sharedFrameData.draftData.canvasWidth,
+                canvasHeight: sharedFrameData.draftData.canvasHeight,
+                preview: sharedFrameData.draftData.preview,
+                isShared: true
+              };
+              return recoveryDraft;
+            }
+            
+            // PRIORITY 2: Load from user's personal drafts (IndexedDB)
+            if (!activeDraftId) {
+              return null;
+            }
+            
             // Use preloaded module or fallback to dynamic import
             const draftStorage = draftStorageModule?.default || 
               (await import("../utils/draftStorage.js")).default;
@@ -1380,28 +1423,41 @@ export default function EditPhoto() {
 
         // Load frame config
         console.log("🔍 Step 4: Loading frame config...");
-        let config = safeStorage.getJSON("frameConfig");
-        console.log("   frameConfig from localStorage:", !!config, config?.id);
         
-        // 🆕 CRITICAL FALLBACK: If no config in localStorage, try frameProvider memory
+        // PRIORITY 1: Check sessionStorage for shared frame
+        let config = null;
+        if (sharedFrameData?.frameConfig) {
+          console.log("✅ Using frameConfig from sessionStorage (shared frame)");
+          config = sharedFrameData.frameConfig;
+        }
+        
+        // PRIORITY 2: Check localStorage for user's personal frame
+        if (!config) {
+          config = safeStorage.getJSON("frameConfig");
+          console.log("   frameConfig from localStorage:", !!config, config?.id);
+        }
+        
+        // 🆕 FALLBACK: If no config in storage, try frameProvider memory
         if (!config || !config.id) {
-          console.log("⚠️ No config in localStorage, checking frameProvider memory...");
+          console.log("⚠️ No config in storage, checking frameProvider memory...");
           const memoryConfig = frameProvider.getCurrentConfig();
           if (memoryConfig?.id) {
             console.log("✅ Found config in frameProvider memory:", memoryConfig.id);
             config = memoryConfig;
-            // Persist it to localStorage for consistency
-            try {
-              safeStorage.setJSON("frameConfig", {
-                ...config,
-                __timestamp: Date.now(),
-                __savedFrom: "EditPhoto_memoryFallback"
-              });
-              safeStorage.setItem("frameConfigTimestamp", String(Date.now()));
-              safeStorage.setItem("selectedFrame", config.id);
-              console.log("✅ Persisted frameProvider config to localStorage");
-            } catch (e) {
-              console.warn("⚠️ Failed to persist config:", e);
+            // Only persist to localStorage if it's NOT a shared frame
+            if (!config.__isSharedFrame) {
+              try {
+                safeStorage.setJSON("frameConfig", {
+                  ...config,
+                  __timestamp: Date.now(),
+                  __savedFrom: "EditPhoto_memoryFallback"
+                });
+                safeStorage.setItem("frameConfigTimestamp", String(Date.now()));
+                safeStorage.setItem("selectedFrame", config.id);
+                console.log("✅ Persisted frameProvider config to localStorage");
+              } catch (e) {
+                console.warn("⚠️ Failed to persist config:", e);
+              }
             }
           } else {
             console.log("❌ No config in frameProvider memory either");
@@ -1435,9 +1491,12 @@ export default function EditPhoto() {
                               isUUID(selectedFrameId) || 
                               config?.isCustom;
         
-        // For draft-based custom frames (custom-xxx), DON'T try to load from service
+        // For draft-based custom frames, DON'T try to load from service
         // They don't exist in Supabase - they're stored locally
-        const isDraftBasedCustomFrame = selectedFrameId?.startsWith("custom-");
+        // Includes: custom-xxx, draft-xxx, shared-xxx prefixes
+        const isDraftBasedCustomFrame = selectedFrameId?.startsWith("custom-") || 
+                                        selectedFrameId?.startsWith("draft-") ||
+                                        selectedFrameId?.startsWith("shared-");
         
         if (isCustomFrame && !isDraftBasedCustomFrame) {
           // Only try service for UUID-based frames (Supabase frames)
@@ -1475,7 +1534,8 @@ export default function EditPhoto() {
         }
 
         // Validate frameConfig timestamp to prevent stale cache
-        if (config) {
+        // BUT: Skip timestamp validation for draft-based frames since they manage their own state
+        if (config && !isDraftBasedCustomFrame) {
           const storedTimestamp = safeStorage.getItem("frameConfigTimestamp");
           const configTimestamp = config.__timestamp;
 
@@ -1498,6 +1558,8 @@ export default function EditPhoto() {
             safeStorage.removeItem("frameConfigTimestamp");
             config = null;
           }
+        } else if (config && isDraftBasedCustomFrame) {
+          console.log("✅ Draft-based frame: skipping timestamp validation, using existing config");
         }
 
         // CRITICAL FIX: If no config at all, try multiple fallbacks
@@ -1516,8 +1578,11 @@ export default function EditPhoto() {
             return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
           };
           
-          // Check if it's a draft-based custom frame (custom-xxx) vs Supabase frame (UUID)
-          const isDraftBased = selectedFrameId?.startsWith("custom-");
+          // Check if it's a draft-based custom frame vs Supabase frame (UUID)
+          // Draft-based includes: custom-xxx, draft-xxx, shared-xxx prefixes
+          const isDraftBased = selectedFrameId?.startsWith("custom-") ||
+                              selectedFrameId?.startsWith("draft-") ||
+                              selectedFrameId?.startsWith("shared-");
           const isSupabaseFrame = isUUIDCheck(selectedFrameId);
 
           // FALLBACK 1: For draft-based frames, ALWAYS try draft first
@@ -1758,27 +1823,95 @@ export default function EditPhoto() {
             "  - Designer elements:",
             config.designer?.elements?.length
           );
+          console.log(
+            "  - Root elements (fallback):",
+            config.elements?.length
+          );
+          
+          // CRITICAL FIX: If designer.elements missing but config.elements exists, use it!
+          // This handles shared frames where elements are at root level
+          if (!config.designer?.elements && config.elements?.length > 0) {
+            console.log("⚠️ Designer.elements missing, but config.elements exists - using as fallback");
+            config.designer = {
+              ...config.designer,
+              elements: config.elements,
+              canvasWidth: config.canvasWidth || 1080,
+              canvasHeight: config.canvasHeight || 1920,
+              canvasBackground: config.canvasBackground || '#f7f1ed',
+            };
+            console.log("✅ Set designer.elements from config.elements:", config.designer.elements.length);
+            console.log("   Element types:", config.designer.elements.map(el => el?.type));
+          }
 
           // CRITICAL FIX: If custom frame missing designer.elements, rebuild from slots
           if (!config.designer?.elements && config.slots?.length > 0) {
             console.log(
               "⚠️ Custom frame missing designer.elements, rebuilding from slots..."
             );
-            const photoElements = config.slots.map((slot, index) => ({
-              id: slot.id || `photo_${index + 1}`,
-              type: "photo",
-              x: slot.left,
-              y: slot.top,
-              width: slot.width,
-              height: slot.height,
-              zIndex: slot.zIndex || 2,
-              data: {
-                photoIndex:
-                  slot.photoIndex !== undefined ? slot.photoIndex : index,
-                image: null,
-                aspectRatio: slot.aspectRatio || "4:5",
-              },
-            }));
+            
+            // Get canvas dimensions for coordinate conversion
+            const canvasW = config.canvasWidth || config.designer?.canvasWidth || 1080;
+            const canvasH = config.canvasHeight || config.designer?.canvasHeight || 1920;
+            
+            // Detect coordinate format from first slot
+            const firstSlot = config.slots[0];
+            const testX = firstSlot?.left || 0;
+            const testWidth = firstSlot?.width || 0;
+            
+            // If values are < 1, they're normalized (0-1)
+            // If values are < 20, they're likely in cm (max ~10.8 x 19.2)
+            // If values are > 100, they're already in pixels
+            let convertFn;
+            if (testX <= 1 && testWidth <= 1) {
+              // Normalized coordinates (0-1)
+              console.log("🔄 [REBUILD] Slots in NORMALIZED format, converting to pixels...");
+              convertFn = (x, y, w, h) => ({
+                x: Math.round((x || 0) * canvasW),
+                y: Math.round((y || 0) * canvasH),
+                width: Math.round((w || 0.5) * canvasW),
+                height: Math.round((h || 0.5) * canvasH),
+              });
+            } else if (testX < 50 && testWidth < 50) {
+              // CM format (10.8cm x 19.2cm canvas)
+              console.log("🔄 [REBUILD] Slots in CM format, converting to pixels...");
+              const pxPerCmW = canvasW / 10.8;
+              const pxPerCmH = canvasH / 19.2;
+              convertFn = (x, y, w, h) => ({
+                x: Math.round((x || 0) * pxPerCmW),
+                y: Math.round((y || 0) * pxPerCmH),
+                width: Math.round((w || 0) * pxPerCmW),
+                height: Math.round((h || 0) * pxPerCmH),
+              });
+            } else {
+              // Already in pixels
+              console.log("✅ [REBUILD] Slots already in PIXEL format");
+              convertFn = (x, y, w, h) => ({
+                x: x || 0,
+                y: y || 0,
+                width: w || 100,
+                height: h || 100,
+              });
+            }
+            
+            const photoElements = config.slots.map((slot, index) => {
+              const converted = convertFn(slot.left, slot.top, slot.width, slot.height);
+              console.log(`  Slot ${index}: (${slot.left}, ${slot.top}, ${slot.width}, ${slot.height}) → (${converted.x}, ${converted.y}, ${converted.width}, ${converted.height})`);
+              return {
+                id: slot.id || `photo_${index + 1}`,
+                type: "photo",
+                x: converted.x,
+                y: converted.y,
+                width: converted.width,
+                height: converted.height,
+                zIndex: slot.zIndex || 2,
+                data: {
+                  photoIndex:
+                    slot.photoIndex !== undefined ? slot.photoIndex : index,
+                  image: null,
+                  aspectRatio: slot.aspectRatio || "4:5",
+                },
+              };
+            });
 
             config = {
               ...config,
@@ -1796,6 +1929,113 @@ export default function EditPhoto() {
         // Load designer elements (unified layering system)
         // Support both custom frames and regular frames (converted from slots)
         if (Array.isArray(config.designer?.elements)) {
+          // CRITICAL FIX: Detect and convert coordinates if they're in cm/small units
+          // Standard canvas is 1080x1920 pixels. If elements have x/width < 50, they're likely in cm
+          // (10.8cm x 19.2cm canvas, so 1cm = 100px)
+          const canvasW = config.canvasWidth || config.designer?.canvasWidth || 1080;
+          const canvasH = config.canvasHeight || config.designer?.canvasHeight || 1920;
+          
+          // CRITICAL: Detect coordinate format and convert to pixels
+          // Formats possible:
+          // 1. Normalized (0-1): x=0.065, width=0.46 → multiply by canvas dimensions
+          // 2. CM format (0-10.8 x 0-19.2): x=0.65, width=4.6 → multiply by 100 (since 1cm=100px for 1080x1920)
+          // 3. Pixels (>100): x=65, width=460 → no conversion needed
+          
+          const detectAndConvertCoordinates = (elements, cw, ch) => {
+            const photoEls = elements.filter(el => el?.type === 'photo');
+            if (photoEls.length === 0) {
+              console.log("🔍 [COORD] No photo elements found, skipping conversion");
+              return elements;
+            }
+            
+            // Get max values to detect format
+            const maxX = Math.max(...photoEls.map(el => el.x || 0));
+            const maxY = Math.max(...photoEls.map(el => el.y || 0));
+            const maxWidth = Math.max(...photoEls.map(el => el.width || 0));
+            const maxHeight = Math.max(...photoEls.map(el => el.height || 0));
+            
+            console.log(`🔍 [COORD CHECK] maxX=${maxX}, maxY=${maxY}, maxWidth=${maxWidth}, maxHeight=${maxHeight}`);
+            console.log(`🔍 [COORD CHECK] Canvas: ${cw}x${ch}`);
+            
+            // Determine format based on values
+            let format = 'pixels'; // default
+            let convertFn = (el) => el; // no conversion by default
+            
+            if (maxWidth <= 1 && maxHeight <= 1) {
+              // Normalized format (0-1)
+              format = 'normalized';
+              console.log("📐 [COORD] Detected NORMALIZED format (0-1), converting to pixels...");
+              convertFn = (el) => ({
+                ...el,
+                x: Math.round((el.x || 0) * cw),
+                y: Math.round((el.y || 0) * ch),
+                width: Math.round((el.width || 0) * cw),
+                height: Math.round((el.height || 0) * ch),
+              });
+            } else if (maxWidth < 20 && maxHeight < 25) {
+              // CM format (canvas is 10.8cm x 19.2cm, so max reasonable values ~11x20)
+              format = 'cm';
+              const pxPerCm = cw / 10.8; // ~100 for 1080px canvas
+              console.log(`📐 [COORD] Detected CM format, pxPerCm=${pxPerCm.toFixed(2)}, converting to pixels...`);
+              convertFn = (el) => ({
+                ...el,
+                x: Math.round((el.x || 0) * pxPerCm),
+                y: Math.round((el.y || 0) * pxPerCm), // Use same scale for both axes
+                width: Math.round((el.width || 0) * pxPerCm),
+                height: Math.round((el.height || 0) * pxPerCm),
+              });
+            } else if (maxWidth < 100 || maxX < 100) {
+              // Ambiguous - could be percentages or small pixel values
+              // Check if values make sense as percentages of canvas
+              const testWidth = photoEls[0]?.width || 0;
+              if (testWidth < 1) {
+                format = 'normalized';
+                console.log("📐 [COORD] Ambiguous but width<1, treating as NORMALIZED format...");
+                convertFn = (el) => ({
+                  ...el,
+                  x: Math.round((el.x || 0) * cw),
+                  y: Math.round((el.y || 0) * ch),
+                  width: Math.round((el.width || 0) * cw),
+                  height: Math.round((el.height || 0) * ch),
+                });
+              } else {
+                // Assume small pixel values or CM
+                format = 'cm';
+                const pxPerCm = cw / 10.8;
+                console.log(`📐 [COORD] Ambiguous, treating as CM format, pxPerCm=${pxPerCm.toFixed(2)}...`);
+                convertFn = (el) => ({
+                  ...el,
+                  x: Math.round((el.x || 0) * pxPerCm),
+                  y: Math.round((el.y || 0) * pxPerCm),
+                  width: Math.round((el.width || 0) * pxPerCm),
+                  height: Math.round((el.height || 0) * pxPerCm),
+                });
+              }
+            } else {
+              console.log("✅ [COORD] Values appear to be in PIXELS already, no conversion needed");
+            }
+            
+            // Apply conversion to ALL elements (photo, upload, background-photo, etc.)
+            const converted = elements.map(el => {
+              if (!el || typeof el !== 'object') return el;
+              
+              // Skip elements that don't have coordinates
+              if (el.x === undefined && el.y === undefined && el.width === undefined) {
+                return el;
+              }
+              
+              const result = convertFn(el);
+              const elType = el?.type || 'unknown';
+              console.log(`   🔧 ${elType}: (${el.x}, ${el.y}, ${el.width}x${el.height}) → (${result.x}, ${result.y}, ${result.width}x${result.height})`);
+              return result;
+            });
+            
+            console.log(`✅ [COORD] Conversion complete. Format was: ${format}`);
+            return converted;
+          };
+          
+          // Always run coordinate detection and conversion
+          config.designer.elements = detectAndConvertCoordinates(config.designer.elements, canvasW, canvasH);
           // Log resolvedPhotos status BEFORE using it
           console.log("📸 [PHOTO FILL] resolvedPhotos available:", resolvedPhotos.length);
           if (resolvedPhotos.length > 0) {
@@ -1833,7 +2073,7 @@ export default function EditPhoto() {
             elements: config.designer.elements.map((el, i) => ({
               index: i,
               type: el?.type,
-              id: el?.id?.slice(0, 8),
+              id: el?.id ? String(el.id).slice(0, 8) : 'no-id',
               x: el?.x,
               y: el?.y,
               width: el?.width,
@@ -1997,12 +2237,12 @@ export default function EditPhoto() {
               };
             }
             
-            // Check if this is an overlay element (upload with external URL, no photoIndex)
+            // Check if this is an overlay element (upload with image, no photoIndex)
+            // FIXED: Also check for data:image URLs, not just http/https
             const isOverlay = 
               el.type === "upload" && 
               el.data?.image && 
               typeof el.data.image === "string" &&
-              (el.data.image.startsWith("http://") || el.data.image.startsWith("https://")) &&
               el.data?.photoIndex === undefined;
             
             if (isOverlay) {
@@ -2223,7 +2463,7 @@ export default function EditPhoto() {
     console.log(
       "   Elements detail:",
       designerElements.map((el) => ({
-        id: el.id?.slice(0, 8),
+        id: el.id ? String(el.id).slice(0, 8) : 'no-id',
         type: el.type,
         photoIndex: el.data?.photoIndex,
         hasImage: !!el.data?.image,
@@ -2935,7 +3175,7 @@ export default function EditPhoto() {
                   // DEBUG: Log each element being rendered
                   console.log(`🎨 Rendering element ${idx}:`, {
                     type: element.type,
-                    id: element.id?.slice(0, 8),
+                    id: element.id ? String(element.id).slice(0, 8) : 'no-id',
                     x: element.x,
                     y: element.y,
                     width: element.width,
@@ -3378,13 +3618,23 @@ export default function EditPhoto() {
             <button
               style={{
                 padding: "0.75rem 1.5rem",
-                background: "#3B82F6",
+                background: "#E8A889",
                 color: "white",
                 border: "none",
-                borderRadius: "8px",
+                borderRadius: "12px",
                 fontSize: "1rem",
                 cursor: "pointer",
                 fontWeight: "600",
+                boxShadow: "0 2px 8px rgba(232, 168, 137, 0.3)",
+                transition: "all 0.2s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = "#D4967A";
+                e.target.style.transform = "translateY(-2px)";
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = "#E8A889";
+                e.target.style.transform = "translateY(0)";
               }}
               onClick={async () => {
                 console.log("🎨 Memulai download dengan canvas manual...");
@@ -3406,6 +3656,13 @@ export default function EditPhoto() {
                         img.onerror = reject;
                         img.src = url;
                         return;
+                      }
+
+                      // Add cache-busting for api.fremio.id to ensure fresh CORS headers
+                      let finalUrl = url;
+                      if (url.includes('api.fremio.id')) {
+                        const separator = url.includes('?') ? '&' : '?';
+                        finalUrl = `${url}${separator}_cors=1`;
                       }
 
                       // Check if this is a Supabase or external URL that needs proxying
@@ -3442,7 +3699,7 @@ export default function EditPhoto() {
                         if (resolved) return;
                         
                         try {
-                          let fetchUrl = url;
+                          let fetchUrl = finalUrl;
                           
                           // Use VPS proxy for Supabase/external URLs
                           if (needsProxy) {
@@ -3512,11 +3769,11 @@ export default function EditPhoto() {
                             if (resolved) return;
                             reject(new Error("All methods failed - server may be temporarily unavailable"));
                           };
-                          lastResortImg.src = url;
+                          lastResortImg.src = finalUrl;
                         }
                       };
 
-                      img.src = url;
+                      img.src = finalUrl;
                     });
                   };
 
@@ -3828,7 +4085,7 @@ export default function EditPhoto() {
                     "📊 Rendering elements in order:",
                     sortedElements.map((el) => ({
                       type: el.type,
-                      id: el.id?.slice(0, 8),
+                      id: el.id ? String(el.id).slice(0, 8) : 'no-id',
                       zIndex: el.zIndex,
                       text: el.type === "text" ? el.data?.text : undefined,
                     }))
@@ -4352,13 +4609,43 @@ export default function EditPhoto() {
                     designerElementsCount: designerElements.length,
                   });
                   
-                  // CRITICAL FIX: Use the greater of videos.length or photoSlots.length
-                  // This ensures all videos are processed even if photoSlots doesn't match
-                  const targetVideoCount = Math.max(videos.length, photoSlots.length);
-                  console.log("📹 Target video count:", targetVideoCount);
+                  // CRITICAL FIX: Duplicate videos to match photoSlots if needed
+                  // This handles duplicate mode where we have 3 videos but 6 slots
+                  let videosToProcess = [...videos];
+                  const targetSlotCount = photoSlots.length;
+                  
+                  if (videosToProcess.length > 0 && videosToProcess.length < targetSlotCount) {
+                    console.log("🔁 [VIDEO DOWNLOAD] Duplicating videos to match slots...");
+                    console.log("  - Original videos:", videosToProcess.length);
+                    console.log("  - Target slots:", targetSlotCount);
+                    
+                    const duplicatedVideos = [];
+                    const originalCount = videosToProcess.length;
+                    const ratio = Math.ceil(targetSlotCount / originalCount);
+                    
+                    for (let i = 0; i < originalCount; i++) {
+                      const video = videosToProcess[i];
+                      for (let j = 0; j < ratio; j++) {
+                        if (duplicatedVideos.length >= targetSlotCount) break;
+                        if (video) {
+                          duplicatedVideos.push({
+                            ...video,
+                            id: j === 0 ? (video.id || `video-${i}`) : `${video.id || 'video'}-dup-${i}-${j}`,
+                          });
+                        } else {
+                          duplicatedVideos.push(null);
+                        }
+                      }
+                    }
+                    
+                    videosToProcess = duplicatedVideos.slice(0, targetSlotCount);
+                    console.log("✅ [VIDEO DOWNLOAD] Videos duplicated:", videosToProcess.length);
+                  }
+                  
+                  console.log("📹 Videos to process:", videosToProcess.length);
 
                   // Log video metadata to verify source and duration
-                  videos.forEach((v, idx) => {
+                  videosToProcess.forEach((v, idx) => {
                     if (v) {
                       console.log(`📹 Video ${idx} metadata:`, {
                         hasDataUrl: !!v.dataUrl,
@@ -4372,8 +4659,8 @@ export default function EditPhoto() {
                   });
 
                   // Load videos into video elements (PARALLEL loading for performance)
-                  // FIX: Don't slice - process ALL videos to avoid missing videos
-                  const loadVideoPromises = videos.map((videoData, i) => {
+                  // Process ALL duplicated videos
+                  const loadVideoPromises = videosToProcess.map((videoData, i) => {
                       if (
                         !videoData ||
                         (!videoData.dataUrl && !videoData.blob)
@@ -4500,11 +4787,11 @@ export default function EditPhoto() {
                   console.log("✅ Videos loaded:", videoElements.length);
 
                   const videoBySlotId = new Map();
-                  const videoByPhotoIndex = new Map();
+                  const videoBySlotIndex = new Map(); // Changed from videoByPhotoIndex to videoBySlotIndex
 
                   videoElements.forEach(({ video, slot }, idx) => {
                     console.log(`🔗 Mapping video ${idx}:`, {
-                      slotId: slot?.id?.slice(0, 8),
+                      slotId: slot?.id ? String(slot.id).slice(0, 8) : 'no-id',
                       photoIndex: slot?.data?.photoIndex,
                       videoIndex: idx,
                       videoReady: video.readyState >= 2,
@@ -4514,21 +4801,17 @@ export default function EditPhoto() {
                       videoBySlotId.set(slot.id, { video, slot });
                     }
                     
-                    // CRITICAL FIX: For duplicate mode, use video INDEX as photoIndex
-                    // This ensures video 0 maps to slot 0, video 1 maps to slot 1, etc.
-                    // The original slot.data.photoIndex might be duplicated (0,0,1,1,2,2)
-                    // but we need sequential mapping (0,1,2,3,4,5) to match frame slots
-                    const photoIndex = idx; // Use index instead of slot.data.photoIndex
-                    
-                    if (!videoByPhotoIndex.has(photoIndex)) {
-                      videoByPhotoIndex.set(photoIndex, { video, slot });
-                    }
+                    // FIX: Map video by slot INDEX (not photoIndex)
+                    // Videos array is already duplicated from TakeMoment (e.g., [v0, v0-dup, v1, v1-dup, v2, v2-dup])
+                    // So video[0] goes to slot 0, video[1] goes to slot 1, etc.
+                    // This ensures each slot gets its corresponding video from the duplicated array
+                    videoBySlotIndex.set(idx, { video, slot });
                   });
                   
                   console.log(`📊 Video mapping summary:`, {
                     bySlotId: videoBySlotId.size,
-                    byPhotoIndex: videoByPhotoIndex.size,
-                    photoIndices: Array.from(videoByPhotoIndex.keys()),
+                    bySlotIndex: videoBySlotIndex.size,
+                    slotIndices: Array.from(videoBySlotIndex.keys()),
                   });
 
                   // Calculate max duration from actual video duration
@@ -5108,6 +5391,9 @@ export default function EditPhoto() {
                     }
 
                     // Draw layered designer elements (videos, overlays, shapes, text)
+                    // Track photo slot index for video mapping
+                    let photoSlotIndex = 0;
+                    
                     layeredElements.forEach((element) => {
                       if (!element) return;
 
@@ -5116,17 +5402,23 @@ export default function EditPhoto() {
                         typeof element?.data?.photoIndex === "number";
 
                       if (isPhotoSlot) {
+                        // FIX: Use slot INDEX (sequential 0,1,2,3,4,5) instead of photoIndex (0,0,1,1,2,2)
+                        // This correctly maps duplicated videos to their slots
+                        const currentSlotIndex = photoSlotIndex;
+                        photoSlotIndex++; // Increment for next photo slot
+                        
                         const slotVideoEntry =
                           (element.id && videoBySlotId.get(element.id)) ||
-                          videoByPhotoIndex.get(element.data.photoIndex);
+                          videoBySlotIndex.get(currentSlotIndex);
 
                         if (!slotVideoEntry) {
                           // Log missing video only once per element
                           if (!element._loggedMissing) {
                             console.warn(`⚠️ No video for slot:`, {
-                              elementId: element.id?.slice(0, 8),
+                              elementId: element.id ? String(element.id).slice(0, 8) : 'no-id',
+                              slotIndex: currentSlotIndex,
                               photoIndex: element.data.photoIndex,
-                              availableIndices: Array.from(videoByPhotoIndex.keys()),
+                              availableIndices: Array.from(videoBySlotIndex.keys()),
                             });
                             element._loggedMissing = true;
                           }
@@ -5691,14 +5983,28 @@ export default function EditPhoto() {
               })()}
               style={{
                 padding: "0.75rem 1.5rem",
-                background: !hasValidVideo || isSaving ? "#9CA3AF" : "#8B5CF6",
+                background: !hasValidVideo || isSaving ? "#D1D5DB" : "#C4A484",
                 color: "white",
                 border: "none",
-                borderRadius: "8px",
+                borderRadius: "12px",
                 fontSize: "1rem",
                 cursor: !hasValidVideo || isSaving ? "not-allowed" : "pointer",
                 fontWeight: "600",
-                opacity: !hasValidVideo || isSaving ? 0.6 : 1,
+                opacity: !hasValidVideo || isSaving ? 0.7 : 1,
+                boxShadow: !hasValidVideo || isSaving ? "none" : "0 2px 8px rgba(196, 164, 132, 0.3)",
+                transition: "all 0.2s ease",
+              }}
+              onMouseEnter={(e) => {
+                if (hasValidVideo && !isSaving) {
+                  e.target.style.background = "#B09474";
+                  e.target.style.transform = "translateY(-2px)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (hasValidVideo && !isSaving) {
+                  e.target.style.background = "#C4A484";
+                  e.target.style.transform = "translateY(0)";
+                }
               }}
             >
               {isSaving ? "⏳ Processing..." : "Download Video"}
@@ -5729,40 +6035,27 @@ export default function EditPhoto() {
               }}
               style={{
                 padding: "0.75rem 1.5rem",
-                background: "#10B981",
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
+                background: "transparent",
+                color: "#E8A889",
+                border: "2px solid #E8A889",
+                borderRadius: "12px",
                 fontSize: "1rem",
                 cursor: "pointer",
                 fontWeight: "600",
+                transition: "all 0.2s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = "#E8A889";
+                e.target.style.color = "white";
+                e.target.style.transform = "translateY(-2px)";
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = "transparent";
+                e.target.style.color = "#E8A889";
+                e.target.style.transform = "translateY(0)";
               }}
             >
               🏠 Back to Home
-            </button>
-            <button
-              onClick={() => {
-                if (
-                  window.confirm(
-                    "Buat frame baru? Cache frame saat ini akan dibersihkan."
-                  )
-                ) {
-                  clearFrameCache();
-                  navigate("/create");
-                }
-              }}
-              style={{
-                padding: "0.75rem 1.5rem",
-                background: "#8B5CF6",
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
-                fontSize: "1rem",
-                cursor: "pointer",
-                fontWeight: "600",
-              }}
-            >
-              ✨ Create New
             </button>
           </div>
         </div>

@@ -1,0 +1,53 @@
+.shared-frame-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #fdf6f3 0%, #f5ebe6 100%);
+  padding: 20px;
+}
+
+.shared-frame-spinner {
+  width: 60px;
+  height: 60px;
+  border: 4px solid #f0dcd4;
+  border-top-color: #d4a99a;
+  border-radius: 50%;
+  animation: shared-frame-spin 1s linear infinite;
+}
+
+@keyframes shared-frame-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.shared-frame-text {
+  margin-top: 20px;
+  color: #5c4a42;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.shared-frame-emoji {
+  font-size: 64px;
+  margin-bottom: 20px;
+}
+
+.shared-frame-title {
+  color: #5c4a42;
+  margin-bottom: 10px;
+  font-size: 24px;
+}
+
+.shared-frame-error {
+  color: #8b7355;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.shared-frame-redirect {
+  color: #a89080;
+  font-size: 14px;
+}

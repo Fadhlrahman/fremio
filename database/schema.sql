@@ -140,6 +140,24 @@ CREATE TABLE IF NOT EXISTS drafts (
 );
 
 -- ============================================
+-- USER DRAFT STORAGE (Cloud saves & shares)
+-- ============================================
+CREATE TABLE IF NOT EXISTS user_drafts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    share_id VARCHAR(16) UNIQUE NOT NULL,
+    title VARCHAR(255) DEFAULT 'Untitled' NOT NULL,
+    frame_data TEXT NOT NULL,
+    preview_url TEXT,
+    is_public BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_drafts_user_id ON user_drafts(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_drafts_share_id ON user_drafts(share_id);
+
+-- ============================================
 -- CONTACT MESSAGES TABLE
 -- ============================================
 CREATE TABLE IF NOT EXISTS contact_messages (

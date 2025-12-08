@@ -9,10 +9,10 @@ import { uploadImageSimple } from './imagekitService.js';
 import { getStaticFrames } from '../data/staticFrames.js';
 
 // Multiple fallback URLs - try each one until success
-// Using /vps/frames path which maps to Pages Function at functions/vps/frames.js
+// Primary: Direct VPS API, Fallback: Cloudflare Worker proxy
 const API_URLS = [
-  'https://fremio-api-proxy.array111103.workers.dev/api',  // Primary Cloudflare Worker
-  '/vps',  // Local Pages Function fallback (functions/vps/frames.js)
+  'https://api.fremio.id/api',  // Primary VPS API (KVM 4)
+  'https://fremio-api-proxy.array111103.workers.dev/api',  // Fallback Cloudflare Worker
 ];
 
 // Use local Pages Function for ImageKit uploads

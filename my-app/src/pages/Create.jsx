@@ -48,9 +48,11 @@ import {
   CANVAS_HEIGHT,
 } from "../components/creator/canvasConstants.js";
 import draftStorage from "../utils/draftStorage.js";
+import draftService from "../services/draftService.js";
 import { computeDraftSignature } from "../utils/draftHelpers.js";
 import safeStorage from "../utils/safeStorage.js";
 import userStorage from "../utils/userStorage.js";
+import { useAuth } from "../contexts/AuthContext.jsx";
 import { clearStaleFrameCache } from "../utils/frameCacheCleaner.js";
 import "./Create.css";
 
@@ -578,7 +580,9 @@ export default function Create() {
   const [gradientColor2, setGradientColor2] = useState("#764ba2");
   const [canvasAspectRatio, setCanvasAspectRatio] = useState("9:16"); // Story Instagram default
   const [activeDraftId, setActiveDraftId] = useState(null);
+  const [draftTitle, setDraftTitle] = useState(""); // Title untuk draft
   const [justSavedDraft, setJustSavedDraft] = useState(false); // Track if draft was just saved
+  const [isExistingDraft, setIsExistingDraft] = useState(false); // Track if draft was loaded from existing drafts
   const [isBackgroundLocked, setIsBackgroundLocked] = useState(false); // Lock background to prevent accidental edits
   const [pendingPhotoTool, setPendingPhotoTool] = useState(false); // Show photo tool properties without adding element
   const previewFrameRef = useRef(null);
@@ -591,6 +595,7 @@ export default function Create() {
   const loadingTimeoutRef = useRef(null); // Track timeout for cleanup
   const location = useLocation();
   const navigate = useNavigate();
+  const { user } = useAuth(); // For cloud draft saving
 
   // CRITICAL: Reset hasLoadedDraftRef on component unmount so storage clears on re-entry
   useEffect(() => {
@@ -598,6 +603,20 @@ export default function Create() {
       hasLoadedDraftRef.current = false;
     };
   }, []);
+
+  // Ensure auth user is mirrored into localStorage/sessionStorage so utilities can read it reliably
+  useEffect(() => {
+    if (user?.email) {
+      try {
+        const payload = JSON.stringify(user);
+        localStorage.setItem("fremio_user", payload);
+        sessionStorage.setItem("fremio_user_cache", payload);
+        console.log("🔐 [Create] Synced user to storage:", user.email);
+      } catch (err) {
+        console.warn("⚠️ [Create] Failed to sync user to storage", err);
+      }
+    }
+  }, [user?.email]);
 
   const showToast = useCallback((type, message, duration = 3200) => {
     if (toastTimeoutRef.current) {
@@ -1038,8 +1057,9 @@ export default function Create() {
   );
 
   const loadDraftIntoEditor = useCallback(
-    async (draftId, { notify = true } = {}) => {
+    async (draftId, { notify = true, userEmail = null } = {}) => {
       console.log("🎬 [loadDraftIntoEditor] STARTED with draftId:", draftId);
+      console.log("👤 [loadDraftIntoEditor] userEmail provided:", userEmail);
 
       if (!draftId) {
         console.log("❌ [loadDraftIntoEditor] No draftId provided");
@@ -1051,7 +1071,8 @@ export default function Create() {
       console.log("🔒 [loadDraftIntoEditor] Set loading flag to TRUE");
 
       // ✅ CRITICAL FIX: getDraftById is async, must await it!
-      const draft = await draftStorage.getDraftById(draftId);
+      // Pass userEmail to bypass localStorage timing issues
+      const draft = await draftStorage.getDraftById(draftId, userEmail);
       console.log("📦 [loadDraftIntoEditor] Draft from storage:", {
         found: !!draft,
         id: draft?.id,
@@ -1213,6 +1234,11 @@ export default function Create() {
         setCanvasBackground(draft.canvasBackground);
       }
       setActiveDraftId(draft.id);
+      setIsExistingDraft(true); // Mark as existing draft when loaded
+      // Set title from draft
+      if (draft.title) {
+        setDraftTitle(draft.title);
+      }
       clearSelection();
       setActiveMobileProperty(null);
 
@@ -1264,23 +1290,43 @@ export default function Create() {
 
   useEffect(() => {
     const draftId = location.state?.draftId;
+    const newFrameName = location.state?.newFrameName;
     const comeFromDraftsPage = !!draftId;
 
     console.log("🎯 [Create useEffect] Navigation detected:", {
       hasDraftId: !!draftId,
       draftId,
+      newFrameName,
       comeFromDraftsPage,
       pathname: location.pathname,
       state: location.state,
     });
 
+    // Set frame name from CreateHub if provided
+    if (newFrameName && !comeFromDraftsPage) {
+      setDraftTitle(newFrameName);
+    }
+
     if (comeFromDraftsPage) {
       // User clicked "Lihat Frame" from Drafts page - load the draft
       console.log("📂 [Create] Loading draft from Drafts page:", draftId);
+      
+      // CRITICAL: Wait for user authentication to initialize before loading draft
+      // This prevents getCurrentUserId() from returning "guest" when user is actually logged in
+      const userEmail = user?.email;
+      if (!userEmail) {
+        console.warn("⏳ [Create] Waiting for user authentication before loading draft...");
+        console.warn("   User:", user);
+        // Don't load yet - wait for next render when user is available
+        return;
+      }
+      
+      console.log("✅ [Create] User authenticated:", userEmail);
       hasLoadedDraftRef.current = false; // Reset before loading
 
       // ✅ CRITICAL FIX: loadDraftIntoEditor is now async, must await it
-      loadDraftIntoEditor(draftId, { notify: true })
+      // Pass userEmail directly to bypass localStorage timing issues
+      loadDraftIntoEditor(draftId, { notify: true, userEmail })
         .then((success) => {
           console.log("📂 [Create] loadDraftIntoEditor result:", success);
         })
@@ -1296,6 +1342,12 @@ export default function Create() {
       setCanvasBackground("#f7f1ed");
       setCanvasAspectRatio("9:16");
       setActiveDraftId(null);
+      setIsExistingDraft(false); // Reset - this is a new frame
+      setJustSavedDraft(false); // Reset
+      // Reset title only if not provided from CreateHub
+      if (!newFrameName) {
+        setDraftTitle("");
+      }
       clearSelection();
       userStorage.removeItem("activeDraftId");
       userStorage.removeItem("activeDraftSignature");
@@ -1307,11 +1359,51 @@ export default function Create() {
       hasLoadedDraftRef.current = true; // Mark as initialized
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.state?.draftId]); // Only re-run when draftId changes, not on every location change
+  }, [location.state?.draftId, user?.email]); // Re-run when draftId OR user authentication changes
 
   useEffect(() => {
     if (hasLoadedDraftRef.current) {
       return;
+    }
+
+    if (!user?.email) {
+      console.warn("⏳ [Create] Waiting for user auth before loading stored draft...");
+      return;
+    }
+
+    // Clean up any guest-prefixed storage keys to avoid loading guest drafts
+    try {
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("guest:")) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+      if (keysToRemove.length > 0) {
+        console.log(`🧹 [Create] Removed ${keysToRemove.length} guest keys to prevent conflict`);
+      }
+    } catch (err) {
+      console.warn("⚠️ [Create] Failed to clean guest keys:", err);
+    }
+
+    // Normalize global activeDraftId/Signature into user-scoped storage, then remove globals
+    try {
+      const globalActiveDraftId = localStorage.getItem("activeDraftId");
+      const globalActiveSignature = localStorage.getItem("activeDraftSignature");
+      if (globalActiveDraftId) {
+        userStorage.setItem("activeDraftId", globalActiveDraftId);
+        localStorage.removeItem("activeDraftId");
+        console.log("🔄 [Create] Migrated global activeDraftId to user storage");
+      }
+      if (globalActiveSignature) {
+        userStorage.setItem("activeDraftSignature", globalActiveSignature);
+        localStorage.removeItem("activeDraftSignature");
+        console.log("🔄 [Create] Migrated global activeDraftSignature to user storage");
+      }
+    } catch (err) {
+      console.warn("⚠️ [Create] Failed to migrate global active draft keys:", err);
     }
 
     const storedDraftId = userStorage.getItem("activeDraftId");
@@ -1320,11 +1412,11 @@ export default function Create() {
     }
 
     // ✅ CRITICAL FIX: loadDraftIntoEditor is async
-    loadDraftIntoEditor(storedDraftId, { notify: false })
+    loadDraftIntoEditor(storedDraftId, { notify: false, userEmail: user.email })
       .then(async (loaded) => {
         if (loaded) {
           const storedSignature = userStorage.getItem("activeDraftSignature");
-          const draft = await draftStorage.getDraftById(storedDraftId);
+          const draft = await draftStorage.getDraftById(storedDraftId, user.email);
           if (
             storedSignature &&
             draft?.signature &&
@@ -1977,6 +2069,7 @@ export default function Create() {
       // Calculate total size before saving
       const draftDataToSave = {
         id: activeDraftId || undefined,
+        title: draftTitle || undefined, // Include title
         canvasBackground,
         canvasWidth,
         canvasHeight,
@@ -2112,6 +2205,44 @@ export default function Create() {
       setActiveDraftId(savedDraft.id);
       setJustSavedDraft(true); // Show "Gunakan Frame Ini" button
 
+      // ☁️ CLOUD SAVE: ALWAYS save to cloud for sharing capability
+      // Works for both logged-in users (authenticated endpoint) and 
+      // non-logged-in users (falls back to public-share endpoint)
+      try {
+        console.log("☁️ [CLOUD SAVE] Starting cloud save...", user ? `for user: ${user.uid}` : "(anonymous)");
+        
+        // CRITICAL: frameData must be stringified for backend storage
+        // Backend expects a JSON string in frame_data column
+        const frameDataString = JSON.stringify(draftDataToSave);
+        
+        const cloudResult = await draftService.saveDraftToCloud({
+          title: draftTitle || savedDraft.title || "Untitled Frame",
+          frameData: frameDataString,
+          previewUrl: previewDataUrl,
+          draftId: savedDraft.cloudId // Use existing cloud ID if re-saving
+        });
+        
+        // Store cloud ID and shareId for future updates and sharing
+        if (cloudResult?.draft) {
+          const cloudDraft = cloudResult.draft;
+          savedDraft.cloudId = cloudDraft.id;
+          savedDraft.shareId = cloudDraft.share_id;
+          
+          // CRITICAL: Update local draft with cloud ID
+          // Must preserve ALL existing fields including userId
+          await draftStorage.saveDraft({
+            ...savedDraft, // Include all existing fields (userId, createdAt, etc.)
+            cloudId: cloudDraft.id,
+            shareId: cloudDraft.share_id
+          });
+          console.log("☁️ [CLOUD SAVE] Success! Cloud ID:", cloudDraft.id, "Share ID:", cloudDraft.share_id);
+          console.log("🔗 [SHARE URL]:", `${window.location.origin}/s/${cloudDraft.share_id}`);
+        }
+      } catch (cloudError) {
+        console.warn("☁️ [CLOUD SAVE] Failed (frame still saved locally):", cloudError);
+        // Don't show error - local save succeeded
+      }
+
       const successTitle = savedDraft.title || "Draft";
       showToast(
         "success",
@@ -2176,12 +2307,23 @@ export default function Create() {
   }, [elements, removeElement, setCanvasBackground, showToast]);
 
   const handleUseThisFrame = async () => {
-    if (!activeDraftId) {
-      showToast("error", "Tidak ada draft aktif untuk digunakan.");
+    if (!activeDraftId && elements.length === 0) {
+      showToast("error", "Tidak ada frame untuk digunakan.");
       return;
     }
 
     try {
+      // ALWAYS save first before using frame to ensure latest changes are persisted
+      console.log("💾 [handleUseThisFrame] Auto-saving before use...");
+      showToast("info", "Menyimpan frame...");
+      
+      await handleSaveTemplate();
+      
+      console.log("✅ [handleUseThisFrame] Auto-save completed, activeDraftId:", activeDraftId);
+      
+      // Wait a bit for state to settle
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       console.log("🔍 [handleUseThisFrame] Looking for draft:", activeDraftId);
 
       // Check all drafts first
@@ -2196,54 +2338,13 @@ export default function Create() {
       );
 
       // Load the draft
-      let draft = await draftStorage.getDraftById(activeDraftId);
+      let draft = await draftStorage.getDraftById(activeDraftId, user?.email);
       if (!draft) {
         console.error("❌ [handleUseThisFrame] Draft not found!", {
           searchedId: activeDraftId,
           availableIds: allDrafts.map((d) => d.id),
         });
-
-        // Try to re-save the current canvas as a new draft
-        console.log(
-          "🔄 [handleUseThisFrame] Attempting to save current canvas..."
-        );
-        showToast("info", "Draft hilang, menyimpan ulang...");
-
-        try {
-          // Trigger save again and WAIT for it to complete
-          await handleSaveTemplate();
-
-          console.log(
-            "🔍 [handleUseThisFrame] After re-save, checking for draft:",
-            activeDraftId
-          );
-
-          // Try to load again
-          const retryDraft = await draftStorage.getDraftById(activeDraftId);
-
-          if (!retryDraft) {
-            console.error(
-              "❌ [handleUseThisFrame] Draft STILL not found after re-save!",
-              {
-                activeDraftId,
-                allDraftsAfterSave: (await draftStorage.loadDrafts()).map(
-                  (d) => ({ id: d.id, title: d.title })
-                ),
-              }
-            );
-            throw new Error(
-              "Draft tidak ditemukan setelah save ulang. Mungkin masalah storage."
-            );
-          }
-
-          console.log(
-            "✅ [handleUseThisFrame] Draft successfully saved and loaded!"
-          );
-          draft = retryDraft;
-        } catch (saveError) {
-          console.error("❌ [handleUseThisFrame] Save failed:", saveError);
-          throw new Error(`Gagal menyimpan draft: ${saveError.message}`);
-        }
+        throw new Error("Draft tidak ditemukan setelah save. Coba lagi.");
       }
 
       console.log("✅ [handleUseThisFrame] Draft loaded:", {
@@ -3290,6 +3391,18 @@ export default function Create() {
                 );
               })}
             </div>
+            
+            {/* Frame Name Input - di bawah Tools */}
+            <div className="create-tools__name-input">
+              <label className="create-tools__name-label">Nama Frame</label>
+              <input
+                type="text"
+                className="create-tools__name-field"
+                placeholder="Masukkan nama frame..."
+                value={draftTitle}
+                onChange={(e) => setDraftTitle(e.target.value)}
+              />
+            </div>
           </Motion.aside>
         )}
 
@@ -3337,63 +3450,61 @@ export default function Create() {
               />
             </div>
           </div>
-          <Motion.button
-            type="button"
-            onClick={handleSaveTemplate}
-            disabled={saving}
-            className="create-save"
-            whileTap={{ scale: 0.97 }}
-            whileHover={{ y: -3 }}
-          >
-            {saving ? (
-              <>
-                <svg
-                  className="create-save__spinner"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="create-save__spinner-track"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  ></circle>
-                  <path
-                    className="create-save__spinner-head"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  ></path>
-                </svg>
-                Menyimpan...
-              </>
-            ) : (
-              <>
-                <CheckCircle2 size={18} strokeWidth={2.5} />
-                Save Template
-              </>
-            )}
-          </Motion.button>
-
-          {/* Show "Gunakan Frame Ini" button after save */}
-          {justSavedDraft && activeDraftId && (
+          
+          {/* Action Buttons Container */}
+          <div className="create-actions">
             <Motion.button
               type="button"
-              onClick={handleUseThisFrame}
+              onClick={handleSaveTemplate}
+              disabled={saving}
               className="create-save"
-              style={{
-                marginTop: "12px",
-                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-              }}
               whileTap={{ scale: 0.97 }}
               whileHover={{ y: -3 }}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
             >
-              <>
+              {saving ? (
+                <>
+                  <svg
+                    className="create-save__spinner"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="create-save__spinner-track"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    ></circle>
+                    <path
+                      className="create-save__spinner-head"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
+                  </svg>
+                  Menyimpan...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 size={18} strokeWidth={2.5} />
+                  Save
+                </>
+              )}
+            </Motion.button>
+
+            {/* Show "Gunakan Frame" button if there are elements (will auto-save before use) */}
+            {elements.length > 0 && (
+              <Motion.button
+                type="button"
+                onClick={handleUseThisFrame}
+                className="create-use-frame"
+                whileTap={{ scale: 0.97 }}
+                whileHover={{ y: -3 }}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.1 }}
+              >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="18"
@@ -3409,10 +3520,10 @@ export default function Create() {
                   <circle cx="8.5" cy="8.5" r="1.5" />
                   <polyline points="21 15 16 10 5 21" />
                 </svg>
-                Gunakan Frame Ini
-              </>
-            </Motion.button>
-          )}
+                Gunakan Frame
+              </Motion.button>
+            )}
+          </div>
         </Motion.section>
 
         {!isMobileView && (

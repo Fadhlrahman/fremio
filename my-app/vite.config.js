@@ -31,6 +31,9 @@ const getHttpsConfig = () => {
   }
 }
 
+// Generate unique hash based on timestamp to bust cache
+const buildTimestamp = Date.now().toString(36);
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [tailwindcss(), react()],
@@ -42,5 +45,15 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['@ffmpeg/ffmpeg']
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        // Use assets folder with timestamp for cache busting
+        entryFileNames: `assets/[name]-${buildTimestamp}-[hash].js`,
+        chunkFileNames: `assets/[name]-${buildTimestamp}-[hash].js`,
+        assetFileNames: `assets/[name]-${buildTimestamp}-[hash].[ext]`
+      }
+    }
   }
 });

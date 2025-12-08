@@ -76,14 +76,9 @@ export default function Register() {
       const result = await registerUser(userData);
 
       if (result.success) {
-        // Redirect to login page after successful registration
-        navigate("/login", {
-          replace: true,
-          state: {
-            message:
-              "Registration successful! Please login with your credentials.",
-          },
-        });
+        // Auto-login: Token sudah disimpan oleh registerUser
+        // Redirect langsung ke home
+        navigate("/", { replace: true });
       } else {
         setError(result.message);
       }

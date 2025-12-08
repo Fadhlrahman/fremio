@@ -15,6 +15,8 @@ import TabletPrinter from "./pages/TabletPrinter.jsx";
 import FrameDebugSimple from "./pages/FrameDebugSimple.jsx";
 import FrameBuilder from "./pages/FrameBuilder.jsx";
 import Create from "./pages/Create.jsx";
+import CreateHub from "./pages/CreateHub.jsx";
+import SharedFrame from "./pages/SharedFrame.jsx";
 import NotFound from "./pages/NotFound.jsx";
 import Login from "./pages/Login.jsx";
 import Register from "./pages/Register.jsx";
@@ -78,6 +80,14 @@ export default function App() {
               path="create"
               element={
                 <ProtectedRoute>
+                  <CreateHub />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="create/editor"
+              element={
+                <ProtectedRoute>
                   <Create />
                 </ProtectedRoute>
               }
@@ -123,6 +133,7 @@ export default function App() {
               }
             />
             <Route path="take-moment" element={<TakeMoment />} />
+            <Route path="s/:shareId" element={<SharedFrame />} />
             <Route path="editor" element={<Editor />} />
             <Route path="edit-photo" element={<EditPhoto />} />
             <Route

@@ -11,6 +11,7 @@ const AdminFrames = () => {
   const [sortOrder, setSortOrder] = useState("display-order"); // display-order, category-asc, category-desc, name-asc, name-desc, newest, oldest
   const [isReorderMode, setIsReorderMode] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
+  const [categoryOrder, setCategoryOrder] = useState([]); // Order of categories for display
 
   useEffect(() => {
     const loadFrames = async () => {
@@ -30,8 +31,42 @@ const AdminFrames = () => {
     loadFrames();
   }, []);
 
-  // Get unique categories
+  // Get unique categories (alphabetically sorted for filter dropdown)
   const categories = [...new Set(frames.map(f => f.category || "Uncategorized"))].sort();
+
+  // Initialize categoryOrder based on displayOrder from database
+  useEffect(() => {
+    if (frames.length > 0 && categoryOrder.length === 0) {
+      // Calculate category order based on minimum displayOrder of frames in each category
+      const categoryMinOrder = {};
+      frames.forEach(frame => {
+        const cat = frame.category || "Uncategorized";
+        const order = frame.displayOrder ?? 999;
+        if (categoryMinOrder[cat] === undefined || order < categoryMinOrder[cat]) {
+          categoryMinOrder[cat] = order;
+        }
+      });
+      
+      // Sort categories by their minimum displayOrder
+      const sortedCategories = Object.keys(categoryMinOrder).sort(
+        (a, b) => categoryMinOrder[a] - categoryMinOrder[b]
+      );
+      
+      setCategoryOrder(sortedCategories);
+    } else if (frames.length > 0 && categoryOrder.length > 0) {
+      // Add any new categories that don't exist in categoryOrder
+      const existingCategories = [...new Set(frames.map(f => f.category || "Uncategorized"))];
+      const newCategories = existingCategories.filter(c => !categoryOrder.includes(c));
+      if (newCategories.length > 0) {
+        setCategoryOrder([...categoryOrder, ...newCategories]);
+      }
+      // Remove any categories that no longer exist
+      const validCategories = categoryOrder.filter(c => existingCategories.includes(c));
+      if (validCategories.length !== categoryOrder.length) {
+        setCategoryOrder(validCategories);
+      }
+    }
+  }, [frames.length, categoryOrder.length]); // Depend on frames length
 
   // Filter and sort frames
   const filteredAndSortedFrames = React.useMemo(() => {
@@ -68,26 +103,62 @@ const AdminFrames = () => {
   }, [frames, selectedCategory, sortOrder]);
 
   // Group frames by category for display
+  // Always group by category unless in reorder mode
   const groupedFrames = React.useMemo(() => {
-    if (sortOrder.startsWith("category") && !isReorderMode) {
-      const groups = {};
-      filteredAndSortedFrames.forEach(frame => {
-        const cat = frame.category || "Uncategorized";
-        if (!groups[cat]) groups[cat] = [];
-        groups[cat].push(frame);
-      });
-      return groups;
-    }
-    return null;
-  }, [filteredAndSortedFrames, sortOrder, isReorderMode]);
+    // Always group by category
+    const groups = {};
+    filteredAndSortedFrames.forEach(frame => {
+      const cat = frame.category || "Uncategorized";
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(frame);
+    });
+    
+    // Sort categories based on categoryOrder
+    const sortedGroups = {};
+    categoryOrder.forEach(key => {
+      if (groups[key]) {
+        sortedGroups[key] = groups[key];
+      }
+    });
+    
+    // Add any remaining categories not in categoryOrder
+    Object.keys(groups).forEach(key => {
+      if (!sortedGroups[key]) {
+        sortedGroups[key] = groups[key];
+      }
+    });
+    
+    return sortedGroups;
+  }, [filteredAndSortedFrames, categoryOrder]);
 
-  // Move frame up in order
-  const moveFrameUp = (frameId) => {
-    const currentIndex = frames.findIndex(f => f.id === frameId);
+  // Move frame up in order within its category
+  const moveFrameUp = (frameId, category) => {
+    // Get frames in this category
+    const categoryFrames = frames.filter(f => (f.category || "Uncategorized") === category);
+    const otherFrames = frames.filter(f => (f.category || "Uncategorized") !== category);
+    
+    const currentIndex = categoryFrames.findIndex(f => f.id === frameId);
     if (currentIndex <= 0) return;
     
-    const newFrames = [...frames];
-    [newFrames[currentIndex - 1], newFrames[currentIndex]] = [newFrames[currentIndex], newFrames[currentIndex - 1]];
+    // Swap within category
+    [categoryFrames[currentIndex - 1], categoryFrames[currentIndex]] = [categoryFrames[currentIndex], categoryFrames[currentIndex - 1]];
+    
+    // Rebuild frames array based on categoryOrder
+    const newFrames = [];
+    categoryOrder.forEach(cat => {
+      if (cat === category) {
+        newFrames.push(...categoryFrames);
+      } else {
+        newFrames.push(...frames.filter(f => (f.category || "Uncategorized") === cat));
+      }
+    });
+    
+    // Add any remaining frames not in categoryOrder
+    otherFrames.forEach(f => {
+      if (!newFrames.find(nf => nf.id === f.id)) {
+        newFrames.push(f);
+      }
+    });
     
     // Update displayOrder for all frames
     newFrames.forEach((frame, idx) => {
@@ -97,13 +168,84 @@ const AdminFrames = () => {
     setFrames(newFrames);
   };
 
-  // Move frame down in order
-  const moveFrameDown = (frameId) => {
-    const currentIndex = frames.findIndex(f => f.id === frameId);
-    if (currentIndex < 0 || currentIndex >= frames.length - 1) return;
+  // Move frame down in order within its category
+  const moveFrameDown = (frameId, category) => {
+    // Get frames in this category
+    const categoryFrames = frames.filter(f => (f.category || "Uncategorized") === category);
     
-    const newFrames = [...frames];
-    [newFrames[currentIndex], newFrames[currentIndex + 1]] = [newFrames[currentIndex + 1], newFrames[currentIndex]];
+    const currentIndex = categoryFrames.findIndex(f => f.id === frameId);
+    if (currentIndex < 0 || currentIndex >= categoryFrames.length - 1) return;
+    
+    // Swap within category
+    [categoryFrames[currentIndex], categoryFrames[currentIndex + 1]] = [categoryFrames[currentIndex + 1], categoryFrames[currentIndex]];
+    
+    // Rebuild frames array based on categoryOrder
+    const newFrames = [];
+    categoryOrder.forEach(cat => {
+      if (cat === category) {
+        newFrames.push(...categoryFrames);
+      } else {
+        newFrames.push(...frames.filter(f => (f.category || "Uncategorized") === cat));
+      }
+    });
+    
+    // Add any remaining frames
+    frames.forEach(f => {
+      if (!newFrames.find(nf => nf.id === f.id)) {
+        newFrames.push(f);
+      }
+    });
+    
+    // Update displayOrder for all frames
+    newFrames.forEach((frame, idx) => {
+      frame.displayOrder = idx;
+    });
+    
+    setFrames(newFrames);
+  };
+
+  // Move category up
+  const moveCategoryUp = (category) => {
+    const currentIndex = categoryOrder.indexOf(category);
+    if (currentIndex <= 0) return;
+    
+    const newOrder = [...categoryOrder];
+    [newOrder[currentIndex - 1], newOrder[currentIndex]] = [newOrder[currentIndex], newOrder[currentIndex - 1]];
+    setCategoryOrder(newOrder);
+    
+    // Rebuild frames array based on new category order
+    rebuildFramesOrder(newOrder);
+  };
+
+  // Move category down
+  const moveCategoryDown = (category) => {
+    const currentIndex = categoryOrder.indexOf(category);
+    if (currentIndex < 0 || currentIndex >= categoryOrder.length - 1) return;
+    
+    const newOrder = [...categoryOrder];
+    [newOrder[currentIndex], newOrder[currentIndex + 1]] = [newOrder[currentIndex + 1], newOrder[currentIndex]];
+    setCategoryOrder(newOrder);
+    
+    // Rebuild frames array based on new category order
+    rebuildFramesOrder(newOrder);
+  };
+
+  // Rebuild frames order based on category order
+  const rebuildFramesOrder = (newCategoryOrder) => {
+    const newFrames = [];
+    newCategoryOrder.forEach(cat => {
+      const categoryFrames = frames.filter(f => (f.category || "Uncategorized") === cat);
+      // Sort by current displayOrder within category
+      categoryFrames.sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
+      newFrames.push(...categoryFrames);
+    });
+    
+    // Add any remaining frames
+    frames.forEach(f => {
+      if (!newFrames.find(nf => nf.id === f.id)) {
+        newFrames.push(f);
+      }
+    });
     
     // Update displayOrder for all frames
     newFrames.forEach((frame, idx) => {
@@ -122,7 +264,10 @@ const AdminFrames = () => {
         displayOrder: idx
       }));
       
+      console.log("📋 Saving frame orders:", frameOrders.map(f => `${f.id}: ${f.displayOrder}`));
+      
       await unifiedFrameService.updateFramesOrder(frameOrders);
+      console.log("✅ Frame orders saved successfully!");
       alert("Urutan berhasil disimpan!");
       setIsReorderMode(false);
     } catch (err) {
@@ -160,10 +305,10 @@ const AdminFrames = () => {
   console.log("AdminFrames about to return JSX, frames count:", frames.length);
 
   // Frame card component
-  const FrameCard = ({ frame, index }) => {
+  const FrameCard = ({ frame, index, category, categoryFrames }) => {
     const displayImageUrl = frame.imageUrl || frame.thumbnailUrl || frame.imagePath;
     const isFirst = index === 0;
-    const isLast = index === frames.length - 1;
+    const isLast = index === categoryFrames.length - 1;
     
     return (
       <div 
@@ -242,7 +387,7 @@ const AdminFrames = () => {
             // Reorder controls
             <div style={{ display: "flex", gap: "8px" }}>
               <button 
-                onClick={() => moveFrameUp(frame.id)}
+                onClick={() => moveFrameUp(frame.id, category)}
                 disabled={isFirst}
                 style={{
                   flex: 1,
@@ -260,7 +405,7 @@ const AdminFrames = () => {
                 ↑
               </button>
               <button 
-                onClick={() => moveFrameDown(frame.id)}
+                onClick={() => moveFrameDown(frame.id, category)}
                 disabled={isLast}
                 style={{
                   flex: 1,
@@ -345,7 +490,10 @@ const AdminFrames = () => {
           <div>
             <strong style={{ fontSize: "16px" }}>📋 Mode Atur Urutan</strong>
             <p style={{ margin: "4px 0 0 0", fontSize: "14px", opacity: 0.9 }}>
-              Gunakan tombol ↑ ↓ untuk mengubah urutan tampilan frame di halaman user
+              • Gunakan tombol "↑ Kategori" / "↓ Kategori" untuk mengubah urutan kategori
+            </p>
+            <p style={{ margin: "4px 0 0 0", fontSize: "14px", opacity: 0.9 }}>
+              • Gunakan tombol ↑ ↓ pada frame untuk mengubah urutan dalam kategori
             </p>
           </div>
           <div style={{ display: "flex", gap: "8px" }}>
@@ -476,8 +624,6 @@ const AdminFrames = () => {
               }}
             >
               <option value="display-order">Urutan Tampilan</option>
-              <option value="category-asc">Kategori (A-Z)</option>
-              <option value="category-desc">Kategori (Z-A)</option>
               <option value="name-asc">Nama (A-Z)</option>
               <option value="name-desc">Nama (Z-A)</option>
               <option value="newest">Terbaru</option>
@@ -495,62 +641,125 @@ const AdminFrames = () => {
         <div style={{ textAlign: "center", padding: "40px", background: "#f3f4f6", borderRadius: "8px" }}>
           <p style={{ color: "#6b7280" }}>Tidak ada frame dalam kategori "{selectedCategory}"</p>
         </div>
-      ) : isReorderMode ? (
-        // Reorder mode - flat list with order controls
-        <div style={{ 
-          display: "grid", 
-          gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", 
-          gap: "20px" 
-        }}>
-          {frames.map((frame, index) => (
-            <FrameCard key={frame.id} frame={frame} index={index} />
-          ))}
-        </div>
-      ) : groupedFrames ? (
-        // Grouped by category view
-        <div>
-          {Object.entries(groupedFrames).map(([category, categoryFrames]) => (
-            <div key={category} style={{ marginBottom: "32px" }}>
-              <h2 style={{ 
-                fontSize: "18px", 
-                fontWeight: "600", 
-                color: "#1f2937", 
-                marginBottom: "16px",
-                paddingBottom: "8px",
-                borderBottom: "2px solid #e5e7eb"
-              }}>
-                {category} 
-                <span style={{ 
-                  fontSize: "14px", 
-                  fontWeight: "normal", 
-                  color: "#6b7280",
-                  marginLeft: "8px"
-                }}>
-                  ({categoryFrames.length} frame)
-                </span>
-              </h2>
-              <div style={{ 
-                display: "grid", 
-                gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", 
-                gap: "20px" 
-              }}>
-                {categoryFrames.map((frame, index) => (
-                  <FrameCard key={frame.id} frame={frame} index={index} />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
       ) : (
-        // Flat list view (when sorted by name or date)
-        <div style={{ 
-          display: "grid", 
-          gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", 
-          gap: "20px" 
-        }}>
-          {filteredAndSortedFrames.map((frame, index) => (
-            <FrameCard key={frame.id} frame={frame} index={index} />
-          ))}
+        // Always show grouped by category view
+        <div>
+          {Object.entries(groupedFrames || {}).map(([category, categoryFrames], catIndex) => {
+            const isFirstCategory = catIndex === 0;
+            const isLastCategory = catIndex === Object.keys(groupedFrames).length - 1;
+            
+            return (
+              <div key={category} style={{ marginBottom: "32px" }}>
+                <div style={{ 
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: "16px",
+                  paddingBottom: "8px",
+                  borderBottom: isReorderMode ? "2px solid #4f46e5" : "2px solid #e5e7eb",
+                  background: isReorderMode ? "#f0f9ff" : "transparent",
+                  padding: isReorderMode ? "12px" : "0 0 8px 0",
+                  borderRadius: isReorderMode ? "8px 8px 0 0" : "0"
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                    {isReorderMode && (
+                      <span style={{
+                        background: "#4f46e5",
+                        color: "white",
+                        width: "28px",
+                        height: "28px",
+                        borderRadius: "50%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "12px",
+                        fontWeight: "bold"
+                      }}>
+                        {catIndex + 1}
+                      </span>
+                    )}
+                    <h2 style={{ 
+                      fontSize: "18px", 
+                      fontWeight: "600", 
+                      color: "#1f2937", 
+                      margin: 0,
+                    }}>
+                      {category} 
+                      <span style={{ 
+                        fontSize: "14px", 
+                        fontWeight: "normal", 
+                        color: "#6b7280",
+                        marginLeft: "8px"
+                      }}>
+                        ({categoryFrames.length} frame)
+                      </span>
+                    </h2>
+                  </div>
+                  
+                  {/* Category reorder controls */}
+                  {isReorderMode && (
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <button 
+                        onClick={() => moveCategoryUp(category)}
+                        disabled={isFirstCategory}
+                        style={{
+                          padding: "6px 12px",
+                          background: isFirstCategory ? "#e5e7eb" : "#dbeafe",
+                          color: isFirstCategory ? "#9ca3af" : "#1d4ed8",
+                          border: "none",
+                          borderRadius: "4px",
+                          cursor: isFirstCategory ? "not-allowed" : "pointer",
+                          fontSize: "14px",
+                          fontWeight: "bold",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px"
+                        }}
+                        title="Pindah kategori ke atas"
+                      >
+                        ↑ Kategori
+                      </button>
+                      <button 
+                        onClick={() => moveCategoryDown(category)}
+                        disabled={isLastCategory}
+                        style={{
+                          padding: "6px 12px",
+                          background: isLastCategory ? "#e5e7eb" : "#dbeafe",
+                          color: isLastCategory ? "#9ca3af" : "#1d4ed8",
+                          border: "none",
+                          borderRadius: "4px",
+                          cursor: isLastCategory ? "not-allowed" : "pointer",
+                          fontSize: "14px",
+                          fontWeight: "bold",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px"
+                        }}
+                        title="Pindah kategori ke bawah"
+                      >
+                        ↓ Kategori
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div style={{ 
+                  display: "grid", 
+                  gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", 
+                  gap: "20px" 
+                }}>
+                  {categoryFrames.map((frame, index) => (
+                    <FrameCard 
+                      key={frame.id} 
+                      frame={frame} 
+                      index={index} 
+                      category={category}
+                      categoryFrames={categoryFrames}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

@@ -93,16 +93,21 @@ function FrameCard({ frame, onSelect, imageError, onImageError, getImageUrl }) {
         )}
       </div>
 
-      {/* Frame Name */}
+      {/* Frame Name - wrap to multiple lines if needed, smaller font for long names */}
       <div style={{
         padding: "8px 8px 4px 8px",
         textAlign: "center",
-        fontSize: "12px",
+        fontSize: frame.name && frame.name.length > 25 ? "10px" : "12px",
         fontWeight: 600,
         color: "#1e293b",
-        whiteSpace: "nowrap",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
+        lineHeight: "1.3",
+        wordWrap: "break-word",
+        overflowWrap: "break-word",
+        hyphens: "auto",
+        minHeight: "32px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
       }}>
         {frame.name}
       </div>
@@ -152,20 +157,40 @@ export default function Frames() {
   const [customFrames, setCustomFrames] = useState([]);
   const [imageErrors, setImageErrors] = useState({});
 
-  // Group frames by category (sorted by displayOrder within each category)
-  const groupedFrames = customFrames.reduce((acc, frame) => {
-    const category = frame.category || "Uncategorized";
-    if (!acc[category]) {
-      acc[category] = [];
-    }
-    acc[category].push(frame);
-    return acc;
-  }, {});
+  // Group frames by category and sort categories by min displayOrder
+  const groupedFrames = (() => {
+    // First, group frames by category
+    const groups = customFrames.reduce((acc, frame) => {
+      const category = frame.category || "Uncategorized";
+      if (!acc[category]) {
+        acc[category] = [];
+      }
+      acc[category].push(frame);
+      return acc;
+    }, {});
 
-  // Sort frames within each category by displayOrder
-  Object.keys(groupedFrames).forEach(category => {
-    groupedFrames[category].sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
-  });
+    // Sort frames within each category by displayOrder
+    Object.keys(groups).forEach(category => {
+      groups[category].sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
+    });
+
+    // Get category order based on minimum displayOrder of frames in each category
+    const categoryOrder = Object.keys(groups).map(category => ({
+      category,
+      minDisplayOrder: Math.min(...groups[category].map(f => f.displayOrder || 999))
+    }));
+    
+    // Sort categories by their minimum displayOrder
+    categoryOrder.sort((a, b) => a.minDisplayOrder - b.minDisplayOrder);
+
+    // Build ordered result
+    const orderedGroups = {};
+    categoryOrder.forEach(({ category }) => {
+      orderedGroups[category] = groups[category];
+    });
+
+    return orderedGroups;
+  })();
 
   // Clear old frameConfig when entering Frames page
   useEffect(() => {

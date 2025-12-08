@@ -26,7 +26,9 @@ class VPSFrameClient {
   getToken() {
     // Try both possible token keys
     const token = localStorage.getItem('fremio_token') || localStorage.getItem('auth_token');
-    console.log('🔑 getToken called, token exists:', !!token);
+    if (!token) {
+      console.warn('🔑 No token found in localStorage. Keys available:', Object.keys(localStorage));
+    }
     return token;
   }
 
@@ -34,7 +36,9 @@ class VPSFrameClient {
     const token = this.getToken();
     
     if (!token && options.method && options.method !== 'GET') {
-      console.warn('⚠️ No auth token found for authenticated request:', endpoint);
+      console.error('⚠️ No auth token found for authenticated request:', endpoint);
+      console.error('   Please login first at /admin/login');
+      throw new Error('No token provided');
     }
     
     const headers = {
@@ -47,25 +51,53 @@ class VPSFrameClient {
       headers['Content-Type'] = 'application/json';
     }
 
-    console.log(`📤 Request to ${endpoint}:`, { 
-      method: options.method || 'GET', 
-      hasToken: !!token,
-      isFormData: options.body instanceof FormData 
-    });
+    try {
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        ...options,
+        headers
+      });
 
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      ...options,
-      headers
-    });
+      // Handle network errors
+      if (!response) {
+        throw new Error('Network error: No response from server');
+      }
 
-    const data = await response.json();
+      // Try to parse JSON response
+      let data;
+      try {
+        data = await response.json();
+      } catch (e) {
+        // If response is not JSON, create a simple error object
+        data = { error: `Server returned status ${response.status}` };
+      }
 
-    if (!response.ok) {
-      console.error(`❌ Request failed (${response.status}):`, data);
-      throw new Error(data.error || data.message || 'Request failed');
+      if (!response.ok) {
+        console.error(`❌ Request failed (${response.status}):`, data);
+        
+        // Handle specific error codes
+        if (response.status === 401) {
+          // Token expired or invalid - could trigger re-login
+          console.warn('🔒 Authentication failed - token may be expired');
+        } else if (response.status === 403) {
+          console.warn('🚫 Access denied - insufficient permissions');
+        } else if (response.status === 404) {
+          console.warn('🔍 Resource not found');
+        } else if (response.status >= 500) {
+          console.error('💥 Server error - please try again later');
+        }
+        
+        throw new Error(data.error || data.message || `Request failed with status ${response.status}`);
+      }
+
+      return data;
+    } catch (error) {
+      // Handle network/fetch errors
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        console.error('🌐 Network error: Unable to connect to server');
+        throw new Error('Tidak dapat terhubung ke server. Periksa koneksi internet Anda.');
+      }
+      throw error;
     }
-
-    return data;
   }
 
   // Get all frames

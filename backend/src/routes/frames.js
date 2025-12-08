@@ -25,7 +25,7 @@ router.get('/', optionalAuth, async (req, res) => {
     
     let query = `
       SELECT id, name, description, category, image_path, slots, layout,
-             max_captures, view_count, download_count, created_at
+             max_captures, view_count, download_count, created_at, display_order
       FROM frames 
       WHERE is_active = true
     `;
@@ -41,7 +41,7 @@ router.get('/', optionalAuth, async (req, res) => {
       query += ` AND (name ILIKE $${params.length} OR description ILIKE $${params.length})`;
     }
     
-    query += ` ORDER BY created_at DESC`;
+    query += ` ORDER BY display_order ASC, created_at DESC`;
     
     params.push(parseInt(limit));
     query += ` LIMIT $${params.length}`;
@@ -68,6 +68,7 @@ router.get('/', optionalAuth, async (req, res) => {
         viewCount: frame.view_count,
         downloadCount: frame.download_count,
         createdAt: frame.created_at,
+        displayOrder: frame.display_order ?? 999,
         isCustom: true
       };
     });
@@ -283,9 +284,10 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
 router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, category, imagePath, slots, maxCaptures, layout } = req.body;
+    const { name, description, category, imagePath, slots, maxCaptures, layout, displayOrder, display_order } = req.body;
     
     const frameLayout = layout ? JSON.stringify(layout) : null;
+    const finalDisplayOrder = displayOrder ?? display_order;
     
     const result = await db.query(
       `UPDATE frames 
@@ -296,6 +298,7 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
            slots = COALESCE($6, slots),
            max_captures = COALESCE($7, max_captures),
            layout = COALESCE($8, layout),
+           display_order = COALESCE($9, display_order),
            updated_at = NOW()
        WHERE id = $1 AND is_active = true
        RETURNING *`,
@@ -307,7 +310,8 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
         imagePath, 
         slots ? JSON.stringify(slots) : null, 
         maxCaptures,
-        frameLayout
+        frameLayout,
+        finalDisplayOrder !== undefined ? parseInt(finalDisplayOrder) : null
       ]
     );
     
@@ -315,7 +319,7 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Frame tidak ditemukan' });
     }
     
-    console.log(`✅ Frame updated: ${id}, layout elements: ${layout?.elements?.length || 0}`);
+    console.log(`✅ Frame updated: ${id}, layout elements: ${layout?.elements?.length || 0}, displayOrder: ${finalDisplayOrder}`);
     
     res.json({
       success: true,

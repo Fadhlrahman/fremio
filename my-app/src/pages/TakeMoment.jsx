@@ -6,7 +6,7 @@ import React, {
   useCallback,
 } from "react";
 import { flushSync } from "react-dom";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import frameProvider from "../utils/frameProvider.js";
 import safeStorage from "../utils/safeStorage.js";
 import { deriveFrameLayerPlan } from "../utils/frameLayerPlan.js";
@@ -492,6 +492,7 @@ const generatePhotoEntryId = () => {
 
 export default function TakeMoment() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const isMobile = useIsMobile();
   const { showToast } = useToast();
 
@@ -1013,11 +1014,381 @@ export default function TakeMoment() {
     setCameraActive(false);
   }, []);
 
+  // Handle shared frame from URL
+  useEffect(() => {
+    const shareId = searchParams.get("share");  // NEW: VPS share link
+    const sharedData = searchParams.get("d");   // Embedded data fallback
+    const sharedFrameId = searchParams.get("frame"); // Legacy local ID
+    
+    // PRIORITY 1: VPS Share ID (from PostgreSQL)
+    if (shareId) {
+      console.log("🔗 Loading shared frame from VPS:", shareId);
+      
+      (async () => {
+        try {
+          showToast("info", "⏳ Memuat frame...");
+          
+          const draftService = (await import("../services/draftService.js")).default;
+          const cloudDraft = await draftService.getSharedDraft(shareId);
+          
+          if (!cloudDraft) {
+            showToast("error", "Frame tidak ditemukan atau tidak publik");
+            setTimeout(() => navigate("/frames"), 2000);
+            return;
+          }
+          
+          // Parse frame data
+          const frameData = typeof cloudDraft.frame_data === 'string' 
+            ? JSON.parse(cloudDraft.frame_data) 
+            : cloudDraft.frame_data;
+          
+          console.log("✅ Shared frame loaded from VPS:", {
+            title: cloudDraft.title,
+            elementsCount: frameData?.elements?.length,
+            elementTypes: frameData?.elements?.map(el => el.type),
+            hasBackground: frameData?.elements?.some(el => el.type === 'background-photo'),
+            hasUpload: frameData?.elements?.some(el => el.type === 'upload'),
+          });
+          
+          // Canvas dimensions for coordinate conversion
+          const canvasWidth = frameData.canvasWidth || 1080;
+          const canvasHeight = frameData.canvasHeight || 1920;
+          
+          // Filter photo elements for slots
+          const photoElements = frameData.elements?.filter(el => el.type === "photo") || [];
+          
+          // Convert to frame config with FULL designer elements
+          const frameConfig = {
+            id: `shared-${shareId}`,
+            title: cloudDraft.title || "Shared Frame",
+            aspectRatio: frameData.aspectRatio || "9:16",
+            elements: frameData.elements || [],
+            canvasBackground: frameData.canvasBackground || "#f7f1ed",
+            canvasWidth: canvasWidth,
+            canvasHeight: canvasHeight,
+            maxCaptures: photoElements.length || 1,
+            slots: photoElements.map((el, idx) => ({
+              id: el.id || `slot_${idx + 1}`,
+              left: el.x / canvasWidth,    // Convert absolute to normalized (0-1)
+              top: el.y / canvasHeight,
+              width: el.width / canvasWidth,
+              height: el.height / canvasHeight,
+              zIndex: el.zIndex || 1,
+              photoIndex: idx,
+              aspectRatio: el.data?.aspectRatio || '4:5'
+            })),
+            // CRITICAL: Include designer object with ALL elements
+            // This enables background-photo, upload overlays, text, etc.
+            designer: {
+              elements: frameData.elements || [],
+              canvasBackground: frameData.canvasBackground || "#f7f1ed",
+              aspectRatio: frameData.aspectRatio || "9:16",
+              canvasWidth: canvasWidth,
+              canvasHeight: canvasHeight
+            },
+            isCustom: true,
+            isSharedFrame: true,
+            shareId: shareId,
+            preview: cloudDraft.preview_url
+          };
+          
+          // Set frame via frameProvider
+          await frameProvider.setCustomFrame(frameConfig);
+          
+          // Store in safeStorage
+          safeStorage.setJSON("frameConfig", {
+            ...frameConfig,
+            __timestamp: Date.now(),
+            __savedFrom: "TakeMoment_vpsShare"
+          });
+          safeStorage.setItem("selectedFrame", frameConfig.id);
+          safeStorage.setItem("frameConfigTimestamp", String(Date.now()));
+          
+          // Update state
+          setMaxCaptures(frameConfig.maxCaptures);
+          updateSlotAspectRatio(frameConfig);
+          persistLayerPlan(frameConfig);
+          
+          showToast("success", `✅ Frame "${cloudDraft.title}" berhasil dimuat!`);
+          
+          // Clean up URL
+          window.history.replaceState({}, '', '/take-moment');
+        } catch (error) {
+          console.error("Error loading shared frame from VPS:", error);
+          showToast("error", "Gagal memuat frame dari server");
+          setTimeout(() => navigate("/frames"), 2000);
+        }
+      })();
+      
+      return;
+    }
+    
+    // PRIORITY 2: Check for embedded data in URL (offline fallback)
+    if (sharedData) {
+      console.log("🔗 Found embedded frame data in URL");
+      
+      (async () => {
+        try {
+          const { decompressFrameData } = await import("../services/frameShareService.js");
+          const draft = decompressFrameData(sharedData);
+          
+          if (!draft) {
+            showToast("error", "Data frame rusak atau tidak valid");
+            setTimeout(() => navigate("/frames"), 2000);
+            return;
+          }
+          
+          console.log("✅ Shared frame decompressed:", {
+            title: draft.title,
+            elementsCount: draft.elements?.length,
+            elementTypes: draft.elements?.map(el => el.type || el.tp),
+          });
+          
+          // Canvas dimensions for coordinate conversion
+          const canvasWidth = draft.canvasWidth || 1080;
+          const canvasHeight = draft.canvasHeight || 1920;
+          
+          // Filter photo elements
+          const photoElements = draft.elements?.filter(el => el.type === "photo" || el.tp === "ph") || [];
+          
+          // Convert draft to frame config with FULL designer elements
+          const frameConfig = {
+            id: draft.id || `shared-${Date.now()}`,
+            title: draft.title || "Shared Frame",
+            aspectRatio: draft.aspectRatio || "9:16",
+            elements: draft.elements || [],
+            canvasBackground: draft.canvasBackground || "#f7f1ed",
+            canvasWidth: canvasWidth,
+            canvasHeight: canvasHeight,
+            maxCaptures: photoElements.length || 1,
+            slots: photoElements.map((el, idx) => ({
+              id: el.id || `slot_${idx + 1}`,
+              left: (el.x || 0) / canvasWidth,
+              top: (el.y || 0) / canvasHeight,
+              width: (el.width || el.w || 100) / canvasWidth,
+              height: (el.height || el.h || 100) / canvasHeight,
+              zIndex: el.zIndex || el.z || 1,
+              photoIndex: idx,
+              aspectRatio: el.data?.aspectRatio || el.d?.ar || '4:5'
+            })),
+            // CRITICAL: Include designer object with ALL elements
+            designer: {
+              elements: draft.elements || [],
+              canvasBackground: draft.canvasBackground || "#f7f1ed",
+              aspectRatio: draft.aspectRatio || "9:16",
+              canvasWidth: canvasWidth,
+              canvasHeight: canvasHeight
+            },
+            isCustom: true,
+            isSharedFrame: true,
+            preview: draft.preview
+          };
+          
+          // Set frame via frameProvider (same as legacy method)
+          await frameProvider.setCustomFrame(frameConfig);
+          
+          // Store in safeStorage
+          safeStorage.setJSON("frameConfig", {
+            ...frameConfig,
+            __timestamp: Date.now(),
+            __savedFrom: "TakeMoment_embeddedShare"
+          });
+          safeStorage.setItem("selectedFrame", frameConfig.id);
+          safeStorage.setItem("frameConfigTimestamp", String(Date.now()));
+          
+          // Update state
+          setMaxCaptures(frameConfig.maxCaptures);
+          updateSlotAspectRatio(frameConfig);
+          persistLayerPlan(frameConfig);
+          
+          showToast("success", `✅ Frame "${draft.title}" berhasil dimuat!`);
+          
+          // Clean up URL
+          window.history.replaceState({}, '', '/take-moment');
+        } catch (error) {
+          console.error("Error loading embedded frame:", error);
+          showToast("error", "Gagal memuat frame");
+          setTimeout(() => navigate("/frames"), 2000);
+        }
+      })();
+      
+      return;
+    }
+    
+    // PRIORITY 3: Legacy method - frame ID param (local IndexedDB)
+    if (!sharedFrameId) return;
+    
+    console.log("🔗 Shared frame detected from URL:", sharedFrameId);
+    
+    (async () => {
+      try {
+        let draft = null;
+        
+        // PRIORITY 1: Check if sharedDraftData exists in storage (from SharedFrame page)
+        const sharedDraftData = safeStorage.getJSON("sharedDraftData");
+        if (sharedDraftData && (sharedDraftData.id === sharedFrameId || sharedDraftData.id === `shared-${sharedFrameId}`)) {
+          console.log("✅ Using sharedDraftData from storage (cloud frame)");
+          draft = sharedDraftData;
+        }
+        
+        // PRIORITY 2: Try local IndexedDB (for same-device)
+        if (!draft) {
+          const { default: draftStorage } = await import("../utils/draftStorage.js");
+          draft = await draftStorage.getDraftById(sharedFrameId);
+          if (draft) {
+            console.log("✅ Found draft in local IndexedDB");
+          }
+        }
+        
+        // PRIORITY 3: Try loading from cloud API (for cross-device sharing)
+        if (!draft && sharedFrameId.length === 8) {
+          // 8-char IDs are likely share_ids from cloud
+          console.log("🔄 Trying to load from cloud API...");
+          try {
+            const draftService = (await import("../services/draftService.js")).default;
+            const cloudDraft = await draftService.getSharedDraft(sharedFrameId);
+            if (cloudDraft?.frame_data) {
+              const frameData = typeof cloudDraft.frame_data === 'string' 
+                ? JSON.parse(cloudDraft.frame_data) 
+                : cloudDraft.frame_data;
+              draft = {
+                id: `shared-${cloudDraft.share_id}`,
+                title: cloudDraft.title,
+                ...frameData,
+                preview: cloudDraft.preview_url
+              };
+              console.log("✅ Loaded draft from cloud API");
+            }
+          } catch (cloudError) {
+            console.warn("⚠️ Cloud API failed:", cloudError.message);
+          }
+        }
+        
+        if (!draft) {
+          console.error("❌ Shared frame not found:", sharedFrameId);
+          showToast("error", "Frame tidak ditemukan. Silakan pilih frame lain.");
+          // Redirect to frames page after 2 seconds
+          setTimeout(() => {
+            navigate("/frames");
+          }, 2000);
+          return;
+        }
+        
+        console.log("✅ Shared frame loaded:", {
+          id: draft.id,
+          title: draft.title,
+          hasElements: !!draft.elements,
+          elementsCount: draft.elements?.length,
+          elementTypes: draft.elements?.map(el => el.type),
+        });
+        
+        // Canvas dimensions for coordinate conversion
+        const canvasWidth = draft.canvasWidth || 1080;
+        const canvasHeight = draft.canvasHeight || 1920;
+        
+        // Filter photo elements
+        const photoElements = draft.elements?.filter(el => el.type === "photo") || [];
+        
+        // Convert draft to frame config with FULL designer elements
+        const frameConfig = {
+          id: draft.id,
+          title: draft.title || "Shared Frame",
+          aspectRatio: draft.aspectRatio || "9:16",
+          elements: draft.elements || [],
+          canvasBackground: draft.canvasBackground || "#f7f1ed",
+          canvasWidth: canvasWidth,
+          canvasHeight: canvasHeight,
+          maxCaptures: photoElements.length || 1,
+          slots: photoElements.map((el, idx) => ({
+            id: el.id || `slot_${idx + 1}`,
+            left: el.x / canvasWidth,
+            top: el.y / canvasHeight,
+            width: el.width / canvasWidth,
+            height: el.height / canvasHeight,
+            zIndex: el.zIndex || 1,
+            photoIndex: idx,
+            aspectRatio: el.data?.aspectRatio || '4:5'
+          })),
+          // CRITICAL: Include designer object with ALL elements
+          designer: {
+            elements: draft.elements || [],
+            canvasBackground: draft.canvasBackground || "#f7f1ed",
+            aspectRatio: draft.aspectRatio || "9:16",
+            canvasWidth: canvasWidth,
+            canvasHeight: canvasHeight
+          },
+          isCustom: true,
+          isSharedFrame: true,
+          preview: draft.preview,
+        };
+        
+        // Set frame via frameProvider
+        await frameProvider.setCustomFrame(frameConfig);
+        
+        // Store in safeStorage
+        safeStorage.setJSON("frameConfig", {
+          ...frameConfig,
+          __timestamp: Date.now(),
+          __savedFrom: "TakeMoment_sharedFrame"
+        });
+        safeStorage.setItem("selectedFrame", frameConfig.id);
+        safeStorage.setItem("activeDraftId", draft.id);
+        safeStorage.setItem("frameConfigTimestamp", String(Date.now()));
+        
+        // Update state
+        setMaxCaptures(frameConfig.maxCaptures);
+        updateSlotAspectRatio(frameConfig);
+        persistLayerPlan(frameConfig);
+        
+        showToast("success", `Frame "${frameConfig.title}" dimuat`);
+        
+        // Remove query param from URL to prevent reload issues
+        window.history.replaceState({}, "", "/take-moment");
+        
+      } catch (error) {
+        console.error("❌ Error loading shared frame:", error);
+        showToast("error", "Gagal memuat frame");
+      }
+    })();
+  }, [searchParams, showToast]);
+
   useEffect(() => {
     clearCapturedMedia();
 
     // Clear stale cache (older than 24 hours)
     clearStaleFrameCache();
+
+    // 🎯 PRIORITY 0: Check for shared frame in sessionStorage (highest priority)
+    const SHARED_FRAME_KEY = '__fremio_shared_frame_temp__';
+    let sharedFrameData = null;
+    try {
+      const rawSharedData = sessionStorage.getItem(SHARED_FRAME_KEY);
+      if (rawSharedData) {
+        sharedFrameData = JSON.parse(rawSharedData);
+        console.log("🔗 [SHARED FRAME] Found in sessionStorage");
+        
+        const sharedConfig = sharedFrameData.frameConfig;
+        if (sharedConfig) {
+          console.log("✅ Using shared frame from sessionStorage:", sharedConfig.id);
+          
+          // Set the frame via frameProvider
+          frameProvider.setCustomFrame(sharedConfig);
+          
+          // Update state
+          if (sharedConfig.maxCaptures) {
+            setMaxCaptures(sharedConfig.maxCaptures);
+          }
+          updateSlotAspectRatio(sharedConfig);
+          persistLayerPlan(sharedConfig);
+          
+          // DO NOT persist to localStorage - keep shared frames in sessionStorage only
+          console.log("✅ Shared frame loaded, keeping in sessionStorage only");
+          return; // Skip all other loading logic
+        }
+      }
+    } catch (e) {
+      console.warn("⚠️ Failed to read shared frame from sessionStorage:", e);
+    }
 
     // 🎯 PRIORITY 1: Check if frame is already in memory (just set from Frames page)
     const memoryConfig = frameProvider.getCurrentConfig();
@@ -1186,10 +1557,45 @@ export default function TakeMoment() {
       // Because storedConfig might be incomplete (no images) or wrong frame (Testframe1)
       (async () => {
         try {
-          const { default: draftStorage } = await import(
-            "../utils/draftStorage.js"
-          );
-          const draft = await draftStorage.getDraftById(activeDraftId);
+          // 🆕 SHARED FRAME SUPPORT: Check if this is a shared frame first
+          const isSharedFrame = activeDraftId.startsWith('shared-');
+          const isDraftFrame = activeDraftId.startsWith('draft-');
+          let draft = null;
+          
+          if (isSharedFrame) {
+            // For shared frames, use sharedDraftData from storage (no network call needed)
+            const sharedData = safeStorage.getJSON('sharedDraftData');
+            if (sharedData && sharedData.id === activeDraftId) {
+              console.log('✅ Using sharedDraftData from storage (no login required)');
+              draft = sharedData;
+            }
+          }
+          
+          // For regular drafts, try load from local draftStorage first
+          if (!draft) {
+            const { default: draftStorage } = await import(
+              "../utils/draftStorage.js"
+            );
+            draft = await draftStorage.getDraftById(activeDraftId);
+            if (draft) {
+              console.log('✅ Loaded draft from local IndexedDB');
+            }
+          }
+          
+          // 🆕 FALLBACK: If draft not found locally and storedConfig exists, use storedConfig
+          // This handles the case where shared frame data is in frameConfig but not in draftStorage
+          if (!draft && storedConfig && (storedConfig.isCustom || storedConfig.isShared)) {
+            console.log('✅ Using storedConfig as fallback (shared/custom frame)');
+            // Build draft-like object from storedConfig
+            draft = {
+              id: storedConfig.id,
+              title: storedConfig.title,
+              aspectRatio: storedConfig.aspectRatio,
+              elements: storedConfig.elements,
+              canvasBackground: storedConfig.canvasBackground,
+              preview: storedConfig.preview
+            };
+          }
 
           if (draft) {
             console.log("✅ Draft loaded:", {
@@ -1197,6 +1603,7 @@ export default function TakeMoment() {
               title: draft.title,
               hasElements: !!draft.elements,
               elementsCount: draft.elements?.length,
+              isSharedFrame: isSharedFrame,
             });
 
             const { buildFrameConfigFromDraft } = await import(
@@ -3986,9 +4393,28 @@ export default function TakeMoment() {
 
       let configToSave = null;
 
+      // PRIORITY 0: Check for shared frame in sessionStorage FIRST
+      // Shared frames have ALL elements including background-photo and uploads
+      const SHARED_FRAME_KEY = '__fremio_shared_frame_temp__';
+      try {
+        const rawSharedData = sessionStorage.getItem(SHARED_FRAME_KEY);
+        if (rawSharedData) {
+          const sharedFrameData = JSON.parse(rawSharedData);
+          if (sharedFrameData?.frameConfig) {
+            console.log("🔗 [SHARED FRAME] Using frameConfig from sessionStorage");
+            console.log("   Elements count:", sharedFrameData.frameConfig.designer?.elements?.length);
+            console.log("   Element types:", sharedFrameData.frameConfig.designer?.elements?.map(el => el?.type));
+            configToSave = sharedFrameData.frameConfig;
+          }
+        }
+      } catch (e) {
+        console.warn("⚠️ Failed to read shared frame from sessionStorage:", e);
+      }
+
       // If there's an activeDraftId, it means user came from Create page with custom frame
       // MUST use that custom frame, not any other stored frameConfig!
-      if (activeDraftId) {
+      // BUT skip this if we already have config from shared frame
+      if (!configToSave && activeDraftId) {
         console.log(
           "🎯 CRITICAL: activeDraftId found, using custom frame from current session"
         );
@@ -4028,10 +4454,10 @@ export default function TakeMoment() {
             configToSave.id
           );
         }
-      } else {
-        // No activeDraftId means user came from Frames page (regular frame)
+      } else if (!configToSave) {
+        // No activeDraftId AND no shared frame, means user came from Frames page (regular frame)
         // Use stored frameConfig or frameProvider
-        console.log("📦 No activeDraftId, using regular frame");
+        console.log("📦 No activeDraftId and no shared frame, using regular frame");
         configToSave = safeStorage.getJSON("frameConfig");
 
         if (!configToSave || !configToSave.id) {
@@ -4672,8 +5098,8 @@ export default function TakeMoment() {
               </label>
             </div>
 
-            {/* Duplicate Mode Toggle - only show when maxCaptures > 1 */}
-            {maxCaptures > 1 && (
+            {/* Duplicate Mode Toggle - only show when maxCaptures is EVEN (genap) */}
+            {maxCaptures > 1 && maxCaptures % 2 === 0 && (
               <div
                 style={{
                   display: "flex",
@@ -4723,8 +5149,8 @@ export default function TakeMoment() {
               justifyContent: "center",
             }}
           >
-            {/* Duplicate Mode Toggle - show before camera is activated */}
-            {maxCaptures > 1 && (
+            {/* Duplicate Mode Toggle - only show when maxCaptures is EVEN (genap) */}
+            {maxCaptures > 1 && maxCaptures % 2 === 0 && (
               <label
                 style={{
                   display: "flex",

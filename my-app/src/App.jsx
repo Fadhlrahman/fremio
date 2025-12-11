@@ -26,6 +26,7 @@ import Settings from "./pages/Settings.jsx";
 import ChangePassword from "./pages/ChangePassword.jsx";
 import Wishlist from "./pages/Wishlist.jsx";
 import Drafts from "./pages/Drafts.jsx";
+import Pricing from "./pages/Pricing.jsx";
 
 // Footer Pages
 import HelpCenter from "./pages/HelpCenter.jsx";
@@ -46,6 +47,7 @@ import AdminCategories from "./pages/admin/AdminCategories.jsx";
 import AdminAnalytics from "./pages/admin/AdminAnalytics.jsx";
 import AdminMessages from "./pages/admin/AdminMessages.jsx";
 import AdminAffiliates from "./pages/admin/AdminAffiliates.jsx";
+import AdminPackages from "./pages/admin/AdminPackages.jsx";
 
 import "./App.css";
 
@@ -74,6 +76,16 @@ export default function App() {
 
             {/* Frames - accessible without login, but clicking frame requires auth */}
             <Route path="frames" element={<Frames />} />
+
+            {/* Pricing page */}
+            <Route
+              path="pricing"
+              element={
+                <ProtectedRoute>
+                  <Pricing />
+                </ProtectedRoute>
+              }
+            />
 
             {/* Protected routes */}
             <Route
@@ -176,6 +188,7 @@ export default function App() {
             <Route path="analytics" element={<AdminAnalytics />} />
             <Route path="messages" element={<AdminMessages />} />
             <Route path="affiliates" element={<AdminAffiliates />} />
+            <Route path="packages" element={<AdminPackages />} />
             <Route path="settings" element={<AdminSettings />} />
           </Route>
 

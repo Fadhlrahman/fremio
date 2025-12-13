@@ -221,6 +221,29 @@
   transform: translateY(-1px);
 }
 
+.create-hub-draft-share-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.8;
+  transform: none;
+}
+
+.create-hub-draft-share-btn.loading {
+  background: linear-gradient(135deg, rgba(200, 180, 170, 0.95), rgba(180, 160, 150, 0.85));
+}
+
+.create-hub-draft-share-btn .spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .create-hub-draft-share-btn svg {
   width: 12px;
   height: 12px;

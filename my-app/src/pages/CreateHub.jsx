@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Share2, Check, Copy, Cloud, CloudOff } from "lucide-react";
+import { Plus, Share2, Check, Copy, Cloud, CloudOff, Loader2 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext.jsx";
 import { useToast } from "../contexts/ToastContext.jsx";
 import draftStorage from "../utils/draftStorage.js";
@@ -17,6 +17,7 @@ export default function CreateHub() {
   const [cloudDrafts, setCloudDrafts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
+  const [sharingId, setSharingId] = useState(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareLink, setShareLink] = useState("");
   const [shareDraftTitle, setShareDraftTitle] = useState("");
@@ -159,6 +160,9 @@ export default function CreateHub() {
     e.stopPropagation(); // Prevent card click
     if (!draft?.id) return;
     
+    // Set loading state
+    setSharingId(draft.id);
+    
     try {
       // Check if draft already has a share_id (was shared before)
       if (draft.share_id) {
@@ -170,10 +174,9 @@ export default function CreateHub() {
         setShareDraftTitle(draft.title || "Draft");
         setShowShareModal(true);
         setCopied(false);
+        setSharingId(null);
         return;
       }
-      
-      showToast("info", "⏳ Menyiapkan link share...");
       
       // Prepare frame data
       const frameData = JSON.stringify({
@@ -215,10 +218,12 @@ export default function CreateHub() {
       setShareDraftTitle(draft.title || "Draft");
       setShowShareModal(true);
       setCopied(false);
+      setSharingId(null);
       
       showToast("success", "✅ Link siap di-share!");
     } catch (error) {
       console.error("Error generating share link:", error);
+      setSharingId(null);
       
       // Fallback: use embedded data if cloud fails
       try {
@@ -417,12 +422,22 @@ export default function CreateHub() {
                       {draft.title?.trim() || `Draft - ${index + 1}`}
                     </span>
                     <button
-                      className="create-hub-draft-share-btn"
+                      className={`create-hub-draft-share-btn ${sharingId === draft.id ? 'loading' : ''}`}
                       onClick={(e) => handleShareDraft(e, draft)}
+                      disabled={sharingId === draft.id}
                       title="Bagikan frame"
                     >
-                      <Share2 size={14} />
-                      <span>Share</span>
+                      {sharingId === draft.id ? (
+                        <>
+                          <Loader2 size={14} className="spinning" />
+                          <span>Loading...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Share2 size={14} />
+                          <span>Share</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>

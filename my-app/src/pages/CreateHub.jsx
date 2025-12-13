@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Share2, Check, Copy, Cloud, CloudOff, Loader2 } from "lucide-react";
+import { Plus, Share2, Check, Copy, Cloud, CloudOff } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext.jsx";
 import { useToast } from "../contexts/ToastContext.jsx";
 import draftStorage from "../utils/draftStorage.js";
@@ -17,7 +17,6 @@ export default function CreateHub() {
   const [cloudDrafts, setCloudDrafts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
-  const [sharingId, setSharingId] = useState(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareLink, setShareLink] = useState("");
   const [shareDraftTitle, setShareDraftTitle] = useState("");
@@ -80,41 +79,62 @@ export default function CreateHub() {
     
     // Wait for user authentication before loading drafts
     if (!user?.email) {
+      console.log("⏳ [CreateHub] Waiting for user auth before loading drafts...");
       setLoading(false);
       return;
     }
+    
+    console.log("📂 [CreateHub] Loading drafts for user:", user.email);
 
     setLoading(true);
     try {
-      // Load from local storage FIRST (fast) - show immediately
+      // Load from local storage
       const localDrafts = await draftStorage.loadDrafts();
       if (isMountedRef.current) {
         setDrafts(Array.isArray(localDrafts) ? localDrafts : []);
-        setLoading(false); // Stop loading immediately after local drafts
+        console.log(`✅ [CreateHub] Loaded ${localDrafts?.length || 0} local drafts`);
+        
+        // 🔍 DEBUG: Log elements in each draft
+        localDrafts?.forEach((draft, index) => {
+          console.log(`📋 Draft ${index + 1}:`, draft.name);
+          console.log(`   - Total elements: ${draft.elements?.length || 0}`);
+          if (draft.elements && draft.elements.length > 0) {
+            const elementTypes = draft.elements.reduce((acc, el) => {
+              const type = el.type || 'unknown';
+              acc[type] = (acc[type] || 0) + 1;
+              return acc;
+            }, {});
+            console.log(`   - Element types:`, elementTypes);
+            console.log(`   - Sample elements:`, draft.elements.slice(0, 3).map(el => ({
+              type: el.type,
+              id: el.id,
+              x: el.x,
+              y: el.y,
+              width: el.width,
+              height: el.height
+            })));
+          }
+        });
       }
       
-      // Load cloud drafts in background (don't block UI)
+      // Also load from cloud if user is logged in
       if (user) {
-        // Use Promise.race with timeout to prevent hanging
-        const cloudPromise = draftService.getCloudDrafts();
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Cloud timeout')), 3000)
-        );
-        
-        Promise.race([cloudPromise, timeoutPromise])
-          .then(cloudData => {
-            if (isMountedRef.current) {
-              setCloudDrafts(Array.isArray(cloudData) ? cloudData : []);
-            }
-          })
-          .catch(() => {
-            // Silently ignore cloud errors - local drafts are enough
-          });
+        try {
+          const cloudData = await draftService.getCloudDrafts();
+          if (isMountedRef.current) {
+            setCloudDrafts(Array.isArray(cloudData) ? cloudData : []);
+          }
+        } catch (cloudError) {
+          console.log("☁️ Cloud drafts not available:", cloudError.message);
+        }
       }
     } catch (error) {
       console.error("⚠️ Failed to load drafts", error);
       if (isMountedRef.current) {
         setDrafts([]);
+      }
+    } finally {
+      if (isMountedRef.current) {
         setLoading(false);
       }
     }
@@ -155,30 +175,27 @@ export default function CreateHub() {
     navigate("/create/editor", { state: { draftId: draft.id } });
   };
 
-  // Share draft - optimized: skip upload if already shared
+  // Share draft - upload ke VPS PostgreSQL lalu generate link
   const handleShareDraft = async (e, draft) => {
     e.stopPropagation(); // Prevent card click
     if (!draft?.id) return;
     
-    // Set loading state
-    setSharingId(draft.id);
-    
     try {
-      // Check if draft already has a share_id (was shared before)
-      if (draft.share_id) {
-        // Fast path: use existing share_id
-        const baseUrl = window.location.origin;
-        const link = `${baseUrl}/take-moment?share=${draft.share_id}`;
-        
-        setShareLink(link);
-        setShareDraftTitle(draft.title || "Draft");
-        setShowShareModal(true);
-        setCopied(false);
-        setSharingId(null);
-        return;
-      }
+      showToast("info", "⏳ Menyiapkan link share...");
       
-      // Prepare frame data
+      // Step 1: Upload draft to VPS PostgreSQL
+      // CRITICAL: Include ALL data needed for EditPhoto to render properly
+      // This includes canvasWidth/Height for coordinate conversion and ALL elements
+      console.log("📤 [SHARE] Draft data being shared:", {
+        title: draft.title,
+        elementsCount: draft.elements?.length,
+        elementTypes: draft.elements?.map(el => el.type),
+        hasBackground: draft.elements?.some(el => el.type === 'background-photo'),
+        hasOverlay: draft.elements?.some(el => el.type === 'upload'),
+        canvasWidth: draft.canvasWidth,
+        canvasHeight: draft.canvasHeight,
+      });
+      
       const frameData = JSON.stringify({
         aspectRatio: draft.aspectRatio || "9:16",
         canvasBackground: draft.canvasBackground || "#f7f1ed",
@@ -187,43 +204,32 @@ export default function CreateHub() {
         elements: draft.elements || []
       });
       
-      // Upload to cloud and get share_id
       const result = await draftService.saveDraftToCloud({
         title: draft.title || "Shared Frame",
         frameData: frameData,
         previewUrl: draft.preview || null,
-        draftId: null
+        draftId: null // Always create new for sharing
       });
       
       if (!result?.draft?.share_id) {
         throw new Error("Gagal mendapatkan share ID");
       }
       
-      // Save share_id back to local draft for future fast access
-      const shareId = result.draft.share_id;
-      try {
-        await draftStorage.updateDraft(draft.id, { share_id: shareId });
-      } catch (e) {
-        console.warn("Could not cache share_id locally");
-      }
+      // Step 2: Make it public
+      await draftService.updateVisibility(result.draft.id, true);
       
-      // Make it public (fire and forget - don't wait)
-      draftService.updateVisibility(result.draft.id, true).catch(() => {});
-      
-      // Generate share link
+      // Step 3: Generate share link with share_id
       const baseUrl = window.location.origin;
-      const link = `${baseUrl}/take-moment?share=${shareId}`;
+      const link = `${baseUrl}/take-moment?share=${result.draft.share_id}`;
       
       setShareLink(link);
       setShareDraftTitle(draft.title || "Draft");
       setShowShareModal(true);
       setCopied(false);
-      setSharingId(null);
       
-      showToast("success", "✅ Link siap di-share!");
+      showToast("success", "✅ Link siap di-share ke teman!");
     } catch (error) {
       console.error("Error generating share link:", error);
-      setSharingId(null);
       
       // Fallback: use embedded data if cloud fails
       try {
@@ -238,88 +244,38 @@ export default function CreateHub() {
         }
       } catch (e) {}
       
-      showToast("error", "Gagal membuat link share.");
+      showToast("error", "Gagal membuat link share. Pastikan sudah login.");
     }
   };
 
-  // Copy link to clipboard - improved for mobile and various browsers
+  // Copy link to clipboard
   const handleCopyLink = async () => {
-    if (!shareLink) {
-      showToast("error", "Link tidak tersedia");
-      return;
-    }
-
-    let copySuccess = false;
-
     try {
-      // Method 1: Modern Clipboard API (preferred)
-      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      // Try modern clipboard API first
+      if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(shareLink);
-        copySuccess = true;
-        console.log("✅ Copied using Clipboard API");
-      }
-    } catch (err) {
-      console.warn("Clipboard API failed:", err);
-    }
-
-    // Method 2: Fallback using execCommand
-    if (!copySuccess) {
-      try {
+      } else {
+        // Fallback for HTTP or older browsers
         const textArea = document.createElement("textarea");
         textArea.value = shareLink;
-        // Make it invisible but still selectable
-        textArea.style.cssText = "position:fixed;top:0;left:0;width:2em;height:2em;padding:0;border:none;outline:none;box-shadow:none;background:transparent;opacity:0;";
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        textArea.style.top = "-999999px";
         document.body.appendChild(textArea);
-        
-        // iOS specific handling
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-        if (isIOS) {
-          const range = document.createRange();
-          range.selectNodeContents(textArea);
-          const selection = window.getSelection();
-          selection.removeAllRanges();
-          selection.addRange(range);
-          textArea.setSelectionRange(0, shareLink.length);
-        } else {
-          textArea.select();
-        }
-        
-        copySuccess = document.execCommand('copy');
-        document.body.removeChild(textArea);
-        console.log("✅ Copied using execCommand:", copySuccess);
-      } catch (err) {
-        console.warn("execCommand failed:", err);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        textArea.remove();
       }
-    }
-
-    // Method 3: Using input element in modal (iOS Safari fallback)
-    if (!copySuccess) {
-      try {
-        const inputElement = document.querySelector('.create-hub-share-input');
-        if (inputElement) {
-          inputElement.select();
-          inputElement.setSelectionRange(0, 99999);
-          copySuccess = document.execCommand('copy');
-          console.log("✅ Copied using input element:", copySuccess);
-        }
-      } catch (err) {
-        console.warn("Input element copy failed:", err);
-      }
-    }
-
-    if (copySuccess) {
       setCopied(true);
       showToast("success", "Link berhasil disalin!");
+      
+      // Reset copied state after 2 seconds
       setTimeout(() => setCopied(false), 2000);
-    } else {
-      // Final fallback - show toast with manual instruction
-      showToast("info", "Tekan lama pada link lalu pilih 'Salin'");
-      // Select the input so user can easily copy
-      const inputElement = document.querySelector('.create-hub-share-input');
-      if (inputElement) {
-        inputElement.select();
-        inputElement.setSelectionRange(0, 99999);
-      }
+    } catch (error) {
+      console.error("Failed to copy:", error);
+      // Final fallback - prompt user to copy manually
+      showToast("info", "Tekan lama pada link untuk menyalin");
     }
   };
 
@@ -422,22 +378,12 @@ export default function CreateHub() {
                       {draft.title?.trim() || `Draft - ${index + 1}`}
                     </span>
                     <button
-                      className={`create-hub-draft-share-btn ${sharingId === draft.id ? 'loading' : ''}`}
+                      className="create-hub-draft-share-btn"
                       onClick={(e) => handleShareDraft(e, draft)}
-                      disabled={sharingId === draft.id}
                       title="Bagikan frame"
                     >
-                      {sharingId === draft.id ? (
-                        <>
-                          <Loader2 size={14} className="spinning" />
-                          <span>Loading...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Share2 size={14} />
-                          <span>Share</span>
-                        </>
-                      )}
+                      <Share2 size={14} />
+                      <span>Share</span>
                     </button>
                   </div>
                 </div>

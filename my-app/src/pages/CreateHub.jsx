@@ -175,27 +175,28 @@ export default function CreateHub() {
     navigate("/create/editor", { state: { draftId: draft.id } });
   };
 
-  // Share draft - upload ke VPS PostgreSQL lalu generate link
+  // Share draft - optimized: skip upload if already shared
   const handleShareDraft = async (e, draft) => {
     e.stopPropagation(); // Prevent card click
     if (!draft?.id) return;
     
     try {
+      // Check if draft already has a share_id (was shared before)
+      if (draft.share_id) {
+        // Fast path: use existing share_id
+        const baseUrl = window.location.origin;
+        const link = `${baseUrl}/take-moment?share=${draft.share_id}`;
+        
+        setShareLink(link);
+        setShareDraftTitle(draft.title || "Draft");
+        setShowShareModal(true);
+        setCopied(false);
+        return;
+      }
+      
       showToast("info", "⏳ Menyiapkan link share...");
       
-      // Step 1: Upload draft to VPS PostgreSQL
-      // CRITICAL: Include ALL data needed for EditPhoto to render properly
-      // This includes canvasWidth/Height for coordinate conversion and ALL elements
-      console.log("📤 [SHARE] Draft data being shared:", {
-        title: draft.title,
-        elementsCount: draft.elements?.length,
-        elementTypes: draft.elements?.map(el => el.type),
-        hasBackground: draft.elements?.some(el => el.type === 'background-photo'),
-        hasOverlay: draft.elements?.some(el => el.type === 'upload'),
-        canvasWidth: draft.canvasWidth,
-        canvasHeight: draft.canvasHeight,
-      });
-      
+      // Prepare frame data
       const frameData = JSON.stringify({
         aspectRatio: draft.aspectRatio || "9:16",
         canvasBackground: draft.canvasBackground || "#f7f1ed",
@@ -204,30 +205,39 @@ export default function CreateHub() {
         elements: draft.elements || []
       });
       
+      // Upload to cloud and get share_id
       const result = await draftService.saveDraftToCloud({
         title: draft.title || "Shared Frame",
         frameData: frameData,
         previewUrl: draft.preview || null,
-        draftId: null // Always create new for sharing
+        draftId: null
       });
       
       if (!result?.draft?.share_id) {
         throw new Error("Gagal mendapatkan share ID");
       }
       
-      // Step 2: Make it public
-      await draftService.updateVisibility(result.draft.id, true);
+      // Save share_id back to local draft for future fast access
+      const shareId = result.draft.share_id;
+      try {
+        await draftStorage.updateDraft(draft.id, { share_id: shareId });
+      } catch (e) {
+        console.warn("Could not cache share_id locally");
+      }
       
-      // Step 3: Generate share link with share_id
+      // Make it public (fire and forget - don't wait)
+      draftService.updateVisibility(result.draft.id, true).catch(() => {});
+      
+      // Generate share link
       const baseUrl = window.location.origin;
-      const link = `${baseUrl}/take-moment?share=${result.draft.share_id}`;
+      const link = `${baseUrl}/take-moment?share=${shareId}`;
       
       setShareLink(link);
       setShareDraftTitle(draft.title || "Draft");
       setShowShareModal(true);
       setCopied(false);
       
-      showToast("success", "✅ Link siap di-share ke teman!");
+      showToast("success", "✅ Link siap di-share!");
     } catch (error) {
       console.error("Error generating share link:", error);
       
@@ -244,7 +254,7 @@ export default function CreateHub() {
         }
       } catch (e) {}
       
-      showToast("error", "Gagal membuat link share. Pastikan sudah login.");
+      showToast("error", "Gagal membuat link share.");
     }
   };
 

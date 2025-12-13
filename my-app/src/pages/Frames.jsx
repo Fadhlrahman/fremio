@@ -338,16 +338,10 @@ export default function Frames() {
     console.log("🎬 User clicked frame:", frame.name);
     console.log("📦 Frame data:", frame);
 
-    // Check if user needs to login
-    if (!currentUser) {
-      alert("Silakan login terlebih dahulu untuk menggunakan frame");
-      navigate("/login");
-      return;
-    }
-
-    // Check if user has access to this frame
-    if (!hasAccess || !accessibleFrameIds.includes(frame.id)) {
-      // Show upgrade/payment prompt
+    // Check if user has access to this frame (for premium frames)
+    // Guest users can access free frames without login
+    if (currentUser && !hasAccess && !accessibleFrameIds.includes(frame.id)) {
+      // Show upgrade/payment prompt for logged-in users without access
       const shouldUpgrade = confirm(
         "Frame ini memerlukan akses premium.\n\n" +
           "Dapatkan akses ke 30 frames premium hanya Rp 10.000 selama 30 hari!\n\n" +

@@ -79,62 +79,41 @@ export default function CreateHub() {
     
     // Wait for user authentication before loading drafts
     if (!user?.email) {
-      console.log("⏳ [CreateHub] Waiting for user auth before loading drafts...");
       setLoading(false);
       return;
     }
-    
-    console.log("📂 [CreateHub] Loading drafts for user:", user.email);
 
     setLoading(true);
     try {
-      // Load from local storage
+      // Load from local storage FIRST (fast) - show immediately
       const localDrafts = await draftStorage.loadDrafts();
       if (isMountedRef.current) {
         setDrafts(Array.isArray(localDrafts) ? localDrafts : []);
-        console.log(`✅ [CreateHub] Loaded ${localDrafts?.length || 0} local drafts`);
-        
-        // 🔍 DEBUG: Log elements in each draft
-        localDrafts?.forEach((draft, index) => {
-          console.log(`📋 Draft ${index + 1}:`, draft.name);
-          console.log(`   - Total elements: ${draft.elements?.length || 0}`);
-          if (draft.elements && draft.elements.length > 0) {
-            const elementTypes = draft.elements.reduce((acc, el) => {
-              const type = el.type || 'unknown';
-              acc[type] = (acc[type] || 0) + 1;
-              return acc;
-            }, {});
-            console.log(`   - Element types:`, elementTypes);
-            console.log(`   - Sample elements:`, draft.elements.slice(0, 3).map(el => ({
-              type: el.type,
-              id: el.id,
-              x: el.x,
-              y: el.y,
-              width: el.width,
-              height: el.height
-            })));
-          }
-        });
+        setLoading(false); // Stop loading immediately after local drafts
       }
       
-      // Also load from cloud if user is logged in
+      // Load cloud drafts in background (don't block UI)
       if (user) {
-        try {
-          const cloudData = await draftService.getCloudDrafts();
-          if (isMountedRef.current) {
-            setCloudDrafts(Array.isArray(cloudData) ? cloudData : []);
-          }
-        } catch (cloudError) {
-          console.log("☁️ Cloud drafts not available:", cloudError.message);
-        }
+        // Use Promise.race with timeout to prevent hanging
+        const cloudPromise = draftService.getCloudDrafts();
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Cloud timeout')), 3000)
+        );
+        
+        Promise.race([cloudPromise, timeoutPromise])
+          .then(cloudData => {
+            if (isMountedRef.current) {
+              setCloudDrafts(Array.isArray(cloudData) ? cloudData : []);
+            }
+          })
+          .catch(() => {
+            // Silently ignore cloud errors - local drafts are enough
+          });
       }
     } catch (error) {
       console.error("⚠️ Failed to load drafts", error);
       if (isMountedRef.current) {
         setDrafts([]);
-      }
-    } finally {
-      if (isMountedRef.current) {
         setLoading(false);
       }
     }

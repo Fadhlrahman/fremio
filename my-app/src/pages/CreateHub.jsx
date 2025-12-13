@@ -248,34 +248,84 @@ export default function CreateHub() {
     }
   };
 
-  // Copy link to clipboard
+  // Copy link to clipboard - improved for mobile and various browsers
   const handleCopyLink = async () => {
+    if (!shareLink) {
+      showToast("error", "Link tidak tersedia");
+      return;
+    }
+
+    let copySuccess = false;
+
     try {
-      // Try modern clipboard API first
-      if (navigator.clipboard && window.isSecureContext) {
+      // Method 1: Modern Clipboard API (preferred)
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
         await navigator.clipboard.writeText(shareLink);
-      } else {
-        // Fallback for HTTP or older browsers
+        copySuccess = true;
+        console.log("✅ Copied using Clipboard API");
+      }
+    } catch (err) {
+      console.warn("Clipboard API failed:", err);
+    }
+
+    // Method 2: Fallback using execCommand
+    if (!copySuccess) {
+      try {
         const textArea = document.createElement("textarea");
         textArea.value = shareLink;
-        textArea.style.position = "fixed";
-        textArea.style.left = "-999999px";
-        textArea.style.top = "-999999px";
+        // Make it invisible but still selectable
+        textArea.style.cssText = "position:fixed;top:0;left:0;width:2em;height:2em;padding:0;border:none;outline:none;box-shadow:none;background:transparent;opacity:0;";
         document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        document.execCommand('copy');
-        textArea.remove();
+        
+        // iOS specific handling
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        if (isIOS) {
+          const range = document.createRange();
+          range.selectNodeContents(textArea);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          textArea.setSelectionRange(0, shareLink.length);
+        } else {
+          textArea.select();
+        }
+        
+        copySuccess = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        console.log("✅ Copied using execCommand:", copySuccess);
+      } catch (err) {
+        console.warn("execCommand failed:", err);
       }
+    }
+
+    // Method 3: Using input element in modal (iOS Safari fallback)
+    if (!copySuccess) {
+      try {
+        const inputElement = document.querySelector('.create-hub-share-input');
+        if (inputElement) {
+          inputElement.select();
+          inputElement.setSelectionRange(0, 99999);
+          copySuccess = document.execCommand('copy');
+          console.log("✅ Copied using input element:", copySuccess);
+        }
+      } catch (err) {
+        console.warn("Input element copy failed:", err);
+      }
+    }
+
+    if (copySuccess) {
       setCopied(true);
       showToast("success", "Link berhasil disalin!");
-      
-      // Reset copied state after 2 seconds
       setTimeout(() => setCopied(false), 2000);
-    } catch (error) {
-      console.error("Failed to copy:", error);
-      // Final fallback - prompt user to copy manually
-      showToast("info", "Tekan lama pada link untuk menyalin");
+    } else {
+      // Final fallback - show toast with manual instruction
+      showToast("info", "Tekan lama pada link lalu pilih 'Salin'");
+      // Select the input so user can easily copy
+      const inputElement = document.querySelector('.create-hub-share-input');
+      if (inputElement) {
+        inputElement.select();
+        inputElement.setSelectionRange(0, 99999);
+      }
     }
   };
 

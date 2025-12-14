@@ -1,1 +1,0 @@
-import{G as e,K as t,W as n,q as r}from"./index-mj5au64a-BY0JEbfF.js";export{n as activateDraftFrame,e as buildFrameConfigFromDraft,t as computeDraftSignature,r as default};

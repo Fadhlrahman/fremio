@@ -782,6 +782,7 @@ export default function Create() {
           label: backgroundPhotoElement ? "Foto" : "Tambah Foto",
           icon: ImageIcon,
         },
+        { id: "canvas-size", label: "Ukuran", icon: Maximize2 },
       ];
     }
 
@@ -2468,12 +2469,8 @@ export default function Create() {
         onClick: () => {
           setShowCanvasSizeInProperties(false);
           selectElement("background");
-          // Desktop: hanya select background, tidak auto-upload
-          // Upload dilakukan dari properties panel
-          // Mobile: tetap auto-upload untuk UX lebih baik
-          if (!backgroundPhotoElement && isMobileView) {
-            triggerBackgroundUpload();
-          }
+          // Both desktop and mobile: just select background
+          // Upload is done from properties panel via "Tambah Foto" button
         },
         isActive:
           selectedElementId === "background" ||
@@ -2931,6 +2928,31 @@ export default function Create() {
                 </button>
               </>
             )}
+          </div>
+        );
+      } else if (activeMobileProperty === "canvas-size") {
+        const aspectRatioOptions = [
+          { value: "9:16", label: "9:16 (Story)" },
+          { value: "3:4", label: "3:4 (Portrait)" },
+          { value: "1:1", label: "1:1 (Square)" },
+          { value: "4:3", label: "4:3 (Landscape)" },
+          { value: "16:9", label: "16:9 (Wide)" },
+        ];
+        content = (
+          <div className="create-mobile-property-panel__select">
+            <select
+              value={canvasAspectRatio}
+              onChange={(event) => {
+                setCanvasAspectRatio(event.target.value);
+                setActiveMobileProperty(null);
+              }}
+            >
+              {aspectRatioOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </div>
         );
       }

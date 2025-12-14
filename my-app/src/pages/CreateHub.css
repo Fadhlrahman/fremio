@@ -196,16 +196,21 @@
   align-items: center;
   justify-content: center;
   gap: 0.35rem;
-  padding: 0.35rem 0.6rem;
+  padding: 0.5rem 0.75rem;
   background: linear-gradient(135deg, rgba(240, 220, 212, 0.95), rgba(224, 183, 169, 0.85));
   border: 1px solid #d4a99a;
   border-radius: 6px;
   color: #2c1f1d;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
   width: 100%;
+  min-height: 44px; /* Touch-friendly height for mobile */
+  position: relative;
+  z-index: 10;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 @media (min-width: 640px) {
@@ -213,10 +218,12 @@
     padding: 0.4rem 0.75rem;
     font-size: 0.75rem;
     border-radius: 8px;
+    min-height: auto;
   }
 }
 
-.create-hub-draft-share-btn:hover {
+.create-hub-draft-share-btn:hover,
+.create-hub-draft-share-btn:active {
   background: linear-gradient(135deg, rgba(224, 183, 169, 0.95), rgba(212, 169, 154, 0.9));
   transform: translateY(-1px);
 }

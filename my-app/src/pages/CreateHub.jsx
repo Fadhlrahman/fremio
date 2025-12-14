@@ -384,7 +384,16 @@ export default function CreateHub() {
                     </span>
                     <button
                       className="create-hub-draft-share-btn"
-                      onClick={(e) => handleShareDraft(e, draft)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        handleShareDraft(e, draft);
+                      }}
+                      onTouchEnd={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        handleShareDraft(e, draft);
+                      }}
                       title="Bagikan frame"
                     >
                       <Share2 size={14} />

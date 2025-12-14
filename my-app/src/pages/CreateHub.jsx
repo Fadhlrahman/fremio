@@ -21,6 +21,7 @@ export default function CreateHub() {
   const [shareLink, setShareLink] = useState("");
   const [shareDraftTitle, setShareDraftTitle] = useState("");
   const [copied, setCopied] = useState(false);
+  const [isGeneratingLink, setIsGeneratingLink] = useState(false);
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -180,8 +181,9 @@ export default function CreateHub() {
     e.stopPropagation(); // Prevent card click
     if (!draft?.id) return;
     
+    setIsGeneratingLink(true);
+    
     try {
-      showToast("info", "⏳ Menyiapkan link share...");
       
       // Step 1: Upload draft to VPS PostgreSQL
       // CRITICAL: Include ALL data needed for EditPhoto to render properly
@@ -226,6 +228,7 @@ export default function CreateHub() {
       setShareDraftTitle(draft.title || "Draft");
       setShowShareModal(true);
       setCopied(false);
+      setIsGeneratingLink(false);
       
       showToast("success", "✅ Link siap di-share ke teman!");
     } catch (error) {
@@ -239,11 +242,13 @@ export default function CreateHub() {
           setShareDraftTitle(draft.title || "Draft");
           setShowShareModal(true);
           setCopied(false);
+          setIsGeneratingLink(false);
           showToast("warning", "⚠️ Link dibuat dengan mode offline");
           return;
         }
       } catch (e) {}
       
+      setIsGeneratingLink(false);
       showToast("error", "Gagal membuat link share. Pastikan sudah login.");
     }
   };
@@ -392,6 +397,16 @@ export default function CreateHub() {
           )}
         </div>
       </div>
+
+      {/* Fullscreen Loading Overlay for Share */}
+      {isGeneratingLink && (
+        <div className="create-hub-fullscreen-loading">
+          <div className="create-hub-fullscreen-loading-content">
+            <div className="create-hub-fullscreen-spinner"></div>
+            <p>Menyiapkan link share...</p>
+          </div>
+        </div>
+      )}
 
       {/* Share Modal */}
       {showShareModal && (

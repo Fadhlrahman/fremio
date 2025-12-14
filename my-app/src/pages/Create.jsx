@@ -886,6 +886,12 @@ export default function Create() {
       return defaultDimensions;
     }
 
+    // Special case for Photostrip (exact 1200x1800)
+    if (ratio === "1200:1800" || ratio === "photostrip") {
+      console.log("  ✅ Photostrip mode: 1200x1800");
+      return { width: 1200, height: 1800 };
+    }
+
     const [rawWidth, rawHeight] = ratio.split(":").map(Number);
     const ratioWidth =
       Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : null;
@@ -2934,7 +2940,7 @@ export default function Create() {
         const aspectRatioOptions = [
           { value: "9:16", label: "Story Instagram" },
           { value: "1:1", label: "Instagram Feeds" },
-          { value: "2:6", label: "Photostrip (ukuran cetak)" },
+          { value: "1200:1800", label: "Photostrip (ukuran cetak)" },
         ];
         content = (
           <div className="create-mobile-property-panel__select">

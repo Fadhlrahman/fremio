@@ -2932,11 +2932,9 @@ export default function Create() {
         );
       } else if (activeMobileProperty === "canvas-size") {
         const aspectRatioOptions = [
-          { value: "9:16", label: "9:16 (Story)" },
-          { value: "3:4", label: "3:4 (Portrait)" },
-          { value: "1:1", label: "1:1 (Square)" },
-          { value: "4:3", label: "4:3 (Landscape)" },
-          { value: "16:9", label: "16:9 (Wide)" },
+          { value: "9:16", label: "Story Instagram" },
+          { value: "1:1", label: "Instagram Feeds" },
+          { value: "2:6", label: "Photostrip (ukuran cetak)" },
         ];
         content = (
           <div className="create-mobile-property-panel__select">

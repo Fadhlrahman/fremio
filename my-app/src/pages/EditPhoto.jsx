@@ -74,6 +74,10 @@ export default function EditPhoto() {
   });
   const [activeFilter, setActiveFilter] = useState(null);
   const photosFilled = React.useRef(false);
+  const previewSectionRef = React.useRef(null);
+
+  // Detect mobile
+  const isMobileDevice = typeof window !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
   // Handler for swapping photos between two slots
   const swapPhotos = useCallback((sourceId, targetId) => {
@@ -972,6 +976,35 @@ export default function EditPhoto() {
 
   // Also prevent gestures on the whole preview area when a photo is selected
   const previewContainerRef = useRef(null);
+  const hasScrolledRef = useRef(false);
+
+  // Auto-scroll to show frame from top on mobile when page loads
+  useEffect(() => {
+    if (!isMobileDevice || hasScrolledRef.current || loading) return;
+    
+    // Disable browser's scroll restoration
+    if ('scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual';
+    }
+
+    const scrollToFrame = () => {
+      // Scroll to fixed position: just past Preview title to show full frame
+      window.scrollTo(0, 85);
+      document.documentElement.scrollTop = 85;
+      document.body.scrollTop = 85;
+      hasScrolledRef.current = true;
+    };
+
+    // Use requestAnimationFrame for better timing
+    requestAnimationFrame(() => {
+      scrollToFrame();
+      // Multiple attempts for Safari
+      setTimeout(scrollToFrame, 50);
+      setTimeout(scrollToFrame, 100);
+      setTimeout(scrollToFrame, 200);
+      setTimeout(scrollToFrame, 400);
+    });
+  }, [isMobileDevice, loading]);
   
   useEffect(() => {
     const container = previewContainerRef.current;
@@ -3033,12 +3066,13 @@ export default function EditPhoto() {
 
       {/* Preview Title */}
       <h1
+        ref={previewSectionRef}
         style={{
-          fontSize: "1.2rem",
+          fontSize: "1rem",
           fontWeight: "700",
           color: "#000000",
-          marginBottom: "0.75rem",
-          marginTop: "0.5rem",
+          marginBottom: "0.4rem",
+          marginTop: "0.25rem",
           fontFamily: "Poppins, sans-serif",
         }}
       >
@@ -3563,23 +3597,23 @@ export default function EditPhoto() {
                 key={preset.name}
                 onClick={() => applyFilterPreset(preset)}
                 style={{
-                  padding: "0.5rem 0.75rem",
+                  padding: "0.35rem 0.5rem",
                   background:
                     activeFilter === preset.name ? "#4F46E5" : "white",
                   color: activeFilter === preset.name ? "white" : "#333",
                   border: `2px solid ${
                     activeFilter === preset.name ? "#4F46E5" : "#E5E7EB"
                   }`,
-                  borderRadius: "10px",
-                  fontSize: "0.75rem",
+                  borderRadius: "8px",
+                  fontSize: "0.7rem",
                   fontWeight: "500",
                   cursor: "pointer",
                   transition: "all 0.2s ease",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
-                  gap: "0.2rem",
-                  minWidth: "75px",
+                  gap: "0.15rem",
+                  minWidth: "65px",
                   flexShrink: 0,
                   whiteSpace: "nowrap",
                   scrollSnapAlign: "start",
@@ -3598,8 +3632,8 @@ export default function EditPhoto() {
                   }
                 }}
               >
-                <span style={{ fontSize: "1.3rem" }}>{preset.icon}</span>
-                <span style={{ fontSize: "0.7rem" }}>{preset.name}</span>
+                <span style={{ fontSize: "1.1rem" }}>{preset.icon}</span>
+                <span style={{ fontSize: "0.65rem" }}>{preset.name}</span>
               </button>
             ))}
           </div>
@@ -3608,21 +3642,22 @@ export default function EditPhoto() {
           <div
             style={{
               display: "flex",
-              gap: "0.75rem",
+              flexDirection: "row-reverse",
+              gap: "0.5rem",
               width: "100%",
               maxWidth: "400px",
-              marginTop: "1rem",
+              marginTop: "0.25rem",
               justifyContent: "center",
             }}
           >
             <button
               style={{
-                padding: "0.75rem 1.5rem",
+                padding: "0.6rem 1.2rem",
                 background: "#E8A889",
                 color: "white",
                 border: "none",
-                borderRadius: "12px",
-                fontSize: "1rem",
+                borderRadius: "10px",
+                fontSize: "0.9rem",
                 cursor: "pointer",
                 fontWeight: "600",
                 boxShadow: "0 2px 8px rgba(232, 168, 137, 0.3)",
@@ -5982,12 +6017,12 @@ export default function EditPhoto() {
                 return isDisabled;
               })()}
               style={{
-                padding: "0.75rem 1.5rem",
+                padding: "0.6rem 1.2rem",
                 background: !hasValidVideo || isSaving ? "#D1D5DB" : "#C4A484",
                 color: "white",
                 border: "none",
-                borderRadius: "12px",
-                fontSize: "1rem",
+                borderRadius: "10px",
+                fontSize: "0.9rem",
                 cursor: !hasValidVideo || isSaving ? "not-allowed" : "pointer",
                 fontWeight: "600",
                 opacity: !hasValidVideo || isSaving ? 0.7 : 1,

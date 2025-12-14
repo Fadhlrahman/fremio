@@ -537,11 +537,24 @@ export default function TakeMoment() {
   const [backgroundColor, setBackgroundColor] = useState("#10B981");
   const [backgroundImage, setBackgroundImage] = useState(null);
   const [showBackgroundPanel, setShowBackgroundPanel] = useState(false);
+  const [showMobileSettings, setShowMobileSettings] = useState(false);
 
   const capturedPhotosRef = useRef(capturedPhotos);
   const capturedVideosRef = useRef(capturedVideos);
   const previousCaptureCountRef = useRef(0);
   const previousCameraActiveRef = useRef(null);
+  const mobileContentRef = useRef(null);
+
+  // Auto-scroll to content area on mobile when page loads
+  useEffect(() => {
+    if (isMobile && mobileContentRef.current) {
+      // Small delay to ensure DOM is ready
+      const timer = setTimeout(() => {
+        mobileContentRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isMobile]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -4945,26 +4958,236 @@ export default function TakeMoment() {
       : "Camera";
     const shouldShowTimer = cameraActive;
 
-    const containerStyle = isMobileVariant
-      ? {
-          display: "grid",
-          gridTemplateColumns: "auto auto auto",
+    // Mobile: Clean minimal controls
+    if (isMobileVariant) {
+      return (
+        <div style={{
+          display: "flex",
           justifyContent: "center",
-          justifyItems: "center",
           alignItems: "center",
-          columnGap: "1.05rem",
-          rowGap: "0.3rem",
-          marginBottom: "0.85rem",
+          gap: "0.5rem",
+          marginBottom: "0.5rem",
           width: "100%",
-        }
-      : {
-          display: "grid",
-          gridTemplateColumns: "1fr auto 1fr",
-          alignItems: "center",
-          columnGap: "0.75rem",
-          marginBottom: "1rem",
-          width: "100%",
-        };
+        }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={handleFileSelect}
+            style={{
+              position: "absolute",
+              left: "-9999px",
+              opacity: 0,
+              pointerEvents: "none",
+            }}
+          />
+          
+          {/* Photo Counter - Left side, clickable to toggle duplicate mode */}
+          {maxCaptures > 1 && maxCaptures % 2 === 0 && capturedPhotos.length === 0 ? (
+            <button
+              onClick={() => setIsDuplicateMode(!isDuplicateMode)}
+              disabled={capturing}
+              style={{
+                padding: "0.45rem 0.7rem",
+                background: isDuplicateMode ? "rgba(139,92,246,0.15)" : "rgba(232,168,137,0.15)",
+                color: isDuplicateMode ? "#8B5CF6" : "#5D4E47",
+                borderRadius: "999px",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                gap: "0.3rem",
+                border: isDuplicateMode ? "1px solid rgba(139,92,246,0.4)" : "1px solid rgba(232,168,137,0.3)",
+                cursor: capturing ? "not-allowed" : "pointer",
+                transition: "all 0.2s ease",
+              }}
+            >
+              {isDuplicateMode ? "🔁" : "📸"} {capturedPhotos.length}/{photosNeeded}
+              {isDuplicateMode && <span style={{ fontSize: "0.7rem", opacity: 0.8 }}>ON</span>}
+            </button>
+          ) : (
+            <div
+              style={{
+                padding: "0.45rem 0.7rem",
+                background: hasReachedMaxPhotos ? "rgba(239,68,68,0.1)" : "rgba(232,168,137,0.15)",
+                color: hasReachedMaxPhotos ? "#ef4444" : "#5D4E47",
+                borderRadius: "999px",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                gap: "0.3rem",
+                border: hasReachedMaxPhotos ? "1px solid rgba(239,68,68,0.3)" : "1px solid rgba(232,168,137,0.3)",
+              }}
+            >
+              📸 {capturedPhotos.length}/{photosNeeded}
+              {isDuplicateMode && <span style={{ color: "#8B5CF6" }}>🔁</span>}
+            </div>
+          )}
+          
+          {/* Upload Galeri */}
+          <button
+            onClick={() => {
+              if (capturedPhotos.length >= photosNeeded) return;
+              fileInputRef.current?.click();
+            }}
+            disabled={capturedPhotos.length >= photosNeeded}
+            style={{
+              padding: "0.45rem 0.7rem",
+              background: capturedPhotos.length >= photosNeeded ? "#f1f5f9" : "#fff",
+              color: capturedPhotos.length >= photosNeeded ? "#94a3b8" : "#5D4E47",
+              border: "1px solid rgba(232,168,137,0.3)",
+              borderRadius: "999px",
+              fontSize: "0.8rem",
+              fontWeight: 500,
+              cursor: capturedPhotos.length >= photosNeeded ? "not-allowed" : "pointer",
+              boxShadow: "0 4px 12px rgba(139,92,77,0.08)",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.25rem",
+            }}
+          >
+            🖼️ Galeri
+          </button>
+
+          {/* Kamera Toggle */}
+          <button
+            onClick={handleCameraToggle}
+            style={{
+              padding: "0.45rem 0.7rem",
+              background: cameraActive ? "#E8A889" : "#fff",
+              color: cameraActive ? "#fff" : "#5D4E47",
+              border: cameraActive ? "1px solid #E8A889" : "1px solid rgba(232,168,137,0.3)",
+              borderRadius: "999px",
+              fontSize: "0.8rem",
+              fontWeight: 500,
+              cursor: "pointer",
+              boxShadow: cameraActive
+                ? "0 8px 20px rgba(232,168,137,0.3)"
+                : "0 4px 12px rgba(139,92,77,0.08)",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.25rem",
+            }}
+          >
+            📷 {cameraActive ? "Stop" : "Kamera"}
+          </button>
+
+          {/* Settings Menu - only show when camera is active */}
+          {cameraActive && (
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => setShowMobileSettings(!showMobileSettings)}
+                style={{
+                  padding: "0.45rem",
+                  background: showMobileSettings ? "#E8A889" : "#fff",
+                  color: showMobileSettings ? "#fff" : "#5D4E47",
+                  border: "1px solid rgba(232,168,137,0.3)",
+                  borderRadius: "50%",
+                  fontSize: "0.9rem",
+                  cursor: "pointer",
+                  boxShadow: "0 4px 12px rgba(139,92,77,0.08)",
+                  width: "34px",
+                  height: "34px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                ⚙️
+              </button>
+              
+              {/* Settings Dropdown */}
+              {showMobileSettings && (
+                <div style={{
+                  position: "absolute",
+                  top: "calc(100% + 8px)",
+                  right: 0,
+                  background: "rgba(255,255,255,0.98)",
+                  borderRadius: "16px",
+                  padding: "12px",
+                  boxShadow: "0 12px 32px rgba(139,92,77,0.2)",
+                  border: "1px solid rgba(232,168,137,0.3)",
+                  zIndex: 200,
+                  minWidth: "160px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "10px",
+                }}>
+                  {/* Timer */}
+                  <div style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "8px",
+                  }}>
+                    <span style={{ fontSize: "0.85rem", fontWeight: 500, color: "#5D4E47" }}>
+                      ⏱️ Timer
+                    </span>
+                    <select
+                      value={timer}
+                      onChange={(e) => setTimer(Number(e.target.value))}
+                      disabled={capturing}
+                      style={{
+                        padding: "0.4rem 0.6rem",
+                        borderRadius: "999px",
+                        border: "1px solid rgba(232,168,137,0.3)",
+                        background: "#fff",
+                        color: "#5D4E47",
+                        fontSize: "0.85rem",
+                        cursor: capturing ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {TIMER_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}s
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Live Mode */}
+                  <label style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "8px",
+                    cursor: capturing ? "not-allowed" : "pointer",
+                  }}>
+                    <span style={{ fontSize: "0.85rem", fontWeight: 500, color: "#5D4E47" }}>
+                      🎥 Live Mode
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={liveModeEnabled}
+                      onChange={(e) => setLiveModeEnabled(e.target.checked)}
+                      disabled={capturing}
+                      style={{
+                        width: "18px",
+                        height: "18px",
+                        accentColor: "#E8A889",
+                        cursor: capturing ? "not-allowed" : "pointer",
+                      }}
+                    />
+                  </label>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Desktop layout unchanged
+    const containerStyle = {
+      display: "grid",
+      gridTemplateColumns: "1fr auto 1fr",
+      alignItems: "center",
+      columnGap: "0.75rem",
+      marginBottom: "1rem",
+      width: "100%",
+    };
 
     return (
       <div style={containerStyle}>
@@ -5146,9 +5369,11 @@ export default function TakeMoment() {
                   flexDirection: "column",
                   gap: "4px",
                   marginLeft: "0.5rem",
-                  background: "rgba(15,23,42,0.9)",
+                  background: "rgba(247,241,237,0.95)",
                   padding: "6px 10px",
                   borderRadius: "12px",
+                  boxShadow: "0 4px 12px rgba(139,92,77,0.1)",
+                  border: "1px solid rgba(232,168,137,0.3)",
                 }}
               >
                 <button
@@ -5161,13 +5386,13 @@ export default function TakeMoment() {
                     padding: "4px 10px",
                     borderRadius: "8px",
                     border: "none",
-                    background: filterMode === "original" ? "#8B5CF6" : "transparent",
-                    color: "#fff",
+                    background: filterMode === "original" ? "#E8A889" : "transparent",
+                    color: filterMode === "original" ? "#fff" : "#5D4E47",
                     fontSize: "11px",
                     fontWeight: 600,
                     cursor: capturing ? "not-allowed" : "pointer",
                     opacity: capturing ? 0.5 : 1,
-                    transition: "background 0.2s ease",
+                    transition: "all 0.2s ease",
                     whiteSpace: "nowrap",
                   }}
                 >
@@ -5183,13 +5408,13 @@ export default function TakeMoment() {
                     padding: "4px 10px",
                     borderRadius: "8px",
                     border: "none",
-                    background: filterMode === "blur" ? "#8B5CF6" : "transparent",
-                    color: "#fff",
+                    background: filterMode === "blur" ? "#E8A889" : "transparent",
+                    color: filterMode === "blur" ? "#fff" : "#5D4E47",
                     fontSize: "11px",
                     fontWeight: 600,
                     cursor: capturing || isLoadingBlur ? "not-allowed" : "pointer",
                     opacity: capturing || isLoadingBlur ? 0.5 : 1,
-                    transition: "background 0.2s ease",
+                    transition: "all 0.2s ease",
                     display: "flex",
                     alignItems: "center",
                     gap: "4px",
@@ -5436,6 +5661,73 @@ export default function TakeMoment() {
                   </span>
                 </button>
               )}
+
+              {/* Normal/Background Toggle - Mobile Only, inside stream */}
+              {isMobileVariant && cameraActive && !isSwitchingCamera && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "12px",
+                    left: "12px",
+                    display: "flex",
+                    gap: "6px",
+                    background: "rgba(0,0,0,0.5)",
+                    backdropFilter: "blur(8px)",
+                    WebkitBackdropFilter: "blur(8px)",
+                    padding: "6px 8px",
+                    borderRadius: "20px",
+                    zIndex: 100,
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+                  }}
+                >
+                  <button
+                    onClick={() => {
+                      setFilterMode("original");
+                      setShowBackgroundPanel(false);
+                    }}
+                    disabled={capturing}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: "14px",
+                      border: "none",
+                      background: filterMode === "original" ? "#E8A889" : "transparent",
+                      color: "#fff",
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      cursor: capturing ? "not-allowed" : "pointer",
+                      opacity: capturing ? 0.5 : 1,
+                      transition: "all 0.2s ease",
+                    }}
+                  >
+                    📷
+                  </button>
+                  <button
+                    onClick={() => {
+                      setFilterMode("blur");
+                      setShowBackgroundPanel(true);
+                    }}
+                    disabled={capturing || isLoadingBlur}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: "14px",
+                      border: "none",
+                      background: filterMode === "blur" ? "#E8A889" : "transparent",
+                      color: "#fff",
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      cursor: capturing || isLoadingBlur ? "not-allowed" : "pointer",
+                      opacity: capturing || isLoadingBlur ? 0.5 : 1,
+                      transition: "all 0.2s ease",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
+                  >
+                    🎨
+                    {isLoadingBlur && <span style={{ fontSize: "9px" }}>⏳</span>}
+                  </button>
+                </div>
+              )}
             </>
           ) : (
             <div
@@ -5476,68 +5768,7 @@ export default function TakeMoment() {
           )}
         </div>
 
-        {/* Normal/Background Toggle - Only show on mobile (desktop has it in header) */}
-        {cameraActive && !isSwitchingCamera && isMobileVariant && (
-          <div
-            style={{
-              display: "flex",
-              gap: "10px",
-              background: "rgba(15,23,42,0.9)",
-              padding: "8px 12px",
-              borderRadius: "999px",
-              boxShadow: "0 12px 32px rgba(15,23,42,0.25)",
-            }}
-          >
-            <button
-              onClick={() => {
-                setFilterMode("original");
-                setShowBackgroundPanel(false);
-              }}
-              disabled={capturing}
-              style={{
-                padding: "8px 14px",
-                borderRadius: "18px",
-                border: "none",
-                background:
-                  filterMode === "original" ? "#8B5CF6" : "transparent",
-                color: "#fff",
-                fontSize: "14px",
-                fontWeight: 600,
-                cursor: capturing ? "not-allowed" : "pointer",
-                opacity: capturing ? 0.5 : 1,
-                transition: "background 0.2s ease",
-              }}
-            >
-              📷 Normal
-            </button>
-            <button
-              onClick={() => {
-                setFilterMode("blur");
-                setShowBackgroundPanel(true);
-              }}
-              disabled={capturing || isLoadingBlur}
-              style={{
-                padding: "8px 14px",
-                borderRadius: "18px",
-                border: "none",
-                background: filterMode === "blur" ? "#8B5CF6" : "transparent",
-                color: "#fff",
-                fontSize: "14px",
-                fontWeight: 600,
-                cursor: capturing || isLoadingBlur ? "not-allowed" : "pointer",
-                opacity: capturing || isLoadingBlur ? 0.5 : 1,
-                transition: "background 0.2s ease",
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-              }}
-            >
-              🎨 Background
-              {isLoadingBlur && <span style={{ fontSize: "10px" }}>⏳</span>}
-            </button>
-          </div>
-        )}
-
+        {/* Background Panel - Below stream for both mobile and desktop */}
         {cameraActive &&
           !isSwitchingCamera &&
           filterMode === "blur" &&
@@ -5766,38 +5997,24 @@ export default function TakeMoment() {
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            gap: "0.65rem",
-            padding: "0.95rem 0",
+            padding: "0.75rem 0",
           }}
         >
-          <div
-            style={{
-              fontSize: "0.9rem",
-              fontWeight: 600,
-              color: hasReachedMaxPhotos ? "#ef4444" : "#475569",
-              textAlign: "center",
-            }}
-          >
-            Foto: {capturedPhotos.length}/{photosNeeded}
-            {isDuplicateMode && <span style={{ color: "#8B5CF6", marginLeft: "4px" }}>🔁</span>}
-            {hasReachedMaxPhotos && " - maksimal tercapai!"}
-          </div>
-
           <button
             onClick={handleCapture}
             disabled={disableCapture}
             style={{
-              width: "80px",
-              height: "80px",
+              width: "72px",
+              height: "72px",
               borderRadius: "50%",
               border: "none",
               background: disableCapture ? "#e2e8f0" : "#E8A889",
               color: "white",
-              fontSize: "1.4rem",
+              fontSize: "1.3rem",
               fontWeight: 700,
               boxShadow: disableCapture
                 ? "none"
-                : "0 20px 40px rgba(232,168,137,0.4)",
+                : "0 16px 32px rgba(232,168,137,0.4)",
               cursor: disableCapture ? "not-allowed" : "pointer",
               display: "flex",
               alignItems: "center",
@@ -6041,6 +6258,7 @@ export default function TakeMoment() {
             <span>Kembali</span>
           </button>
           <h1
+            ref={mobileContentRef}
             style={{
               ...headingStyles,
               marginTop: "0.1rem",

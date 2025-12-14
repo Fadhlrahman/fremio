@@ -49,12 +49,17 @@ import AdminMessages from "./pages/admin/AdminMessages.jsx";
 import AdminAffiliates from "./pages/admin/AdminAffiliates.jsx";
 import AdminPackages from "./pages/admin/AdminPackages.jsx";
 
+// In-app browser detector
+import InAppBrowserDetector from "./components/InAppBrowserDetector.jsx";
+
 import "./App.css";
 
 export default function App() {
   return (
     <AuthProvider>
       <ToastProvider>
+        {/* Detect and prompt if opened from Instagram/Facebook/TikTok */}
+        <InAppBrowserDetector />
         <Routes>
           {/* layout di root */}
           <Route path="/" element={<RootLayout />}>

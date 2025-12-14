@@ -24,12 +24,12 @@ const FLUSH_INTERVAL = 5000; // 5 seconds
 
 /**
  * Get API URL based on config
- * VPS_API_URL already contains /api, so we return base URL without /api
+ * Returns the base API URL with /api prefix
  */
 const getApiUrl = () => {
   const url = VPS_API_URL || 'http://localhost:3000/api';
-  // Remove trailing /api if exists to avoid double /api/api
-  return url.replace(/\/api\/?$/, '');
+  // Ensure URL ends with /api
+  return url.endsWith('/api') ? url : `${url}/api`;
 };
 
 /**
@@ -112,7 +112,7 @@ const sendAnalytics = async (endpoint, data) => {
       headers['Authorization'] = `Bearer ${token}`;
     }
     
-    const response = await fetch(`${apiUrl}/api/analytics${endpoint}`, {
+    const response = await fetch(`${apiUrl}/analytics${endpoint}`, {
       method: 'POST',
       headers,
       body: JSON.stringify(data),
@@ -151,7 +151,7 @@ const fetchAnalytics = async (endpoint, params = {}) => {
     }
     
     const queryString = new URLSearchParams(params).toString();
-    const url = `${apiUrl}/api/analytics${endpoint}${queryString ? '?' + queryString : ''}`;
+    const url = `${apiUrl}/analytics${endpoint}${queryString ? '?' + queryString : ''}`;
     
     const response = await fetch(url, {
       method: 'GET',
@@ -667,15 +667,54 @@ export const getLeanMetricsFromFirebase = async () => {
   try {
     const overview = await getDashboardOverview(30);
     
+    // Calculate additional metrics
+    const activationRate = overview.uniqueUsers > 0 
+      ? Math.round((overview.downloads / overview.uniqueUsers) * 100) 
+      : 0;
+    const retentionRate = overview.totalSessions > 0
+      ? Math.round((overview.uniqueUsers / overview.totalSessions) * 100)
+      : 0;
+    const weeklyGrowth = 0; // TODO: Calculate from historical data
+    const avgDownloadsPerUser = overview.uniqueUsers > 0
+      ? (overview.downloads / overview.uniqueUsers).toFixed(1)
+      : 0;
+    
     return {
+      source: 'firebase', // Mark as coming from VPS/Firebase
       totalVisitors: overview.totalSessions || 0,
       uniqueVisitors: overview.uniqueUsers || 0,
+      totalUsers: overview.totalUsers || 0,
       totalPhotosTaken: overview.photosTaken || 0,
       totalDownloads: overview.downloads || 0,
       totalShares: overview.shares || 0,
       conversionRate: overview.conversionRate || 0,
+      activationRate,
+      activatedUsers: overview.downloads || 0,
+      retentionRate,
+      weeklyGrowth,
+      avgDownloadsPerUser,
       topFrames: overview.topFrames || [],
       dailyStats: overview.dailyStats || [],
+      registeredUsers: overview.totalUsers || 0,
+      registrationRate: 0,
+      registrations7Days: 0,
+      previousRegistrations7Days: 0,
+      topCreators: [],
+      funnel: {
+        visit: overview.totalSessions || 0,
+        frameView: overview.photosTaken || 0,
+        frameSelect: overview.photosTaken || 0,
+        photoTaken: overview.photosTaken || 0,
+        downloaded: overview.downloads || 0,
+      },
+      conversionRates: {
+        viewToSelect: 100,
+        selectToCapture: 100,
+        captureToDownload: overview.photosTaken > 0 
+          ? Math.round((overview.downloads / overview.photosTaken) * 100)
+          : 0,
+        overallConversion: overview.conversionRate || 0,
+      },
     };
   } catch (error) {
     console.error("Failed to get metrics from VPS:", error);
@@ -696,6 +735,7 @@ const getLocalStorageMetrics = () => {
     const shares = events.filter(e => e.data?.eventName === "share").length;
     
     return {
+      source: 'local', // Mark as coming from localStorage
       totalVisitors: pageViews,
       uniqueVisitors: Math.round(pageViews * 0.7),
       totalPhotosTaken: photosTaken,
@@ -707,6 +747,7 @@ const getLocalStorageMetrics = () => {
     };
   } catch (e) {
     return {
+      source: 'local',
       totalVisitors: 0,
       uniqueVisitors: 0,
       totalPhotosTaken: 0,

@@ -299,34 +299,6 @@ export default function Header() {
                       <span>Settings</span>
                     </Link>
 
-                    {/* Drafts Option */}
-                    <Link
-                      to="/drafts"
-                      onClick={() => setProfileDropdownOpen(false)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "12px",
-                        padding: "12px 16px",
-                        borderRadius: "8px",
-                        textDecoration: "none",
-                        color: "#333",
-                        transition: "all 0.2s",
-                        fontSize: "14px",
-                        fontWeight: 500,
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background =
-                          "rgba(224, 183, 169, 0.1)";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = "transparent";
-                      }}
-                    >
-                      <span style={{ fontSize: "18px", width: "18px", textAlign: "center" }}>📝</span>
-                      <span>Drafts</span>
-                    </Link>
-
                     {/* Divider */}
                     <div
                       style={{
@@ -491,18 +463,6 @@ export default function Header() {
                 style={{ width: "22px", height: "22px" }}
               />
               <span>Settings</span>
-            </NavLink>
-
-            <NavLink
-              to="/drafts"
-              onClick={() => setMenuOpen(false)}
-              className={({ isActive }) =>
-                "nav-link" + (isActive ? " active" : "")
-              }
-              style={{ width: "100%" }}
-            >
-              <span style={{ fontSize: "20px", width: "22px", textAlign: "center" }}>📝</span>
-              <span>Drafts</span>
             </NavLink>
 
             <div

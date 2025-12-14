@@ -338,27 +338,7 @@ export default function Frames() {
     console.log("🎬 User clicked frame:", frame.name);
     console.log("📦 Frame data:", frame);
 
-    // Check if user needs to login
-    if (!currentUser) {
-      alert("Silakan login terlebih dahulu untuk menggunakan frame");
-      navigate("/login");
-      return;
-    }
-
-    // Check if user has access to this frame
-    if (!hasAccess || !accessibleFrameIds.includes(frame.id)) {
-      // Show upgrade/payment prompt
-      const shouldUpgrade = confirm(
-        "Frame ini memerlukan akses premium.\n\n" +
-          "Dapatkan akses ke 30 frames premium hanya Rp 10.000 selama 30 hari!\n\n" +
-          "Klik OK untuk upgrade sekarang."
-      );
-
-      if (shouldUpgrade) {
-        navigate("/pricing");
-      }
-      return;
-    }
+    // No login required - allow all users to access frames
 
     if (!frame.slots || frame.slots.length === 0) {
       alert("Error: Frame ini tidak memiliki slot foto.");
@@ -532,10 +512,6 @@ export default function Frames() {
                   {/* Frames Grid - Responsive: 3 cols mobile, 5 cols desktop */}
                   <div className="frames-grid">
                     {frames.map((frame) => {
-                      const isLocked =
-                        currentUser &&
-                        !hasAccess &&
-                        !accessibleFrameIds.includes(frame.id);
                       return (
                         <FrameCard
                           key={frame.id}
@@ -544,7 +520,7 @@ export default function Frames() {
                           imageError={imageErrors[frame.id]}
                           onImageError={handleImageError}
                           getImageUrl={getFrameImageUrl}
-                          isLocked={isLocked}
+                          isLocked={false}
                         />
                       );
                     })}

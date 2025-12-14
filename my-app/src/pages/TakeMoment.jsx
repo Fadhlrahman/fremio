@@ -5044,15 +5044,15 @@ export default function TakeMoment() {
               onChange={(e) => setTimer(Number(e.target.value))}
               disabled={capturing}
               style={{
-                padding: isMobileVariant ? "0.5rem 0.85rem" : "0.6rem 1rem",
+                padding: isMobileVariant ? "0.5rem 0.85rem" : "0.45rem 0.6rem",
                 borderRadius: "999px",
                 border: "1px solid #e2e8f0",
                 background: "#fff",
                 color: "#333",
-                fontSize: isMobileVariant ? "0.95rem" : "1rem",
+                fontSize: isMobileVariant ? "0.95rem" : "0.9rem",
                 cursor: capturing ? "not-allowed" : "pointer",
                 boxShadow: "0 12px 24px rgba(15,23,42,0.08)",
-                minWidth: isMobileVariant ? "132px" : undefined,
+                minWidth: isMobileVariant ? "132px" : "auto",
               }}
             >
               {TIMER_OPTIONS.map((option) => (
@@ -5135,6 +5135,70 @@ export default function TakeMoment() {
                   />
                   <span>🔁 Duplikat ({photosNeeded} foto)</span>
                 </label>
+              </div>
+            )}
+
+            {/* Normal/Background Toggle - Desktop only, next to Duplikat */}
+            {!isMobileVariant && cameraActive && !isSwitchingCamera && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "4px",
+                  marginLeft: "0.5rem",
+                  background: "rgba(15,23,42,0.9)",
+                  padding: "6px 10px",
+                  borderRadius: "12px",
+                }}
+              >
+                <button
+                  onClick={() => {
+                    setFilterMode("original");
+                    setShowBackgroundPanel(false);
+                  }}
+                  disabled={capturing}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: "8px",
+                    border: "none",
+                    background: filterMode === "original" ? "#8B5CF6" : "transparent",
+                    color: "#fff",
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    cursor: capturing ? "not-allowed" : "pointer",
+                    opacity: capturing ? 0.5 : 1,
+                    transition: "background 0.2s ease",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  📷 Normal
+                </button>
+                <button
+                  onClick={() => {
+                    setFilterMode("blur");
+                    setShowBackgroundPanel(true);
+                  }}
+                  disabled={capturing || isLoadingBlur}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: "8px",
+                    border: "none",
+                    background: filterMode === "blur" ? "#8B5CF6" : "transparent",
+                    color: "#fff",
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    cursor: capturing || isLoadingBlur ? "not-allowed" : "pointer",
+                    opacity: capturing || isLoadingBlur ? 0.5 : 1,
+                    transition: "background 0.2s ease",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  🎨 Background
+                  {isLoadingBlur && <span style={{ fontSize: "9px" }}>⏳</span>}
+                </button>
               </div>
             )}
           </div>
@@ -5412,13 +5476,14 @@ export default function TakeMoment() {
           )}
         </div>
 
-        {cameraActive && !isSwitchingCamera && (
+        {/* Normal/Background Toggle - Only show on mobile (desktop has it in header) */}
+        {cameraActive && !isSwitchingCamera && isMobileVariant && (
           <div
             style={{
               display: "flex",
               gap: "10px",
               background: "rgba(15,23,42,0.9)",
-              padding: isMobileVariant ? "8px 12px" : "10px 16px",
+              padding: "8px 12px",
               borderRadius: "999px",
               boxShadow: "0 12px 32px rgba(15,23,42,0.25)",
             }}
@@ -5430,7 +5495,7 @@ export default function TakeMoment() {
               }}
               disabled={capturing}
               style={{
-                padding: isMobileVariant ? "8px 14px" : "10px 18px",
+                padding: "8px 14px",
                 borderRadius: "18px",
                 border: "none",
                 background:
@@ -5452,7 +5517,7 @@ export default function TakeMoment() {
               }}
               disabled={capturing || isLoadingBlur}
               style={{
-                padding: isMobileVariant ? "8px 14px" : "10px 18px",
+                padding: "8px 14px",
                 borderRadius: "18px",
                 border: "none",
                 background: filterMode === "blur" ? "#8B5CF6" : "transparent",

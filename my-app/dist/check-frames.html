@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Check Custom Frames</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+    .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    h1 { color: #333; }
+    .frame-card { border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 8px; background: #fafafa; }
+    .frame-card img { max-width: 200px; max-height: 200px; object-fit: contain; }
+    .no-frames { color: #999; padding: 20px; text-align: center; }
+    button { background: #4f46e5; color: white; padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; margin: 5px; }
+    button:hover { background: #4338ca; }
+    button.danger { background: #dc2626; }
+    button.danger:hover { background: #b91c1c; }
+    pre { background: #f0f0f0; padding: 10px; overflow: auto; font-size: 12px; }
+    .info { background: #e0f2fe; padding: 10px; border-radius: 6px; margin-bottom: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🖼️ Check Custom Frames in LocalStorage</h1>
+    
+    <div class="info">
+      <strong>Current Origin:</strong> <span id="origin"></span><br>
+      <strong>LocalStorage Key:</strong> custom_frames
+    </div>
+    
+    <div>
+      <button onclick="loadFrames()">🔄 Refresh</button>
+      <button onclick="exportFrames()">📤 Export JSON</button>
+      <button onclick="importFrames()" class="danger">📥 Import JSON</button>
+      <button onclick="clearFrames()" class="danger">🗑️ Clear All Frames</button>
+    </div>
+    
+    <h2>Stored Frames (<span id="count">0</span>)</h2>
+    <div id="frames-container"></div>
+    
+    <h3>Raw JSON Data:</h3>
+    <pre id="raw-data"></pre>
+  </div>
+
+  <script>
+    document.getElementById('origin').textContent = window.location.origin;
+    
+    function loadFrames() {
+      const container = document.getElementById('frames-container');
+      const rawData = document.getElementById('raw-data');
+      const countEl = document.getElementById('count');
+      
+      try {
+        const data = localStorage.getItem('custom_frames');
+        const frames = JSON.parse(data || '[]');
+        
+        countEl.textContent = frames.length;
+        rawData.textContent = JSON.stringify(frames, null, 2);
+        
+        if (frames.length === 0) {
+          container.innerHTML = '<div class="no-frames">No frames found in localStorage</div>';
+          return;
+        }
+        
+        container.innerHTML = frames.map((frame, idx) => `
+          <div class="frame-card">
+            <h3>${idx + 1}. ${frame.name || 'Untitled'}</h3>
+            <p><strong>ID:</strong> ${frame.id}</p>
+            <p><strong>Category:</strong> ${frame.category || 'N/A'}</p>
+            <p><strong>Max Captures:</strong> ${frame.maxCaptures || 'N/A'}</p>
+            <p><strong>Slots:</strong> ${frame.slots?.length || 0}</p>
+            <p><strong>Has Image:</strong> ${frame.imagePath ? '✅ Yes (' + (frame.imagePath.length / 1024).toFixed(2) + ' KB)' : '❌ No'}</p>
+            ${frame.imagePath ? `<img src="${frame.imagePath}" alt="${frame.name}" />` : ''}
+          </div>
+        `).join('');
+        
+      } catch (error) {
+        container.innerHTML = '<div class="no-frames">Error: ' + error.message + '</div>';
+        rawData.textContent = 'Error loading data';
+      }
+    }
+    
+    function exportFrames() {
+      const data = localStorage.getItem('custom_frames') || '[]';
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'custom_frames_backup.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+    
+    function importFrames() {
+      const json = prompt('Paste JSON data to import:');
+      if (!json) return;
+      
+      try {
+        const frames = JSON.parse(json);
+        if (!Array.isArray(frames)) throw new Error('Data must be an array');
+        localStorage.setItem('custom_frames', JSON.stringify(frames));
+        alert('Imported ' + frames.length + ' frames!');
+        loadFrames();
+      } catch (error) {
+        alert('Invalid JSON: ' + error.message);
+      }
+    }
+    
+    function clearFrames() {
+      if (confirm('Are you sure you want to delete ALL frames?')) {
+        localStorage.removeItem('custom_frames');
+        alert('All frames cleared!');
+        loadFrames();
+      }
+    }
+    
+    // Load on page load
+    loadFrames();
+  </script>
+</body>
+</html>

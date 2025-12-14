@@ -1,0 +1,1 @@
+import{ct as e,st as t}from"./index-mj4bu1vw-DG6MSyVR.js";export{t as VPSFrameClient,e as default};

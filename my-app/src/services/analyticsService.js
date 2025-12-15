@@ -409,7 +409,7 @@ export const trackFunnelEvent = async (eventType, eventData = {}) => {
 /**
  * Track download
  */
-export const trackDownload = async (frameId, frameName, format = 'png', hasWatermark = false) => {
+export const trackDownload = async (frameId, frameName, format = 'png', hasWatermark = false, method = 'download') => {
   const sid = getSessionId();
   
   await sendAnalytics('/track/download', {
@@ -417,7 +417,11 @@ export const trackDownload = async (frameId, frameName, format = 'png', hasWater
     frameId,
     frameName,
     format,
-    hasWatermark
+    hasWatermark,
+    method, // 'download', 'share', 'ios-tab'
+    isMobile: /iPhone|iPad|iPod|Android/i.test(navigator.userAgent),
+    deviceType: /iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'ios' : 
+                /Android/i.test(navigator.userAgent) ? 'android' : 'desktop'
   });
 };
 

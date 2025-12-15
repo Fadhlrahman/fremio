@@ -13,6 +13,7 @@ import { convertBlobToMp4 } from "../utils/videoTranscoder.js";
 import { useToast } from "../contexts/ToastContext";
 import { trackFrameDownload } from "../services/analyticsService";
 import { imagePresets, getOriginalUrl } from "../utils/imageOptimizer";
+import { downloadPhotoToGallery, downloadVideoToGallery } from "../utils/downloadHelper";
 
 // Pre-import frequently used modules to avoid dynamic import delays
 let draftStorageModule = null;
@@ -4424,128 +4425,40 @@ export default function EditPhoto() {
                     );
                   }
 
-                  // Download - Mobile compatible approach
+                  // Download - Using new mobile-friendly helper
                   console.log("Canvas created:", {
                     width: finalCanvas.width,
                     height: finalCanvas.height,
                   });
                   
                   const dataUrl = finalCanvas.toDataURL("image/png", 1.0);
+                  const timestamp = Date.now();
+                  const filename = `fremio-photo-${timestamp}.png`;
                   
-                  // Check if on mobile/iOS
-                  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-                  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+                  // Use download helper for mobile-friendly download
+                  const frameId = frameConfig?.id || "unknown";
+                  const frameName = frameConfig?.name || frameConfig?.id || "Unknown Frame";
                   
-                  if (isIOS) {
-                    // For iOS: Open in new tab so user can long-press to save
-                    // Also try Web Share API if available
-                    if (navigator.share && navigator.canShare) {
-                      try {
-                        // Convert dataUrl to Blob for sharing
-                        const response = await fetch(dataUrl);
-                        const blob = await response.blob();
-                        const file = new File([blob], "fremio-photo.png", { type: "image/png" });
-                        
-                        if (navigator.canShare({ files: [file] })) {
-                          await navigator.share({
-                            files: [file],
-                            title: "Fremio Photo",
-                            text: "Photo created with Fremio"
-                          });
-                          console.log("✅ Shared via Web Share API");
-                        } else {
-                          // Fallback: open in new tab
-                          const newTab = window.open();
-                          if (newTab) {
-                            newTab.document.write(`
-                              <html>
-                                <head><title>Fremio Photo</title></head>
-                                <body style="margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#000;">
-                                  <img src="${dataUrl}" style="max-width:100%;max-height:100vh;" />
-                                  <p style="position:fixed;bottom:20px;color:white;text-align:center;width:100%;">Tekan dan tahan gambar untuk menyimpan</p>
-                                </body>
-                              </html>
-                            `);
-                          }
-                        }
-                      } catch (shareError) {
-                        console.log("Share failed, opening in new tab:", shareError);
-                        const newTab = window.open();
-                        if (newTab) {
-                          newTab.document.write(`
-                            <html>
-                              <head><title>Fremio Photo</title></head>
-                              <body style="margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#000;">
-                                <img src="${dataUrl}" style="max-width:100%;max-height:100vh;" />
-                                <p style="position:fixed;bottom:20px;color:white;text-align:center;width:100%;">Tekan dan tahan gambar untuk menyimpan</p>
-                              </body>
-                            </html>
-                          `);
-                        }
-                      }
-                    } else {
-                      // No Web Share API, open in new tab
-                      const newTab = window.open();
-                      if (newTab) {
-                        newTab.document.write(`
-                          <html>
-                            <head><title>Fremio Photo</title></head>
-                            <body style="margin:0;display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:100vh;background:#000;">
-                              <img src="${dataUrl}" style="max-width:100%;max-height:90vh;" />
-                              <p style="color:white;text-align:center;padding:10px;">Tekan dan tahan gambar untuk menyimpan</p>
-                            </body>
-                          </html>
-                        `);
-                      }
-                    }
-                  } else if (isMobile && navigator.share) {
-                    // For Android with Web Share API
-                    try {
-                      const response = await fetch(dataUrl);
-                      const blob = await response.blob();
-                      const file = new File([blob], "fremio-photo.png", { type: "image/png" });
-                      
-                      await navigator.share({
-                        files: [file],
-                        title: "Fremio Photo"
+                  const result = await downloadPhotoToGallery(dataUrl, {
+                    filename,
+                    frameId,
+                    frameName
+                  });
+                  
+                  if (result.success) {
+                    console.log("✅ Download selesai via", result.method);
+                    
+                    // Only show success toast if not cancelled
+                    if (!result.cancelled) {
+                      showToast({
+                        type: "success",
+                        title: "Download Berhasil",
+                        message: "Foto berhasil disimpan.",
                       });
-                      console.log("✅ Shared via Web Share API (Android)");
-                    } catch (shareError) {
-                      console.log("Share failed, using download link:", shareError);
-                      // Fallback to download link
-                      const link = document.createElement("a");
-                      link.download = "fremio-photo.png";
-                      link.href = dataUrl;
-                      document.body.appendChild(link);
-                      link.click();
-                      document.body.removeChild(link);
                     }
                   } else {
-                    // Desktop: Standard download
-                    const link = document.createElement("a");
-                    link.download = "fremio-photo.png";
-                    link.href = dataUrl;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
+                    throw new Error(result.error || "Download failed");
                   }
-
-                  // Track download analytics - always track even if frameConfig.id is missing
-                  try {
-                    const frameId = frameConfig?.id || "unknown";
-                    const frameName = frameConfig?.name || frameConfig?.id || "Unknown Frame";
-                    await trackFrameDownload(frameId, null, null, frameName);
-                    console.log("📊 Tracked download for frame:", frameId);
-                  } catch (trackError) {
-                    console.warn("⚠️ Failed to track download:", trackError);
-                  }
-
-                  console.log("✅ Download selesai!");
-                  showToast({
-                    type: "success",
-                    title: "Download Berhasil",
-                    message: "Foto berhasil disimpan.",
-                  });
                 } catch (error) {
                   console.error("❌ Error saat download:", error);
                   
@@ -5941,52 +5854,47 @@ export default function EditPhoto() {
                     }
                   }
 
-                  // Download video
+                  // Download video using mobile-friendly helper
                   console.log("💾 Downloading video...");
                   setVideoProcessingMessage("💾 Menyimpan video...");
-                  const timestamp = new Date()
-                    .toISOString()
-                    .replace(/[:.]/g, "-");
+                  const timestamp = Date.now();
                   const filename = `fremio-video-${timestamp}.${downloadExtension}`;
-                  const downloadUrl = URL.createObjectURL(downloadBlob);
-                  const link = document.createElement("a");
-                  link.href = downloadUrl;
-                  link.download = filename;
-                  link.type = downloadMime;
-                  document.body.appendChild(link); // Add to DOM for better compatibility
-                  link.click();
-                  document.body.removeChild(link);
-
-                  // Cleanup after a delay
-                  setTimeout(() => {
-                    URL.revokeObjectURL(downloadUrl);
-                  }, 1000);
-
-                  // Track download analytics - always track even if frameConfig.id is missing
-                  try {
-                    const frameId = frameConfig?.id || "unknown";
-                    const frameName = frameConfig?.name || frameConfig?.id || "Unknown Frame";
-                    await trackFrameDownload(frameId, null, null, frameName);
-                    console.log("📊 Tracked video download for frame:", frameId);
-                  } catch (trackError) {
-                    console.warn("⚠️ Failed to track video download:", trackError);
-                  }
-
+                  
+                  // Use download helper for mobile-friendly download
+                  const frameId = frameConfig?.id || "unknown";
+                  const frameName = frameConfig?.name || frameConfig?.id || "Unknown Frame";
+                  
+                  const result = await downloadVideoToGallery(downloadBlob, {
+                    filename,
+                    mimeType: downloadMime,
+                    frameId,
+                    frameName
+                  });
+                  
                   // Clear loading screen
                   setVideoProcessingMessage("");
                   
-                  setSaveMessage(
-                    downloadExtension === "mp4"
-                      ? "✅ Video MP4 berhasil didownload!"
-                      : "✅ Video berhasil didownload (format cadangan)"
-                  );
-                  setTimeout(() => setSaveMessage(""), 3000);
-                  console.log("✅ Video download complete:", filename);
-                  showToast({
-                    type: "success",
-                    title: "Video Berhasil",
-                    message: "Video berhasil dirender dan disimpan.",
-                  });
+                  if (result.success) {
+                    console.log("✅ Video download complete via", result.method);
+                    
+                    // Only show success toast if not cancelled
+                    if (!result.cancelled) {
+                      setSaveMessage(
+                        downloadExtension === "mp4"
+                          ? "✅ Video MP4 berhasil didownload!"
+                          : "✅ Video berhasil didownload (format cadangan)"
+                      );
+                      setTimeout(() => setSaveMessage(""), 3000);
+                      
+                      showToast({
+                        type: "success",
+                        title: "Video Berhasil",
+                        message: "Video berhasil dirender dan disimpan.",
+                      });
+                    }
+                  } else {
+                    throw new Error(result.error || "Download failed");
+                  }
                 } catch (error) {
                   console.error("❌ Error rendering video:", error);
                   setVideoProcessingMessage(""); // Clear loading screen on error

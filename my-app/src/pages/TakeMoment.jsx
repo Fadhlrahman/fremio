@@ -22,6 +22,7 @@ import { trackFunnelEvent } from "../services/analyticsService";
 import flipIcon from "../assets/flip.png";
 import fremioLogo from "../assets/logo.svg";
 import { useToast } from "../contexts/ToastContext";
+import { requestCameraWithFallback } from "../utils/cameraHelper";
 
 const MIRRORED_VIDEO_STYLE_ID = "take-moment-mirrored-video-controls";
 const MIRRORED_VIDEO_STYLES = `
@@ -2511,80 +2512,19 @@ export default function TakeMoment() {
       setCameraError(null);
       setIsSwitchingCamera(true);
 
-      // Check if mediaDevices is available
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("Browser tidak mendukung akses kamera");
+      // Use camera helper with better error handling
+      const result = await requestCameraWithFallback({
+        facingMode: desiredFacingMode,
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        keepStream: true
+      });
+
+      if (!result.granted) {
+        throw new Error(result.message || "Tidak dapat mengakses kamera");
       }
 
-      // First, enumerate devices to see what's available
-      let videoDevices = [];
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        videoDevices = devices.filter(
-          (device) => device.kind === "videoinput"
-        );
-        console.log("📹 Available cameras:", videoDevices.length, videoDevices);
-
-        if (videoDevices.length === 0) {
-          throw new Error("Tidak ada kamera yang terdeteksi di perangkat ini");
-        }
-      } catch (enumError) {
-        console.warn("⚠️ Could not enumerate devices:", enumError);
-      }
-
-      let stream;
-      const hasMultipleCameras = videoDevices.length > 1;
-
-      // Strategy 1: Try with facingMode constraint (works on mobile)
-      if (hasMultipleCameras) {
-        try {
-          console.log(`🎥 Trying with facingMode: ${desiredFacingMode}`);
-          const constraints = {
-            audio: false,
-            video: {
-              facingMode: { ideal: desiredFacingMode },
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-            },
-          };
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-          console.log(`✅ Camera started with facingMode: ${desiredFacingMode}`);
-        } catch (err1) {
-          console.warn("⚠️ FacingMode constraint failed:", err1.name, err1.message);
-          stream = null;
-        }
-      }
-
-      // Strategy 2: Fallback - basic video request
-      if (!stream) {
-        try {
-          console.log("🎥 Trying basic video request");
-          const constraints = { audio: false, video: true };
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-          console.log("✅ Camera started with basic constraints");
-        } catch (err2) {
-          console.error("❌ Basic video failed:", err2.name, err2.message);
-
-          // Strategy 3: Try with specific resolution
-          try {
-            console.log("🎥 Trying with resolution constraints");
-            const constraints = {
-              audio: false,
-              video: { width: 640, height: 480 },
-            };
-            stream = await navigator.mediaDevices.getUserMedia(constraints);
-            console.log("✅ Camera started with resolution");
-          } catch (err3) {
-            console.error(
-              "❌ Resolution constraints failed:",
-              err3.name,
-              err3.message
-            );
-            throw err3;
-          }
-        }
-      }
-
+      const stream = result.stream;
       if (!stream) {
         throw new Error("Gagal mendapatkan stream kamera");
       }
@@ -2611,11 +2551,15 @@ export default function TakeMoment() {
     } catch (error) {
       console.error("❌ Error accessing camera", error);
       setCameraError(error.message);
+      
+      // Show user-friendly error message
+      const errorMessage = error.message || "Pastikan izin kamera sudah diberikan di browser.";
+      const isPermissionError = errorMessage.includes("izin") || errorMessage.includes("permission");
+      
       showToast({
         type: "error",
-        title: "Kamera Tidak Dapat Diakses",
-        message:
-          error.message || "Pastikan izin kamera sudah diberikan di browser.",
+        title: isPermissionError ? "Izin Kamera Diperlukan" : "Kamera Tidak Dapat Diakses",
+        message: errorMessage,
         action: {
           label: "Coba Lagi",
           onClick: () => window.location.reload(),

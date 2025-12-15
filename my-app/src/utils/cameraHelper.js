@@ -260,6 +260,75 @@ export const getCameraPermissionInstructions = () => {
   return { browser, instructions };
 };
 
+/**
+ * LocalStorage keys for permission tracking
+ */
+const PERMISSION_STORAGE_KEY = 'fremio_camera_permission_asked';
+const PERMISSION_GRANTED_KEY = 'fremio_camera_permission_granted';
+
+/**
+ * Check if we've asked for permission before
+ */
+export const hasAskedPermissionBefore = () => {
+  return localStorage.getItem(PERMISSION_STORAGE_KEY) === 'true';
+};
+
+/**
+ * Mark that we've asked for permission
+ */
+export const markPermissionAsked = () => {
+  localStorage.setItem(PERMISSION_STORAGE_KEY, 'true');
+  localStorage.setItem(PERMISSION_GRANTED_KEY + '_time', Date.now().toString());
+};
+
+/**
+ * Check if permission was previously granted
+ */
+export const wasPermissionGranted = () => {
+  return localStorage.getItem(PERMISSION_GRANTED_KEY) === 'true';
+};
+
+/**
+ * Mark permission as granted
+ */
+export const markPermissionGranted = () => {
+  localStorage.setItem(PERMISSION_GRANTED_KEY, 'true');
+  localStorage.setItem(PERMISSION_GRANTED_KEY + '_time', Date.now().toString());
+};
+
+/**
+ * Mark permission as denied
+ */
+export const markPermissionDenied = () => {
+  localStorage.setItem(PERMISSION_GRANTED_KEY, 'false');
+  localStorage.setItem(PERMISSION_GRANTED_KEY + '_time', Date.now().toString());
+};
+
+/**
+ * Clear permission storage (for testing/reset)
+ */
+export const clearPermissionStorage = () => {
+  localStorage.removeItem(PERMISSION_STORAGE_KEY);
+  localStorage.removeItem(PERMISSION_GRANTED_KEY);
+  localStorage.removeItem(PERMISSION_GRANTED_KEY + '_time');
+};
+
+/**
+ * Request camera permission dengan auto-save preference
+ */
+export const requestCameraPermissionWithSave = async (options = {}) => {
+  markPermissionAsked();
+  const result = await requestCameraWithFallback(options);
+  
+  if (result.granted) {
+    markPermissionGranted();
+  } else {
+    markPermissionDenied();
+  }
+  
+  return result;
+};
+
 export default {
   isCameraAvailable,
   isSecureContext,
@@ -269,5 +338,12 @@ export default {
   getCameraDevices,
   switchCamera,
   testCameraAccess,
-  getCameraPermissionInstructions
+  getCameraPermissionInstructions,
+  hasAskedPermissionBefore,
+  markPermissionAsked,
+  wasPermissionGranted,
+  markPermissionGranted,
+  markPermissionDenied,
+  clearPermissionStorage,
+  requestCameraPermissionWithSave
 };

@@ -18,11 +18,17 @@ import {
   cleanupAllVideoBlobs,
   getMemoryUsage,
 } from "../utils/videoMemoryManager.js";
-import { trackFunnelEvent } from "../services/analyticsService";
+import { trackFunnelEvent, trackCameraPermission } from "../services/analyticsService";
 import flipIcon from "../assets/flip.png";
 import fremioLogo from "../assets/logo.svg";
 import { useToast } from "../contexts/ToastContext";
-import { requestCameraWithFallback } from "../utils/cameraHelper";
+import { 
+  requestCameraWithFallback, 
+  getCameraPermissionStatus,
+  requestCameraPermissionWithSave,
+  wasPermissionGranted 
+} from "../utils/cameraHelper";
+import CameraPermissionPrimer from "../components/CameraPermissionPrimer";
 
 const MIRRORED_VIDEO_STYLE_ID = "take-moment-mirrored-video-controls";
 const MIRRORED_VIDEO_STYLES = `
@@ -546,6 +552,39 @@ export default function TakeMoment() {
   const previousCameraActiveRef = useRef(null);
   const mobileContentRef = useRef(null);
 
+  // Check camera permission on mount
+  useEffect(() => {
+    const checkPermission = async () => {
+      try {
+        // Check if permission was previously granted
+        const permStatus = await getCameraPermissionStatus();
+        
+        if (permStatus.status === 'granted' || wasPermissionGranted()) {
+          // Already granted, no need to show primer
+          setPermissionChecked(true);
+          setShowPermissionPrimer(false);
+          console.log('✅ Camera permission already granted');
+        } else if (permStatus.status === 'denied') {
+          // Denied, show error and upload option
+          setPermissionChecked(true);
+          setShowPermissionPrimer(false);
+          setCameraError('Izin kamera ditolak. Silakan gunakan opsi upload foto.');
+          await trackCameraPermission('denied', 'auto_check');
+        } else {
+          // Need to request - show primer
+          setShowPermissionPrimer(true);
+          await trackCameraPermission('primer_shown');
+        }
+      } catch (error) {
+        console.log('Permission check not supported, showing primer');
+        setShowPermissionPrimer(true);
+        await trackCameraPermission('primer_shown', 'fallback');
+      }
+    };
+    
+    checkPermission();
+  }, []);
+
   // Auto-scroll to content area on mobile when page loads
   useEffect(() => {
     if (isMobile && mobileContentRef.current) {
@@ -659,6 +698,8 @@ export default function TakeMoment() {
   const [isVideoProcessing, setIsVideoProcessing] = useState(false);
   const [isEditorTransitioning, setIsEditorTransitioning] = useState(false);
   const [cameraError, setCameraError] = useState(null);
+  const [showPermissionPrimer, setShowPermissionPrimer] = useState(false);
+  const [permissionChecked, setPermissionChecked] = useState(false);
   const [liveModeEnabled, setLiveModeEnabled] = useState(true); // Live mode: video + photo
   const [isDuplicateMode, setIsDuplicateMode] = useState(false); // Duplicate mode: each photo fills 2 slots
 
@@ -2507,6 +2548,56 @@ export default function TakeMoment() {
     );
   };
 
+  // Handle permission primer request
+  const handleRequestCameraPermission = useCallback(async () => {
+    try {
+      await trackCameraPermission('requested');
+      
+      const result = await requestCameraPermissionWithSave({
+        facingMode: 'user',
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        keepStream: false
+      });
+      
+      setShowPermissionPrimer(false);
+      setPermissionChecked(true);
+      
+      if (result.granted) {
+        await trackCameraPermission('granted');
+        setCameraError(null);
+        console.log('✅ Camera permission granted');
+        // Camera will auto-start from existing logic
+      } else {
+        await trackCameraPermission('denied', 'user_denied');
+        setCameraError('Izin kamera ditolak. Silakan gunakan opsi upload foto.');
+        showToast({
+          type: 'warning',
+          title: 'Izin Kamera Ditolak',
+          message: 'Anda masih bisa upload foto dari galeri.'
+        });
+      }
+    } catch (error) {
+      console.error('Permission request error:', error);
+      await trackCameraPermission('error', error.message);
+      setCameraError(error.message);
+    }
+  }, [showToast]);
+
+  // Handle skip permission (use upload only)
+  const handleSkipCameraPermission = useCallback(async () => {
+    await trackCameraPermission('dismissed');
+    setShowPermissionPrimer(false);
+    setPermissionChecked(true);
+    setCameraError('Upload foto dari galeri untuk melanjutkan.');
+    
+    showToast({
+      type: 'info',
+      title: 'Mode Upload',
+      message: 'Gunakan tombol upload untuk menambah foto dari galeri.'
+    });
+  }, [showToast]);
+
   const startCamera = useCallback(async (desiredFacingMode = "user") => {
     try {
       setCameraError(null);
@@ -2521,6 +2612,7 @@ export default function TakeMoment() {
       });
 
       if (!result.granted) {
+        await trackCameraPermission('denied', 'start_camera_failed');
         throw new Error(result.message || "Tidak dapat mengakses kamera");
       }
 
@@ -6239,6 +6331,12 @@ export default function TakeMoment() {
 
   return (
     <>
+      {showPermissionPrimer && (
+        <CameraPermissionPrimer
+          onRequestPermission={handleRequestCameraPermission}
+          onSkip={handleSkipCameraPermission}
+        />
+      )}
       {isMobile ? renderMobileLayout() : renderDesktopLayout()}
       {renderEditorTransitionOverlay()}
     </>

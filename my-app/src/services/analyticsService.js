@@ -426,6 +426,26 @@ export const trackDownload = async (frameId, frameName, format = 'png', hasWater
 };
 
 /**
+ * Track camera permission events
+ */
+export const trackCameraPermission = async (action, result = null, details = {}) => {
+  const sid = getSessionId();
+  
+  await sendAnalytics('/track/event', {
+    sessionId: sid,
+    category: 'camera_permission',
+    action, // 'primer_shown', 'requested', 'granted', 'denied', 'dismissed'
+    label: result || 'user_action',
+    metadata: {
+      browser: navigator.userAgent,
+      isMobile: /iPhone|iPad|iPod|Android/i.test(navigator.userAgent),
+      timestamp: new Date().toISOString(),
+      ...details
+    }
+  });
+};
+
+/**
  * Track frame download (alias)
  */
 export const trackFrameDownload = trackDownload;
@@ -807,7 +827,8 @@ const analytics = {
   getDeviceStats,
   getRealtimeStats,
   flush: flushEvents,
-  endSession
+  endSession,
+  trackCameraPermission
 };
 
 export default analytics;

@@ -141,99 +141,36 @@ export const downloadToGallery = async (source, filename, mimeType = 'image/png'
     // Strategy 2: Direct download (Fallback for all devices)
     console.log('📥 Using direct download method');
     
-    // For iOS Safari: Open in new tab with save instructions
+    // For iOS Safari: Use direct download with proper attributes
     if (device.isIOS && device.isSafari) {
+      // Try direct download first - iOS 13+ supports this
       const dataUrl = URL.createObjectURL(blob);
-      const newTab = window.open();
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = filename;
+      a.style.display = 'none';
       
-      if (newTab) {
-        const isVideo = mimeType.startsWith('video/');
-        newTab.document.write(`
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <title>Fremio - Simpan ${isVideo ? 'Video' : 'Foto'}</title>
-              <style>
-                body {
-                  margin: 0;
-                  padding: 0;
-                  background: #000;
-                  display: flex;
-                  flex-direction: column;
-                  justify-content: center;
-                  align-items: center;
-                  min-height: 100vh;
-                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                }
-                ${isVideo ? 'video' : 'img'} {
-                  max-width: 100%;
-                  max-height: 80vh;
-                  object-fit: contain;
-                }
-                .instructions {
-                  position: fixed;
-                  bottom: 0;
-                  left: 0;
-                  right: 0;
-                  background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
-                  color: white;
-                  text-align: center;
-                  padding: 30px 20px 20px;
-                }
-                .instructions h3 {
-                  margin: 0 0 10px;
-                  font-size: 18px;
-                  font-weight: 600;
-                }
-                .instructions p {
-                  margin: 5px 0;
-                  font-size: 14px;
-                  opacity: 0.9;
-                }
-                .download-btn {
-                  display: inline-block;
-                  margin-top: 15px;
-                  padding: 12px 24px;
-                  background: #3b82f6;
-                  color: white;
-                  text-decoration: none;
-                  border-radius: 8px;
-                  font-weight: 600;
-                }
-              </style>
-            </head>
-            <body>
-              ${isVideo 
-                ? `<video src="${dataUrl}" controls playsinline></video>` 
-                : `<img src="${dataUrl}" alt="Fremio Photo" />`
-              }
-              <div class="instructions">
-                <h3>Cara Menyimpan:</h3>
-                <p>1. Tekan dan tahan ${isVideo ? 'video' : 'gambar'} di atas</p>
-                <p>2. Pilih "${isVideo ? 'Simpan Video' : 'Simpan ke Foto'}"</p>
-                <p>3. ${isVideo ? 'Video' : 'Foto'} akan tersimpan di Galeri Anda</p>
-                <a href="${dataUrl}" download="${filename}" class="download-btn">
-                  Atau Klik untuk Download
-                </a>
-              </div>
-            </body>
-          </html>
-        `);
-        newTab.document.close();
-      }
+      // For iOS, we need to trigger download in a user gesture context
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      // Cleanup
+      setTimeout(() => {
+        URL.revokeObjectURL(dataUrl);
+      }, 1000);
       
       // Track download
       if (frameId) {
-        await trackDownload(frameId, frameName, mimeType.split('/')[1], false, 'ios-tab');
+        await trackDownload(frameId, frameName, mimeType.split('/')[1], false, 'ios-download');
       }
       
       showToast({
-        type: 'info',
-        message: 'Tekan dan tahan untuk menyimpan ke Galeri'
+        type: 'success',
+        message: 'File berhasil diunduh. Cek di Files atau Galeri Anda.'
       });
       
-      return { success: true, method: 'ios-tab' };
+      return { success: true, method: 'ios-download' };
     }
     
     // Strategy 3: Standard download link (Android Chrome, Desktop)

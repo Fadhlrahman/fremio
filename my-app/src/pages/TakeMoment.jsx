@@ -552,7 +552,7 @@ export default function TakeMoment() {
   const previousCameraActiveRef = useRef(null);
   const mobileContentRef = useRef(null);
 
-  // Check camera permission on mount and auto-start camera
+  // Check camera permission on mount (step 1)
   useEffect(() => {
     const checkPermission = async () => {
       try {
@@ -563,16 +563,7 @@ export default function TakeMoment() {
           // Already granted, no need to show primer
           setPermissionChecked(true);
           setShowPermissionPrimer(false);
-          console.log('✅ Camera permission already granted - Auto-starting camera...');
-          
-          // Auto-start camera when permission is already granted
-          try {
-            await startCamera(isUsingBackCamera ? "environment" : "user");
-            console.log('✅ Camera auto-started successfully');
-          } catch (cameraError) {
-            console.error('❌ Failed to auto-start camera:', cameraError);
-            setCameraError('Gagal mengaktifkan kamera. Silakan coba lagi.');
-          }
+          console.log('✅ Camera permission already granted');
         } else if (permStatus.status === 'denied') {
           // Denied, show error and upload option
           setPermissionChecked(true);
@@ -592,7 +583,7 @@ export default function TakeMoment() {
     };
     
     checkPermission();
-  }, [startCamera, isUsingBackCamera]);
+  }, []);
 
   // Auto-scroll to content area on mobile when page loads
   useEffect(() => {
@@ -604,6 +595,28 @@ export default function TakeMoment() {
       return () => clearTimeout(timer);
     }
   }, [isMobile]);
+
+  // Auto-start camera after permission is checked (step 2 - after startCamera is defined)
+  useEffect(() => {
+    // Only auto-start if permission is checked and granted, and camera is not already active
+    if (!permissionChecked || showPermissionPrimer || cameraActive || cameraError) {
+      return;
+    }
+    
+    console.log('🎥 Auto-starting camera after permission check...');
+    
+    const autoStart = async () => {
+      try {
+        await startCamera(isUsingBackCamera ? "environment" : "user");
+        console.log('✅ Camera auto-started successfully');
+      } catch (error) {
+        console.error('❌ Failed to auto-start camera:', error);
+        // Don't set error here, let startCamera handle it
+      }
+    };
+    
+    autoStart();
+  }, [permissionChecked, showPermissionPrimer, cameraActive, cameraError, startCamera, isUsingBackCamera]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;

@@ -596,28 +596,6 @@ export default function TakeMoment() {
     }
   }, [isMobile]);
 
-  // Auto-start camera after permission is checked (step 2 - after startCamera is defined)
-  useEffect(() => {
-    // Only auto-start if permission is checked and granted, and camera is not already active
-    if (!permissionChecked || showPermissionPrimer || cameraActive || cameraError) {
-      return;
-    }
-    
-    console.log('🎥 Auto-starting camera after permission check...');
-    
-    const autoStart = async () => {
-      try {
-        await startCamera(isUsingBackCamera ? "environment" : "user");
-        console.log('✅ Camera auto-started successfully');
-      } catch (error) {
-        console.error('❌ Failed to auto-start camera:', error);
-        // Don't set error here, let startCamera handle it
-      }
-    };
-    
-    autoStart();
-  }, [permissionChecked, showPermissionPrimer, cameraActive, cameraError, startCamera, isUsingBackCamera]);
-
   useEffect(() => {
     if (typeof document === "undefined") return;
     if (document.getElementById(MIRRORED_VIDEO_STYLE_ID)) return;
@@ -4730,6 +4708,33 @@ export default function TakeMoment() {
     scheduleStorageWrite,
     stopCamera,
   ]);
+
+  // Auto-start camera after permission is checked and granted
+  useEffect(() => {
+    // Only auto-start if permission is checked, granted, and camera is not already active
+    if (!permissionChecked || showPermissionPrimer || cameraActive) {
+      return;
+    }
+    
+    console.log('🎥 Auto-starting camera after permission check...', {
+      permissionChecked,
+      showPermissionPrimer,
+      cameraActive,
+      isUsingBackCamera
+    });
+    
+    const autoStart = async () => {
+      try {
+        await startCamera(isUsingBackCamera ? "environment" : "user");
+        console.log('✅ Camera auto-started successfully');
+      } catch (error) {
+        console.error('❌ Failed to auto-start camera:', error);
+        // Don't set error here, let startCamera handle it
+      }
+    };
+    
+    autoStart();
+  }, [permissionChecked, showPermissionPrimer, cameraActive, isUsingBackCamera, startCamera]);
 
   const renderEditorTransitionOverlay = () => {
     if (!isEditorTransitioning) return null;

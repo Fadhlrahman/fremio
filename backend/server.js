@@ -86,9 +86,6 @@ app.use(helmet({
 app.use(compression());
 app.use(morgan(isProduction ? "combined" : "dev"));
 
-// Apply general rate limiting
-app.use(generalLimiter);
-
 // CORS - Allow all origins for static files and API
 app.use(
   cors({
@@ -98,6 +95,15 @@ app.use(
     allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
+
+// CRITICAL: Handle OPTIONS preflight before any other middleware
+app.options('*', (req, res) => {
+  res.status(204).end();
+});
+
+// Apply general rate limiting
+app.use(generalLimiter);
+
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 

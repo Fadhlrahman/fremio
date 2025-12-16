@@ -141,36 +141,47 @@ export const downloadToGallery = async (source, filename, mimeType = 'image/png'
     // Strategy 2: Direct download (Fallback for all devices)
     console.log('📥 Using direct download method');
     
-    // For iOS Safari: Use direct download with proper attributes
+    // For iOS Safari: Convert to data URL to avoid preview opening
     if (device.isIOS && device.isSafari) {
-      // Try direct download first - iOS 13+ supports this
-      const dataUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = dataUrl;
-      a.download = filename;
-      a.style.display = 'none';
-      
-      // For iOS, we need to trigger download in a user gesture context
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      
-      // Cleanup
-      setTimeout(() => {
-        URL.revokeObjectURL(dataUrl);
-      }, 1000);
-      
-      // Track download
-      if (frameId) {
-        await trackDownload(frameId, frameName, mimeType.split('/')[1], false, 'ios-download');
+      try {
+        // Convert blob to data URL for iOS to avoid preview tab
+        const reader = new FileReader();
+        const dataUrl = await new Promise((resolve, reject) => {
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        
+        // Create download link with data URL
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = filename;
+        a.style.display = 'none';
+        
+        // Trigger download immediately in user gesture context
+        document.body.appendChild(a);
+        a.click();
+        
+        // Immediate cleanup to prevent preview
+        setTimeout(() => {
+          document.body.removeChild(a);
+        }, 50);
+        
+        // Track download
+        if (frameId) {
+          await trackDownload(frameId, frameName, mimeType.split('/')[1], false, 'ios-download');
+        }
+        
+        showToast({
+          type: 'success',
+          message: 'Foto berhasil disimpan ke Downloads!'
+        });
+        
+        return { success: true, method: 'ios-download' };
+      } catch (iosError) {
+        console.log('iOS download failed, using fallback:', iosError);
+        // Continue to fallback method
       }
-      
-      showToast({
-        type: 'success',
-        message: 'File berhasil diunduh. Cek di Files atau Galeri Anda.'
-      });
-      
-      return { success: true, method: 'ios-download' };
     }
     
     // Strategy 3: Standard download link (Android Chrome, Desktop)

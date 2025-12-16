@@ -552,7 +552,7 @@ export default function TakeMoment() {
   const previousCameraActiveRef = useRef(null);
   const mobileContentRef = useRef(null);
 
-  // Check camera permission on mount
+  // Check camera permission on mount and auto-start camera
   useEffect(() => {
     const checkPermission = async () => {
       try {
@@ -563,7 +563,16 @@ export default function TakeMoment() {
           // Already granted, no need to show primer
           setPermissionChecked(true);
           setShowPermissionPrimer(false);
-          console.log('✅ Camera permission already granted');
+          console.log('✅ Camera permission already granted - Auto-starting camera...');
+          
+          // Auto-start camera when permission is already granted
+          try {
+            await startCamera(isUsingBackCamera ? "environment" : "user");
+            console.log('✅ Camera auto-started successfully');
+          } catch (cameraError) {
+            console.error('❌ Failed to auto-start camera:', cameraError);
+            setCameraError('Gagal mengaktifkan kamera. Silakan coba lagi.');
+          }
         } else if (permStatus.status === 'denied') {
           // Denied, show error and upload option
           setPermissionChecked(true);
@@ -583,7 +592,7 @@ export default function TakeMoment() {
     };
     
     checkPermission();
-  }, []);
+  }, [startCamera, isUsingBackCamera]);
 
   // Auto-scroll to content area on mobile when page loads
   useEffect(() => {
@@ -2566,8 +2575,16 @@ export default function TakeMoment() {
       if (result.granted) {
         await trackCameraPermission('granted');
         setCameraError(null);
-        console.log('✅ Camera permission granted');
-        // Camera will auto-start from existing logic
+        console.log('✅ Camera permission granted - Auto-starting camera...');
+        
+        // Auto-start camera immediately after permission granted
+        try {
+          await startCamera(isUsingBackCamera ? "environment" : "user");
+          console.log('✅ Camera auto-started after permission grant');
+        } catch (cameraError) {
+          console.error('❌ Failed to auto-start camera after permission:', cameraError);
+          setCameraError('Gagal mengaktifkan kamera. Silakan coba lagi.');
+        }
       } else {
         await trackCameraPermission('denied', 'user_denied');
         setCameraError('Izin kamera ditolak. Silakan gunakan opsi upload foto.');
@@ -2582,7 +2599,7 @@ export default function TakeMoment() {
       await trackCameraPermission('error', error.message);
       setCameraError(error.message);
     }
-  }, [showToast]);
+  }, [showToast, startCamera, isUsingBackCamera]);
 
   // Handle skip permission (use upload only)
   const handleSkipCameraPermission = useCallback(async () => {

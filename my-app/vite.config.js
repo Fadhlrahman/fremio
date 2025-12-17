@@ -37,6 +37,9 @@ const buildTimestamp = Date.now().toString(36);
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [tailwindcss(), react()],
+  define: {
+    __BUILD_TIMESTAMP__: JSON.stringify(buildTimestamp),
+  },
   base: process.env.NODE_ENV === 'production' ? "/" : "/fremio/", // production: /, development: /fremio/
   server: {
     host: '0.0.0.0',

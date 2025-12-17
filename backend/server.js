@@ -97,9 +97,13 @@ app.use(
 );
 
 // CRITICAL: Handle OPTIONS preflight before any other middleware
-app.options('*', (req, res) => {
-  res.status(204).end();
-});
+app.options('*', cors({
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 204,
+}));
 
 // Apply general rate limiting
 app.use(generalLimiter);

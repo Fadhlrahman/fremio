@@ -70,6 +70,8 @@ app.use("/api/analytics/track", analyticsLimiter);
 // CORS - allow frontend
 const allowedOrigins = [
   process.env.FRONTEND_URL || "http://localhost:5173",
+  "https://fremio.id",
+  "https://www.fremio.id",
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:5180",

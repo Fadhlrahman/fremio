@@ -3673,7 +3673,8 @@ export default function EditPhoto() {
                 e.target.style.transform = "translateY(0)";
               }}
               onClick={async () => {
-                console.log("🎨 Memulai download dengan canvas manual...");
+                console.log("🎨 [v3.0-16Dec-FINAL] Memulai download dengan canvas manual...");
+                console.log("🔥 USER CACHE CHECK: If you see this log, you are using the LATEST code!");
 
                 try {
                   // Buat canvas baru
@@ -4064,33 +4065,23 @@ export default function EditPhoto() {
                   };
 
                   // Load dan draw background photo
+                  // NOTE: Background photo is FRAME BACKGROUND (not user photo), so NO FILTER should be applied
                   if (
                     backgroundPhotoElement &&
                     backgroundPhotoElement.data?.image
                   ) {
                     try {
                       const bgImgUrl = getOriginalUrl(backgroundPhotoElement.data.image);
-                      console.log("🖼️ Loading background photo:", bgImgUrl.substring(0, 80) + "...");
+                      console.log("🖼️ Loading background photo (FRAME - no filter):", bgImgUrl.substring(0, 80) + "...");
                       const bgImg = await loadImageWithFallback(bgImgUrl);
                       
-                      // ✅ Apply filter using manual pixel manipulation (works on all browsers)
-                      let sourceCanvas;
-                      if (isFilterActive) {
-                        sourceCanvas = applyFilterToImage(bgImg, filterValues);
-                        console.log("  🎨 Background filter applied via pixel manipulation");
-                      } else {
-                        // No filter needed, use original image directly
-                        sourceCanvas = document.createElement("canvas");
-                        sourceCanvas.width = bgImg.width;
-                        sourceCanvas.height = bgImg.height;
-                        sourceCanvas.getContext("2d").drawImage(bgImg, 0, 0);
-                      }
-                      
+                      // ❌ NO FILTER for frame background - this is NOT a user photo
+                      // Frame background should always retain original colors
                       ctx.save();
-                      // Draw dengan object-fit: cover using filtered canvas
-                      drawImageCover(ctx, sourceCanvas, 0, 0, 1080, 1920);
+                      // Draw dengan object-fit: cover - original image, no filter
+                      drawImageCover(ctx, bgImg, 0, 0, 1080, 1920);
                       ctx.restore();
-                      console.log("✅ Background photo drawn successfully");
+                      console.log("✅ Background photo drawn successfully (NO FILTER - frame background)");
                     } catch (bgError) {
                       console.error("❌ Failed to load background photo:", bgError);
                     }
@@ -4140,13 +4131,39 @@ export default function EditPhoto() {
                       try {
                         const img = await loadImageWithFallback(element.data.image);
                         console.log(`  📸 Image loaded successfully, drawing to canvas...`);
+
+                        // IMPORTANT: Only photo slots should receive the active filter.
+                        // Non-slot uploads (stickers/logos/decor) must remain unfiltered like in the preview.
+                        const isPhotoSlot =
+                          element.type === "photo" ||
+                          (element.type === "upload" &&
+                            Number.isFinite(element.data?.photoIndex));
+                        
+                        // Check if this is a frame overlay (should NOT be filtered)
+                        // Multiple checks to ensure ALL frame-related elements are excluded
+                        const isFrameOverlay = element.data?.isOverlay === true || 
+                                             element.zIndex >= 500 || 
+                                             element.type === "frame-overlay" ||
+                                             element.id?.includes("frame") ||
+                                             element.id?.includes("overlay");
+                        
+                        console.log(`  🔍 [v3.0-16Dec-FINAL] Element ID=${element.id}, type=${element.type}, photoIndex=${element.data?.photoIndex}, isPhotoSlot=${isPhotoSlot}, isOverlay=${element.data?.isOverlay}, zIndex=${element.zIndex}, isFrameOverlay=${isFrameOverlay}`);
                         
                         // ✅ Apply filter using manual pixel manipulation (works on all browsers)
+                        // Apply ONLY for photo slots, and skip for frame overlays
                         let sourceCanvas;
-                        if (isFilterActive) {
+                        if (isFilterActive && isPhotoSlot && !isFrameOverlay) {
                           sourceCanvas = applyFilterToImage(img, filterValues);
                           console.log(`  🎨 Filter applied via pixel manipulation`);
+                        } else if (isFrameOverlay) {
+                          // Frame overlay - NO FILTER
+                          sourceCanvas = document.createElement("canvas");
+                          sourceCanvas.width = img.width;
+                          sourceCanvas.height = img.height;
+                          sourceCanvas.getContext("2d").drawImage(img, 0, 0);
+                          console.log(`  ⏭️ FRAME OVERLAY SKIPPED - NO FILTER APPLIED`);
                         } else {
+                          // Non-slot upload (sticker/logo/etc) OR no active filter - NO FILTER
                           // No filter needed, draw original image to temp canvas
                           sourceCanvas = document.createElement("canvas");
                           sourceCanvas.width = img.width;
@@ -4371,6 +4388,13 @@ export default function EditPhoto() {
                         drawY = 0;
                       }
 
+                      // ✅ CRITICAL: Reset any filter/composite settings before drawing frame
+                      // Frame overlay should NEVER be affected by photo filters
+                      ctx.save();
+                      ctx.filter = "none";
+                      ctx.globalCompositeOperation = "source-over";
+                      ctx.globalAlpha = 1;
+                      
                       ctx.drawImage(
                         frameImg,
                         drawX,
@@ -4378,6 +4402,8 @@ export default function EditPhoto() {
                         drawWidth,
                         drawHeight
                       );
+                      
+                      ctx.restore();
 
                       // Store actual frame dimensions for cropping
                       finalCanvasWidth = Math.round(drawWidth);

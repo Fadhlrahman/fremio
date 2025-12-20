@@ -124,17 +124,47 @@ const Pricing = () => {
         throw new Error(response.message || "Failed to create payment");
       }
 
+      const orderId = response.data?.orderId;
+
+      const syncAccess = async () => {
+        try {
+          if (orderId) {
+            await paymentService.checkStatus(orderId);
+          } else {
+            // Fallback if orderId missing: reconcile latest pending transaction
+            await paymentService.reconcileLatest?.();
+          }
+          const accessResponse = await paymentService.getAccess();
+          if (accessResponse.success && accessResponse.hasAccess) {
+            navigate("/frames");
+            return true;
+          }
+          return false;
+        } catch (e) {
+          console.error("Sync access after payment error:", e);
+          return false;
+        }
+      };
+
       // Open Midtrans Snap
       paymentService.openSnapPayment(response.data.token, {
         onSuccess: (result) => {
           console.log("Payment success:", result);
-          alert("Pembayaran berhasil! Akses frame Anda sudah aktif.");
-          navigate("/frames");
+          alert(
+            "Pembayaran berhasil. Sedang memverifikasi akses... Jika belum terbuka, tunggu beberapa detik lalu coba lagi."
+          );
+          syncAccess().then((ok) => {
+            if (!ok) {
+              setLoading(false);
+            }
+          });
         },
         onPending: (result) => {
           console.log("Payment pending:", result);
-          alert("Pembayaran pending. Silakan selesaikan pembayaran Anda.");
-          navigate("/dashboard");
+          alert(
+            "Pembayaran pending. Silakan selesaikan pembayaran. Kami akan cek statusnya secara otomatis."
+          );
+          syncAccess().finally(() => setLoading(false));
         },
         onError: (result) => {
           console.error("Payment error:", result);

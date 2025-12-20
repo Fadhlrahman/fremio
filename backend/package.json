@@ -5,9 +5,9 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
-    "dev:old": "nodemon server.js",
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "dev:old": "nodemon src/index.js",
     "backup": "bash scripts/backup.sh",
     "restore": "bash scripts/restore.sh"
   },

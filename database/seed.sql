@@ -3,6 +3,17 @@
 -- Sample data for development/testing
 -- ============================================
 
+-- Local admin user (for localhost/staging)
+-- password: admin123
+INSERT INTO users (email, password_hash, display_name, role)
+VALUES (
+    'admin@fremio.com',
+    '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4.M5nwZvvGNHhHxm',
+    'Fremio Admin',
+    'admin'
+)
+ON CONFLICT (email) DO NOTHING;
+
 -- Sample frames
 INSERT INTO frames (id, name, description, category, image_path, slots, max_captures, created_by)
 VALUES 

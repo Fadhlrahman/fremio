@@ -1,11 +1,9 @@
 // Draft Service - untuk cloud storage drafts
 
 const getApiUrl = () => {
-  // Check if we're on staging or production
-  if (window.location.hostname === '72.61.210.203' || window.location.hostname === 'localhost') {
-    return 'http://72.61.210.203/api';
-  }
-  return import.meta.env.VITE_API_URL || 'https://api.fremio.id/api';
+  // IMPORTANT: never default to production from localhost.
+  // Prefer explicit VITE_API_URL; otherwise use same-origin /api (Vite should proxy this in dev).
+  return import.meta.env.VITE_API_URL || '/api';
 };
 
 class DraftService {

@@ -79,6 +79,19 @@ class PaymentService {
   }
 
   /**
+   * Reconcile latest pending transaction (fallback if orderId is unknown)
+   */
+  async reconcileLatest() {
+    try {
+      const response = await api.post("/payment/reconcile-latest", {});
+      return response;
+    } catch (error) {
+      console.error("Reconcile latest error:", error);
+      throw error.response?.data || error;
+    }
+  }
+
+  /**
    * Open Midtrans Snap payment popup
    * @param {string} snapToken - Snap token from backend
    * @param {Function} onSuccess - Success callback

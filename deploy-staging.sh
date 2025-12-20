@@ -18,8 +18,12 @@ NC='\033[0m' # No Color
 # Staging Server Config
 STAGING_IP="72.61.210.203"
 STAGING_USER="root"
-STAGING_PASS="IO&SBrEc2S?G0iDA-7Po"
 STAGING_API_URL="http://72.61.210.203/api"
+
+# IMPORTANT: Do NOT hardcode passwords in repo.
+# If you want password-based SSH with sshpass, export STAGING_PASS in your shell.
+# Recommended: use SSH keys and leave STAGING_PASS empty.
+STAGING_PASS="${STAGING_PASS:-}"
 
 # Paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -53,20 +57,30 @@ print_info() {
 
 # Check if sshpass is installed
 check_dependencies() {
-    if ! command -v sshpass &> /dev/null; then
-        print_error "sshpass tidak ditemukan. Install dengan: brew install hudochenkov/sshpass/sshpass"
-        exit 1
+    if [[ -n "$STAGING_PASS" ]]; then
+        if ! command -v sshpass &> /dev/null; then
+            print_error "sshpass tidak ditemukan. Install dengan: brew install hudochenkov/sshpass/sshpass"
+            exit 1
+        fi
     fi
 }
 
 # SSH command helper
 ssh_staging() {
-    sshpass -p "$STAGING_PASS" ssh -o StrictHostKeyChecking=no "$STAGING_USER@$STAGING_IP" "$1"
+    if [[ -n "$STAGING_PASS" ]]; then
+        sshpass -p "$STAGING_PASS" ssh -o StrictHostKeyChecking=no "$STAGING_USER@$STAGING_IP" "$1"
+    else
+        ssh -o StrictHostKeyChecking=no "$STAGING_USER@$STAGING_IP" "$1"
+    fi
 }
 
 # SCP command helper
 scp_staging() {
-    sshpass -p "$STAGING_PASS" scp -o StrictHostKeyChecking=no -r "$1" "$STAGING_USER@$STAGING_IP:$2"
+    if [[ -n "$STAGING_PASS" ]]; then
+        sshpass -p "$STAGING_PASS" scp -o StrictHostKeyChecking=no -r "$1" "$STAGING_USER@$STAGING_IP:$2"
+    else
+        scp -o StrictHostKeyChecking=no -r "$1" "$STAGING_USER@$STAGING_IP:$2"
+    fi
 }
 
 # Deploy Frontend
@@ -91,6 +105,12 @@ VITE_API_URL=$STAGING_API_URL
 VITE_API_BASE_URL=http://$STAGING_IP
 VITE_APP_NAME=Fremio (Staging)
 VITE_APP_URL=http://$STAGING_IP
+
+# Midtrans (Snap) - Sandbox
+# Provide this via shell when running the script, e.g.:
+#   export VITE_MIDTRANS_CLIENT_KEY="Mid-client-..."
+VITE_MIDTRANS_CLIENT_KEY=${VITE_MIDTRANS_CLIENT_KEY:-}
+VITE_MIDTRANS_IS_PRODUCTION=false
 EOF
     
     # Use staging env for build

@@ -56,6 +56,7 @@ File: `database/migrations/002_create_payment_system.sql`
 POST   /api/payment/create          - Create payment transaction
 POST   /api/payment/webhook         - Midtrans webhook handler
 GET    /api/payment/status/:orderId - Check payment status
+POST   /api/payment/reconcile-latest - Reconcile latest pending payment (fallback)
 GET    /api/payment/history         - Get user payment history
 GET    /api/payment/access          - Get user's active access
 GET    /api/payment/can-purchase    - Check if user can purchase
@@ -116,7 +117,21 @@ MIDTRANS_IS_PRODUCTION=false
 
 # Frontend URL (for payment callbacks)
 FRONTEND_URL=http://localhost:5173
+
+# Optional: Safety rollout (recommended for first production tests)
+# PAYMENT_CHECKOUT_MODE: disabled | whitelist | enabled
+# - disabled: semua user tidak bisa checkout
+# - whitelist: hanya user tertentu yang bisa checkout
+# - enabled: semua user bisa checkout
+#
+# PAYMENT_CHECKOUT_WHITELIST: daftar email atau userId (comma-separated)
+# contoh: PAYMENT_CHECKOUT_WHITELIST=test1@gmail.com,test2@gmail.com,uid_abc
+PAYMENT_CHECKOUT_MODE=enabled
+PAYMENT_CHECKOUT_WHITELIST=
 ```
+
+> Catatan (Sandbox): status pembayaran yang benar datang dari webhook (Payment Notification), bukan dari redirect user.
+> Endpoint webhook backend di project ini: `/api/payment/webhook` (full path: `https://<domain-backend>/api/payment/webhook`).
 
 **Cara dapat Midtrans Keys:**
 

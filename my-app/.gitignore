@@ -12,6 +12,10 @@ node_modules
 dist-ssr
 *.local
 
+# Local env with secrets (never commit)
+.env.local
+.env.*.local
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

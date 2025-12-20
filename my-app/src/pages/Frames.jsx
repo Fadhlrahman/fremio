@@ -268,13 +268,19 @@ export default function Frames() {
         const loadedCustomFrames = await unifiedFrameService.getAllFrames();
         console.log("🎨 Custom frames loaded:", loadedCustomFrames.length);
 
+        // Never show hidden frames on user-facing frames page
+        const visibleFrames = (loadedCustomFrames || []).filter((frame) => {
+          const isHidden = !!(frame?.isHidden ?? frame?.is_hidden);
+          return !isHidden;
+        });
+
         // Sort by displayOrder globally first
-        loadedCustomFrames.sort(
+        visibleFrames.sort(
           (a, b) => (a.displayOrder || 999) - (b.displayOrder || 999)
         );
 
-        if (loadedCustomFrames.length > 0) {
-          loadedCustomFrames.forEach((f, idx) => {
+        if (visibleFrames.length > 0) {
+          visibleFrames.forEach((f, idx) => {
             console.log(
               `  ${idx + 1}. ${f.name} (ID: ${f.id}, Order: ${
                 f.displayOrder ?? "N/A"
@@ -291,7 +297,7 @@ export default function Frames() {
           console.warn("⚠️ NO CUSTOM FRAMES FOUND!");
         }
 
-        setCustomFrames(loadedCustomFrames);
+        setCustomFrames(visibleFrames);
 
         // Check user access (only if logged in)
         if (currentUser) {

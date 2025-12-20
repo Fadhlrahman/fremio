@@ -27,7 +27,7 @@ const FLUSH_INTERVAL = 5000; // 5 seconds
  * Returns the base API URL with /api prefix
  */
 const getApiUrl = () => {
-  const url = VPS_API_URL || 'http://localhost:3000/api';
+  const url = VPS_API_URL || '/api';
   // Ensure URL ends with /api
   return url.endsWith('/api') ? url : `${url}/api`;
 };

@@ -10,6 +10,7 @@ import {
 import validate from "../middleware/validator.js";
 import { uploadImage, handleUploadError } from "../middleware/upload.js";
 import storageService from "../services/storageService.js";
+import paymentDB from "../services/paymentDatabaseService.js";
 import pg from "pg";
 
 const router = express.Router();
@@ -22,6 +23,55 @@ const pool = new pg.Pool({
   user: process.env.DB_USER || "salwa",
   password: process.env.DB_PASSWORD || "",
 });
+
+const isIncludeHiddenRequested = (value) => {
+  const normalized = String(value || "").toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+};
+
+const isAdminForRequest = async (req) => {
+  if (!req?.user) return false;
+
+  if (req.user.role === "admin") return true;
+
+  const userId = req.user.userId || req.user.uid || req.user.id;
+  const email = req.user.email;
+
+  // Prefer PostgreSQL role lookup when available
+  try {
+    if (userId || email) {
+      const result = await pool.query(
+        "SELECT role FROM users WHERE (id = $1) OR (email = $2) LIMIT 1",
+        [userId || null, email || null]
+      );
+      if (result.rows?.[0]?.role === "admin") {
+        req.user.role = "admin";
+        return true;
+      }
+    }
+  } catch (e) {
+    // Ignore DB lookup errors and fallback below
+  }
+
+  // Fallback: Firestore role lookup (for Firebase-auth users)
+  try {
+    const firestore = getFirestore();
+    if (firestore) {
+      const docId = req.user.uid || userId;
+      if (docId) {
+        const userDoc = await firestore.collection("users").doc(String(docId)).get();
+        if (userDoc.exists && userDoc.data()?.role === "admin") {
+          req.user.role = "admin";
+          return true;
+        }
+      }
+    }
+  } catch (e) {
+    // Ignore Firestore errors
+  }
+
+  return false;
+};
 
 /**
  * GET /api/frames
@@ -36,10 +86,40 @@ router.get(
   optionalAuth,
   async (req, res) => {
     try {
+      const publicBaseUrl =
+        process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
+
+      // Prevent stale lists when frames are hidden/unhidden
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+      res.setHeader("Surrogate-Control", "no-store");
+
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 50;
       const category = req.query.category;
+      const includeHidden = isIncludeHiddenRequested(req.query.includeHidden);
+      const allowHidden = includeHidden ? await isAdminForRequest(req) : false;
       const offset = (page - 1) * limit;
+
+      // Determine user access for premium frames (for redaction)
+      let accessibleSet = new Set();
+      if (!allowHidden && req.user) {
+        const userId = req.user?.uid || req.user?.userId || req.user?.id;
+        if (userId) {
+          try {
+            const accessibleFrameIds = await paymentDB.getUserAccessibleFrames(
+              String(userId)
+            );
+            accessibleSet = new Set(
+              (accessibleFrameIds || []).map((id) => String(id))
+            );
+          } catch (e) {
+            // If payment DB is unavailable, default to least-privilege
+            accessibleSet = new Set();
+          }
+        }
+      }
 
       let queryText = `
         SELECT id, name, description, category, image_path, thumbnail_path, 
@@ -47,8 +127,12 @@ router.get(
                download_count, created_by, created_at, updated_at,
                layout, canvas_background, canvas_width, canvas_height, display_order, is_hidden
         FROM frames 
-        WHERE is_active = true AND is_hidden = false
+        WHERE is_active = true
       `;
+
+      if (!allowHidden) {
+        queryText += ` AND is_hidden = false`;
+      }
       const queryParams = [];
       let paramIndex = 1;
 
@@ -64,7 +148,10 @@ router.get(
       const result = await pool.query(queryText, queryParams);
 
       // Get total count
-      let countQuery = "SELECT COUNT(*) FROM frames WHERE is_active = true AND is_hidden = false";
+      let countQuery = "SELECT COUNT(*) FROM frames WHERE is_active = true";
+      if (!allowHidden) {
+        countQuery += " AND is_hidden = false";
+      }
       const countParams = [];
       if (category) {
         countQuery += " AND category = $1";
@@ -75,10 +162,23 @@ router.get(
 
       // Format frames for response
       const frames = result.rows.map((frame) => {
-        const slots = typeof frame.slots === "string" ? JSON.parse(frame.slots) : (frame.slots || []);
-        const layout = typeof frame.layout === "string" ? JSON.parse(frame.layout) : (frame.layout || {});
+        const isPremium = !!frame.is_premium;
+        const canSeePremiumDetails = allowHidden || !isPremium || accessibleSet.has(String(frame.id));
+
+        const slotsRaw = typeof frame.slots === "string" ? JSON.parse(frame.slots) : (frame.slots || []);
+        const layoutRaw = typeof frame.layout === "string" ? JSON.parse(frame.layout) : (frame.layout || {});
+
+        // IMPORTANT: Prevent premium frames from being usable without access.
+        // We still allow preview (name + thumbnail), but redact slots/layout elements.
+        const slots = canSeePremiumDetails ? slotsRaw : [];
+        const layout = canSeePremiumDetails
+          ? layoutRaw
+          : {
+              ...(layoutRaw || {}),
+              elements: [],
+            };
         // Construct full URL for images
-        const baseUrl = "https://api.fremio.id";
+        const baseUrl = publicBaseUrl;
         const imageUrl = frame.image_path?.startsWith("http")
           ? frame.image_path
           : `${baseUrl}${frame.image_path}`;
@@ -96,8 +196,12 @@ router.get(
           thumbnailUrl: thumbnailUrl,
           slots: slots,
           maxCaptures: frame.max_captures,
-          isPremium: frame.is_premium,
+          isPremium: isPremium,
+          isLocked: isPremium && !canSeePremiumDetails,
           isActive: frame.is_active,
+          // Visibility (for admin UI and defensive client filtering)
+          isHidden: frame.is_hidden,
+          is_hidden: frame.is_hidden,
           viewCount: frame.view_count,
           downloadCount: frame.download_count,
           createdBy: frame.created_by,
@@ -144,6 +248,8 @@ router.get(
  */
 router.get("/:id", optionalAuth, async (req, res) => {
   try {
+    const publicBaseUrl =
+      process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
     const result = await pool.query(
       `SELECT * FROM frames WHERE id = $1`,
       [req.params.id]
@@ -157,6 +263,38 @@ router.get("/:id", optionalAuth, async (req, res) => {
     }
 
     const frame = result.rows[0];
+
+    // If premium, require access to return full details.
+    // For locked users, return 403 with minimal preview so frontend can redirect.
+    if (frame.is_premium) {
+      const isAdmin = await isAdminForRequest(req);
+      if (!isAdmin) {
+        const userId = req.user?.uid || req.user?.userId || req.user?.id;
+        const accessibleFrameIds = userId
+          ? await paymentDB.getUserAccessibleFrames(String(userId)).catch(() => [])
+          : [];
+        const allowed = new Set((accessibleFrameIds || []).map((id) => String(id)));
+        if (!allowed.has(String(frame.id))) {
+          return res.status(403).json({
+            success: false,
+            message: "Premium frame: akses diperlukan",
+            redirect: "/pricing",
+            frame: {
+              id: frame.id,
+              name: frame.name,
+              category: frame.category,
+              isPremium: true,
+              imageUrl: frame.image_path?.startsWith("http")
+                ? frame.image_path
+                : `${publicBaseUrl}${frame.image_path}`,
+              thumbnailUrl: (frame.thumbnail_path || frame.image_path)?.startsWith("http")
+                ? (frame.thumbnail_path || frame.image_path)
+                : `${publicBaseUrl}${frame.thumbnail_path || frame.image_path}`,
+            },
+          });
+        }
+      }
+    }
 
     // Increment view count
     await pool.query(
@@ -175,7 +313,7 @@ router.get("/:id", optionalAuth, async (req, res) => {
         // Construct full URL for images
         imageUrl: frame.image_path?.startsWith("http")
           ? frame.image_path
-          : `https://api.fremio.id${frame.image_path}`,
+          : `${publicBaseUrl}${frame.image_path}`,
         slots: typeof frame.slots === "string" ? JSON.parse(frame.slots) : frame.slots,
         layout: typeof frame.layout === "string" ? JSON.parse(frame.layout) : frame.layout,
         canvasBackground: frame.canvas_background,
@@ -206,6 +344,8 @@ router.get("/:id", optionalAuth, async (req, res) => {
  */
 router.get("/:id/config", optionalAuth, async (req, res) => {
   try {
+    const publicBaseUrl =
+      process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
     const result = await pool.query(
       `SELECT * FROM frames WHERE id = $1`,
       [req.params.id]
@@ -219,6 +359,26 @@ router.get("/:id/config", optionalAuth, async (req, res) => {
     }
 
     const frame = result.rows[0];
+
+    // Block premium frame config for users without access.
+    if (frame.is_premium) {
+      const isAdmin = await isAdminForRequest(req);
+      if (!isAdmin) {
+        const userId = req.user?.uid || req.user?.userId || req.user?.id;
+        const accessibleFrameIds = userId
+          ? await paymentDB.getUserAccessibleFrames(String(userId)).catch(() => [])
+          : [];
+        const allowed = new Set((accessibleFrameIds || []).map((id) => String(id)));
+        if (!allowed.has(String(frame.id))) {
+          return res.status(403).json({
+            success: false,
+            message: "Premium frame: akses diperlukan",
+            redirect: "/pricing",
+          });
+        }
+      }
+    }
+
     const slots = typeof frame.slots === "string" ? JSON.parse(frame.slots) : (frame.slots || []);
     const layout = typeof frame.layout === "string" ? JSON.parse(frame.layout) : (frame.layout || {});
     
@@ -229,7 +389,7 @@ router.get("/:id/config", optionalAuth, async (req, res) => {
     // Build image URL - use full URL
     const imageUrl = frame.image_path?.startsWith("http")
       ? frame.image_path
-      : `https://api.fremio.id${frame.image_path}`;
+      : `${publicBaseUrl}${frame.image_path}`;
 
     // Build designer elements from slots (photo placeholders)
     const photoElements = slots.map((s, i) => ({
@@ -336,6 +496,9 @@ router.post(
         tags,
         imagePath,
         image_path,
+        isPremium,
+        is_premium,
+        is_hidden,
         canvasBackground,
         canvasWidth,
         canvasHeight,
@@ -374,6 +537,15 @@ router.post(
       const finalImagePath = imagePath || image_path || null;
       const finalMaxCaptures = maxCaptures || max_captures || parsedSlots?.length || 1;
       const finalCategory = category || (categories && categories[0]) || "custom";
+      const finalIsHidden = Boolean(is_hidden);
+
+      // IMPORTANT: Admin uploads are treated as premium by default unless explicitly set.
+      const finalIsPremium =
+        is_premium !== undefined
+          ? Boolean(is_premium)
+          : isPremium !== undefined
+            ? Boolean(isPremium)
+            : true;
 
       // DEBUG: Log layout data
       console.log("📦 [CREATE FRAME] Layout data received:");
@@ -387,8 +559,8 @@ router.post(
       // Use PostgreSQL for VPS mode
       try {
         const result = await pool.query(
-          `INSERT INTO frames (id, name, description, category, image_path, slots, max_captures, layout, canvas_background, canvas_width, canvas_height, created_by, is_active)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true)
+          `INSERT INTO frames (id, name, description, category, image_path, slots, max_captures, layout, canvas_background, canvas_width, canvas_height, created_by, is_active, is_hidden, is_premium)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, $13, $14)
            ON CONFLICT (id) DO UPDATE SET
              name = EXCLUDED.name,
              description = EXCLUDED.description,
@@ -400,6 +572,8 @@ router.post(
              canvas_background = EXCLUDED.canvas_background,
              canvas_width = EXCLUDED.canvas_width,
              canvas_height = EXCLUDED.canvas_height,
+             is_hidden = EXCLUDED.is_hidden,
+             is_premium = EXCLUDED.is_premium,
              updated_at = NOW()
            RETURNING *`,
           [
@@ -415,6 +589,8 @@ router.post(
             canvasWidth || 1080,
             canvasHeight || 1920,
             createdByUserId,
+            finalIsHidden,
+            finalIsPremium,
           ]
         );
 
@@ -433,6 +609,8 @@ router.post(
             imagePath: frame.image_path,
             slots: frame.slots,
             maxCaptures: frame.max_captures,
+            is_hidden: frame.is_hidden,
+            isPremium: frame.is_premium,
           },
         });
       } catch (dbError) {
@@ -447,6 +625,9 @@ router.post(
               description: description || "",
               category: finalCategory,
               imagePath: finalImagePath,
+              is_hidden: finalIsHidden,
+              isPremium: finalIsPremium,
+              is_premium: finalIsPremium,
               slots: parsedSlots || [],
               maxCaptures: finalMaxCaptures,
               layout: parsedLayout,

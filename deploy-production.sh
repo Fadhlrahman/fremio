@@ -18,7 +18,7 @@ NC='\033[0m' # No Color
 PROD_HOST="api.fremio.id"
 PROD_USER="root"
 PROD_PORT="22"
-PROD_BACKEND_DIR="/var/www/fremio/backend"
+PROD_BACKEND_DIR="/var/www/fremio-backend"
 PROD_FRONTEND_DIR="/var/www/fremio/frontend"
 
 # Local Paths
@@ -176,7 +176,7 @@ deploy_backend() {
     
     # Restart PM2
     print_info "Restarting backend service..."
-    ssh "$PROD_USER@$PROD_HOST" "pm2 restart fremio-backend"
+    ssh "$PROD_USER@$PROD_HOST" "pm2 restart fremio-api"
     
     # Cleanup local
     rm -f /tmp/fremio-backend-prod.tar.gz

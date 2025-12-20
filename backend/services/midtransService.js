@@ -3,6 +3,9 @@
  * Handles all Midtrans payment operations
  */
 
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
 const midtransClient = require("midtrans-client");
 
 class MidtransService {
@@ -186,4 +189,4 @@ class MidtransService {
   }
 }
 
-module.exports = new MidtransService();
+export default new MidtransService();

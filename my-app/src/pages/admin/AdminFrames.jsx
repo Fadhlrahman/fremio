@@ -20,7 +20,7 @@ const AdminFrames = () => {
       console.log("AdminFrames loading...");
       console.log(`📡 Backend mode: ${unifiedFrameService.isVPSMode() ? 'VPS' : 'Firebase'}`);
       try {
-        const data = await unifiedFrameService.getAllFrames();
+        const data = await unifiedFrameService.getAllFrames({ includeHidden: true });
         console.log("Frames loaded:", data);
         // Sort by displayOrder initially
         const sortedData = [...data].sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));

@@ -104,6 +104,7 @@ export default function UploadFrame() {
   const [frameName, setFrameName] = useState("");
   const [frameDescription, setFrameDescription] = useState("");
   const [frameCategories, setFrameCategories] = useState(["Fremio Series"]);
+  const [hideAfterUpload, setHideAfterUpload] = useState(true);
 
   // Toast helper
   const showToast = useCallback((type, message, duration = 3200) => {
@@ -173,6 +174,7 @@ export default function UploadFrame() {
           if (frame) {
             setFrameName(frame.name || "");
             setFrameDescription(frame.description || "");
+            setHideAfterUpload(!!(frame?.isHidden ?? frame?.is_hidden));
             if (frame.categories && Array.isArray(frame.categories)) {
               setFrameCategories(frame.categories);
             } else if (frame.category) {
@@ -592,16 +594,74 @@ export default function UploadFrame() {
       const { width: canvasWidth, height: canvasHeight } = getCanvasDimensions(canvasAspectRatio);
 
       const uploadDataUrlToBackend = async (dataUrl) => {
+        // IMPORTANT: Do NOT send base64 to backend (can exceed JSON size limits and trigger 413)
+        // Upload as multipart to /api/upload/frame instead.
         const token = localStorage.getItem('fremio_token') || localStorage.getItem('auth_token');
         if (!token) throw new Error('No token provided');
 
-        const response = await fetch(`${VPS_API_URL}/upload/base64`, {
+        const originalBlob = await (await fetch(dataUrl)).blob();
+
+        const compressBlob = async (inputBlob) => {
+          try {
+            // Resize overlays to a sane maximum (canvas-sized) and compress.
+            const MAX_W = 1080;
+            const MAX_H = 1920;
+
+            const bitmap = await createImageBitmap(inputBlob);
+            const scale = Math.min(1, MAX_W / bitmap.width, MAX_H / bitmap.height);
+            const targetW = Math.max(1, Math.round(bitmap.width * scale));
+            const targetH = Math.max(1, Math.round(bitmap.height * scale));
+
+            const canvas = document.createElement('canvas');
+            canvas.width = targetW;
+            canvas.height = targetH;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return inputBlob;
+
+            ctx.drawImage(bitmap, 0, 0, targetW, targetH);
+
+            const toBlob = (type, quality) =>
+              new Promise((resolve) => {
+                try {
+                  canvas.toBlob((b) => resolve(b), type, quality);
+                } catch {
+                  resolve(null);
+                }
+              });
+
+            // Prefer WebP/JPEG for much smaller payloads.
+            const out =
+              (await toBlob('image/webp', 0.82)) ||
+              (await toBlob('image/jpeg', 0.82)) ||
+              (await toBlob('image/png', 0.92));
+
+            return out || inputBlob;
+          } catch {
+            return inputBlob;
+          }
+        };
+
+        const blob = await compressBlob(originalBlob);
+
+        // If compression didn't help, still try uploading; but cap extreme sizes to avoid 413.
+        const HARD_MAX = 8 * 1024 * 1024; // 8MB
+        if (blob.size > HARD_MAX) {
+          throw new Error(`Overlay terlalu besar (${Math.round(blob.size / 1024 / 1024)}MB). Kecilkan dulu (resize/kompres) lalu coba lagi.`);
+        }
+
+        const mimeType = blob.type || 'image/webp';
+        const ext = (mimeType.split('/')[1] || 'webp').replace(/[^a-z0-9]/gi, '').toLowerCase();
+        const file = new File([blob], `overlay_${Date.now()}.${ext || 'webp'}`, { type: mimeType });
+
+        const formData = new FormData();
+        formData.append('image', file);
+
+        const response = await fetch(`${VPS_API_URL}/upload/frame`, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ image: dataUrl, type: 'frame' })
+          body: formData,
         });
 
         const contentType = response.headers.get('content-type') || '';
@@ -820,7 +880,12 @@ export default function UploadFrame() {
               __isOverlay: true,
             };
           } catch (err) {
+            // If overlay upload fails, DO NOT continue (otherwise we'd send huge base64 in frameData and hit 413)
             console.warn("Error uploading overlay:", err);
+            throw new Error(
+              `Upload overlay gagal: ${err?.message || String(err)}. ` +
+                "Coba ulangi (atau pakai gambar overlay yang lebih kecil)."
+            );
           }
         }
 
@@ -844,6 +909,7 @@ export default function UploadFrame() {
         categories: frameCategories,
         maxCaptures: photoElements.length,
         duplicatePhotos: false,
+        is_hidden: hideAfterUpload,
         slots,
         createdBy: user?.email || "admin",
         canvasBackground,
@@ -1064,7 +1130,14 @@ export default function UploadFrame() {
       <div className="create-grid">
         {/* Tools Panel - Desktop */}
         {!isMobileView && (
-          <Motion.aside variants={panelMotion} initial="hidden" animate="visible" transition={{ delay: 0.05 }} className="create-panel create-panel--tools">
+          <Motion.aside
+            variants={panelMotion}
+            initial="hidden"
+            animate="visible"
+            transition={{ delay: 0.05 }}
+            className="create-panel create-panel--tools"
+            style={{ overflowY: "auto", overflowX: "hidden" }}
+          >
             <h2 className="create-panel__title">Tools</h2>
             <div className="create-tools__list">
               {toolButtons.map((button) => {
@@ -1143,6 +1216,32 @@ export default function UploadFrame() {
                     </label>
                   ))}
                 </div>
+              </div>
+
+              <div style={{ marginBottom: "12px" }}>
+                <label style={{ fontSize: "12px", color: "#6b7280", display: "block", marginBottom: "8px" }}>Visibilitas</label>
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    cursor: "pointer",
+                    padding: "8px",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: "8px",
+                    backgroundColor: "#fafafa",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={hideAfterUpload}
+                    onChange={(e) => setHideAfterUpload(e.target.checked)}
+                    style={{ width: "16px", height: "16px", accentColor: "#8b5cf6", cursor: "pointer" }}
+                  />
+                  <span style={{ fontSize: "13px", color: "#374151" }}>
+                    Hide setelah upload (tidak tampil di user)
+                  </span>
+                </label>
               </div>
             </div>
 

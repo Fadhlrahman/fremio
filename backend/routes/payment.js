@@ -3,11 +3,78 @@
  * Handles payment-related API endpoints
  */
 
-const express = require("express");
+import express from "express";
+import midtransService from "../services/midtransService.js";
+import paymentDB from "../services/paymentDatabaseService.js";
+import { verifyToken } from "../middleware/auth.js";
+
 const router = express.Router();
-const midtransService = require("../services/midtransService");
-const paymentDB = require("../services/paymentDatabaseService");
-const { verifyToken } = require("../src/middleware/auth");
+
+// Checkout gating to protect users during integration testing.
+// PAYMENT_CHECKOUT_MODE: disabled | whitelist | enabled (default: enabled)
+// PAYMENT_CHECKOUT_WHITELIST: comma-separated user IDs or emails allowed when mode=whitelist
+const getCheckoutMode = () => {
+  const mode = String(process.env.PAYMENT_CHECKOUT_MODE || "enabled").toLowerCase();
+  return ["disabled", "whitelist", "enabled"].includes(mode) ? mode : "enabled";
+};
+
+const isWhitelisted = ({ userId, email }) => {
+  const raw = String(process.env.PAYMENT_CHECKOUT_WHITELIST || "");
+  if (!raw.trim()) return false;
+  const allow = new Set(
+    raw
+      .split(",")
+      .map((v) => v.trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  if (userId && allow.has(String(userId).toLowerCase())) return true;
+  if (email && allow.has(String(email).toLowerCase())) return true;
+  return false;
+};
+
+const determinePackageIdsToGrant = ({ packages }) => {
+  // Deterministic package selection for the Rp 10.000 offer.
+  // Configure on staging/production via env:
+  // PAYMENT_GRANT_PACKAGE_IDS="1,2" (comma-separated)
+  let packageIds = [];
+  const configuredIds = String(process.env.PAYMENT_GRANT_PACKAGE_IDS || "")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .map((v) => Number(v))
+    .filter((n) => Number.isFinite(n));
+
+  if (configuredIds.length > 0) {
+    const available = new Set((packages || []).map((p) => Number(p.id)));
+    packageIds = configuredIds.filter((id) => available.has(id));
+  }
+
+  // Fallback: try to pick December + January packages by name
+  if (packageIds.length === 0) {
+    const picked = (packages || []).filter((p) => {
+      const name = String(p.name || "").toLowerCase();
+      return (
+        name.includes("dec") ||
+        name.includes("des") ||
+        name.includes("december") ||
+        name.includes("jan") ||
+        name.includes("januari") ||
+        name.includes("january") ||
+        name.includes("new year")
+      );
+    });
+
+    packageIds = picked.slice(0, 2).map((p) => p.id);
+  }
+
+  // Final fallback: just grant the first 2 active packages
+  if (packageIds.length === 0) {
+    packageIds = (packages || []).slice(0, 2).map((p) => p.id);
+  }
+
+  return packageIds;
+};
 
 /**
  * POST /api/payment/create
@@ -15,8 +82,32 @@ const { verifyToken } = require("../src/middleware/auth");
  */
 router.post("/create", verifyToken, async (req, res) => {
   try {
-    const userId = req.user.uid;
+    const userId = req.user?.uid || req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Autentikasi gagal: userId tidak ditemukan",
+      });
+    }
     const { email, name, phone } = req.body;
+
+    // Optional checkout gating (protect users while Midtrans integration is being tested)
+    const checkoutMode = getCheckoutMode();
+    if (checkoutMode === "disabled") {
+      return res.status(503).json({
+        success: false,
+        message:
+          "Checkout sedang ditutup sementara. Silakan coba lagi nanti.",
+      });
+    }
+
+    if (checkoutMode === "whitelist" && !isWhitelisted({ userId, email })) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Checkout belum dibuka untuk umum (mode testing). Silakan coba lagi nanti.",
+      });
+    }
 
     // Check if user already has active access
     const hasAccess = await paymentDB.hasActiveAccess(userId);
@@ -123,44 +214,7 @@ router.post("/webhook", async (req, res) => {
         });
       }
 
-      // Deterministic package selection for the Rp 10.000 offer.
-      // Configure on staging/production via env:
-      // PAYMENT_GRANT_PACKAGE_IDS="1,2" (comma-separated)
-      let packageIds = [];
-      const configuredIds = String(process.env.PAYMENT_GRANT_PACKAGE_IDS || "")
-        .split(",")
-        .map((v) => v.trim())
-        .filter(Boolean)
-        .map((v) => Number(v))
-        .filter((n) => Number.isFinite(n));
-
-      if (configuredIds.length > 0) {
-        const available = new Set(packages.map((p) => Number(p.id)));
-        packageIds = configuredIds.filter((id) => available.has(id));
-      }
-
-      // Fallback: try to pick December + January packages by name
-      if (packageIds.length === 0) {
-        const picked = packages.filter((p) => {
-          const name = String(p.name || "").toLowerCase();
-          return (
-            name.includes("dec") ||
-            name.includes("des") ||
-            name.includes("december") ||
-            name.includes("jan") ||
-            name.includes("januari") ||
-            name.includes("january") ||
-            name.includes("new year")
-          );
-        });
-
-        packageIds = picked.slice(0, 2).map((p) => p.id);
-      }
-
-      // Final fallback: just grant the first 2 active packages
-      if (packageIds.length === 0) {
-        packageIds = packages.slice(0, 2).map((p) => p.id);
-      }
+      const packageIds = determinePackageIdsToGrant({ packages });
 
       if (packageIds.length === 0) {
         console.error("❌ Failed to determine packages to grant");
@@ -197,7 +251,13 @@ router.post("/webhook", async (req, res) => {
 router.get("/status/:orderId", verifyToken, async (req, res) => {
   try {
     const { orderId } = req.params;
-    const userId = req.user.uid;
+    const userId = req.user?.uid || req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Autentikasi gagal: userId tidak ditemukan",
+      });
+    }
 
     // Get transaction from database
     const transaction = await paymentDB.getTransactionByOrderId(orderId);
@@ -233,6 +293,23 @@ router.get("/status/:orderId", verifyToken, async (req, res) => {
       });
     }
 
+    // Self-heal: if webhook failed but Midtrans confirms settlement, grant access here.
+    const finalStatus = midtransStatus.transaction_status;
+    if (finalStatus === "settlement" || finalStatus === "capture") {
+      const alreadyGranted = await paymentDB.hasAccessForTransaction(transaction.id);
+      if (!alreadyGranted) {
+        const packages = await paymentDB.getAllPackages();
+        const packageIds = determinePackageIdsToGrant({ packages });
+        if (packageIds.length > 0) {
+          await paymentDB.grantPackageAccess({
+            userId: transaction.user_id,
+            transactionId: transaction.id,
+            packageIds,
+          });
+        }
+      }
+    }
+
     res.json({
       success: true,
       data: {
@@ -253,12 +330,95 @@ router.get("/status/:orderId", verifyToken, async (req, res) => {
 });
 
 /**
+ * POST /api/payment/reconcile-latest
+ * Fallback for users: find latest pending transaction and reconcile with Midtrans.
+ * Useful when user doesn't know their orderId.
+ */
+router.post("/reconcile-latest", verifyToken, async (req, res) => {
+  try {
+    const userId = req.user?.uid || req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Autentikasi gagal: userId tidak ditemukan",
+      });
+    }
+
+    const latestPending = await paymentDB.getLatestPendingTransaction(userId);
+    if (!latestPending) {
+      return res.json({
+        success: true,
+        message: "Tidak ada transaksi pending untuk direkonsiliasi",
+        data: null,
+      });
+    }
+
+    const midtransStatus = await midtransService.getTransactionStatus(
+      latestPending.order_id
+    );
+
+    if (midtransStatus.transaction_status !== latestPending.transaction_status) {
+      await paymentDB.updateTransactionStatus({
+        orderId: latestPending.order_id,
+        transactionStatus: midtransStatus.transaction_status,
+        paymentType: midtransStatus.payment_type,
+        transactionTime: midtransStatus.transaction_time,
+        settlementTime: midtransStatus.settlement_time,
+        midtransTransactionId: midtransStatus.transaction_id,
+        midtransResponse: midtransStatus,
+      });
+    }
+
+    if (
+      midtransStatus.transaction_status === "settlement" ||
+      midtransStatus.transaction_status === "capture"
+    ) {
+      const alreadyGranted = await paymentDB.hasAccessForTransaction(
+        latestPending.id
+      );
+      if (!alreadyGranted) {
+        const packages = await paymentDB.getAllPackages();
+        const packageIds = determinePackageIdsToGrant({ packages });
+        if (packageIds.length > 0) {
+          await paymentDB.grantPackageAccess({
+            userId: latestPending.user_id,
+            transactionId: latestPending.id,
+            packageIds,
+          });
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        orderId: latestPending.order_id,
+        status: midtransStatus.transaction_status,
+      },
+    });
+  } catch (error) {
+    console.error("Reconcile latest error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to reconcile payment",
+      error: error.message,
+    });
+  }
+});
+
+/**
  * GET /api/payment/history
  * Get user's payment history
  */
 router.get("/history", verifyToken, async (req, res) => {
   try {
-    const userId = req.user.uid;
+    const userId = req.user?.uid || req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Autentikasi gagal: userId tidak ditemukan",
+      });
+    }
     const transactions = await paymentDB.getUserTransactions(userId);
 
     res.json({
@@ -281,7 +441,13 @@ router.get("/history", verifyToken, async (req, res) => {
  */
 router.get("/access", verifyToken, async (req, res) => {
   try {
-    const userId = req.user.uid;
+    const userId = req.user?.uid || req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Autentikasi gagal: userId tidak ditemukan",
+      });
+    }
     const access = await paymentDB.getUserActiveAccess(userId);
 
     if (!access) {
@@ -328,7 +494,13 @@ router.get("/access", verifyToken, async (req, res) => {
  */
 router.get("/can-purchase", verifyToken, async (req, res) => {
   try {
-    const userId = req.user.uid;
+    const userId = req.user?.uid || req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Autentikasi gagal: userId tidak ditemukan",
+      });
+    }
     const hasAccess = await paymentDB.hasActiveAccess(userId);
 
     res.json({
@@ -348,4 +520,4 @@ router.get("/can-purchase", verifyToken, async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

@@ -3,7 +3,15 @@
  * Handles all database operations for payment system
  */
 
-const pool = require("../src/config/database");
+import pg from "pg";
+
+const pool = new pg.Pool({
+  host: process.env.DB_HOST || "localhost",
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || "fremio",
+  user: process.env.DB_USER || "salwa",
+  password: process.env.DB_PASSWORD || "",
+});
 
 class PaymentDatabaseService {
   /**
@@ -83,6 +91,30 @@ class PaymentDatabaseService {
   }
 
   /**
+   * Get latest pending transaction for user (if any)
+   */
+  async getLatestPendingTransaction(userId) {
+    const query = `
+      SELECT * FROM payment_transactions
+      WHERE user_id = $1 AND transaction_status = 'pending'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    const result = await pool.query(query, [userId]);
+    return result.rows[0];
+  }
+
+  /**
+   * Check whether access record exists for a transaction
+   */
+  async hasAccessForTransaction(transactionId) {
+    const query =
+      "SELECT 1 FROM user_package_access WHERE transaction_id = $1 LIMIT 1";
+    const result = await pool.query(query, [transactionId]);
+    return result.rowCount > 0;
+  }
+
+  /**
    * Grant package access to user
    */
   async grantPackageAccess({ userId, transactionId, packageIds }) {
@@ -90,6 +122,17 @@ class PaymentDatabaseService {
 
     try {
       await client.query("BEGIN");
+
+      // Idempotency: if access already granted for this transaction, return it.
+      const existingAccess = await client.query(
+        "SELECT * FROM user_package_access WHERE transaction_id = $1 ORDER BY created_at DESC LIMIT 1",
+        [transactionId]
+      );
+
+      if (existingAccess.rows[0]) {
+        await client.query("COMMIT");
+        return existingAccess.rows[0];
+      }
 
       // Deactivate any existing active access
       await client.query(
@@ -280,4 +323,5 @@ class PaymentDatabaseService {
   }
 }
 
-module.exports = new PaymentDatabaseService();
+export default new PaymentDatabaseService();
+export { pool };

@@ -20,7 +20,9 @@ const getBackendMode = () => {
 export const currentBackendMode = getBackendMode();
 
 // VPS API Configuration
-export const VPS_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+// IMPORTANT: default to relative /api so localhost never accidentally hits production
+// (Vite dev server should proxy /api -> local backend)
+export const VPS_API_URL = import.meta.env.VITE_API_URL || '/api';
 
 // Check if using VPS
 export const isVPSMode = () => {

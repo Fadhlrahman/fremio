@@ -101,9 +101,16 @@ class VPSFrameClient {
   }
 
   // Get all frames
-  async getAllFrames() {
+  async getAllFrames(options = {}) {
     try {
-      const data = await this.request('/frames');
+      const params = new URLSearchParams();
+      // Cache-bust list requests to avoid stale results (e.g., CDN/browser caching)
+      params.set('ts', String(Date.now()));
+      if (options?.includeHidden) {
+        params.set('includeHidden', 'true');
+      }
+
+      const data = await this.request(`/frames?${params.toString()}`);
       // Handle both array and object response
       const frames = Array.isArray(data) ? data : (data.frames || []);
       return frames.map(frame => {
@@ -296,9 +303,9 @@ const vpsClient = new VPSFrameClient();
 // Unified frame service
 const unifiedFrameService = {
   // Get all frames
-  async getAllFrames() {
+  async getAllFrames(options = {}) {
     if (isVPSMode()) {
-      return await vpsClient.getAllFrames();
+      return await vpsClient.getAllFrames(options);
     }
     const firebaseSvc = await getFirebaseService();
     return await firebaseSvc.getAllCustomFrames();

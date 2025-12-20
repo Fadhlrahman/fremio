@@ -21,6 +21,37 @@ SERVER_PORT="22"
 BACKEND_DIR="/var/www/fremio-backend"
 FRONTEND_DIR="/var/www/fremio-frontend"
 
+# Auth (non-interactive)
+# Prefer SSH keys:
+#   export SSH_KEY_PATH="$HOME/.ssh/id_rsa"
+# Or (less ideal) password auth via sshpass:
+#   export STAGING_PASS="your_password"   # requires `sshpass`
+SSH_KEY_PATH="${SSH_KEY_PATH:-}"
+STAGING_PASS="${STAGING_PASS:-}"
+
+SSH_COMMON_OPTS=(
+    -p "$SERVER_PORT"
+    -o StrictHostKeyChecking=accept-new
+)
+
+if [ -n "$SSH_KEY_PATH" ]; then
+    SSH_COMMON_OPTS+=( -i "$SSH_KEY_PATH" )
+fi
+
+if [ -n "$STAGING_PASS" ]; then
+    if ! command -v sshpass >/dev/null 2>&1; then
+        echo -e "${RED}❌ STAGING_PASS is set but sshpass is not installed.${NC}"
+        echo "   Install on macOS: brew install sshpass"
+        echo "   Or use SSH keys by setting SSH_KEY_PATH."
+        exit 1
+    fi
+    SSH_PREFIX=(sshpass -p "$STAGING_PASS")
+else
+    SSH_PREFIX=()
+fi
+
+RSYNC_RSH=(ssh "${SSH_COMMON_OPTS[@]}")
+
 # Local Paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRONTEND_DIR_LOCAL="$SCRIPT_DIR/my-app"
@@ -78,16 +109,16 @@ cd "$SCRIPT_DIR"
 echo -e "${YELLOW}[3/5] Deploying frontend to server...${NC}"
 
 # Create remote directory if not exists
-ssh -p $SERVER_PORT $SERVER_USER@$SERVER_HOST "mkdir -p $FRONTEND_DIR"
+"${SSH_PREFIX[@]}" ssh "${SSH_COMMON_OPTS[@]}" "$SERVER_USER@$SERVER_HOST" "mkdir -p $FRONTEND_DIR"
 
 # Sync frontend files
-rsync -avz --delete \
+"${SSH_PREFIX[@]}" rsync -avz --delete \
     --exclude='node_modules' \
     --exclude='.env*' \
     --exclude='src' \
     --exclude='public' \
     --exclude='.git' \
-    -e "ssh -p $SERVER_PORT" \
+    -e "${RSYNC_RSH[*]}" \
     "$FRONTEND_DIR_LOCAL/dist/" \
     "$SERVER_USER@$SERVER_HOST:$FRONTEND_DIR/"
 
@@ -100,22 +131,23 @@ echo ""
 echo -e "${YELLOW}[4/5] Deploying backend to server...${NC}"
 
 # Create remote directories
-ssh -p $SERVER_PORT $SERVER_USER@$SERVER_HOST "mkdir -p $BACKEND_DIR/logs $BACKEND_DIR/uploads"
+"${SSH_PREFIX[@]}" ssh "${SSH_COMMON_OPTS[@]}" "$SERVER_USER@$SERVER_HOST" "mkdir -p $BACKEND_DIR/logs $BACKEND_DIR/uploads"
 
 # Sync backend files
-rsync -avz \
+"${SSH_PREFIX[@]}" rsync -avz \
     --exclude='node_modules' \
     --exclude='logs/*' \
     --exclude='uploads/*' \
-    --exclude='.env.local' \
+    --exclude='.env' \
+    --exclude='.env*' \
     --exclude='*.log' \
-    -e "ssh -p $SERVER_PORT" \
+    -e "${RSYNC_RSH[*]}" \
     "$BACKEND_DIR_LOCAL/" \
     "$SERVER_USER@$SERVER_HOST:$BACKEND_DIR/"
 
 # Install production dependencies on server
 echo "   Installing dependencies on server..."
-ssh -p $SERVER_PORT $SERVER_USER@$SERVER_HOST "cd $BACKEND_DIR && npm install --production"
+"${SSH_PREFIX[@]}" ssh "${SSH_COMMON_OPTS[@]}" "$SERVER_USER@$SERVER_HOST" "cd $BACKEND_DIR && npm install --production"
 
 echo -e "${GREEN}✅ Backend deployed${NC}"
 echo ""
@@ -126,10 +158,10 @@ echo ""
 echo -e "${YELLOW}[5/5] Restarting services...${NC}"
 
 # Restart PM2 backend
-ssh -p $SERVER_PORT $SERVER_USER@$SERVER_HOST "cd $BACKEND_DIR && pm2 restart fremio-api || pm2 start server.js --name fremio-api"
+"${SSH_PREFIX[@]}" ssh "${SSH_COMMON_OPTS[@]}" "$SERVER_USER@$SERVER_HOST" "cd $BACKEND_DIR && (pm2 restart fremio-api --update-env || pm2 start server.js --name fremio-api --update-env)"
 
 # Reload nginx
-ssh -p $SERVER_PORT $SERVER_USER@$SERVER_HOST "systemctl reload nginx"
+"${SSH_PREFIX[@]}" ssh "${SSH_COMMON_OPTS[@]}" "$SERVER_USER@$SERVER_HOST" "systemctl reload nginx"
 
 echo -e "${GREEN}✅ Services restarted${NC}"
 echo ""
@@ -142,12 +174,12 @@ echo -e "${YELLOW}Checking deployment status...${NC}"
 # Check PM2 status
 echo ""
 echo -e "${BLUE}PM2 Status:${NC}"
-ssh -p $SERVER_PORT $SERVER_USER@$SERVER_HOST "pm2 list | grep fremio"
+"${SSH_PREFIX[@]}" ssh "${SSH_COMMON_OPTS[@]}" "$SERVER_USER@$SERVER_HOST" "pm2 list | grep fremio"
 
 # Check nginx status
 echo ""
 echo -e "${BLUE}Nginx Status:${NC}"
-ssh -p $SERVER_PORT $SERVER_USER@$SERVER_HOST "systemctl status nginx | grep Active"
+"${SSH_PREFIX[@]}" ssh "${SSH_COMMON_OPTS[@]}" "$SERVER_USER@$SERVER_HOST" "systemctl status nginx | grep Active"
 
 # ================================================
 # 7. SUMMARY

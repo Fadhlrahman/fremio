@@ -19,6 +19,7 @@ import draftsRoutes from "./routes/drafts-pg.js";  // Use PostgreSQL version
 import uploadRoutes from "./routes/upload.js";
 import analyticsRoutes from "./routes/analytics.js";
 import staticRoutes from "./routes/static.js";
+import paymentRoutes from "./routes/payment.js";
 
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -147,6 +148,7 @@ app.use("/api/drafts", draftsRoutes);
 app.use("/api/upload", uploadLimiter, uploadRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/static", staticRoutes);
+app.use("/api/payment", paymentRoutes);
 
 // 404 handler
 app.use((req, res) => {

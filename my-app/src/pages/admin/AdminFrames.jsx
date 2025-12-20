@@ -12,6 +12,8 @@ const AdminFrames = () => {
   const [isReorderMode, setIsReorderMode] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
   const [categoryOrder, setCategoryOrder] = useState([]); // Order of categories for display
+  const [togglingPaidId, setTogglingPaidId] = useState(null);
+  const [togglingHiddenId, setTogglingHiddenId] = useState(null);
 
   useEffect(() => {
     const loadFrames = async () => {
@@ -293,6 +295,64 @@ const AdminFrames = () => {
     }
   };
 
+  const handleTogglePaid = async (frame) => {
+    const isPaid = !!(frame?.isPremium ?? frame?.is_premium);
+    try {
+      setTogglingPaidId(frame.id);
+      const result = await unifiedFrameService.updateFrame(frame.id, {
+        is_premium: !isPaid,
+      });
+
+      if (result?.success === false) {
+        throw new Error(result?.message || "Gagal mengubah status paid/free");
+      }
+
+      setFrames((prev) =>
+        prev.map((f) => {
+          if (f.id !== frame.id) return f;
+          return {
+            ...f,
+            isPremium: !isPaid,
+            is_premium: !isPaid,
+          };
+        })
+      );
+    } catch (err) {
+      alert("Gagal mengubah status: " + (err?.message || String(err)));
+    } finally {
+      setTogglingPaidId(null);
+    }
+  };
+
+  const handleToggleHidden = async (frame) => {
+    const isHidden = !!(frame?.isHidden ?? frame?.is_hidden);
+    try {
+      setTogglingHiddenId(frame.id);
+      const result = await unifiedFrameService.updateFrame(frame.id, {
+        is_hidden: !isHidden,
+      });
+
+      if (result?.success === false) {
+        throw new Error(result?.message || "Gagal mengubah visibilitas (hide/show)");
+      }
+
+      setFrames((prev) =>
+        prev.map((f) => {
+          if (f.id !== frame.id) return f;
+          return {
+            ...f,
+            isHidden: !isHidden,
+            is_hidden: !isHidden,
+          };
+        })
+      );
+    } catch (err) {
+      alert("Gagal mengubah visibilitas: " + (err?.message || String(err)));
+    } finally {
+      setTogglingHiddenId(null);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ padding: "20px", textAlign: "center" }}>
@@ -309,6 +369,8 @@ const AdminFrames = () => {
     const displayImageUrl = frame.imageUrl || frame.thumbnailUrl || frame.imagePath;
     const isFirst = index === 0;
     const isLast = index === categoryFrames.length - 1;
+    const isPaid = !!(frame?.isPremium ?? frame?.is_premium);
+    const isHidden = !!(frame?.isHidden ?? frame?.is_hidden);
     
     return (
       <div 
@@ -318,7 +380,8 @@ const AdminFrames = () => {
           overflow: "hidden",
           boxShadow: isReorderMode ? "0 4px 12px rgba(79, 70, 229, 0.2)" : "0 2px 8px rgba(0,0,0,0.1)",
           border: isReorderMode ? "2px solid #4f46e5" : "none",
-          position: "relative"
+          position: "relative",
+          opacity: isHidden ? 0.72 : 1
         }}
       >
         {/* Order number badge in reorder mode */}
@@ -426,6 +489,46 @@ const AdminFrames = () => {
           ) : (
             // Normal edit/delete controls
             <div style={{ display: "flex", gap: "8px" }}>
+              <button
+                onClick={() => handleTogglePaid(frame)}
+                disabled={togglingPaidId === frame.id}
+                style={{
+                  flex: 1,
+                  padding: "6px",
+                  background: isPaid ? "#ede9fe" : "#dcfce7",
+                  color: isPaid ? "#6d28d9" : "#166534",
+                  border: "none",
+                  borderRadius: "4px",
+                  cursor: togglingPaidId === frame.id ? "not-allowed" : "pointer",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                }}
+                title="Toggle status paid/free"
+              >
+                {togglingPaidId === frame.id
+                  ? "..."
+                  : isPaid
+                  ? "PAID"
+                  : "FREE"}
+              </button>
+              <button
+                onClick={() => handleToggleHidden(frame)}
+                disabled={togglingHiddenId === frame.id}
+                style={{
+                  flex: 1,
+                  padding: "6px",
+                  background: isHidden ? "#f3f4f6" : "#e0f2fe",
+                  color: isHidden ? "#374151" : "#0369a1",
+                  border: "none",
+                  borderRadius: "4px",
+                  cursor: togglingHiddenId === frame.id ? "not-allowed" : "pointer",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                }}
+                title="Hide/Show frame untuk user"
+              >
+                {togglingHiddenId === frame.id ? "..." : isHidden ? "HIDDEN" : "SHOW"}
+              </button>
               <Link 
                 to={`/admin/upload-frame?edit=${frame.id}`}
                 style={{

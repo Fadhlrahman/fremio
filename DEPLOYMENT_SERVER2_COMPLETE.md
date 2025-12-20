@@ -51,7 +51,7 @@
   - HTTPS redirect
   - API caching (30s for /api/frames)
   - Static file caching (7 days for uploads)
-  - 50MB upload limit
+  - Upload limit via `client_max_body_size` (recommend 25M–50M)
 
 ### PM2 Config:
 - **Process Name:** fremio-api

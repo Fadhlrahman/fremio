@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import paymentService from "../services/paymentService";
+import unifiedFrameService from "../services/unifiedFrameService";
 import "./Pricing.css";
 
 const Pricing = () => {
@@ -12,15 +13,63 @@ const Pricing = () => {
   const [canPurchase, setCanPurchase] = useState(false);
   const [checkingAccess, setCheckingAccess] = useState(true);
 
+  const tabs = [
+    "Christmas Fremio Series",
+    "Holiday Fremio Series",
+    "Year-End Recap Fremio Series",
+  ];
+  const [activeTab, setActiveTab] = useState(tabs[0]);
+  const [premiumFramesByCategory, setPremiumFramesByCategory] = useState({});
+  const [loadingPreviewFrames, setLoadingPreviewFrames] = useState(true);
+
   useEffect(() => {
-    if (!currentUser) {
-      navigate("/login");
-      return;
+    // Pricing page should be viewable without login (Midtrans verification / marketing)
+    // Only purchase flow requires auth.
+    if (currentUser) {
+      loadAccessInfo();
+    } else {
+      setAccess(null);
+      setCanPurchase(false);
+      setCheckingAccess(false);
     }
 
-    loadAccessInfo();
     loadSnapScript();
+    loadPreviewFrames();
   }, [currentUser]);
+
+  const loadPreviewFrames = async () => {
+    try {
+      setLoadingPreviewFrames(true);
+      const frames = await unifiedFrameService.getAllFrames();
+
+      // Pricing preview is based on category only (not tied to paid/free).
+      const allowed = new Set(tabs);
+      const categoryFrames = (frames || []).filter((f) =>
+        allowed.has(String(f.category || ""))
+      );
+
+      const grouped = categoryFrames.reduce((acc, frame) => {
+        const category = String(frame.category || "Uncategorized");
+        if (!acc[category]) acc[category] = [];
+        acc[category].push(frame);
+        return acc;
+      }, {});
+
+      // Sort within each category by displayOrder then createdAt
+      Object.keys(grouped).forEach((category) => {
+        grouped[category].sort(
+          (a, b) => (a.displayOrder || 999) - (b.displayOrder || 999)
+        );
+      });
+
+      setPremiumFramesByCategory(grouped);
+    } catch (error) {
+      console.error("Load preview frames error:", error);
+      setPremiumFramesByCategory({});
+    } finally {
+      setLoadingPreviewFrames(false);
+    }
+  };
 
   const loadAccessInfo = async () => {
     try {
@@ -52,7 +101,7 @@ const Pricing = () => {
 
   const handleBuyPackage = async () => {
     if (!currentUser) {
-      navigate("/login");
+      navigate("/login?redirect=/pricing");
       return;
     }
 
@@ -111,11 +160,18 @@ const Pricing = () => {
     );
   }
 
+  const christmasFrames = premiumFramesByCategory["Christmas Fremio Series"] || [];
+  const holidayFrames = premiumFramesByCategory["Holiday Fremio Series"] || [];
+  const yearEndFrames = premiumFramesByCategory["Year-End Recap Fremio Series"] || [];
+  const tabFrames = premiumFramesByCategory[activeTab] || [];
+
   return (
     <div className="pricing-container">
-      <div className="pricing-header">
-        <h1>🎨 Unlock Premium Frames</h1>
-        <p>Dapatkan akses ke 30 frames premium selama 30 hari</p>
+      <div className="pricing-hero">
+        <div className="pricing-brand">fremio</div>
+        <div className="pricing-tagline">
+          <span className="brand-soft">fremio</span> tempat dunia mengekspresikan dirinya
+        </div>
       </div>
 
       {access && (
@@ -147,74 +203,89 @@ const Pricing = () => {
         </div>
       )}
 
-      <div className="pricing-card">
-        <div className="package-badge">✨ Paket Premium</div>
-        <div className="price">
-          <span className="currency">Rp</span>
-          <span className="amount">10.000</span>
-        </div>
+      <div className="pricing-offer-card">
+        <div className="offer-title">Fremio Holiday + New Year Series</div>
+        <div className="offer-price">Rp 10.000/bulan</div>
 
-        <div className="package-details">
-          <h3>Apa yang Anda Dapat:</h3>
-          <ul className="features-list">
-            <li>
-              <span className="icon">📦</span>
-              <div>
-                <strong>3 Paket Frame Premium</strong>
-                <p>Total 30 frames berkualitas tinggi</p>
-              </div>
-            </li>
-            <li>
-              <span className="icon">⏱️</span>
-              <div>
-                <strong>Akses 30 Hari</strong>
-                <p>Gunakan frames kapan saja selama 1 bulan</p>
-              </div>
-            </li>
-            <li>
-              <span className="icon">🎨</span>
-              <div>
-                <strong>Frame Eksklusif</strong>
-                <p>Dipilih khusus oleh admin</p>
-              </div>
-            </li>
-            <li>
-              <span className="icon">💳</span>
-              <div>
-                <strong>Banyak Metode Pembayaran</strong>
-                <p>GoPay, OVO, DANA, ShopeePay, VA Bank, QRIS, Credit Card</p>
-              </div>
-            </li>
-          </ul>
+        <div className="offer-columns">
+          <div className="offer-col">
+            <div className="offer-col-title">December Series Frames:</div>
+            <ul>
+              <li>{yearEndFrames.length || 0} Year-End Recap frames</li>
+              <li>{christmasFrames.length || 0} Christmas frames</li>
+              <li>{holidayFrames.length || 0} Holiday frames</li>
+            </ul>
+          </div>
+          <div className="offer-col">
+            <div className="offer-col-title">January Series Frames (Coming Soon):</div>
+            <ul>
+              <li>Akses puluhan frames di awal tahun</li>
+              <li>Frames segera hadir</li>
+            </ul>
+          </div>
         </div>
 
         <button
-          className={`buy-button ${!canPurchase || loading ? "disabled" : ""}`}
+          className={`offer-cta ${(loading || !!access) ? "disabled" : ""}`}
           onClick={handleBuyPackage}
-          disabled={!canPurchase || loading}
+          disabled={!!access || loading}
         >
-          {loading ? (
-            <>
-              <span className="spinner-small"></span>
-              Memproses...
-            </>
-          ) : !canPurchase ? (
-            "Anda Sudah Memiliki Akses Aktif"
-          ) : (
-            "💳 Beli Sekarang - Rp 10.000"
-          )}
+          {loading ? "Memproses..." : access ? "Akses Anda Aktif" : "Dapatkan Sekarang"}
         </button>
 
-        {!canPurchase && access && (
-          <p className="info-text">
-            Anda dapat membeli paket baru setelah akses saat ini berakhir pada{" "}
+        {!currentUser && (
+          <div className="offer-note">Login diperlukan untuk melakukan pembelian.</div>
+        )}
+        {currentUser && !canPurchase && access && (
+          <div className="offer-note">
+            Anda dapat membeli lagi setelah berakhir pada{" "}
             {new Date(access.accessEnd).toLocaleDateString("id-ID", {
               day: "numeric",
               month: "long",
               year: "numeric",
             })}
-          </p>
+          </div>
         )}
+      </div>
+
+      <div className="pricing-preview">
+        <div className="preview-tabs">
+          {tabs.map((tab) => (
+            <button
+              key={tab}
+              className={`preview-tab ${activeTab === tab ? "active" : ""}`}
+              onClick={() => setActiveTab(tab)}
+              type="button"
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        <div className="preview-panel">
+          <div className="preview-quote">“Year-End Frames untuk rayakan tahun baru”</div>
+
+          {loadingPreviewFrames ? (
+            <div className="preview-loading">Memuat preview frames...</div>
+          ) : tabFrames.length === 0 ? (
+            <div className="preview-empty">Belum ada frames untuk kategori ini.</div>
+          ) : (
+            <div className="preview-grid">
+              {tabFrames.slice(0, 10).map((frame, idx) => (
+                <div key={frame.id || idx} className="preview-item">
+                  <div className="preview-thumb">
+                    <img
+                      src={frame.thumbnailUrl || frame.imageUrl || frame.imagePath}
+                      alt={frame.name || `Frame ${idx + 1}`}
+                      onError={(e) => (e.currentTarget.style.display = "none")}
+                    />
+                  </div>
+                  <div className="preview-name">Frame {idx + 1}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="payment-info">

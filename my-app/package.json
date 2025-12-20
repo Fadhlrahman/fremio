@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:staging": "vite --mode staging",
+    "dev:server2": "VITE_DISABLE_HTTPS=true vite --mode staging",
+    "devc": "VITE_DISABLE_HTTPS=true vite --mode staging",
     "build": "vite build",
     "build:cloudflare": "vite build && cp dist/index.html dist/404.html",
     "lint": "eslint .",

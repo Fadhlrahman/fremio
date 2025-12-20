@@ -36,7 +36,8 @@ const AdminPackages = () => {
   const loadFrames = async () => {
     try {
       const response = await api.get("/frames");
-      setFrames(response.data || []);
+      const data = response.data;
+      setFrames(Array.isArray(data) ? data : (data.frames || []));
     } catch (error) {
       console.error("Load frames error:", error);
     }

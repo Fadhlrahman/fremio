@@ -2548,64 +2548,6 @@ export default function TakeMoment() {
     );
   };
 
-  // Handle permission primer request
-  const handleRequestCameraPermission = useCallback(async () => {
-    try {
-      await trackCameraPermission('requested');
-      
-      const result = await requestCameraPermissionWithSave({
-        facingMode: 'user',
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        keepStream: false
-      });
-      
-      setShowPermissionPrimer(false);
-      setPermissionChecked(true);
-      
-      if (result.granted) {
-        await trackCameraPermission('granted');
-        setCameraError(null);
-        console.log('✅ Camera permission granted - Auto-starting camera...');
-        
-        // Auto-start camera immediately after permission granted
-        try {
-          await startCamera(isUsingBackCamera ? "environment" : "user");
-          console.log('✅ Camera auto-started after permission grant');
-        } catch (cameraError) {
-          console.error('❌ Failed to auto-start camera after permission:', cameraError);
-          setCameraError('Gagal mengaktifkan kamera. Silakan coba lagi.');
-        }
-      } else {
-        await trackCameraPermission('denied', 'user_denied');
-        setCameraError('Izin kamera ditolak. Silakan gunakan opsi upload foto.');
-        showToast({
-          type: 'warning',
-          title: 'Izin Kamera Ditolak',
-          message: 'Anda masih bisa upload foto dari galeri.'
-        });
-      }
-    } catch (error) {
-      console.error('Permission request error:', error);
-      await trackCameraPermission('error', error.message);
-      setCameraError(error.message);
-    }
-  }, [showToast, startCamera, isUsingBackCamera]);
-
-  // Handle skip permission (use upload only)
-  const handleSkipCameraPermission = useCallback(async () => {
-    await trackCameraPermission('dismissed');
-    setShowPermissionPrimer(false);
-    setPermissionChecked(true);
-    setCameraError('Upload foto dari galeri untuk melanjutkan.');
-    
-    showToast({
-      type: 'info',
-      title: 'Mode Upload',
-      message: 'Gunakan tombol upload untuk menambah foto dari galeri.'
-    });
-  }, [showToast]);
-
   const startCamera = useCallback(async (desiredFacingMode = "user") => {
     try {
       setCameraError(null);
@@ -2669,6 +2611,64 @@ export default function TakeMoment() {
       setIsSwitchingCamera(false);
     }
   }, []);
+
+  // Handle permission primer request
+  const handleRequestCameraPermission = useCallback(async () => {
+    try {
+      await trackCameraPermission('requested');
+      
+      const result = await requestCameraPermissionWithSave({
+        facingMode: 'user',
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        keepStream: false
+      });
+      
+      setShowPermissionPrimer(false);
+      setPermissionChecked(true);
+      
+      if (result.granted) {
+        await trackCameraPermission('granted');
+        setCameraError(null);
+        console.log('✅ Camera permission granted - Auto-starting camera...');
+        
+        // Auto-start camera immediately after permission granted
+        try {
+          await startCamera(isUsingBackCamera ? "environment" : "user");
+          console.log('✅ Camera auto-started after permission grant');
+        } catch (cameraError) {
+          console.error('❌ Failed to auto-start camera after permission:', cameraError);
+          setCameraError('Gagal mengaktifkan kamera. Silakan coba lagi.');
+        }
+      } else {
+        await trackCameraPermission('denied', 'user_denied');
+        setCameraError('Izin kamera ditolak. Silakan gunakan opsi upload foto.');
+        showToast({
+          type: 'warning',
+          title: 'Izin Kamera Ditolak',
+          message: 'Anda masih bisa upload foto dari galeri.'
+        });
+      }
+    } catch (error) {
+      console.error('Permission request error:', error);
+      await trackCameraPermission('error', error.message);
+      setCameraError(error.message);
+    }
+  }, [showToast, startCamera, isUsingBackCamera]);
+
+  // Handle skip permission (use upload only)
+  const handleSkipCameraPermission = useCallback(async () => {
+    await trackCameraPermission('dismissed');
+    setShowPermissionPrimer(false);
+    setPermissionChecked(true);
+    setCameraError('Upload foto dari galeri untuk melanjutkan.');
+    
+    showToast({
+      type: 'info',
+      title: 'Mode Upload',
+      message: 'Gunakan tombol upload untuk menambah foto dari galeri.'
+    });
+  }, [showToast]);
 
   const handleCameraToggle = useCallback(() => {
     if (cameraActive) {
@@ -2851,12 +2851,14 @@ export default function TakeMoment() {
       let recordingStream = null;
       let stopRecordingStream = () => {};
       let usePreInitialized = false;
+      let supportedMimeType = "";
 
       if (preInitializedRecorderRef.current && isRecorderReadyRef.current) {
         console.log("✅ Using PRE-INITIALIZED recorder - INSTANT START!");
         recorder = preInitializedRecorderRef.current;
         recordingStream = baseStream; // Use original stream, no clone needed
         usePreInitialized = true;
+        supportedMimeType = recorder?.mimeType || "";
         
         // Clear pre-initialized refs (will be re-initialized after recording)
         preInitializedRecorderRef.current = null;
@@ -2908,7 +2910,7 @@ export default function TakeMoment() {
           "video/mp4;codecs=h264",
         ];
 
-        const supportedMimeType =
+        supportedMimeType =
           mimeCandidates.find((candidate) => {
             try {
               return candidate && MediaRecorder.isTypeSupported(candidate);

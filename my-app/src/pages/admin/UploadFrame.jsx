@@ -49,7 +49,7 @@ import {
 } from "../../components/creator/canvasConstants.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import unifiedFrameService from "../../services/unifiedFrameService";
-import { uploadImageSimple } from "../../services/imagekitService.js";
+import { VPS_API_URL } from "../../config/backend";
 import "../Create.css";
 
 const panelMotion = {
@@ -59,6 +59,9 @@ const panelMotion = {
 
 // Available categories
 const AVAILABLE_CATEGORIES = [
+  "Christmas Fremio Series",
+  "Holiday Fremio Series",
+  "Year-End Recap Fremio Series",
   "Fremio Series",
   "Wedding",
   "Birthday",
@@ -588,6 +591,34 @@ export default function UploadFrame() {
     try {
       const { width: canvasWidth, height: canvasHeight } = getCanvasDimensions(canvasAspectRatio);
 
+      const uploadDataUrlToBackend = async (dataUrl) => {
+        const token = localStorage.getItem('fremio_token') || localStorage.getItem('auth_token');
+        if (!token) throw new Error('No token provided');
+
+        const response = await fetch(`${VPS_API_URL}/upload/base64`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ image: dataUrl, type: 'frame' })
+        });
+
+        const contentType = response.headers.get('content-type') || '';
+        const payload = contentType.includes('application/json') ? await response.json() : await response.text();
+        if (!response.ok) {
+          const msg = payload?.error || payload?.message || `Upload failed with status ${response.status}`;
+          throw new Error(msg);
+        }
+
+        const imagePath = payload.imagePath || payload.image_path;
+        if (!imagePath) throw new Error('Upload succeeded but no imagePath returned');
+
+        // Convert relative path to absolute URL so it works in local dev too
+        const base = VPS_API_URL.replace(/\/api\/?$/, '');
+        return imagePath.startsWith('http') ? imagePath : `${base}${imagePath}`;
+      };
+
       let frameImageDataUrl = null;
       let frameImageBlob = null;
 
@@ -659,7 +690,9 @@ export default function UploadFrame() {
           document.body.appendChild(clone);
           
           const canvas = await html2canvas(clone, {
-            scale: 2,
+            // Keep output small to avoid nginx 413 on /api/upload/frame
+            // (A 413 response usually misses CORS headers, showing as "Load failed")
+            scale: 1,
             useCORS: true,
             allowTaint: true,
             backgroundColor: null,
@@ -672,8 +705,59 @@ export default function UploadFrame() {
           // Remove clone
           document.body.removeChild(clone);
           
-          frameImageDataUrl = canvas.toDataURL("image/png", 0.9);
-          frameImageBlob = await (await fetch(frameImageDataUrl)).blob();
+          // Downscale before encoding to keep upload small.
+          // Many nginx setups default to ~1MB; keep well below that.
+          const MAX_W = 540;
+          const MAX_H = 960;
+          let exportCanvas = canvas;
+          if (canvas.width > MAX_W || canvas.height > MAX_H) {
+            const ratio = Math.min(MAX_W / canvas.width, MAX_H / canvas.height, 1);
+            const scaled = document.createElement('canvas');
+            scaled.width = Math.max(1, Math.round(canvas.width * ratio));
+            scaled.height = Math.max(1, Math.round(canvas.height * ratio));
+            const ctx = scaled.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(canvas, 0, 0, scaled.width, scaled.height);
+              exportCanvas = scaled;
+            }
+          }
+
+          const toBlob = (type, quality) =>
+            new Promise((resolve) => {
+              try {
+                exportCanvas.toBlob(
+                  (b) => resolve(b),
+                  type,
+                  quality
+                );
+              } catch {
+                resolve(null);
+              }
+            });
+
+          // Prefer WebP/JPEG for smaller size; last resort PNG.
+          frameImageBlob =
+            (await toBlob("image/webp", 0.7)) ||
+            (await toBlob("image/jpeg", 0.7)) ||
+            (await toBlob("image/png"));
+
+          // Some browsers may return null if type unsupported
+          if (!frameImageBlob) {
+            frameImageDataUrl = exportCanvas.toDataURL("image/png", 0.8);
+            frameImageBlob = await (await fetch(frameImageDataUrl)).blob();
+          }
+
+          // If still too large for typical nginx limits, skip thumbnail upload.
+          // Frame will still be saved (slots/layout) and can be edited later.
+          const NGINX_SAFE_LIMIT = 900 * 1024; // ~900KB
+          if (frameImageBlob?.size && frameImageBlob.size > NGINX_SAFE_LIMIT) {
+            console.warn(
+              '⚠️ Thumbnail still too large for nginx, skipping thumbnail upload:',
+              frameImageBlob.size
+            );
+            frameImageBlob = null;
+          }
+
           console.log("✅ Canvas captured successfully, size:", frameImageBlob.size);
         } catch (err) {
           console.error("Failed to capture canvas:", err);
@@ -724,33 +808,17 @@ export default function UploadFrame() {
           }
         };
 
-        // Upload overlay images to ImageKit
+        // Upload overlay images to backend (avoid third-party services)
         const imageToUpload = el.data?.originalImage || el.data?.image;
         if (el.type === "upload" && imageToUpload && imageToUpload.startsWith("data:")) {
           try {
-            const dataUrl = imageToUpload;
-            const mimeMatch = dataUrl.match(/data:([^;]+);/);
-            const mimeType = mimeMatch ? mimeMatch[1] : "image/png";
-
-            const base64Data = dataUrl.split(",")[1];
-            const binaryString = atob(base64Data);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
-            }
-            const blob = new Blob([bytes], { type: mimeType });
-
-            const safeName = `overlay_${el.id.substring(0, 8)}.png`;
-            const uploadResult = await uploadImageSimple(blob, safeName, "frame-overlays");
-
-            if (uploadResult.url) {
-              const { originalImage, ...restData } = elementToSave.data || {};
-              elementToSave.data = { 
-                ...restData, 
-                image: uploadResult.url,
-                __isOverlay: true, // Keep overlay flag
-              };
-            }
+            const uploadedUrl = await uploadDataUrlToBackend(imageToUpload);
+            const { originalImage, ...restData } = elementToSave.data || {};
+            elementToSave.data = {
+              ...restData,
+              image: uploadedUrl,
+              __isOverlay: true,
+            };
           } catch (err) {
             console.warn("Error uploading overlay:", err);
           }
@@ -820,6 +888,11 @@ export default function UploadFrame() {
         navigate('/login');
       } else if (error.message.includes("Admin access")) {
         showToast("error", "Akses ditolak. Anda bukan admin.");
+      } else if (error.message.includes("Load failed")) {
+        showToast(
+          "error",
+          "Upload gagal (Load failed). Biasanya ini terjadi karena request upload terlalu besar (413). Silakan coba upload lagi; thumbnail sudah dikompres supaya lebih kecil."
+        );
       } else {
         showToast("error", "Error: " + error.message);
       }

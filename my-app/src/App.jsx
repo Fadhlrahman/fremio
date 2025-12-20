@@ -82,15 +82,8 @@ export default function App() {
             {/* Frames - accessible without login, but clicking frame requires auth */}
             <Route path="frames" element={<Frames />} />
 
-            {/* Pricing page */}
-            <Route
-              path="pricing"
-              element={
-                <ProtectedRoute>
-                  <Pricing />
-                </ProtectedRoute>
-              }
-            />
+            {/* Pricing page (public) */}
+            <Route path="pricing" element={<Pricing />} />
 
             {/* Protected routes */}
             <Route

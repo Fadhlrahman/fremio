@@ -113,19 +113,62 @@ router.post("/webhook", async (req, res) => {
     if (notification.transactionStatus === "settlement") {
       console.log("✅ Payment successful, granting access...");
 
-      // Get 3 random active packages (admin will later update this logic)
       const packages = await paymentDB.getAllPackages();
 
-      if (packages.length < 3) {
-        console.error("❌ Not enough packages available");
+      if (!packages || packages.length === 0) {
+        console.error("❌ No packages available");
         return res.status(500).json({
           success: false,
-          message: "Not enough packages available",
+          message: "No packages available",
         });
       }
 
-      // For now, take first 3 packages (TODO: admin will assign specific packages)
-      const packageIds = packages.slice(0, 3).map((p) => p.id);
+      // Deterministic package selection for the Rp 10.000 offer.
+      // Configure on staging/production via env:
+      // PAYMENT_GRANT_PACKAGE_IDS="1,2" (comma-separated)
+      let packageIds = [];
+      const configuredIds = String(process.env.PAYMENT_GRANT_PACKAGE_IDS || "")
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean)
+        .map((v) => Number(v))
+        .filter((n) => Number.isFinite(n));
+
+      if (configuredIds.length > 0) {
+        const available = new Set(packages.map((p) => Number(p.id)));
+        packageIds = configuredIds.filter((id) => available.has(id));
+      }
+
+      // Fallback: try to pick December + January packages by name
+      if (packageIds.length === 0) {
+        const picked = packages.filter((p) => {
+          const name = String(p.name || "").toLowerCase();
+          return (
+            name.includes("dec") ||
+            name.includes("des") ||
+            name.includes("december") ||
+            name.includes("jan") ||
+            name.includes("januari") ||
+            name.includes("january") ||
+            name.includes("new year")
+          );
+        });
+
+        packageIds = picked.slice(0, 2).map((p) => p.id);
+      }
+
+      // Final fallback: just grant the first 2 active packages
+      if (packageIds.length === 0) {
+        packageIds = packages.slice(0, 2).map((p) => p.id);
+      }
+
+      if (packageIds.length === 0) {
+        console.error("❌ Failed to determine packages to grant");
+        return res.status(500).json({
+          success: false,
+          message: "Failed to determine packages to grant",
+        });
+      }
 
       await paymentDB.grantPackageAccess({
         userId: transaction.user_id,

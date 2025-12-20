@@ -45,9 +45,9 @@ router.get(
         SELECT id, name, description, category, image_path, thumbnail_path, 
                slots, max_captures, is_premium, is_active, view_count, 
                download_count, created_by, created_at, updated_at,
-               layout, canvas_background, canvas_width, canvas_height, display_order
+               layout, canvas_background, canvas_width, canvas_height, display_order, is_hidden
         FROM frames 
-        WHERE is_active = true
+        WHERE is_active = true AND is_hidden = false
       `;
       const queryParams = [];
       let paramIndex = 1;
@@ -64,7 +64,7 @@ router.get(
       const result = await pool.query(queryText, queryParams);
 
       // Get total count
-      let countQuery = "SELECT COUNT(*) FROM frames WHERE is_active = true";
+      let countQuery = "SELECT COUNT(*) FROM frames WHERE is_active = true AND is_hidden = false";
       const countParams = [];
       if (category) {
         countQuery += " AND category = $1";
@@ -518,6 +518,7 @@ router.put("/:id", verifyToken, requireAdmin, async (req, res) => {
       image_path,
       is_active,
       is_premium,
+      is_hidden,
       displayOrder,
       display_order,
     } = req.body;
@@ -574,6 +575,10 @@ router.put("/:id", verifyToken, requireAdmin, async (req, res) => {
     if (is_premium !== undefined) {
       updates.push(`is_premium = $${paramIndex++}`);
       values.push(is_premium);
+    }
+    if (is_hidden !== undefined) {
+      updates.push(`is_hidden = $${paramIndex++}`);
+      values.push(is_hidden);
     }
     if (displayOrder !== undefined || display_order !== undefined) {
       updates.push(`display_order = $${paramIndex++}`);

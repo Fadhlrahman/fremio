@@ -365,6 +365,7 @@ const unifiedFrameService = {
       if (imageFile) {
         const uploadResult = await vpsClient.uploadFrameImage(imageFile);
         updates.image_path = uploadResult.imagePath;
+        updates.imagePath = uploadResult.imagePath;
       }
       return await vpsClient.updateFrame(id, updates);
     }

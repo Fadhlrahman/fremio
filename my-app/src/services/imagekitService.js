@@ -4,9 +4,10 @@
  * https://imagekit.io - 20GB bandwidth + 20GB storage FREE
  */
 
-// ImageKit Configuration
-const IMAGEKIT_URL_ENDPOINT = 'https://ik.imagekit.io/y6rewkryo';
-const IMAGEKIT_PRIVATE_KEY = 'private_WTPKE+2mrcdMDTyP4g6iOVZ9C8s=';
+// ImageKit Configuration (client-side uploads are DISABLED)
+// NOTE: Never embed ImageKit private keys in a frontend bundle.
+const IMAGEKIT_URL_ENDPOINT = '';
+const IMAGEKIT_PRIVATE_KEY = '';
 
 /**
  * Upload image to ImageKit using Private Key auth
@@ -17,6 +18,8 @@ const IMAGEKIT_PRIVATE_KEY = 'private_WTPKE+2mrcdMDTyP4g6iOVZ9C8s=';
  */
 export async function uploadImageSimple(file, fileName, folder = 'frames') {
   try {
+    throw new Error('ImageKit uploads are disabled. Use backend upload endpoints instead.');
+
     console.log('📤 [ImageKit] Starting upload...');
     
     // Generate unique filename
@@ -98,6 +101,7 @@ function blobToBase64(blob) {
 export function getImageKitUrl(path) {
   if (!path) return null;
   if (path.startsWith('http')) return path;
+  if (!IMAGEKIT_URL_ENDPOINT) return null;
   return `${IMAGEKIT_URL_ENDPOINT}${path.startsWith('/') ? '' : '/'}${path}`;
 }
 

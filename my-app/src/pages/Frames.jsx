@@ -338,6 +338,15 @@ export default function Frames() {
     console.log("🎬 User clicked frame:", frame.name);
     console.log("📦 Frame data:", frame);
 
+    const isPremium = !!(frame?.isPremium ?? frame?.is_premium);
+    const accessibleSet = new Set((accessibleFrameIds || []).map((id) => String(id)));
+    const isAccessible = !isPremium || (hasAccess && accessibleSet.has(String(frame.id)));
+
+    if (!isAccessible) {
+      navigate(`/pricing?reason=locked&frameId=${encodeURIComponent(String(frame.id))}`);
+      return;
+    }
+
     // No login required - allow all users to access frames
 
     if (!frame.slots || frame.slots.length === 0) {
@@ -512,6 +521,10 @@ export default function Frames() {
                   {/* Frames Grid - Responsive: 3 cols mobile, 5 cols desktop */}
                   <div className="frames-grid">
                     {frames.map((frame) => {
+                      const isPremium = !!(frame?.isPremium ?? frame?.is_premium);
+                      const accessibleSet = new Set((accessibleFrameIds || []).map((id) => String(id)));
+                      const isLocked = isPremium && !(hasAccess && accessibleSet.has(String(frame.id)));
+
                       return (
                         <FrameCard
                           key={frame.id}
@@ -520,7 +533,7 @@ export default function Frames() {
                           imageError={imageErrors[frame.id]}
                           onImageError={handleImageError}
                           getImageUrl={getFrameImageUrl}
-                          isLocked={false}
+                          isLocked={isLocked}
                         />
                       );
                     })}

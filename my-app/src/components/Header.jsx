@@ -140,6 +140,14 @@ export default function Header() {
 
             {/* Route pages */}
             <NavLink
+              to="/pricing"
+              className={({ isActive }) =>
+                "nav-link" + (isActive ? " active" : "")
+              }
+            >
+              <span>Pricing</span>
+            </NavLink>
+            <NavLink
               to="/frames"
               className={({ isActive }) =>
                 "nav-link" + (isActive ? " active" : "")
@@ -403,6 +411,15 @@ export default function Header() {
             <img src={aboutIcon} alt="" className="nav-icon" />
             <span>Join the Journey</span>
           </Link>
+          <NavLink
+            to="/pricing"
+            className={({ isActive }) =>
+              "nav-link" + (isActive ? " active" : "")
+            }
+            onClick={() => setMenuOpen(false)}
+          >
+            <span>Pricing</span>
+          </NavLink>
           <NavLink
             to="/frames"
             className={({ isActive }) =>

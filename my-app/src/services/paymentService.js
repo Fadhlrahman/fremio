@@ -15,13 +15,11 @@ class PaymentService {
     try {
       console.log("📤 Sending payment request:", userData);
       const response = await api.post("/payment/create", userData);
-      console.log("📥 Payment response received:", response.data);
-      return response.data;
+      console.log("📥 Payment response received:", response);
+      return response;
     } catch (error) {
       console.error("❌ Create payment error:", error);
-      console.error("Error response:", error.response);
-      console.error("Error data:", error.response?.data);
-      throw error.response?.data || error;
+      throw error;
     }
   }
 
@@ -33,10 +31,10 @@ class PaymentService {
   async checkStatus(orderId) {
     try {
       const response = await api.get(`/payment/status/${orderId}`);
-      return response.data;
+      return response;
     } catch (error) {
       console.error("Check status error:", error);
-      throw error.response?.data || error;
+      throw error;
     }
   }
 
@@ -47,10 +45,10 @@ class PaymentService {
   async getHistory() {
     try {
       const response = await api.get("/payment/history");
-      return response.data;
+      return response;
     } catch (error) {
       console.error("Get history error:", error);
-      throw error.response?.data || error;
+      throw error;
     }
   }
 
@@ -61,10 +59,10 @@ class PaymentService {
   async getAccess() {
     try {
       const response = await api.get("/payment/access");
-      return response.data;
+      return response;
     } catch (error) {
       console.error("Get access error:", error);
-      throw error.response?.data || error;
+      throw error;
     }
   }
 
@@ -75,10 +73,10 @@ class PaymentService {
   async canPurchase() {
     try {
       const response = await api.get("/payment/can-purchase");
-      return response.data;
+      return response;
     } catch (error) {
       console.error("Can purchase check error:", error);
-      throw error.response?.data || error;
+      throw error;
     }
   }
 
@@ -91,7 +89,7 @@ class PaymentService {
       return response;
     } catch (error) {
       console.error("Reconcile latest error:", error);
-      throw error.response?.data || error;
+      throw error;
     }
   }
 

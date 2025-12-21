@@ -353,8 +353,13 @@ export default function Frames() {
     const accessibleSet = new Set(
       (accessibleFrameIds || []).map((id) => String(id))
     );
+    // If backend returns an empty frameIds list for an active subscription,
+    // treat it as "access to all premium frames".
     const isAccessible =
-      !isPremium || (hasAccess && accessibleSet.has(String(frame.id)));
+      !isPremium ||
+      (hasAccess &&
+        ((accessibleFrameIds || []).length === 0 ||
+          accessibleSet.has(String(frame.id))));
 
     if (!isAccessible) {
       navigate(

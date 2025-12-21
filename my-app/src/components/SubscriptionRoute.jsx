@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import paymentService from "../services/paymentService";
 
 const SubscriptionRoute = ({ children }) => {
-  const { currentUser } = useAuth();
+  const { user: currentUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
 

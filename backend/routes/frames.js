@@ -59,7 +59,10 @@ const isAdminForRequest = async (req) => {
     if (firestore) {
       const docId = req.user.uid || userId;
       if (docId) {
-        const userDoc = await firestore.collection("users").doc(String(docId)).get();
+        const userDoc = await firestore
+          .collection("users")
+          .doc(String(docId))
+          .get();
         if (userDoc.exists && userDoc.data()?.role === "admin") {
           req.user.role = "admin";
           return true;
@@ -81,47 +84,47 @@ const isAdminForRequest = async (req) => {
  * GET /api/frames
  * Get all frames with pagination (uses PostgreSQL)
  */
-router.get(
-  "/",
-  optionalAuth,
-  async (req, res) => {
-    try {
-      const publicBaseUrl =
-        process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
+router.get("/", optionalAuth, async (req, res) => {
+  try {
+    const publicBaseUrl =
+      process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
 
-      // Prevent stale lists when frames are hidden/unhidden
-      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-      res.setHeader("Pragma", "no-cache");
-      res.setHeader("Expires", "0");
-      res.setHeader("Surrogate-Control", "no-store");
+    // Prevent stale lists when frames are hidden/unhidden
+    res.setHeader(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate"
+    );
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Surrogate-Control", "no-store");
 
-      const page = parseInt(req.query.page) || 1;
-      const limit = parseInt(req.query.limit) || 50;
-      const category = req.query.category;
-      const includeHidden = isIncludeHiddenRequested(req.query.includeHidden);
-      const allowHidden = includeHidden ? await isAdminForRequest(req) : false;
-      const offset = (page - 1) * limit;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const category = req.query.category;
+    const includeHidden = isIncludeHiddenRequested(req.query.includeHidden);
+    const allowHidden = includeHidden ? await isAdminForRequest(req) : false;
+    const offset = (page - 1) * limit;
 
-      // Determine user access for premium frames (for redaction)
-      let accessibleSet = new Set();
-      if (!allowHidden && req.user) {
-        const userId = req.user?.uid || req.user?.userId || req.user?.id;
-        if (userId) {
-          try {
-            const accessibleFrameIds = await paymentDB.getUserAccessibleFrames(
-              String(userId)
-            );
-            accessibleSet = new Set(
-              (accessibleFrameIds || []).map((id) => String(id))
-            );
-          } catch (e) {
-            // If payment DB is unavailable, default to least-privilege
-            accessibleSet = new Set();
-          }
+    // Determine user access for premium frames (for redaction)
+    let accessibleSet = new Set();
+    if (!allowHidden && req.user) {
+      const userId = req.user?.uid || req.user?.userId || req.user?.id;
+      if (userId) {
+        try {
+          const accessibleFrameIds = await paymentDB.getUserAccessibleFrames(
+            String(userId)
+          );
+          accessibleSet = new Set(
+            (accessibleFrameIds || []).map((id) => String(id))
+          );
+        } catch (e) {
+          // If payment DB is unavailable, default to least-privilege
+          accessibleSet = new Set();
         }
       }
+    }
 
-      let queryText = `
+    let queryText = `
         SELECT id, name, description, category, image_path, thumbnail_path, 
                slots, max_captures, is_premium, is_active, view_count, 
                download_count, created_by, created_at, updated_at,
@@ -130,22 +133,29 @@ router.get(
         WHERE is_active = true
       `;
 
-      if (!allowHidden) {
-        queryText += ` AND is_hidden = false`;
-      }
-      const queryParams = [];
-      let paramIndex = 1;
+    if (!allowHidden) {
+      queryText += ` AND is_hidden = false`;
+    }
+    const queryParams = [];
+    let paramIndex = 1;
 
-      if (category) {
-        queryText += ` AND category = $${paramIndex}`;
-        queryParams.push(category);
-        paramIndex++;
-      }
+    if (category) {
+      queryText += ` AND category = $${paramIndex}`;
+      queryParams.push(category);
+      paramIndex++;
+    }
 
-      queryText += ` ORDER BY display_order ASC, created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-      queryParams.push(limit, offset);
+    queryText += ` ORDER BY display_order ASC, created_at DESC LIMIT $${paramIndex} OFFSET $${
+      paramIndex + 1
+    }`;
+    queryParams.push(limit, offset);
 
-      const result = await pool.query(queryText, queryParams);
+    let result;
+    let total = 0;
+    let useMockData = false;
+
+    try {
+      result = await pool.query(queryText, queryParams);
 
       // Get total count
       let countQuery = "SELECT COUNT(*) FROM frames WHERE is_active = true";
@@ -158,89 +168,232 @@ router.get(
         countParams.push(category);
       }
       const countResult = await pool.query(countQuery, countParams);
-      const total = parseInt(countResult.rows[0].count);
-
-      // Format frames for response
-      const frames = result.rows.map((frame) => {
-        const isPremium = !!frame.is_premium;
-        const canSeePremiumDetails = allowHidden || !isPremium || accessibleSet.has(String(frame.id));
-
-        const slotsRaw = typeof frame.slots === "string" ? JSON.parse(frame.slots) : (frame.slots || []);
-        const layoutRaw = typeof frame.layout === "string" ? JSON.parse(frame.layout) : (frame.layout || {});
-
-        // IMPORTANT: Prevent premium frames from being usable without access.
-        // We still allow preview (name + thumbnail), but redact slots/layout elements.
-        const slots = canSeePremiumDetails ? slotsRaw : [];
-        const layout = canSeePremiumDetails
-          ? layoutRaw
-          : {
-              ...(layoutRaw || {}),
+      total = parseInt(countResult.rows[0].count);
+    } catch (dbError) {
+      console.log(
+        "⚠️  Database connection failed for frames, using mock premium frames"
+      );
+      // Return mock frames with premium examples when database is down
+      useMockData = true;
+      result = {
+        rows: [
+          // Mock Premium Frame 1 - Christmas Series
+          {
+            id: "premium-frame-001",
+            name: "Golden Christmas Frame",
+            description:
+              "Frame Natal premium dengan efek emas - Harus bayar untuk unlock",
+            category: "Christmas Fremio Series",
+            image_path: "/mock-frames/golden-christmas.png",
+            thumbnail_path: "/mock-frames/golden-christmas-thumb.png",
+            slots: "[]", // Locked
+            max_captures: 4,
+            is_premium: true,
+            is_active: true,
+            is_hidden: false,
+            view_count: 0,
+            download_count: 0,
+            created_at: new Date(),
+            updated_at: new Date(),
+            layout: JSON.stringify({
+              aspectRatio: "9:16",
+              orientation: "portrait",
+              backgroundColor: "#FFD700",
               elements: [],
-            };
-        // Construct full URL for images
-        const baseUrl = publicBaseUrl;
-        const imageUrl = frame.image_path?.startsWith("http")
-          ? frame.image_path
-          : `${baseUrl}${frame.image_path}`;
-        const thumbnailUrl = (frame.thumbnail_path || frame.image_path)?.startsWith("http")
-          ? (frame.thumbnail_path || frame.image_path)
-          : `${baseUrl}${frame.thumbnail_path || frame.image_path}`;
-        
-        return {
-          id: frame.id,
-          name: frame.name,
-          description: frame.description,
-          category: frame.category,
-          imagePath: frame.image_path,
-          imageUrl: imageUrl,
-          thumbnailUrl: thumbnailUrl,
-          slots: slots,
-          maxCaptures: frame.max_captures,
-          isPremium: isPremium,
-          isLocked: isPremium && !canSeePremiumDetails,
-          isActive: frame.is_active,
-          // Visibility (for admin UI and defensive client filtering)
-          isHidden: frame.is_hidden,
-          is_hidden: frame.is_hidden,
-          viewCount: frame.view_count,
-          downloadCount: frame.download_count,
-          createdBy: frame.created_by,
-          createdAt: frame.created_at,
-          updatedAt: frame.updated_at,
-          displayOrder: frame.display_order ?? 999,
-          // Include layout with elements for overlay/background
-          layout: {
-            aspectRatio: layout.aspectRatio || "9:16",
-            orientation: layout.orientation || "portrait",
-            backgroundColor: frame.canvas_background || layout.backgroundColor || "#ffffff",
-            elements: layout.elements || [],
+            }),
+            canvas_background: "#FFD700",
+            canvas_width: 1080,
+            canvas_height: 1920,
+            display_order: 1,
           },
-          canvasBackground: frame.canvas_background || "#ffffff",
-          canvasWidth: frame.canvas_width || 1080,
-          canvasHeight: frame.canvas_height || 1920,
-          isCustom: true,
-        };
-      });
-
-      res.json({
-        success: true,
-        frames,
-        pagination: {
-          page,
-          limit,
-          total,
-          totalPages: Math.ceil(total / limit),
-        },
-      });
-    } catch (error) {
-      console.error("Get frames error:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to get frames",
-      });
+          // Mock Premium Frame 2 - Holiday Series
+          {
+            id: "premium-frame-002",
+            name: "Holiday Celebration Frame",
+            description: "Frame liburan mewah - Premium locked",
+            category: "Holiday Fremio Series",
+            image_path: "/mock-frames/holiday-celebration.png",
+            thumbnail_path: "/mock-frames/holiday-celebration-thumb.png",
+            slots: "[]",
+            max_captures: 6,
+            is_premium: true,
+            is_active: true,
+            is_hidden: false,
+            view_count: 0,
+            download_count: 0,
+            created_at: new Date(),
+            updated_at: new Date(),
+            layout: JSON.stringify({
+              aspectRatio: "9:16",
+              orientation: "portrait",
+              backgroundColor: "#E8E8E8",
+              elements: [],
+            }),
+            canvas_background: "#E8E8E8",
+            canvas_width: 1080,
+            canvas_height: 1920,
+            display_order: 2,
+          },
+          // Mock Premium Frame 3 - Year-End Recap
+          {
+            id: "premium-frame-003",
+            name: "Year-End Recap 2025",
+            description: "Frame recap akhir tahun - Premium locked",
+            category: "Year-End Recap Fremio Series",
+            category: "Year-End Recap Fremio Series",
+            image_path: "/mock-frames/year-end-recap.png",
+            thumbnail_path: "/mock-frames/year-end-recap-thumb.png",
+            slots: "[]",
+            max_captures: 6,
+            is_premium: true,
+            is_active: true,
+            is_hidden: false,
+            view_count: 0,
+            download_count: 0,
+            created_at: new Date(),
+            updated_at: new Date(),
+            layout: JSON.stringify({
+              aspectRatio: "9:16",
+              orientation: "portrait",
+              backgroundColor: "#4A5568",
+              elements: [],
+            }),
+            canvas_background: "#4A5568",
+            canvas_width: 1080,
+            canvas_height: 1920,
+            display_order: 3,
+          },
+          // Mock Free Frame - Christmas (for testing unlock)
+          {
+            id: "free-frame-001",
+            name: "Simple Christmas Collage",
+            description: "Frame gratis untuk testing - Sudah unlocked",
+            category: "Christmas Fremio Series",
+            name: "Simple Christmas Collage",
+            description: "Frame gratis untuk testing - Sudah unlocked",
+            category: "Christmas Fremio Series",
+            image_path: "/mock-frames/simple-christmas.png",
+            thumbnail_path: "/mock-frames/simple-christmas-thumb.png",
+            slots: JSON.stringify([
+              { x: 100, y: 100, width: 200, height: 200, type: "photo" },
+              { x: 350, y: 100, width: 200, height: 200, type: "photo" },
+              { x: 100, y: 350, width: 200, height: 200, type: "photo" },
+              { x: 350, y: 350, width: 200, height: 200, type: "photo" },
+            ]),
+            max_captures: 4,
+            is_premium: false,
+            is_active: true,
+            is_hidden: false,
+            view_count: 0,
+            download_count: 0,
+            created_at: new Date(),
+            updated_at: new Date(),
+            layout: JSON.stringify({
+              aspectRatio: "1:1",
+              orientation: "square",
+              backgroundColor: "#C53030",
+              elements: [],
+            }),
+            canvas_background: "#C53030",
+            canvas_width: 1080,
+            canvas_height: 1080,
+            display_order: 4,
+          },
+        ],
+      };
+      total = result.rows.length;
     }
+
+    // Format frames for response
+    const frames = result.rows.map((frame) => {
+      const isPremium = !!frame.is_premium;
+      const canSeePremiumDetails =
+        allowHidden || !isPremium || accessibleSet.has(String(frame.id));
+
+      const slotsRaw =
+        typeof frame.slots === "string"
+          ? JSON.parse(frame.slots)
+          : frame.slots || [];
+      const layoutRaw =
+        typeof frame.layout === "string"
+          ? JSON.parse(frame.layout)
+          : frame.layout || {};
+
+      // IMPORTANT: Prevent premium frames from being usable without access.
+      // We still allow preview (name + thumbnail), but redact slots/layout elements.
+      const slots = canSeePremiumDetails ? slotsRaw : [];
+      const layout = canSeePremiumDetails
+        ? layoutRaw
+        : {
+            ...(layoutRaw || {}),
+            elements: [],
+          };
+      // Construct full URL for images
+      const baseUrl = publicBaseUrl;
+      const imageUrl = frame.image_path?.startsWith("http")
+        ? frame.image_path
+        : `${baseUrl}${frame.image_path}`;
+      const thumbnailUrl = (
+        frame.thumbnail_path || frame.image_path
+      )?.startsWith("http")
+        ? frame.thumbnail_path || frame.image_path
+        : `${baseUrl}${frame.thumbnail_path || frame.image_path}`;
+
+      return {
+        id: frame.id,
+        name: frame.name,
+        description: frame.description,
+        category: frame.category,
+        imagePath: frame.image_path,
+        imageUrl: imageUrl,
+        thumbnailUrl: thumbnailUrl,
+        slots: slots,
+        maxCaptures: frame.max_captures,
+        isPremium: isPremium,
+        isLocked: isPremium && !canSeePremiumDetails,
+        isActive: frame.is_active,
+        // Visibility (for admin UI and defensive client filtering)
+        isHidden: frame.is_hidden,
+        is_hidden: frame.is_hidden,
+        viewCount: frame.view_count,
+        downloadCount: frame.download_count,
+        createdBy: frame.created_by,
+        createdAt: frame.created_at,
+        updatedAt: frame.updated_at,
+        displayOrder: frame.display_order ?? 999,
+        // Include layout with elements for overlay/background
+        layout: {
+          aspectRatio: layout.aspectRatio || "9:16",
+          orientation: layout.orientation || "portrait",
+          backgroundColor:
+            frame.canvas_background || layout.backgroundColor || "#ffffff",
+          elements: layout.elements || [],
+        },
+        canvasBackground: frame.canvas_background || "#ffffff",
+        canvasWidth: frame.canvas_width || 1080,
+        canvasHeight: frame.canvas_height || 1920,
+        isCustom: true,
+      };
+    });
+
+    res.json({
+      success: true,
+      frames,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.error("Get frames error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to get frames",
+    });
   }
-);
+});
 
 /**
  * GET /api/frames/:id
@@ -250,10 +403,9 @@ router.get("/:id", optionalAuth, async (req, res) => {
   try {
     const publicBaseUrl =
       process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
-    const result = await pool.query(
-      `SELECT * FROM frames WHERE id = $1`,
-      [req.params.id]
-    );
+    const result = await pool.query(`SELECT * FROM frames WHERE id = $1`, [
+      req.params.id,
+    ]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({
@@ -271,9 +423,13 @@ router.get("/:id", optionalAuth, async (req, res) => {
       if (!isAdmin) {
         const userId = req.user?.uid || req.user?.userId || req.user?.id;
         const accessibleFrameIds = userId
-          ? await paymentDB.getUserAccessibleFrames(String(userId)).catch(() => [])
+          ? await paymentDB
+              .getUserAccessibleFrames(String(userId))
+              .catch(() => [])
           : [];
-        const allowed = new Set((accessibleFrameIds || []).map((id) => String(id)));
+        const allowed = new Set(
+          (accessibleFrameIds || []).map((id) => String(id))
+        );
         if (!allowed.has(String(frame.id))) {
           return res.status(403).json({
             success: false,
@@ -287,8 +443,10 @@ router.get("/:id", optionalAuth, async (req, res) => {
               imageUrl: frame.image_path?.startsWith("http")
                 ? frame.image_path
                 : `${publicBaseUrl}${frame.image_path}`,
-              thumbnailUrl: (frame.thumbnail_path || frame.image_path)?.startsWith("http")
-                ? (frame.thumbnail_path || frame.image_path)
+              thumbnailUrl: (
+                frame.thumbnail_path || frame.image_path
+              )?.startsWith("http")
+                ? frame.thumbnail_path || frame.image_path
                 : `${publicBaseUrl}${frame.thumbnail_path || frame.image_path}`,
             },
           });
@@ -314,8 +472,14 @@ router.get("/:id", optionalAuth, async (req, res) => {
         imageUrl: frame.image_path?.startsWith("http")
           ? frame.image_path
           : `${publicBaseUrl}${frame.image_path}`,
-        slots: typeof frame.slots === "string" ? JSON.parse(frame.slots) : frame.slots,
-        layout: typeof frame.layout === "string" ? JSON.parse(frame.layout) : frame.layout,
+        slots:
+          typeof frame.slots === "string"
+            ? JSON.parse(frame.slots)
+            : frame.slots,
+        layout:
+          typeof frame.layout === "string"
+            ? JSON.parse(frame.layout)
+            : frame.layout,
         canvasBackground: frame.canvas_background,
         canvasWidth: frame.canvas_width,
         canvasHeight: frame.canvas_height,
@@ -346,10 +510,9 @@ router.get("/:id/config", optionalAuth, async (req, res) => {
   try {
     const publicBaseUrl =
       process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
-    const result = await pool.query(
-      `SELECT * FROM frames WHERE id = $1`,
-      [req.params.id]
-    );
+    const result = await pool.query(`SELECT * FROM frames WHERE id = $1`, [
+      req.params.id,
+    ]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({
@@ -366,9 +529,13 @@ router.get("/:id/config", optionalAuth, async (req, res) => {
       if (!isAdmin) {
         const userId = req.user?.uid || req.user?.userId || req.user?.id;
         const accessibleFrameIds = userId
-          ? await paymentDB.getUserAccessibleFrames(String(userId)).catch(() => [])
+          ? await paymentDB
+              .getUserAccessibleFrames(String(userId))
+              .catch(() => [])
           : [];
-        const allowed = new Set((accessibleFrameIds || []).map((id) => String(id)));
+        const allowed = new Set(
+          (accessibleFrameIds || []).map((id) => String(id))
+        );
         if (!allowed.has(String(frame.id))) {
           return res.status(403).json({
             success: false,
@@ -379,13 +546,19 @@ router.get("/:id/config", optionalAuth, async (req, res) => {
       }
     }
 
-    const slots = typeof frame.slots === "string" ? JSON.parse(frame.slots) : (frame.slots || []);
-    const layout = typeof frame.layout === "string" ? JSON.parse(frame.layout) : (frame.layout || {});
-    
+    const slots =
+      typeof frame.slots === "string"
+        ? JSON.parse(frame.slots)
+        : frame.slots || [];
+    const layout =
+      typeof frame.layout === "string"
+        ? JSON.parse(frame.layout)
+        : frame.layout || {};
+
     // Canvas dimensions
     const W = frame.canvas_width || 1080;
     const H = frame.canvas_height || 1920;
-    
+
     // Build image URL - use full URL
     const imageUrl = frame.image_path?.startsWith("http")
       ? frame.image_path
@@ -404,16 +577,24 @@ router.get("/:id/config", optionalAuth, async (req, res) => {
         photoIndex: s.photoIndex !== undefined ? s.photoIndex : i,
         image: null,
         borderRadius: s.borderRadius || 0,
-      }
+      },
     }));
 
     // Build overlay elements from layout.elements (upload/overlay images)
     const overlayElements = (layout.elements || []).map((el) => {
       // Restore normalized positions to pixel values
-      const restoredX = el.xNorm !== undefined ? Math.round(el.xNorm * W) : (el.x || 0);
-      const restoredY = el.yNorm !== undefined ? Math.round(el.yNorm * H) : (el.y || 0);
-      const restoredWidth = el.widthNorm !== undefined ? Math.round(el.widthNorm * W) : (el.width || 100);
-      const restoredHeight = el.heightNorm !== undefined ? Math.round(el.heightNorm * H) : (el.height || 100);
+      const restoredX =
+        el.xNorm !== undefined ? Math.round(el.xNorm * W) : el.x || 0;
+      const restoredY =
+        el.yNorm !== undefined ? Math.round(el.yNorm * H) : el.y || 0;
+      const restoredWidth =
+        el.widthNorm !== undefined
+          ? Math.round(el.widthNorm * W)
+          : el.width || 100;
+      const restoredHeight =
+        el.heightNorm !== undefined
+          ? Math.round(el.heightNorm * H)
+          : el.height || 100;
 
       return {
         ...el,
@@ -444,17 +625,20 @@ router.get("/:id/config", optionalAuth, async (req, res) => {
       frameImage: imageUrl,
       thumbnailUrl: imageUrl,
       slots: slots,
-      canvasBackground: frame.canvas_background || layout.backgroundColor || "#ffffff",
+      canvasBackground:
+        frame.canvas_background || layout.backgroundColor || "#ffffff",
       canvasWidth: W,
       canvasHeight: H,
       designer: {
         elements: allElements,
-        background: frame.canvas_background || layout.backgroundColor || "#ffffff",
+        background:
+          frame.canvas_background || layout.backgroundColor || "#ffffff",
       },
       layout: {
         aspectRatio: layout.aspectRatio || "9:16",
         orientation: layout.orientation || "portrait",
-        backgroundColor: frame.canvas_background || layout.backgroundColor || "#ffffff",
+        backgroundColor:
+          frame.canvas_background || layout.backgroundColor || "#ffffff",
         elements: layout.elements || [],
       },
       category: frame.category,
@@ -476,90 +660,94 @@ router.get("/:id/config", optionalAuth, async (req, res) => {
  * Create new frame (Admin/Kreator only)
  * Supports both Firebase and PostgreSQL (VPS mode)
  */
-router.post(
-  "/",
-  verifyToken,
-  requireAdmin,
-  async (req, res) => {
-    try {
-      const {
-        id,
-        name,
-        description,
-        category,
-        categories,
-        maxCaptures,
-        max_captures,
-        duplicatePhotos,
-        slots,
-        layout,
-        tags,
-        imagePath,
-        image_path,
-        isPremium,
-        is_premium,
-        is_hidden,
-        canvasBackground,
-        canvasWidth,
-        canvasHeight,
-        createdBy,
-      } = req.body;
+router.post("/", verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const {
+      id,
+      name,
+      description,
+      category,
+      categories,
+      maxCaptures,
+      max_captures,
+      duplicatePhotos,
+      slots,
+      layout,
+      tags,
+      imagePath,
+      image_path,
+      isPremium,
+      is_premium,
+      is_hidden,
+      canvasBackground,
+      canvasWidth,
+      canvasHeight,
+      createdBy,
+    } = req.body;
 
-      // Validate name
-      if (!name || name.trim() === "") {
-        return res.status(400).json({
-          success: false,
-          message: "Frame name is required",
-        });
-      }
+    // Validate name
+    if (!name || name.trim() === "") {
+      return res.status(400).json({
+        success: false,
+        message: "Frame name is required",
+      });
+    }
 
-      // Parse slots if string
-      let parsedSlots = slots;
-      if (typeof slots === "string") {
-        try {
-          parsedSlots = JSON.parse(slots);
-        } catch (e) {
-          parsedSlots = [];
-        }
-      }
-
-      // Parse layout if string
-      let parsedLayout = layout;
-      if (typeof layout === "string") {
-        try {
-          parsedLayout = JSON.parse(layout);
-        } catch (e) {
-          parsedLayout = null;
-        }
-      }
-
-      const frameId = id || `frame_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const finalImagePath = imagePath || image_path || null;
-      const finalMaxCaptures = maxCaptures || max_captures || parsedSlots?.length || 1;
-      const finalCategory = category || (categories && categories[0]) || "custom";
-      const finalIsHidden = Boolean(is_hidden);
-
-      // IMPORTANT: Admin uploads are treated as premium by default unless explicitly set.
-      const finalIsPremium =
-        is_premium !== undefined
-          ? Boolean(is_premium)
-          : isPremium !== undefined
-            ? Boolean(isPremium)
-            : true;
-
-      // DEBUG: Log layout data
-      console.log("📦 [CREATE FRAME] Layout data received:");
-      console.log("  - Raw layout type:", typeof layout);
-      console.log("  - Parsed layout:", JSON.stringify(parsedLayout, null, 2)?.substring(0, 500));
-      console.log("  - Layout elements count:", parsedLayout?.elements?.length || 0);
-
-      // Get user ID (UUID) for created_by - can be null if not found
-      const createdByUserId = req.user?.userId || null;
-
-      // Use PostgreSQL for VPS mode
+    // Parse slots if string
+    let parsedSlots = slots;
+    if (typeof slots === "string") {
       try {
-        const result = await pool.query(
-          `INSERT INTO frames (id, name, description, category, image_path, slots, max_captures, layout, canvas_background, canvas_width, canvas_height, created_by, is_active, is_hidden, is_premium)
+        parsedSlots = JSON.parse(slots);
+      } catch (e) {
+        parsedSlots = [];
+      }
+    }
+
+    // Parse layout if string
+    let parsedLayout = layout;
+    if (typeof layout === "string") {
+      try {
+        parsedLayout = JSON.parse(layout);
+      } catch (e) {
+        parsedLayout = null;
+      }
+    }
+
+    const frameId =
+      id || `frame_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const finalImagePath = imagePath || image_path || null;
+    const finalMaxCaptures =
+      maxCaptures || max_captures || parsedSlots?.length || 1;
+    const finalCategory = category || (categories && categories[0]) || "custom";
+    const finalIsHidden = Boolean(is_hidden);
+
+    // IMPORTANT: Admin uploads are treated as premium by default unless explicitly set.
+    const finalIsPremium =
+      is_premium !== undefined
+        ? Boolean(is_premium)
+        : isPremium !== undefined
+        ? Boolean(isPremium)
+        : true;
+
+    // DEBUG: Log layout data
+    console.log("📦 [CREATE FRAME] Layout data received:");
+    console.log("  - Raw layout type:", typeof layout);
+    console.log(
+      "  - Parsed layout:",
+      JSON.stringify(parsedLayout, null, 2)?.substring(0, 500)
+    );
+    console.log(
+      "  - Layout elements count:",
+      parsedLayout?.elements?.length || 0
+    );
+
+    // Get user ID (UUID) for created_by - can be null if not found
+    const createdByUserId = req.user?.userId || null;
+
+    // Use PostgreSQL for VPS mode
+    try {
+      const result = await pool.query(
+        `INSERT INTO frames (id, name, description, category, image_path, slots, max_captures, layout, canvas_background, canvas_width, canvas_height, created_by, is_active, is_hidden, is_premium)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, $13, $14)
            ON CONFLICT (id) DO UPDATE SET
              name = EXCLUDED.name,
@@ -576,94 +764,93 @@ router.post(
              is_premium = EXCLUDED.is_premium,
              updated_at = NOW()
            RETURNING *`,
-          [
-            frameId,
-            name.trim(),
-            description || "",
-            finalCategory,
-            finalImagePath,
-            JSON.stringify(parsedSlots || []),
-            finalMaxCaptures,
-            JSON.stringify(parsedLayout || {}),
-            canvasBackground || "#ffffff",
-            canvasWidth || 1080,
-            canvasHeight || 1920,
-            createdByUserId,
-            finalIsHidden,
-            finalIsPremium,
-          ]
-        );
+        [
+          frameId,
+          name.trim(),
+          description || "",
+          finalCategory,
+          finalImagePath,
+          JSON.stringify(parsedSlots || []),
+          finalMaxCaptures,
+          JSON.stringify(parsedLayout || {}),
+          canvasBackground || "#ffffff",
+          canvasWidth || 1080,
+          canvasHeight || 1920,
+          createdByUserId,
+          finalIsHidden,
+          finalIsPremium,
+        ]
+      );
 
-        const frame = result.rows[0];
+      const frame = result.rows[0];
 
-        console.log(`✅ Frame created: ${frame.name} (${frame.id})`);
+      console.log(`✅ Frame created: ${frame.name} (${frame.id})`);
 
-        res.status(201).json({
-          success: true,
-          message: "Frame berhasil dibuat",
-          frame: {
-            id: frame.id,
-            name: frame.name,
-            description: frame.description,
-            category: frame.category,
-            imagePath: frame.image_path,
-            slots: frame.slots,
-            maxCaptures: frame.max_captures,
-            is_hidden: frame.is_hidden,
-            isPremium: frame.is_premium,
-          },
-        });
-      } catch (dbError) {
-        console.error("PostgreSQL error:", dbError);
-        
-        // Fallback to Firebase if PostgreSQL fails
-        try {
-          const db = getFirestore();
-          if (db) {
-            const frameData = {
-              name: name.trim(),
-              description: description || "",
-              category: finalCategory,
-              imagePath: finalImagePath,
-              is_hidden: finalIsHidden,
-              isPremium: finalIsPremium,
-              is_premium: finalIsPremium,
-              slots: parsedSlots || [],
-              maxCaptures: finalMaxCaptures,
-              layout: parsedLayout,
-              status: "approved",
-              createdBy: req.user?.email || createdBy || "admin",
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            };
-
-            await db.collection("custom_frames").doc(frameId).set(frameData);
-
-            res.status(201).json({
-              success: true,
-              message: "Frame berhasil dibuat (Firebase)",
-              frame: { id: frameId, ...frameData },
-            });
-          } else {
-            throw new Error("No database available");
-          }
-        } catch (fbError) {
-          console.error("Firebase fallback error:", fbError);
-          res.status(500).json({
-            success: false,
-            message: "Failed to create frame",
-          });
-        }
-      }
-    } catch (error) {
-      console.error("Create frame error:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to create frame",
+      res.status(201).json({
+        success: true,
+        message: "Frame berhasil dibuat",
+        frame: {
+          id: frame.id,
+          name: frame.name,
+          description: frame.description,
+          category: frame.category,
+          imagePath: frame.image_path,
+          slots: frame.slots,
+          maxCaptures: frame.max_captures,
+          is_hidden: frame.is_hidden,
+          isPremium: frame.is_premium,
+        },
       });
+    } catch (dbError) {
+      console.error("PostgreSQL error:", dbError);
+
+      // Fallback to Firebase if PostgreSQL fails
+      try {
+        const db = getFirestore();
+        if (db) {
+          const frameData = {
+            name: name.trim(),
+            description: description || "",
+            category: finalCategory,
+            imagePath: finalImagePath,
+            is_hidden: finalIsHidden,
+            isPremium: finalIsPremium,
+            is_premium: finalIsPremium,
+            slots: parsedSlots || [],
+            maxCaptures: finalMaxCaptures,
+            layout: parsedLayout,
+            status: "approved",
+            createdBy: req.user?.email || createdBy || "admin",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+
+          await db.collection("custom_frames").doc(frameId).set(frameData);
+
+          res.status(201).json({
+            success: true,
+            message: "Frame berhasil dibuat (Firebase)",
+            frame: { id: frameId, ...frameData },
+          });
+        } else {
+          throw new Error("No database available");
+        }
+      } catch (fbError) {
+        console.error("Firebase fallback error:", fbError);
+        res.status(500).json({
+          success: false,
+          message: "Failed to create frame",
+        });
+      }
     }
+  } catch (error) {
+    console.error("Create frame error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to create frame",
+    });
   }
-);
+});
 
 /**
  * PUT /api/frames/:id
@@ -672,10 +859,9 @@ router.post(
 router.put("/:id", verifyToken, requireAdmin, async (req, res) => {
   try {
     // Check if frame exists
-    const checkResult = await pool.query(
-      `SELECT * FROM frames WHERE id = $1`,
-      [req.params.id]
-    );
+    const checkResult = await pool.query(`SELECT * FROM frames WHERE id = $1`, [
+      req.params.id,
+    ]);
 
     if (checkResult.rows.length === 0) {
       return res.status(404).json({
@@ -769,7 +955,9 @@ router.put("/:id", verifyToken, requireAdmin, async (req, res) => {
     updates.push(`updated_at = NOW()`);
     values.push(req.params.id);
 
-    const query = `UPDATE frames SET ${updates.join(", ")} WHERE id = $${paramIndex} RETURNING *`;
+    const query = `UPDATE frames SET ${updates.join(
+      ", "
+    )} WHERE id = $${paramIndex} RETURNING *`;
     await pool.query(query, values);
 
     res.json({
@@ -792,10 +980,9 @@ router.put("/:id", verifyToken, requireAdmin, async (req, res) => {
 router.delete("/:id", verifyToken, requireAdmin, async (req, res) => {
   try {
     // Check if frame exists and get image path
-    const checkResult = await pool.query(
-      `SELECT * FROM frames WHERE id = $1`,
-      [req.params.id]
-    );
+    const checkResult = await pool.query(`SELECT * FROM frames WHERE id = $1`, [
+      req.params.id,
+    ]);
 
     if (checkResult.rows.length === 0) {
       return res.status(404).json({

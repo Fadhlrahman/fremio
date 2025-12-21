@@ -31,6 +31,15 @@ router.post(
   async (req, res) => {
     try {
       const db = getFirestore();
+
+      // If Firebase not available, return success without saving
+      if (!db) {
+        return res.json({
+          success: true,
+          message: "Analytics tracked (fallback mode)",
+        });
+      }
+
       const { eventType, frameId, frameName, draftId } = req.body;
 
       const eventData = {
@@ -241,18 +250,29 @@ router.get("/overview", verifyToken, requireAdmin, async (req, res) => {
 router.post("/track/session", optionalAuth, async (req, res) => {
   try {
     const db = getFirestore();
+
+    // If Firebase not available, return success without saving
+    if (!db) {
+      return res.json({
+        success: true,
+        message: "Session tracked (fallback mode)",
+      });
+    }
+
     const { sessionId, action, referrer, landingPage, duration } = req.body;
 
     const sessionData = {
       sessionId: sessionId || null,
-      action: action || 'unknown',
+      action: action || "unknown",
       referrer: referrer || null,
       landingPage: landingPage || null,
       duration: duration || null,
       userId: req.user ? req.user.uid : null,
-      deviceType: req.headers["user-agent"]?.includes("Mobile") ? "mobile" : "desktop",
+      deviceType: req.headers["user-agent"]?.includes("Mobile")
+        ? "mobile"
+        : "desktop",
       browser: req.headers["user-agent"] || "unknown",
-      ip: req.ip || req.headers['x-forwarded-for']?.split(',')[0] || null,
+      ip: req.ip || req.headers["x-forwarded-for"]?.split(",")[0] || null,
       timestamp: new Date().toISOString(),
     };
 
@@ -278,19 +298,38 @@ router.post("/track/session", optionalAuth, async (req, res) => {
 router.post("/track/event", optionalAuth, async (req, res) => {
   try {
     const db = getFirestore();
-    const { eventName, eventCategory, eventData, sessionId, pageUrl, pageTitle, timestamp } = req.body;
+
+    // If Firebase not available, return success without saving
+    if (!db) {
+      return res.json({
+        success: true,
+        message: "Event tracked (fallback mode)",
+      });
+    }
+
+    const {
+      eventName,
+      eventCategory,
+      eventData,
+      sessionId,
+      pageUrl,
+      pageTitle,
+      timestamp,
+    } = req.body;
 
     const event = {
-      eventName: eventName || 'unknown',
-      eventCategory: eventCategory || 'general',
+      eventName: eventName || "unknown",
+      eventCategory: eventCategory || "general",
       eventData: eventData || {},
       sessionId: sessionId || null,
       pageUrl: pageUrl || null,
       pageTitle: pageTitle || null,
       userId: req.user ? req.user.uid : null,
-      deviceType: req.headers["user-agent"]?.includes("Mobile") ? "mobile" : "desktop",
+      deviceType: req.headers["user-agent"]?.includes("Mobile")
+        ? "mobile"
+        : "desktop",
       browser: req.headers["user-agent"] || "unknown",
-      ip: req.ip || req.headers['x-forwarded-for']?.split(',')[0] || null,
+      ip: req.ip || req.headers["x-forwarded-for"]?.split(",")[0] || null,
       timestamp: timestamp || new Date().toISOString(),
       serverTimestamp: new Date().toISOString(),
     };
@@ -317,18 +356,29 @@ router.post("/track/event", optionalAuth, async (req, res) => {
 router.post("/track/download", optionalAuth, async (req, res) => {
   try {
     const db = getFirestore();
+
+    // If Firebase not available, return success without saving
+    if (!db) {
+      return res.json({
+        success: true,
+        message: "Download tracked (fallback mode)",
+      });
+    }
+
     const { frameId, frameName, format, hasWatermark, sessionId } = req.body;
 
     const downloadData = {
       frameId: frameId || null,
       frameName: frameName || null,
-      format: format || 'png',
+      format: format || "png",
       hasWatermark: hasWatermark || false,
       sessionId: sessionId || null,
       userId: req.user ? req.user.uid : null,
-      deviceType: req.headers["user-agent"]?.includes("Mobile") ? "mobile" : "desktop",
+      deviceType: req.headers["user-agent"]?.includes("Mobile")
+        ? "mobile"
+        : "desktop",
       browser: req.headers["user-agent"] || "unknown",
-      ip: req.ip || req.headers['x-forwarded-for']?.split(',')[0] || null,
+      ip: req.ip || req.headers["x-forwarded-for"]?.split(",")[0] || null,
       timestamp: new Date().toISOString(),
     };
 
@@ -337,11 +387,17 @@ router.post("/track/download", optionalAuth, async (req, res) => {
     // Update frame download count if frameId exists
     if (frameId) {
       try {
-        const frameDoc = await db.collection("custom_frames").doc(frameId).get();
+        const frameDoc = await db
+          .collection("custom_frames")
+          .doc(frameId)
+          .get();
         if (frameDoc.exists) {
-          await db.collection("custom_frames").doc(frameId).update({
-            downloads: (frameDoc.data().downloads || 0) + 1
-          });
+          await db
+            .collection("custom_frames")
+            .doc(frameId)
+            .update({
+              downloads: (frameDoc.data().downloads || 0) + 1,
+            });
         }
       } catch (e) {
         console.warn("Failed to update frame download count:", e.message);
@@ -368,6 +424,15 @@ router.post("/track/download", optionalAuth, async (req, res) => {
 router.post("/track/pageview", optionalAuth, async (req, res) => {
   try {
     const db = getFirestore();
+
+    // If Firebase not available, return success without saving
+    if (!db) {
+      return res.json({
+        success: true,
+        message: "Pageview tracked (fallback mode)",
+      });
+    }
+
     const { pageUrl, pageTitle, sessionId, referrer } = req.body;
 
     const pageviewData = {
@@ -376,9 +441,11 @@ router.post("/track/pageview", optionalAuth, async (req, res) => {
       sessionId: sessionId || null,
       referrer: referrer || null,
       userId: req.user ? req.user.uid : null,
-      deviceType: req.headers["user-agent"]?.includes("Mobile") ? "mobile" : "desktop",
+      deviceType: req.headers["user-agent"]?.includes("Mobile")
+        ? "mobile"
+        : "desktop",
       browser: req.headers["user-agent"] || "unknown",
-      ip: req.ip || req.headers['x-forwarded-for']?.split(',')[0] || null,
+      ip: req.ip || req.headers["x-forwarded-for"]?.split(",")[0] || null,
       timestamp: new Date().toISOString(),
     };
 
@@ -404,15 +471,26 @@ router.post("/track/pageview", optionalAuth, async (req, res) => {
 router.post("/track/performance", optionalAuth, async (req, res) => {
   try {
     const db = getFirestore();
+
+    // If Firebase not available, return success without saving
+    if (!db) {
+      return res.json({
+        success: true,
+        message: "Performance tracked (fallback mode)",
+      });
+    }
+
     const { metric, value, sessionId, pageUrl } = req.body;
 
     const perfData = {
-      metric: metric || 'unknown',
+      metric: metric || "unknown",
       value: value || 0,
       sessionId: sessionId || null,
       pageUrl: pageUrl || null,
       userId: req.user ? req.user.uid : null,
-      deviceType: req.headers["user-agent"]?.includes("Mobile") ? "mobile" : "desktop",
+      deviceType: req.headers["user-agent"]?.includes("Mobile")
+        ? "mobile"
+        : "desktop",
       timestamp: new Date().toISOString(),
     };
 
@@ -447,112 +525,150 @@ const getDateRange = (days) => {
  * GET /api/analytics/dashboard/overview
  * Get dashboard overview stats
  */
-router.get("/dashboard/overview", verifyToken, requireAdmin, async (req, res) => {
-  try {
-    const db = getFirestore();
-    const days = parseInt(req.query.days) || 30;
-    const { startDate, endDate } = getDateRange(days);
+router.get(
+  "/dashboard/overview",
+  verifyToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const db = getFirestore();
+      const days = parseInt(req.query.days) || 30;
+      const { startDate, endDate } = getDateRange(days);
 
-    // Get basic counts
-    const [usersSnapshot, framesSnapshot, sessionsSnapshot, downloadsSnapshot] = await Promise.all([
-      db.collection("users").count().get(),
-      db.collection("custom_frames").count().get(),
-      db.collection("analytics_sessions").where("timestamp", ">=", startDate).count().get(),
-      db.collection("analytics_downloads").where("timestamp", ">=", startDate).count().get(),
-    ]);
+      // Get basic counts
+      const [
+        usersSnapshot,
+        framesSnapshot,
+        sessionsSnapshot,
+        downloadsSnapshot,
+      ] = await Promise.all([
+        db.collection("users").count().get(),
+        db.collection("custom_frames").count().get(),
+        db
+          .collection("analytics_sessions")
+          .where("timestamp", ">=", startDate)
+          .count()
+          .get(),
+        db
+          .collection("analytics_downloads")
+          .where("timestamp", ">=", startDate)
+          .count()
+          .get(),
+      ]);
 
-    // Get events in date range
-    const eventsSnapshot = await db.collection("analytics_events")
-      .where("timestamp", ">=", startDate)
-      .limit(1000)
-      .get();
-    
-    const events = eventsSnapshot.docs.map(doc => doc.data());
-    
-    // Calculate unique users from events
-    const uniqueUserIds = new Set(events.filter(e => e.userId).map(e => e.userId));
-    
-    // Get photos taken count
-    const photosTaken = events.filter(e => 
-      e.eventName === 'photo_taken' || e.eventCategory === 'photo'
-    ).length;
+      // Get events in date range
+      const eventsSnapshot = await db
+        .collection("analytics_events")
+        .where("timestamp", ">=", startDate)
+        .limit(1000)
+        .get();
 
-    // Get shares count
-    const shares = events.filter(e => 
-      e.eventName === 'share' || e.eventCategory === 'social'
-    ).length;
+      const events = eventsSnapshot.docs.map((doc) => doc.data());
 
-    // Get top frames
-    const topFramesSnapshot = await db.collection("custom_frames")
-      .orderBy("downloads", "desc")
-      .limit(10)
-      .get();
+      // Calculate unique users from events
+      const uniqueUserIds = new Set(
+        events.filter((e) => e.userId).map((e) => e.userId)
+      );
 
-    const topFrames = topFramesSnapshot.docs.map(doc => ({
-      id: doc.id,
-      name: doc.data().name,
-      downloads: doc.data().downloads || 0,
-      views: doc.data().views || 0,
-    }));
+      // Get photos taken count
+      const photosTaken = events.filter(
+        (e) => e.eventName === "photo_taken" || e.eventCategory === "photo"
+      ).length;
 
-    res.json({
-      success: true,
-      totalUsers: usersSnapshot.data().count,
-      totalFrames: framesSnapshot.data().count,
-      totalSessions: sessionsSnapshot.data().count,
-      downloads: downloadsSnapshot.data().count,
-      uniqueUsers: uniqueUserIds.size,
-      photosTaken,
-      shares,
-      conversionRate: sessionsSnapshot.data().count > 0 
-        ? ((downloadsSnapshot.data().count / sessionsSnapshot.data().count) * 100).toFixed(2)
-        : 0,
-      topFrames,
-    });
-  } catch (error) {
-    console.error("Dashboard overview error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to get dashboard overview",
-    });
+      // Get shares count
+      const shares = events.filter(
+        (e) => e.eventName === "share" || e.eventCategory === "social"
+      ).length;
+
+      // Get top frames
+      const topFramesSnapshot = await db
+        .collection("custom_frames")
+        .orderBy("downloads", "desc")
+        .limit(10)
+        .get();
+
+      const topFrames = topFramesSnapshot.docs.map((doc) => ({
+        id: doc.id,
+        name: doc.data().name,
+        downloads: doc.data().downloads || 0,
+        views: doc.data().views || 0,
+      }));
+
+      res.json({
+        success: true,
+        totalUsers: usersSnapshot.data().count,
+        totalFrames: framesSnapshot.data().count,
+        totalSessions: sessionsSnapshot.data().count,
+        downloads: downloadsSnapshot.data().count,
+        uniqueUsers: uniqueUserIds.size,
+        photosTaken,
+        shares,
+        conversionRate:
+          sessionsSnapshot.data().count > 0
+            ? (
+                (downloadsSnapshot.data().count /
+                  sessionsSnapshot.data().count) *
+                100
+              ).toFixed(2)
+            : 0,
+        topFrames,
+      });
+    } catch (error) {
+      console.error("Dashboard overview error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to get dashboard overview",
+      });
+    }
   }
-});
+);
 
 /**
  * GET /api/analytics/dashboard/user-growth
  * Get user growth over time
  */
-router.get("/dashboard/user-growth", verifyToken, requireAdmin, async (req, res) => {
-  try {
-    const db = getFirestore();
-    const days = parseInt(req.query.days) || 30;
-    const { startDate } = getDateRange(days);
+router.get(
+  "/dashboard/user-growth",
+  verifyToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const db = getFirestore();
+      const days = parseInt(req.query.days) || 30;
+      const { startDate } = getDateRange(days);
 
-    const usersSnapshot = await db.collection("users")
-      .where("createdAt", ">=", startDate)
-      .orderBy("createdAt", "asc")
-      .get();
+      const usersSnapshot = await db
+        .collection("users")
+        .where("createdAt", ">=", startDate)
+        .orderBy("createdAt", "asc")
+        .get();
 
-    // Group by date
-    const growth = {};
-    usersSnapshot.docs.forEach(doc => {
-      const date = doc.data().createdAt?.split('T')[0] || new Date().toISOString().split('T')[0];
-      growth[date] = (growth[date] || 0) + 1;
-    });
+      // Group by date
+      const growth = {};
+      usersSnapshot.docs.forEach((doc) => {
+        const date =
+          doc.data().createdAt?.split("T")[0] ||
+          new Date().toISOString().split("T")[0];
+        growth[date] = (growth[date] || 0) + 1;
+      });
 
-    res.json({
-      success: true,
-      data: Object.entries(growth).map(([date, count]) => ({ date, newUsers: count })),
-      total: usersSnapshot.size,
-    });
-  } catch (error) {
-    console.error("User growth error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to get user growth data",
-    });
+      res.json({
+        success: true,
+        data: Object.entries(growth).map(([date, count]) => ({
+          date,
+          newUsers: count,
+        })),
+        total: usersSnapshot.size,
+      });
+    } catch (error) {
+      console.error("User growth error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to get user growth data",
+      });
+    }
   }
-});
+);
 
 /**
  * GET /api/analytics/dashboard/dau
@@ -564,16 +680,18 @@ router.get("/dashboard/dau", verifyToken, requireAdmin, async (req, res) => {
     const days = parseInt(req.query.days) || 30;
     const { startDate } = getDateRange(days);
 
-    const sessionsSnapshot = await db.collection("analytics_sessions")
+    const sessionsSnapshot = await db
+      .collection("analytics_sessions")
       .where("timestamp", ">=", startDate)
       .where("action", "==", "start")
       .get();
 
     // Group by date and count unique users
     const dauMap = {};
-    sessionsSnapshot.docs.forEach(doc => {
+    sessionsSnapshot.docs.forEach((doc) => {
       const data = doc.data();
-      const date = data.timestamp?.split('T')[0] || new Date().toISOString().split('T')[0];
+      const date =
+        data.timestamp?.split("T")[0] || new Date().toISOString().split("T")[0];
       if (!dauMap[date]) {
         dauMap[date] = new Set();
       }
@@ -582,10 +700,12 @@ router.get("/dashboard/dau", verifyToken, requireAdmin, async (req, res) => {
 
     res.json({
       success: true,
-      data: Object.entries(dauMap).map(([date, users]) => ({ 
-        date, 
-        activeUsers: users.size 
-      })).sort((a, b) => a.date.localeCompare(b.date)),
+      data: Object.entries(dauMap)
+        .map(([date, users]) => ({
+          date,
+          activeUsers: users.size,
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date)),
     });
   } catch (error) {
     console.error("DAU error:", error);
@@ -600,149 +720,176 @@ router.get("/dashboard/dau", verifyToken, requireAdmin, async (req, res) => {
  * GET /api/analytics/dashboard/downloads
  * Get download analytics
  */
-router.get("/dashboard/downloads", verifyToken, requireAdmin, async (req, res) => {
-  try {
-    const db = getFirestore();
-    const days = parseInt(req.query.days) || 30;
-    const { startDate } = getDateRange(days);
+router.get(
+  "/dashboard/downloads",
+  verifyToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const db = getFirestore();
+      const days = parseInt(req.query.days) || 30;
+      const { startDate } = getDateRange(days);
 
-    const downloadsSnapshot = await db.collection("analytics_downloads")
-      .where("timestamp", ">=", startDate)
-      .get();
+      const downloadsSnapshot = await db
+        .collection("analytics_downloads")
+        .where("timestamp", ">=", startDate)
+        .get();
 
-    // Group by date
-    const downloadsByDate = {};
-    const downloadsByFrame = {};
-    
-    downloadsSnapshot.docs.forEach(doc => {
-      const data = doc.data();
-      const date = data.timestamp?.split('T')[0] || new Date().toISOString().split('T')[0];
-      downloadsByDate[date] = (downloadsByDate[date] || 0) + 1;
-      
-      if (data.frameName) {
-        downloadsByFrame[data.frameName] = (downloadsByFrame[data.frameName] || 0) + 1;
-      }
-    });
+      // Group by date
+      const downloadsByDate = {};
+      const downloadsByFrame = {};
 
-    res.json({
-      success: true,
-      total: downloadsSnapshot.size,
-      byDate: Object.entries(downloadsByDate)
-        .map(([date, count]) => ({ date, downloads: count }))
-        .sort((a, b) => a.date.localeCompare(b.date)),
-      topFrames: Object.entries(downloadsByFrame)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10)
-        .map(([name, downloads]) => ({ name, downloads })),
-    });
-  } catch (error) {
-    console.error("Downloads analytics error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to get download analytics",
-    });
+      downloadsSnapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        const date =
+          data.timestamp?.split("T")[0] ||
+          new Date().toISOString().split("T")[0];
+        downloadsByDate[date] = (downloadsByDate[date] || 0) + 1;
+
+        if (data.frameName) {
+          downloadsByFrame[data.frameName] =
+            (downloadsByFrame[data.frameName] || 0) + 1;
+        }
+      });
+
+      res.json({
+        success: true,
+        total: downloadsSnapshot.size,
+        byDate: Object.entries(downloadsByDate)
+          .map(([date, count]) => ({ date, downloads: count }))
+          .sort((a, b) => a.date.localeCompare(b.date)),
+        topFrames: Object.entries(downloadsByFrame)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 10)
+          .map(([name, downloads]) => ({ name, downloads })),
+      });
+    } catch (error) {
+      console.error("Downloads analytics error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to get download analytics",
+      });
+    }
   }
-});
+);
 
 /**
  * GET /api/analytics/dashboard/retention
  * Get user retention data
  */
-router.get("/dashboard/retention", verifyToken, requireAdmin, async (req, res) => {
-  try {
-    const weeks = parseInt(req.query.weeks) || 12;
-    
-    // Simplified retention - just return placeholder for now
-    const retentionData = [];
-    for (let i = 0; i < weeks; i++) {
-      const weekStart = new Date();
-      weekStart.setDate(weekStart.getDate() - (i * 7));
-      retentionData.unshift({
-        week: i + 1,
-        date: weekStart.toISOString().split('T')[0],
-        retentionRate: Math.max(100 - (i * 5), 10) // Placeholder
+router.get(
+  "/dashboard/retention",
+  verifyToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const weeks = parseInt(req.query.weeks) || 12;
+
+      // Simplified retention - just return placeholder for now
+      const retentionData = [];
+      for (let i = 0; i < weeks; i++) {
+        const weekStart = new Date();
+        weekStart.setDate(weekStart.getDate() - i * 7);
+        retentionData.unshift({
+          week: i + 1,
+          date: weekStart.toISOString().split("T")[0],
+          retentionRate: Math.max(100 - i * 5, 10), // Placeholder
+        });
+      }
+
+      res.json({
+        success: true,
+        data: retentionData,
+      });
+    } catch (error) {
+      console.error("Retention error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to get retention data",
       });
     }
-
-    res.json({
-      success: true,
-      data: retentionData,
-    });
-  } catch (error) {
-    console.error("Retention error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to get retention data",
-    });
   }
-});
+);
 
 /**
  * GET /api/analytics/dashboard/traffic
  * Get traffic sources
  */
-router.get("/dashboard/traffic", verifyToken, requireAdmin, async (req, res) => {
-  try {
-    const db = getFirestore();
-    const days = parseInt(req.query.days) || 30;
-    const { startDate } = getDateRange(days);
+router.get(
+  "/dashboard/traffic",
+  verifyToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const db = getFirestore();
+      const days = parseInt(req.query.days) || 30;
+      const { startDate } = getDateRange(days);
 
-    const sessionsSnapshot = await db.collection("analytics_sessions")
-      .where("timestamp", ">=", startDate)
-      .where("action", "==", "start")
-      .limit(1000)
-      .get();
+      const sessionsSnapshot = await db
+        .collection("analytics_sessions")
+        .where("timestamp", ">=", startDate)
+        .where("action", "==", "start")
+        .limit(1000)
+        .get();
 
-    const sources = {};
-    sessionsSnapshot.docs.forEach(doc => {
-      const referrer = doc.data().referrer || 'direct';
-      let source = 'Direct';
-      
-      if (referrer.includes('google')) source = 'Google';
-      else if (referrer.includes('facebook') || referrer.includes('fb.')) source = 'Facebook';
-      else if (referrer.includes('instagram')) source = 'Instagram';
-      else if (referrer.includes('twitter') || referrer.includes('t.co')) source = 'Twitter';
-      else if (referrer.includes('tiktok')) source = 'TikTok';
-      else if (referrer && referrer !== 'direct') source = 'Other';
-      
-      sources[source] = (sources[source] || 0) + 1;
-    });
+      const sources = {};
+      sessionsSnapshot.docs.forEach((doc) => {
+        const referrer = doc.data().referrer || "direct";
+        let source = "Direct";
 
-    res.json({
-      success: true,
-      data: Object.entries(sources)
-        .map(([source, visits]) => ({ source, visits }))
-        .sort((a, b) => b.visits - a.visits),
-    });
-  } catch (error) {
-    console.error("Traffic sources error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to get traffic sources",
-    });
+        if (referrer.includes("google")) source = "Google";
+        else if (referrer.includes("facebook") || referrer.includes("fb."))
+          source = "Facebook";
+        else if (referrer.includes("instagram")) source = "Instagram";
+        else if (referrer.includes("twitter") || referrer.includes("t.co"))
+          source = "Twitter";
+        else if (referrer.includes("tiktok")) source = "TikTok";
+        else if (referrer && referrer !== "direct") source = "Other";
+
+        sources[source] = (sources[source] || 0) + 1;
+      });
+
+      res.json({
+        success: true,
+        data: Object.entries(sources)
+          .map(([source, visits]) => ({ source, visits }))
+          .sort((a, b) => b.visits - a.visits),
+      });
+    } catch (error) {
+      console.error("Traffic sources error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to get traffic sources",
+      });
+    }
   }
-});
+);
 
 /**
  * GET /api/analytics/dashboard/revenue
  * Get revenue analytics (placeholder)
  */
-router.get("/dashboard/revenue", verifyToken, requireAdmin, async (req, res) => {
-  try {
-    res.json({
-      success: true,
-      totalRevenue: 0,
-      data: [],
-      message: "Revenue tracking not yet implemented",
-    });
-  } catch (error) {
-    console.error("Revenue error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to get revenue data",
-    });
+router.get(
+  "/dashboard/revenue",
+  verifyToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      res.json({
+        success: true,
+        totalRevenue: 0,
+        data: [],
+        message: "Revenue tracking not yet implemented",
+      });
+    } catch (error) {
+      console.error("Revenue error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to get revenue data",
+      });
+    }
   }
-});
+);
 
 /**
  * GET /api/analytics/dashboard/pages
@@ -755,14 +902,15 @@ router.get("/dashboard/pages", verifyToken, requireAdmin, async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const { startDate } = getDateRange(days);
 
-    const pageviewsSnapshot = await db.collection("analytics_pageviews")
+    const pageviewsSnapshot = await db
+      .collection("analytics_pageviews")
       .where("timestamp", ">=", startDate)
       .limit(5000)
       .get();
 
     const pages = {};
-    pageviewsSnapshot.docs.forEach(doc => {
-      const url = doc.data().pageUrl || '/';
+    pageviewsSnapshot.docs.forEach((doc) => {
+      const url = doc.data().pageUrl || "/";
       pages[url] = (pages[url] || 0) + 1;
     });
 
@@ -786,70 +934,82 @@ router.get("/dashboard/pages", verifyToken, requireAdmin, async (req, res) => {
  * GET /api/analytics/dashboard/devices
  * Get device statistics
  */
-router.get("/dashboard/devices", verifyToken, requireAdmin, async (req, res) => {
-  try {
-    const db = getFirestore();
-    const days = parseInt(req.query.days) || 30;
-    const { startDate } = getDateRange(days);
+router.get(
+  "/dashboard/devices",
+  verifyToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const db = getFirestore();
+      const days = parseInt(req.query.days) || 30;
+      const { startDate } = getDateRange(days);
 
-    const sessionsSnapshot = await db.collection("analytics_sessions")
-      .where("timestamp", ">=", startDate)
-      .limit(5000)
-      .get();
+      const sessionsSnapshot = await db
+        .collection("analytics_sessions")
+        .where("timestamp", ">=", startDate)
+        .limit(5000)
+        .get();
 
-    const devices = { mobile: 0, desktop: 0, tablet: 0 };
-    sessionsSnapshot.docs.forEach(doc => {
-      const deviceType = doc.data().deviceType || 'desktop';
-      if (deviceType === 'mobile') devices.mobile++;
-      else if (deviceType === 'tablet') devices.tablet++;
-      else devices.desktop++;
-    });
+      const devices = { mobile: 0, desktop: 0, tablet: 0 };
+      sessionsSnapshot.docs.forEach((doc) => {
+        const deviceType = doc.data().deviceType || "desktop";
+        if (deviceType === "mobile") devices.mobile++;
+        else if (deviceType === "tablet") devices.tablet++;
+        else devices.desktop++;
+      });
 
-    res.json({
-      success: true,
-      data: Object.entries(devices)
-        .map(([device, count]) => ({ device, count }))
-        .sort((a, b) => b.count - a.count),
-    });
-  } catch (error) {
-    console.error("Device stats error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to get device stats",
-    });
+      res.json({
+        success: true,
+        data: Object.entries(devices)
+          .map(([device, count]) => ({ device, count }))
+          .sort((a, b) => b.count - a.count),
+      });
+    } catch (error) {
+      console.error("Device stats error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to get device stats",
+      });
+    }
   }
-});
+);
 
 /**
  * GET /api/analytics/dashboard/realtime
  * Get realtime stats (active users in last 5 minutes)
  */
-router.get("/dashboard/realtime", verifyToken, requireAdmin, async (req, res) => {
-  try {
-    const db = getFirestore();
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+router.get(
+  "/dashboard/realtime",
+  verifyToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const db = getFirestore();
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
 
-    const recentSessionsSnapshot = await db.collection("analytics_sessions")
-      .where("timestamp", ">=", fiveMinutesAgo)
-      .get();
+      const recentSessionsSnapshot = await db
+        .collection("analytics_sessions")
+        .where("timestamp", ">=", fiveMinutesAgo)
+        .get();
 
-    const activeUsers = new Set();
-    recentSessionsSnapshot.docs.forEach(doc => {
-      activeUsers.add(doc.data().sessionId || doc.data().userId);
-    });
+      const activeUsers = new Set();
+      recentSessionsSnapshot.docs.forEach((doc) => {
+        activeUsers.add(doc.data().sessionId || doc.data().userId);
+      });
 
-    res.json({
-      success: true,
-      activeUsers: activeUsers.size,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error("Realtime stats error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to get realtime stats",
-    });
+      res.json({
+        success: true,
+        activeUsers: activeUsers.size,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Realtime stats error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to get realtime stats",
+      });
+    }
   }
-});
+);
 
 export default router;

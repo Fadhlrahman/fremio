@@ -76,9 +76,19 @@ export default function Register() {
       const result = await registerUser(userData);
 
       if (result.success) {
-        // Auto-login: Token sudah disimpan oleh registerUser
-        // Redirect langsung ke home
-        navigate("/", { replace: true });
+        console.log("✅ Registration successful, user logged in");
+
+        // Check if there's a redirect query param
+        const urlParams = new URLSearchParams(window.location.search);
+        const redirect = urlParams.get("redirect");
+
+        if (redirect) {
+          console.log("↪️ Redirecting to:", redirect);
+          navigate(redirect, { replace: true });
+        } else {
+          // Default: redirect to home
+          navigate("/", { replace: true });
+        }
       } else {
         setError(result.message);
       }

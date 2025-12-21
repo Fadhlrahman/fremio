@@ -20,8 +20,8 @@ class PaymentDatabaseService {
   async createTransaction({ userId, orderId, grossAmount }) {
     const query = `
       INSERT INTO payment_transactions (
-        user_id, order_id, gross_amount, transaction_status
-      ) VALUES ($1, $2, $3, 'pending')
+        user_id, invoice_number, amount, status, currency, gateway, transaction_type, created_at
+      ) VALUES ($1, $2, $3, 'pending', 'IDR', 'midtrans', 'one_time', NOW())
       RETURNING *
     `;
 
@@ -44,14 +44,13 @@ class PaymentDatabaseService {
     const query = `
       UPDATE payment_transactions
       SET 
-        transaction_status = $1,
-        payment_type = $2,
-        transaction_time = $3,
-        settlement_time = $4,
-        midtrans_transaction_id = $5,
-        midtrans_response = $6,
+        status = $1,
+        payment_method = $2,
+        paid_at = $3,
+        gateway_transaction_id = $4,
+        gateway_response = $5,
         updated_at = CURRENT_TIMESTAMP
-      WHERE order_id = $7
+      WHERE invoice_number = $6
       RETURNING *
     `;
 
@@ -59,7 +58,6 @@ class PaymentDatabaseService {
       transactionStatus,
       paymentType,
       transactionTime,
-      settlementTime,
       midtransTransactionId,
       JSON.stringify(midtransResponse),
       orderId,
@@ -72,7 +70,8 @@ class PaymentDatabaseService {
    * Get transaction by order ID
    */
   async getTransactionByOrderId(orderId) {
-    const query = "SELECT * FROM payment_transactions WHERE order_id = $1";
+    const query =
+      "SELECT * FROM payment_transactions WHERE invoice_number = $1";
     const result = await pool.query(query, [orderId]);
     return result.rows[0];
   }
@@ -96,7 +95,7 @@ class PaymentDatabaseService {
   async getLatestPendingTransaction(userId) {
     const query = `
       SELECT * FROM payment_transactions
-      WHERE user_id = $1 AND transaction_status = 'pending'
+      WHERE user_id = $1 AND status = 'pending'
       ORDER BY created_at DESC
       LIMIT 1
     `;
@@ -178,9 +177,9 @@ class PaymentDatabaseService {
     const query = `
       SELECT 
         upa.*,
-        pt.order_id,
-        pt.gross_amount,
-        pt.payment_type
+        pt.invoice_number as order_id,
+        pt.amount as gross_amount,
+        pt.payment_method as payment_type
       FROM user_package_access upa
       LEFT JOIN payment_transactions pt ON upa.transaction_id = pt.id
       WHERE upa.user_id = $1 
@@ -312,9 +311,9 @@ class PaymentDatabaseService {
     const query = `
       SELECT 
         COUNT(*) as total_transactions,
-        COUNT(CASE WHEN transaction_status = 'settlement' THEN 1 END) as successful_payments,
-        COUNT(CASE WHEN transaction_status = 'pending' THEN 1 END) as pending_payments,
-        SUM(CASE WHEN transaction_status = 'settlement' THEN gross_amount ELSE 0 END) as total_revenue
+        COUNT(CASE WHEN status = 'settlement' THEN 1 END) as successful_payments,
+        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_payments,
+        SUM(CASE WHEN status = 'settlement' THEN amount ELSE 0 END) as total_revenue
       FROM payment_transactions
     `;
 

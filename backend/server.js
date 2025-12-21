@@ -15,7 +15,7 @@ import storageService from "./services/storageService.js";
 // Routes
 import authRoutes from "./routes/auth.js";
 import framesRoutes from "./routes/frames.js";
-import draftsRoutes from "./routes/drafts-pg.js";  // Use PostgreSQL version
+import draftsRoutes from "./routes/drafts-pg.js"; // Use PostgreSQL version
 import uploadRoutes from "./routes/upload.js";
 import analyticsRoutes from "./routes/analytics.js";
 import staticRoutes from "./routes/static.js";
@@ -29,11 +29,11 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const isProduction = process.env.NODE_ENV === 'production';
+const isProduction = process.env.NODE_ENV === "production";
 
 // CRITICAL: Trust proxy for nginx reverse proxy
 // This allows express-rate-limit to see real client IPs from X-Forwarded-For
-app.set('trust proxy', 1);
+app.set("trust proxy", 1);
 
 // Rate limiting configuration
 const generalLimiter = rateLimit({
@@ -41,16 +41,20 @@ const generalLimiter = rateLimit({
   max: isProduction ? 500 : 1000, // Increased limit: 500 in prod, 1000 in dev
   message: {
     success: false,
-    message: 'Terlalu banyak permintaan, coba lagi dalam 15 menit'
+    message: "Terlalu banyak permintaan, coba lagi dalam 15 menit",
   },
   standardHeaders: true,
   legacyHeaders: false,
   // Use real client IP from X-Forwarded-For header (nginx sets this)
   keyGenerator: (req) => {
-    return req.ip || req.headers['x-forwarded-for']?.split(',')[0] || req.connection.remoteAddress;
+    return (
+      req.ip ||
+      req.headers["x-forwarded-for"]?.split(",")[0] ||
+      req.connection.remoteAddress
+    );
   },
   // Skip rate limiting for OPTIONS preflight requests
-  skip: (req) => req.method === 'OPTIONS',
+  skip: (req) => req.method === "OPTIONS",
 });
 
 // Stricter rate limit for auth routes
@@ -59,11 +63,11 @@ const authLimiter = rateLimit({
   max: isProduction ? 50 : 100, // Limit login attempts
   message: {
     success: false,
-    message: 'Terlalu banyak percobaan login, coba lagi dalam 15 menit'
+    message: "Terlalu banyak percobaan login, coba lagi dalam 15 menit",
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => req.method === 'OPTIONS',
+  skip: (req) => req.method === "OPTIONS",
 });
 
 // Upload rate limit
@@ -72,18 +76,20 @@ const uploadLimiter = rateLimit({
   max: isProduction ? 100 : 200, // Limit uploads per hour
   message: {
     success: false,
-    message: 'Terlalu banyak upload, coba lagi dalam 1 jam'
+    message: "Terlalu banyak upload, coba lagi dalam 1 jam",
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => req.method === 'OPTIONS',
+  skip: (req) => req.method === "OPTIONS",
 });
 
 // Middleware
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-  contentSecurityPolicy: false,  // Disable CSP for development
-}));
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: false, // Disable CSP for development
+  })
+);
 app.use(compression());
 app.use(morgan(isProduction ? "combined" : "dev"));
 
@@ -92,19 +98,22 @@ app.use(
   cors({
     origin: true, // Allow all origins
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
 // CRITICAL: Handle OPTIONS preflight before any other middleware
-app.options('*', cors({
-  origin: true,
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 204,
-}));
+app.options(
+  "*",
+  cors({
+    origin: true,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    optionsSuccessStatus: 204,
+  })
+);
 
 // Apply general rate limiting
 app.use(generalLimiter);
@@ -114,17 +123,32 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Serve static files from public directory
 const publicDir = process.env.STATIC_DIR || path.join(__dirname, "public");
-app.use("/static", express.static(publicDir, {
-  maxAge: "1y",
-  immutable: true,
-}));
+app.use(
+  "/static",
+  express.static(publicDir, {
+    maxAge: "1y",
+    immutable: true,
+  })
+);
+
+// Serve mock-frames (alias to public/mock-frames)
+app.use(
+  "/mock-frames",
+  express.static(path.join(publicDir, "mock-frames"), {
+    maxAge: "1y",
+    immutable: true,
+  })
+);
 
 // Serve uploaded files (frames, thumbnails)
 const uploadsDir = path.join(__dirname, "uploads");
-app.use("/uploads", express.static(uploadsDir, {
-  maxAge: "30d",
-  etag: true,
-}));
+app.use(
+  "/uploads",
+  express.static(uploadsDir, {
+    maxAge: "30d",
+    etag: true,
+  })
+);
 
 // Health check
 app.get("/health", (req, res) => {
@@ -132,7 +156,7 @@ app.get("/health", (req, res) => {
     success: true,
     message: "Fremio Backend API is running",
     timestamp: new Date().toISOString(),
-    environment: isProduction ? 'production' : 'development'
+    environment: isProduction ? "production" : "development",
   });
 });
 
@@ -181,8 +205,8 @@ const startServer = async () => {
     }, 6 * 60 * 60 * 1000);
 
     // Check for HTTPS certificates
-    const certPath = path.join(__dirname, 'localhost+3.pem');
-    const keyPath = path.join(__dirname, 'localhost+3-key.pem');
+    const certPath = path.join(__dirname, "localhost+3.pem");
+    const keyPath = path.join(__dirname, "localhost+3-key.pem");
     const useHttps = fs.existsSync(certPath) && fs.existsSync(keyPath);
 
     if (useHttps) {
@@ -191,8 +215,8 @@ const startServer = async () => {
         key: fs.readFileSync(keyPath),
         cert: fs.readFileSync(certPath),
       };
-      
-      https.createServer(httpsOptions, app).listen(PORT, '0.0.0.0', () => {
+
+      https.createServer(httpsOptions, app).listen(PORT, "0.0.0.0", () => {
         console.log("");
         console.log("🔒 ============================================");
         console.log(`🔒 Fremio Backend API running on HTTPS port ${PORT}`);
@@ -203,7 +227,7 @@ const startServer = async () => {
       });
     } else {
       // Start HTTP server (fallback)
-      app.listen(PORT, '0.0.0.0', () => {
+      app.listen(PORT, "0.0.0.0", () => {
         console.log("");
         console.log("🚀 ============================================");
         console.log(`🚀 Fremio Backend API running on port ${PORT}`);

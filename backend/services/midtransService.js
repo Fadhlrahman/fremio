@@ -10,19 +10,43 @@ const midtransClient = require("midtrans-client");
 
 class MidtransService {
   constructor() {
+    const isProduction = process.env.MIDTRANS_IS_PRODUCTION === "true";
+    const serverKey = process.env.MIDTRANS_SERVER_KEY;
+    const clientKey = process.env.MIDTRANS_CLIENT_KEY;
+
+    console.log("🔧 Initializing Midtrans Service:");
+    console.log("   Mode:", isProduction ? "PRODUCTION" : "SANDBOX");
+    console.log(
+      "   Server Key:",
+      serverKey ? `${serverKey.substring(0, 15)}...` : "MISSING"
+    );
+    console.log(
+      "   Client Key:",
+      clientKey ? `${clientKey.substring(0, 15)}...` : "MISSING"
+    );
+
+    if (!serverKey || !clientKey) {
+      console.error("❌ CRITICAL: Midtrans keys not configured!");
+      throw new Error(
+        "Midtrans keys missing. Please configure MIDTRANS_SERVER_KEY and MIDTRANS_CLIENT_KEY in .env"
+      );
+    }
+
     // Initialize Snap API client
     this.snap = new midtransClient.Snap({
-      isProduction: process.env.MIDTRANS_IS_PRODUCTION === "true",
-      serverKey: process.env.MIDTRANS_SERVER_KEY,
-      clientKey: process.env.MIDTRANS_CLIENT_KEY,
+      isProduction,
+      serverKey,
+      clientKey,
     });
 
     // Initialize Core API client (for transaction status check)
     this.core = new midtransClient.CoreApi({
-      isProduction: process.env.MIDTRANS_IS_PRODUCTION === "true",
-      serverKey: process.env.MIDTRANS_SERVER_KEY,
-      clientKey: process.env.MIDTRANS_CLIENT_KEY,
+      isProduction,
+      serverKey,
+      clientKey,
     });
+
+    console.log("✅ Midtrans Service initialized successfully");
   }
 
   /**
@@ -40,6 +64,11 @@ class MidtransService {
     itemDetails,
   }) {
     try {
+      console.log("📤 Creating Midtrans transaction:");
+      console.log("   Order ID:", orderId);
+      console.log("   Amount:", grossAmount);
+      console.log("   Customer:", customerDetails.email);
+
       const parameter = {
         transaction_details: {
           order_id: orderId,
@@ -51,7 +80,7 @@ class MidtransService {
             id: "FRAME_PACKAGE_3X10",
             price: grossAmount,
             quantity: 1,
-            name: "Fremio - 3 Paket Frame (30 Frames)",
+            name: "Fremio Premium Frame Collection",
           },
         ],
         enabled_payments: [
@@ -71,9 +100,15 @@ class MidtransService {
           secure: true,
         },
         callbacks: {
-          finish: `${process.env.FRONTEND_URL}/payment/success`,
-          error: `${process.env.FRONTEND_URL}/payment/error`,
-          pending: `${process.env.FRONTEND_URL}/payment/pending`,
+          finish: `${
+            process.env.FRONTEND_URL || "https://localhost:5180"
+          }/payment/success`,
+          error: `${
+            process.env.FRONTEND_URL || "https://localhost:5180"
+          }/payment/error`,
+          pending: `${
+            process.env.FRONTEND_URL || "https://localhost:5180"
+          }/payment/pending`,
         },
         expiry: {
           unit: "hours",
@@ -81,15 +116,26 @@ class MidtransService {
         },
       };
 
+      console.log("🔄 Calling Midtrans API...");
       const transaction = await this.snap.createTransaction(parameter);
+      console.log(
+        "✅ Midtrans transaction created:",
+        transaction.token.substring(0, 20) + "..."
+      );
 
       return {
         token: transaction.token,
         redirect_url: transaction.redirect_url,
       };
     } catch (error) {
-      console.error("Midtrans create transaction error:", error);
-      throw new Error(`Failed to create payment: ${error.message}`);
+      console.error("❌ Midtrans create transaction error:");
+      console.error("   Error message:", error.message);
+      console.error("   Error stack:", error.stack);
+      console.error(
+        "   Error response:",
+        error.response?.data || error.response || "No response data"
+      );
+      throw new Error(`Midtrans API Error: ${error.message}`);
     }
   }
 

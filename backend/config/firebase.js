@@ -54,28 +54,16 @@ export const initializeFirebase = async () => {
 };
 
 export const getFirestore = () => {
-  if (!db) {
-    throw new Error(
-      "Firestore not initialized. Call initializeFirebase() first."
-    );
-  }
-  return db;
+  return db; // Return null if not initialized, don't throw
 };
 
 export const getStorage = () => {
-  if (!storage) {
-    throw new Error(
-      "Storage not initialized. Call initializeFirebase() first."
-    );
-  }
-  return storage;
+  return storage; // Return null if not initialized, don't throw
 };
 
 export const getAuth = () => {
   if (!admin.apps.length) {
-    throw new Error(
-      "Firebase not initialized. Call initializeFirebase() first."
-    );
+    return null; // Return null instead of throwing
   }
   return admin.auth();
 };

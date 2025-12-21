@@ -13,10 +13,14 @@ class PaymentService {
    */
   async createPayment(userData = {}) {
     try {
+      console.log("📤 Sending payment request:", userData);
       const response = await api.post("/payment/create", userData);
+      console.log("📥 Payment response received:", response.data);
       return response.data;
     } catch (error) {
-      console.error("Create payment error:", error);
+      console.error("❌ Create payment error:", error);
+      console.error("Error response:", error.response);
+      console.error("Error data:", error.response?.data);
       throw error.response?.data || error;
     }
   }

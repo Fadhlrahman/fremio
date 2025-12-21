@@ -17,10 +17,13 @@ const getFrameImageUrl = (frame) => {
     return imagePath;
   }
 
-  // Relative path - construct full URL using API base
-  const apiBase =
-    import.meta.env.VITE_API_BASE_URL || "https://192.168.100.160:3000";
-  return `${apiBase}${imagePath}`;
+  // Relative path - prepend with backend base URL
+  // In dev, use proxy which forwards to backend on port 5050
+  const backendBase = import.meta.env.DEV
+    ? "https://localhost:5050" // Direct backend in dev
+    : import.meta.env.VITE_API_BASE_URL || "";
+
+  return `${backendBase}${imagePath}`;
 };
 
 // FrameCard component with expandable description
@@ -337,6 +340,8 @@ export default function Frames() {
 
   const handleImageError = (frameId) => {
     console.error(`❌ Image failed to load for frame: ${frameId}`);
+    // Don't just set error - this prevents showing frame at all
+    // Let frame render with fallback instead
     setImageErrors((prev) => ({ ...prev, [frameId]: true }));
   };
 
@@ -345,11 +350,16 @@ export default function Frames() {
     console.log("📦 Frame data:", frame);
 
     const isPremium = !!(frame?.isPremium ?? frame?.is_premium);
-    const accessibleSet = new Set((accessibleFrameIds || []).map((id) => String(id)));
-    const isAccessible = !isPremium || (hasAccess && accessibleSet.has(String(frame.id)));
+    const accessibleSet = new Set(
+      (accessibleFrameIds || []).map((id) => String(id))
+    );
+    const isAccessible =
+      !isPremium || (hasAccess && accessibleSet.has(String(frame.id)));
 
     if (!isAccessible) {
-      navigate(`/pricing?reason=locked&frameId=${encodeURIComponent(String(frame.id))}`);
+      navigate(
+        `/pricing?reason=locked&frameId=${encodeURIComponent(String(frame.id))}`
+      );
       return;
     }
 
@@ -527,9 +537,15 @@ export default function Frames() {
                   {/* Frames Grid - Responsive: 3 cols mobile, 5 cols desktop */}
                   <div className="frames-grid">
                     {frames.map((frame) => {
-                      const isPremium = !!(frame?.isPremium ?? frame?.is_premium);
-                      const accessibleSet = new Set((accessibleFrameIds || []).map((id) => String(id)));
-                      const isLocked = isPremium && !(hasAccess && accessibleSet.has(String(frame.id)));
+                      const isPremium = !!(
+                        frame?.isPremium ?? frame?.is_premium
+                      );
+                      const accessibleSet = new Set(
+                        (accessibleFrameIds || []).map((id) => String(id))
+                      );
+                      const isLocked =
+                        isPremium &&
+                        !(hasAccess && accessibleSet.has(String(frame.id)));
 
                       return (
                         <FrameCard

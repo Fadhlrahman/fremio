@@ -2255,6 +2255,10 @@ export default function Create() {
         "success",
         `${successTitle} tersimpan! Lihat di Profile → Drafts.`
       );
+
+      // Important: return ID so callers (e.g. "Gunakan Frame") can reliably
+      // proceed without depending on React state timing.
+      return savedDraft.id;
     } catch (error) {
       console.error("Failed to save draft", error);
       const isTimeoutError = error?.name === "TimeoutError";
@@ -2264,6 +2268,7 @@ export default function Create() {
         ? "Penyimpanan penuh. Hapus draft lama terlebih dahulu."
         : TOAST_MESSAGES.saveError;
       showToast("error", message);
+      return null;
     } finally {
       try {
         cleanupCapture?.();
@@ -2323,15 +2328,25 @@ export default function Create() {
       // ALWAYS save first before using frame to ensure latest changes are persisted
       console.log("💾 [handleUseThisFrame] Auto-saving before use...");
       showToast("info", "Menyimpan frame...");
-      
-      await handleSaveTemplate();
-      
-      console.log("✅ [handleUseThisFrame] Auto-save completed, activeDraftId:", activeDraftId);
-      
-      // Wait a bit for state to settle
-      await new Promise(resolve => setTimeout(resolve, 100));
 
-      console.log("🔍 [handleUseThisFrame] Looking for draft:", activeDraftId);
+      const savedDraftId = await handleSaveTemplate();
+      const resolvedDraftId =
+        savedDraftId || activeDraftId || userStorage.getItem("activeDraftId");
+
+      console.log(
+        "✅ [handleUseThisFrame] Auto-save completed, draftId:",
+        resolvedDraftId
+      );
+
+      if (!resolvedDraftId) {
+        throw new Error("Draft ID tidak tersedia setelah save. Coba lagi.");
+      }
+
+      // Persist for downstream pages (TakeMoment/Editor) to resolve the active draft.
+      userStorage.setItem("activeDraftId", resolvedDraftId);
+      setActiveDraftId(resolvedDraftId);
+
+      console.log("🔍 [handleUseThisFrame] Looking for draft:", resolvedDraftId);
 
       // Check all drafts first
       const allDrafts = await draftStorage.loadDrafts();
@@ -2345,10 +2360,10 @@ export default function Create() {
       );
 
       // Load the draft
-      let draft = await draftStorage.getDraftById(activeDraftId, user?.email);
+      let draft = await draftStorage.getDraftById(resolvedDraftId, user?.email);
       if (!draft) {
         console.error("❌ [handleUseThisFrame] Draft not found!", {
-          searchedId: activeDraftId,
+          searchedId: resolvedDraftId,
           availableIds: allDrafts.map((d) => d.id),
         });
         throw new Error("Draft tidak ditemukan setelah save. Coba lagi.");

@@ -13,6 +13,7 @@ import trashIcon from "../../assets/create-icon/create-trash.png";
 import duplicateIcon from "../../assets/create-icon/create-duplicate.png";
 import lockIcon from "../../assets/create-icon/create-lock.png";
 import unlockIcon from "../../assets/create-icon/create-unlock.png";
+import rotateIcon from "../../assets/create-icon/rotate.png";
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -242,6 +243,10 @@ const getElementStyle = (element, isSelected) => {
         element.data?.borderRadius ??
         (element.type === "background-photo" ? 0 : 24);
 
+      const rotationDegrees = Number.isFinite(element?.rotation)
+        ? element.rotation
+        : 0;
+
       // Use transparent background if image exists for upload, otherwise use placeholder color
       const hasImage = element.data?.image;
       const baseBackground =
@@ -263,6 +268,8 @@ const getElementStyle = (element, isSelected) => {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
+        transform: rotationDegrees ? `rotate(${rotationDegrees}deg)` : undefined,
+        transformOrigin: "50% 50%",
       };
     }
     default:
@@ -516,6 +523,10 @@ const ElementContent = forwardRef(
       const slotNumber =
         element.data?.slotNumber || element.data?.label || "Area Foto";
 
+      const rotationDegrees = Number.isFinite(element?.rotation)
+        ? element.rotation
+        : 0;
+
       console.log("📷 Rendering photo slot:", {
         id: element.id,
         label: slotNumber,
@@ -532,6 +543,8 @@ const ElementContent = forwardRef(
             // Override: Set gradient background directly (not from getElementStyle)
             background: "linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)",
             position: "relative",
+            transform: rotationDegrees ? `rotate(${rotationDegrees}deg)` : undefined,
+            transformOrigin: "50% 50%",
           }}
           className="h-full w-full creator-photo-placeholder"
           data-photo-placeholder="true"
@@ -638,6 +651,155 @@ function CanvasPreviewComponent({
   const backgroundTouchRef = useRef(null);
   const interactionMetaRef = useRef(new Map());
   const backgroundInteractionRef = useRef(createInteractionState());
+
+  const rotateGestureRef = useRef({
+    isActive: false,
+    elementId: null,
+    pointerId: null,
+    startY: 0,
+    startRotation: 0,
+    rafId: null,
+    pendingRotation: null,
+    suppressClickUntil: 0,
+  });
+
+  // Vertical drag sensitivity: drag down => clockwise (positive degrees)
+  const ROTATE_DEG_PER_PX = 0.45;
+  const ROTATE_BUTTON_SIZE = 64;
+  const ROTATE_BUTTON_GAP = 12;
+  const ROTATE_BUTTON_OFFSET = ROTATE_BUTTON_SIZE + ROTATE_BUTTON_GAP;
+
+  const scheduleRotationUpdate = useCallback(
+    (elementId, nextRotation) => {
+      if (!elementId || typeof onUpdate !== "function") {
+        return;
+      }
+      const meta = rotateGestureRef.current;
+      meta.pendingRotation = nextRotation;
+      if (meta.rafId != null) {
+        return;
+      }
+      meta.rafId = requestAnimationFrame(() => {
+        meta.rafId = null;
+        const pending = meta.pendingRotation;
+        meta.pendingRotation = null;
+        if (pending == null) {
+          return;
+        }
+        onUpdate(elementId, { rotation: pending });
+      });
+    },
+    [onUpdate]
+  );
+
+  const beginRotateGesture = useCallback(
+    (event, element) => {
+      if (!element?.id) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+
+      const meta = rotateGestureRef.current;
+      meta.isActive = true;
+      meta.elementId = element.id;
+      meta.pointerId = event.pointerId;
+      meta.startY = Number(event.clientY) || 0;
+      meta.startRotation = Number(element.rotation) || 0;
+      meta.pendingRotation = null;
+
+      try {
+        event.currentTarget?.setPointerCapture?.(event.pointerId);
+      } catch {
+        // no-op
+      }
+    },
+    []
+  );
+
+  const updateRotateGesture = useCallback(
+    (event) => {
+      const meta = rotateGestureRef.current;
+      if (!meta.isActive) {
+        return;
+      }
+      if (meta.pointerId != null && event.pointerId !== meta.pointerId) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+
+      const dy = (Number(event.clientY) || 0) - (Number(meta.startY) || 0);
+      const nextRotation =
+        (Number(meta.startRotation) || 0) + dy * ROTATE_DEG_PER_PX;
+      scheduleRotationUpdate(meta.elementId, nextRotation);
+    },
+    [scheduleRotationUpdate]
+  );
+
+  const endRotateGesture = useCallback(
+    (event) => {
+      const meta = rotateGestureRef.current;
+      if (!meta.isActive) {
+        return;
+      }
+      if (meta.pointerId != null && event.pointerId !== meta.pointerId) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+
+      try {
+        event.currentTarget?.releasePointerCapture?.(event.pointerId);
+      } catch {
+        // no-op
+      }
+
+      meta.isActive = false;
+      meta.elementId = null;
+      meta.pointerId = null;
+      meta.startY = 0;
+      meta.startRotation = 0;
+      meta.pendingRotation = null;
+
+      // Prevent the synthetic click after pointer-up from selecting
+      // whatever is behind the floating rotate button.
+      meta.suppressClickUntil =
+        (typeof performance !== "undefined" ? performance.now() : Date.now()) +
+        350;
+
+      if (meta.rafId != null) {
+        cancelAnimationFrame(meta.rafId);
+        meta.rafId = null;
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleClickCapture = (event) => {
+      const meta = rotateGestureRef.current;
+      const now =
+        typeof performance !== "undefined" ? performance.now() : Date.now();
+      if (meta.suppressClickUntil && now < meta.suppressClickUntil) {
+        meta.suppressClickUntil = 0;
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === "function") {
+          event.stopImmediatePropagation();
+        }
+      }
+    };
+
+    window.addEventListener("click", handleClickCapture, true);
+    return () => {
+      window.removeEventListener("click", handleClickCapture, true);
+    };
+  }, []);
 
   // Handler untuk memulai edit teks (double-click)
   const handleDoubleClickText = (element) => {
@@ -2003,6 +2165,68 @@ function CanvasPreviewComponent({
                       />
                     </button>
                   </div>
+
+                  {element.type === "photo" && (() => {
+                    const wouldOverflowRight =
+                      Number(element.x) + Number(element.width) + ROTATE_BUTTON_OFFSET >
+                      CANVAS_WIDTH;
+                    const wouldOverflowLeft =
+                      Number(element.x) - ROTATE_BUTTON_OFFSET < 0;
+
+                    const placeLeft = wouldOverflowRight && !wouldOverflowLeft;
+
+                    return (
+                      <button
+                        data-export-ignore="true"
+                        title="Tahan & geser atas/bawah untuk rotate"
+                        aria-label="Rotate"
+                        style={{
+                          position: "absolute",
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          ...(placeLeft
+                            ? { left: `-${ROTATE_BUTTON_OFFSET}px` }
+                            : { right: `-${ROTATE_BUTTON_OFFSET}px` }),
+                          width: `${ROTATE_BUTTON_SIZE}px`,
+                          height: `${ROTATE_BUTTON_SIZE}px`,
+                          borderRadius: "14px",
+                          background: "#ffffff",
+                          border: "2px solid #f7a998",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+                          transition: "transform 0.2s ease",
+                          pointerEvents: "auto",
+                          touchAction: "none",
+                          zIndex: 10001,
+                        }}
+                        onMouseEnter={(e) =>
+                          (e.currentTarget.style.transform =
+                            "translateY(-50%) scale(1.1)")
+                        }
+                        onMouseLeave={(e) =>
+                          (e.currentTarget.style.transform = "translateY(-50%)")
+                        }
+                        onPointerDown={(e) => beginRotateGesture(e, element)}
+                        onPointerMove={updateRotateGesture}
+                        onPointerUp={endRotateGesture}
+                        onPointerCancel={endRotateGesture}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                      >
+                        <img
+                          src={rotateIcon}
+                          alt="Rotate"
+                          draggable={false}
+                          style={{ width: "34px", height: "34px" }}
+                        />
+                      </button>
+                    );
+                  })()}
                 </>
               )}
               {isSelected && isBackgroundPhoto && (

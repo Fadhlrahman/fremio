@@ -1994,8 +1994,18 @@ export default function EditPhoto() {
             // Determine format based on values
             let format = 'pixels'; // default
             let convertFn = (el) => el; // no conversion by default
-            
-            if (maxWidth <= 1 && maxHeight <= 1) {
+
+            const isLikelyNormalized =
+              maxX <= 1 && maxY <= 1 && maxWidth <= 1 && maxHeight <= 1;
+
+            // CM format is very small numeric space (roughly 0-11 x 0-20)
+            // Only treat as cm when ALL photo coordinates are within that space.
+            // This prevents pixel-based designs (e.g. width 934) being misclassified
+            // just because x happens to be small.
+            const isLikelyCm =
+              maxX <= 12 && maxY <= 22 && maxWidth <= 12 && maxHeight <= 22;
+
+            if (isLikelyNormalized) {
               // Normalized format (0-1)
               format = 'normalized';
               console.log("📐 [COORD] Detected NORMALIZED format (0-1), converting to pixels...");
@@ -2006,8 +2016,8 @@ export default function EditPhoto() {
                 width: Math.round((el.width || 0) * cw),
                 height: Math.round((el.height || 0) * ch),
               });
-            } else if (maxWidth < 20 && maxHeight < 25) {
-              // CM format (canvas is 10.8cm x 19.2cm, so max reasonable values ~11x20)
+            } else if (isLikelyCm) {
+              // CM format (canvas is ~10.8cm x 19.2cm)
               format = 'cm';
               const pxPerCm = cw / 10.8; // ~100 for 1080px canvas
               console.log(`📐 [COORD] Detected CM format, pxPerCm=${pxPerCm.toFixed(2)}, converting to pixels...`);
@@ -2018,33 +2028,6 @@ export default function EditPhoto() {
                 width: Math.round((el.width || 0) * pxPerCm),
                 height: Math.round((el.height || 0) * pxPerCm),
               });
-            } else if (maxWidth < 100 || maxX < 100) {
-              // Ambiguous - could be percentages or small pixel values
-              // Check if values make sense as percentages of canvas
-              const testWidth = photoEls[0]?.width || 0;
-              if (testWidth < 1) {
-                format = 'normalized';
-                console.log("📐 [COORD] Ambiguous but width<1, treating as NORMALIZED format...");
-                convertFn = (el) => ({
-                  ...el,
-                  x: Math.round((el.x || 0) * cw),
-                  y: Math.round((el.y || 0) * ch),
-                  width: Math.round((el.width || 0) * cw),
-                  height: Math.round((el.height || 0) * ch),
-                });
-              } else {
-                // Assume small pixel values or CM
-                format = 'cm';
-                const pxPerCm = cw / 10.8;
-                console.log(`📐 [COORD] Ambiguous, treating as CM format, pxPerCm=${pxPerCm.toFixed(2)}...`);
-                convertFn = (el) => ({
-                  ...el,
-                  x: Math.round((el.x || 0) * pxPerCm),
-                  y: Math.round((el.y || 0) * pxPerCm),
-                  width: Math.round((el.width || 0) * pxPerCm),
-                  height: Math.round((el.height || 0) * pxPerCm),
-                });
-              }
             } else {
               console.log("✅ [COORD] Values appear to be in PIXELS already, no conversion needed");
             }
@@ -3297,6 +3280,13 @@ export default function EditPhoto() {
                       typeof element.data?.photoIndex === "number";
                     const isOverlay = element.data?.__isOverlay === true;
 
+                    const rotationDeg = Number.isFinite(element?.rotation)
+                      ? element.rotation
+                      : 0;
+                    const rotationTransform = rotationDeg
+                      ? `rotate(${rotationDeg}deg)`
+                      : "";
+
                     // FIXED: Overlay elements must always be ABOVE photo slots
                     // Photo slots: zIndex 100-199
                     // Overlay elements: zIndex 500+ (always on top)
@@ -3382,6 +3372,8 @@ export default function EditPhoto() {
                             justifyContent: "center",
                             background: "#f3f4f6",
                             border: "2px dashed #d1d5db",
+                            transform: rotationTransform || undefined,
+                            transformOrigin: "center center",
                           }}
                         >
                           <span
@@ -3458,7 +3450,12 @@ export default function EditPhoto() {
                           WebkitUserSelect: "none",
                           userSelect: "none",
                           // Hover effect - subtle scale and shadow
-                          transform: isHovered && !isSelected && !isSwapSource ? "scale(1.02)" : "scale(1)",
+                          transform: `${rotationTransform}${rotationTransform ? " " : ""}${
+                            isHovered && !isSelected && !isSwapSource
+                              ? "scale(1.02)"
+                              : "scale(1)"
+                          }`,
+                          transformOrigin: "center center",
                           transition: "transform 0.2s ease-out, box-shadow 0.2s ease-out, outline 0.2s ease-out",
                           // Visual states: swap source (orange), selected (blue), swap target hint (green dashed), hover (subtle glow)
                           outline: isSwapSource 
@@ -4178,32 +4175,73 @@ export default function EditPhoto() {
                         ctx.globalAlpha = 1;
                         ctx.globalCompositeOperation = "source-over";
 
-                        // Clip untuk border radius
-                        const x = element.x || 0;
-                        const y = element.y || 0;
-                        const w = element.width || 100;
-                        const h = element.height || 100;
-                        const r = element.data?.borderRadius ?? 0;
+                        const x = Number(element.x) || 0;
+                        const y = Number(element.y) || 0;
+                        const w = Number(element.width) || 100;
+                        const h = Number(element.height) || 100;
 
-                        ctx.beginPath();
-                        ctx.moveTo(x + r, y);
-                        ctx.lineTo(x + w - r, y);
-                        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-                        ctx.lineTo(x + w, y + h - r);
-                        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-                        ctx.lineTo(x + r, y + h);
-                        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-                        ctx.lineTo(x, y + r);
-                        ctx.quadraticCurveTo(x, y, x + r, y);
-                        ctx.closePath();
-                        ctx.clip();
+                        const rotationDeg = Number.isFinite(element?.rotation)
+                          ? element.rotation
+                          : 0;
+                        const rotationRad = (rotationDeg * Math.PI) / 180;
+
+                        // Apply element rotation around its center (slot rotation)
+                        ctx.translate(x + w / 2, y + h / 2);
+                        if (rotationRad) {
+                          ctx.rotate(rotationRad);
+                        }
+                        ctx.translate(-w / 2, -h / 2);
+
+                        // Clip for slot shape (circle or rounded rect)
+                        const rawRadius = Number(element.data?.borderRadius ?? 0);
+                        const r = Number.isFinite(rawRadius) ? rawRadius : 0;
+                        const slotShape = element.data?.shape;
+                        if (slotShape === "circle") {
+                          const radius = Math.min(w, h) / 2;
+                          ctx.beginPath();
+                          ctx.arc(w / 2, h / 2, radius, 0, Math.PI * 2);
+                          ctx.closePath();
+                          ctx.clip();
+                        } else if (r > 0) {
+                          const clamped = Math.min(Math.max(r, 0), Math.min(w, h) / 2);
+                          ctx.beginPath();
+                          ctx.moveTo(clamped, 0);
+                          ctx.lineTo(w - clamped, 0);
+                          ctx.quadraticCurveTo(w, 0, w, clamped);
+                          ctx.lineTo(w, h - clamped);
+                          ctx.quadraticCurveTo(w, h, w - clamped, h);
+                          ctx.lineTo(clamped, h);
+                          ctx.quadraticCurveTo(0, h, 0, h - clamped);
+                          ctx.lineTo(0, clamped);
+                          ctx.quadraticCurveTo(0, 0, clamped, 0);
+                          ctx.closePath();
+                          ctx.clip();
+                        } else {
+                          ctx.beginPath();
+                          ctx.rect(0, 0, w, h);
+                          ctx.closePath();
+                          ctx.clip();
+                        }
 
                         // Get transform for this photo element
-                        const photoId = element.id || `photo-${sortedElements.indexOf(element)}`;
-                        const photoTransform = photoTransforms[photoId] || { scale: 1, x: 0, y: 0 };
-                        
-                        // Use cover with transform - use filtered canvas
-                        drawImageCoverWithTransform(ctx, sourceCanvas, x, y, w, h, photoTransform);
+                        const photoId =
+                          element.id || `photo-${sortedElements.indexOf(element)}`;
+                        const photoTransform = photoTransforms[photoId] || {
+                          scale: 1,
+                          x: 0,
+                          y: 0,
+                        };
+
+                        // Draw into local (0,0,w,h) space after rotation transform
+                        drawImageCoverWithTransform(
+                          ctx,
+                          sourceCanvas,
+                          0,
+                          0,
+                          w,
+                          h,
+                          photoTransform
+                        );
                         ctx.restore();
                         console.log(`  ✅ Image drawn with filter and transform:`, photoTransform);
                       } catch (imgError) {

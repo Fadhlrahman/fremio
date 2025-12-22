@@ -76,6 +76,7 @@ export default function AdminSettings() {
 
   useEffect(() => {
     loadSettings();
+    loadMaintenanceStatus();
     if (isFirebaseConfigured) {
       loadFirebaseStats();
     }
@@ -91,7 +92,20 @@ export default function AdminSettings() {
       setSiteDescription(
         settings.siteDescription || "Create beautiful photo frames"
       );
+      setAllowRegistration(settings.allowRegistration ?? true);
       // ... apply other settings
+    }
+  };
+
+  const loadMaintenanceStatus = async () => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/maintenance/status`);
+      const data = await response.json();
+      if (data.success) {
+        setMaintenanceMode(data.enabled);
+      }
+    } catch (error) {
+      console.error("Error loading maintenance status:", error);
     }
   };
 
@@ -143,6 +157,29 @@ export default function AdminSettings() {
     };
 
     try {
+      // Save maintenance mode to backend API
+      const token = localStorage.getItem("token");
+      const maintenanceResponse = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/maintenance/admin/status`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            enabled: maintenanceMode,
+            message: maintenanceMode
+              ? "Fremio sedang maintenance. Silakan coba lagi nanti."
+              : "",
+          }),
+        }
+      );
+
+      if (!maintenanceResponse.ok) {
+        throw new Error("Failed to update maintenance mode");
+      }
+
       if (isFirebaseConfigured) {
         // TODO: Save to Firebase
         // const { saveAdminSettings } = await import("../../services/adminService");
@@ -154,7 +191,7 @@ export default function AdminSettings() {
       alert("Settings saved successfully!");
     } catch (error) {
       console.error("Error saving settings:", error);
-      alert("Failed to save settings");
+      alert("Failed to save settings: " + error.message);
     }
 
     setSaving(false);

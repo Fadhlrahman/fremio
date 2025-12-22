@@ -17,6 +17,11 @@ export default function AdminMaintenance() {
     loadWhitelist();
   }, []);
 
+  const getAuthToken = () =>
+    localStorage.getItem("fremio_token") ||
+    localStorage.getItem("auth_token") ||
+    localStorage.getItem("token");
+
   const getMaintenanceApiBase = () => {
     const raw = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
     if (raw.endsWith("/api")) return { base: raw, prefix: "" };
@@ -43,7 +48,8 @@ export default function AdminMaintenance() {
 
   const loadWhitelist = async () => {
     try {
-      const token = localStorage.getItem("token");
+      const token = getAuthToken();
+      if (!token) return;
       const { base, prefix } = getMaintenanceApiBase();
       const response = await fetch(
         `${base}${prefix}/maintenance/admin/whitelist`,
@@ -66,7 +72,10 @@ export default function AdminMaintenance() {
   const handleToggleMaintenance = async () => {
     try {
       setSaving(true);
-      const token = localStorage.getItem("token");
+      const token = getAuthToken();
+      if (!token) {
+        throw new Error("No token provided");
+      }
       const { base, prefix } = getMaintenanceApiBase();
       const response = await fetch(
         `${base}${prefix}/maintenance/admin/status`,
@@ -104,7 +113,10 @@ export default function AdminMaintenance() {
 
     try {
       setSaving(true);
-      const token = localStorage.getItem("token");
+      const token = getAuthToken();
+      if (!token) {
+        throw new Error("No token provided");
+      }
       const { base, prefix } = getMaintenanceApiBase();
       const response = await fetch(
         `${base}${prefix}/maintenance/admin/whitelist`,
@@ -140,7 +152,10 @@ export default function AdminMaintenance() {
 
     try {
       setSaving(true);
-      const token = localStorage.getItem("token");
+      const token = getAuthToken();
+      if (!token) {
+        throw new Error("No token provided");
+      }
       const { base, prefix } = getMaintenanceApiBase();
       const response = await fetch(
         `${base}${prefix}/maintenance/admin/whitelist/${encodeURIComponent(email)}`,

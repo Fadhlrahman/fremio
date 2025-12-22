@@ -20,6 +20,7 @@ import uploadRoutes from "./routes/upload.js";
 import analyticsRoutes from "./routes/analytics.js";
 import staticRoutes from "./routes/static.js";
 import paymentRoutes from "./routes/payment.js";
+import maintenanceRoutes from "./routes/maintenance.js";
 
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -91,7 +92,18 @@ app.use(
   })
 );
 app.use(compression());
-app.use(morgan(isProduction ? "combined" : "dev"));
+app.use(
+  morgan(isProduction ? "combined" : "dev", {
+    skip: (req) => {
+      const p = req.path || "";
+      return (
+        p.startsWith("/api/analytics") ||
+        p.startsWith("/uploads") ||
+        p === "/api/maintenance/status"
+      );
+    },
+  })
+);
 
 // CORS - Allow all origins for static files and API
 app.use(
@@ -173,6 +185,7 @@ app.use("/api/upload", uploadLimiter, uploadRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/static", staticRoutes);
 app.use("/api/payment", paymentRoutes);
+app.use("/api/maintenance", maintenanceRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -204,10 +217,14 @@ const startServer = async () => {
       storageService.cleanupTempFiles(hours);
     }, 6 * 60 * 60 * 1000);
 
-    // Check for HTTPS certificates
+    // Check for HTTPS certificates.
+    // IMPORTANT: when running behind nginx (production), the backend should
+    // listen on HTTP; nginx terminates TLS. To avoid accidental HTTP/HTTPS
+    // mismatch causing 502, only start HTTPS when explicitly enabled.
     const certPath = path.join(__dirname, "localhost+3.pem");
     const keyPath = path.join(__dirname, "localhost+3-key.pem");
-    const useHttps = fs.existsSync(certPath) && fs.existsSync(keyPath);
+    const enableHttps = String(process.env.ENABLE_HTTPS || "").toLowerCase() === "true";
+    const useHttps = enableHttps && fs.existsSync(certPath) && fs.existsSync(keyPath);
 
     if (useHttps) {
       // Start HTTPS server

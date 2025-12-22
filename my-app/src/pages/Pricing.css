@@ -22,7 +22,7 @@
 }
 
 .pricing-tagline {
-  font-size: 1.05rem;
+  font-size: 1.35rem;
   font-weight: 600;
   text-align: center;
   color: #111;
@@ -56,6 +56,22 @@
   color: #111;
   font-size: 0.95rem;
   margin-bottom: 1rem;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.offer-price-old {
+  color: #e0b7a9;
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  text-decoration-color: #e0b7a9;
+}
+
+.offer-price-new {
+  color: #111;
 }
 
 .offer-columns {
@@ -91,6 +107,56 @@
   margin: 0.2rem 0;
 }
 
+.pricing-terms {
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 12px;
+  padding: 0.85rem 0.9rem;
+  text-align: left;
+  margin: 0.75rem 0 1rem 0;
+}
+
+.pricing-terms-title {
+  font-weight: 800;
+  color: #111;
+  margin-bottom: 0.15rem;
+}
+
+.pricing-terms-updated {
+  font-size: 0.8rem;
+  color: #666;
+  margin-bottom: 0.6rem;
+}
+
+.pricing-terms-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: #111;
+}
+
+.pricing-terms-list li {
+  font-size: 0.85rem;
+  margin: 0.25rem 0;
+}
+
+.pricing-terms-link {
+  color: #111;
+  font-weight: 700;
+}
+
+.pricing-terms-agree {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: #111;
+}
+
+.pricing-terms-agree input {
+  margin-top: 0.15rem;
+}
+
 .offer-cta {
   background: #e0b7a9;
   border: none;
@@ -109,6 +175,48 @@
   margin-top: 0.75rem;
   font-size: 0.85rem;
   color: #666;
+}
+
+.offer-pending-actions {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.offer-pending-actions .offer-cta {
+  width: auto;
+  padding: 10px 16px;
+  flex: 1 1 200px;
+  max-width: 240px;
+}
+
+/* Default (desktop/tablet): cancel left, resume right */
+.offer-pending-actions .offer-pending-cancel {
+  order: 1;
+}
+
+.offer-pending-actions .offer-pending-resume {
+  order: 2;
+}
+
+/* Mobile: swap order (resume first, cancel second) */
+@media (max-width: 640px) {
+  .offer-pending-actions .offer-pending-resume {
+    order: 1;
+  }
+
+  .offer-pending-actions .offer-pending-cancel {
+    order: 2;
+  }
+}
+
+.offer-pending-message {
+  flex-basis: 100%;
+  text-align: center;
+  margin-top: 6px;
 }
 
 @media (min-width: 720px) {

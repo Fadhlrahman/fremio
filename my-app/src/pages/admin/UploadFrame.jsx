@@ -204,6 +204,7 @@ export default function UploadFrame() {
                   y: slot.top * CANVAS_HEIGHT,
                   width: slot.width * CANVAS_WIDTH,
                   height: slot.height * CANVAS_HEIGHT,
+                  rotation: typeof slot.rotation === "number" ? slot.rotation : 0,
                   zIndex: 1,
                   data: {
                     photoIndex: slot.photoIndex !== undefined ? slot.photoIndex : index,
@@ -835,6 +836,7 @@ export default function UploadFrame() {
         zIndex: 1,
         photoIndex: index,
         borderRadius: el.data?.borderRadius || 0,
+        rotation: Number.isFinite(el.rotation) ? el.rotation : 0,
       }));
 
       // Collect non-photo elements (overlays, uploads, text, etc.)

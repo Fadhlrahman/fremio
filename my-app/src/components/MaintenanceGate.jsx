@@ -8,13 +8,37 @@ import { useAuth } from "../contexts/AuthContext";
  * Exempts admin users and whitelisted IPs
  */
 export default function MaintenanceGate({ children }) {
-  const [isChecking, setIsChecking] = useState(true);
-  const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
 
+  const isAlwaysAllowedPath = (pathname) => {
+    // Always allow auth + maintenance pages (even during maintenance),
+    // including trailing slashes and nested auth paths.
+    return (
+      pathname === "/maintenance" ||
+      pathname.startsWith("/maintenance/") ||
+      pathname === "/login" ||
+      pathname.startsWith("/login/") ||
+      pathname === "/register" ||
+      pathname.startsWith("/register/") ||
+      pathname === "/reset-password" ||
+      pathname.startsWith("/reset-password/")
+    );
+  };
+
+  const [isChecking, setIsChecking] = useState(() => !isAlwaysAllowedPath(location.pathname));
+  const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
+
   useEffect(() => {
+    // Reset state per navigation.
+    if (isAlwaysAllowedPath(location.pathname)) {
+      setMaintenanceEnabled(false);
+      setIsChecking(false);
+      return;
+    }
+
+    setIsChecking(true);
     checkMaintenanceStatus();
   }, [location.pathname]);
 
@@ -27,27 +51,40 @@ export default function MaintenanceGate({ children }) {
   };
 
   const checkMaintenanceStatus = async () => {
-    // Skip check if already on maintenance page
-    if (location.pathname === "/maintenance") {
-      setIsChecking(false);
-      return;
-    }
-
     try {
       const { base, prefix } = getMaintenanceApiBase();
       const response = await fetch(`${base}${prefix}/maintenance/status`);
       const data = await response.json();
 
       if (data.success && data.enabled) {
-        // Check if user is admin (exempt from maintenance)
+        // Admin users can always bypass maintenance
         if (user && user.role === "admin") {
-          console.log("[MaintenanceGate] Admin user - bypassing maintenance");
           setMaintenanceEnabled(false);
-        } else {
-          console.log("[MaintenanceGate] Maintenance enabled - redirecting");
-          setMaintenanceEnabled(true);
-          navigate("/maintenance", { replace: true });
+          return;
         }
+
+        // If user has a token (logged in), check whether they are whitelisted
+        const token =
+          localStorage.getItem("fremio_token") ||
+          localStorage.getItem("auth_token");
+        if (token) {
+          try {
+            const accessRes = await fetch(`${base}${prefix}/maintenance/access`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            const accessData = await accessRes.json();
+            if (accessData?.success && accessData?.allowed) {
+              setMaintenanceEnabled(false);
+              return;
+            }
+          } catch (_) {
+            // fallthrough to redirect
+          }
+        }
+
+        // Not allowed → redirect to maintenance page
+        setMaintenanceEnabled(true);
+        navigate("/maintenance", { replace: true });
       } else {
         setMaintenanceEnabled(false);
       }

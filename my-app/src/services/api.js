@@ -3,7 +3,9 @@
 // Fremio - VPS Backend Connection
 // ============================================
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+import { VPS_API_URL } from "../config/backend";
+
+const API_BASE_URL = VPS_API_URL;
 
 class ApiClient {
     constructor() {

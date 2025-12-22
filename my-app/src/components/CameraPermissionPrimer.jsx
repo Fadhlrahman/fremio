@@ -10,7 +10,7 @@ const CameraPermissionPrimer = ({ onRequestPermission, onSkip }) => {
     <div className="permission-primer-overlay">
       <div className="permission-primer-content">
         <div className="permission-icon">
-          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
             <circle cx="12" cy="13" r="4"></circle>
           </svg>
@@ -48,14 +48,14 @@ const CameraPermissionPrimer = ({ onRequestPermission, onSkip }) => {
         </div>
         
         <button 
-          className="btn-primary btn-allow-camera"
+          className="permission-primer-primary"
           onClick={onRequestPermission}
         >
           Izinkan Kamera
         </button>
         
         <button 
-          className="btn-text"
+          className="permission-primer-secondary"
           onClick={onSkip}
         >
           Upload Foto Saja

@@ -177,6 +177,17 @@ router.post("/create", verifyToken, async (req, res) => {
 
     console.log("✅ Midtrans transaction created successfully");
 
+    // Persist checkout info so user can resume pending payment later.
+    try {
+      await paymentDB.setTransactionCheckoutInfo({
+        orderId,
+        snapToken: transaction.token,
+        redirectUrl: transaction.redirect_url,
+      });
+    } catch (e) {
+      console.warn("⚠️ Failed to store checkout info:", e?.message || e);
+    }
+
     res.json({
       success: true,
       data: {
@@ -190,6 +201,180 @@ router.post("/create", verifyToken, async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to create payment",
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * GET /api/payment/pending
+ * Get user's latest pending transaction (if any) so UI can resume payment.
+ */
+router.get("/pending", verifyToken, async (req, res) => {
+  try {
+    const userId = req.user?.uid || req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Autentikasi gagal: userId tidak ditemukan",
+      });
+    }
+
+    const latestPending = await paymentDB.getLatestPendingTransaction(userId);
+    if (!latestPending) {
+      return res.json({ success: true, hasPending: false, data: null });
+    }
+
+    // Refresh status from Midtrans to avoid stale "pending".
+    let midtransStatus = null;
+    try {
+      midtransStatus = await midtransService.getTransactionStatus(
+        latestPending.invoice_number
+      );
+
+      if (midtransStatus?.transaction_status) {
+        const newStatus = midtransStatus.transaction_status;
+        if (newStatus && newStatus !== latestPending.status) {
+          await paymentDB.updateTransactionStatus({
+            orderId: latestPending.invoice_number,
+            transactionStatus: newStatus,
+            paymentType: midtransStatus.payment_type,
+            transactionTime: midtransStatus.transaction_time,
+            settlementTime: midtransStatus.settlement_time,
+            midtransTransactionId: midtransStatus.transaction_id,
+            midtransResponse: midtransStatus,
+          });
+          latestPending.status = newStatus;
+        }
+      }
+    } catch (e) {
+      // If Midtrans is unreachable, return DB state.
+      console.warn("⚠️ Failed to refresh Midtrans status:", e?.message || e);
+    }
+
+    // If it already settled, the client should just sync access.
+    if (latestPending.status === "settlement" || latestPending.status === "capture") {
+      return res.json({
+        success: true,
+        hasPending: false,
+        data: {
+          orderId: latestPending.invoice_number,
+          status: latestPending.status,
+        },
+      });
+    }
+
+    const snapToken = latestPending.gateway_response?.snapToken || null;
+    const redirectUrl = latestPending.invoice_url || latestPending.gateway_response?.redirectUrl || null;
+
+    return res.json({
+      success: true,
+      hasPending: latestPending.status === "pending",
+      data: {
+        orderId: latestPending.invoice_number,
+        status: latestPending.status,
+        snapToken,
+        redirectUrl,
+        createdAt: latestPending.created_at,
+      },
+    });
+  } catch (error) {
+    console.error("Get pending payment error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to get pending payment",
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * POST /api/payment/pending/cancel
+ * Cancel user's latest pending transaction so they can create a new one.
+ */
+router.post("/pending/cancel", verifyToken, async (req, res) => {
+  try {
+    const userId = req.user?.uid || req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Autentikasi gagal: userId tidak ditemukan",
+      });
+    }
+
+    // Cancel ALL pending transactions for this user (some older records may not
+    // have snapToken/redirectUrl and can otherwise block checkout forever).
+    const pending = await paymentDB.getUserTransactions(userId);
+    const pendingTx = (pending || []).filter((t) => t.status === "pending");
+
+    if (pendingTx.length === 0) {
+      return res.json({ success: true, message: "Tidak ada transaksi pending" });
+    }
+
+    const cancelledOrderIds = [];
+
+    for (const tx of pendingTx) {
+      const orderId = tx.invoice_number;
+      if (!orderId) continue;
+
+      let cancelResult = null;
+      try {
+        cancelResult = await midtransService.cancelTransaction(orderId);
+      } catch (e) {
+        const msg = String(e?.message || "");
+        const msgLower = msg.toLowerCase();
+
+        const isMissingOnMidtrans =
+          msgLower.includes("http status code: 404") ||
+          msgLower.includes("status_code\":\"404\"") ||
+          /transaction\s+doesn['’]\s*t\s+exist/.test(msgLower) ||
+          msgLower.includes("transaction does not exist") ||
+          msgLower.includes("transaction not found");
+
+        // For missing/unknown orders, still cancel locally.
+        // For other errors, also cancel locally to unblock the user, but record the error.
+        await paymentDB.updateTransactionStatus({
+          orderId,
+          transactionStatus: "cancel",
+          paymentType: cancelResult?.payment_type || null,
+          transactionTime: new Date().toISOString(),
+          settlementTime: cancelResult?.settlement_time || null,
+          midtransTransactionId: cancelResult?.transaction_id || null,
+          midtransResponse: {
+            error: msg,
+            note: isMissingOnMidtrans
+              ? "Cancelled locally because Midtrans reported missing transaction"
+              : "Cancelled locally because Midtrans cancel failed",
+          },
+        });
+
+        cancelledOrderIds.push(orderId);
+        continue;
+      }
+
+      await paymentDB.updateTransactionStatus({
+        orderId,
+        transactionStatus: "cancel",
+        paymentType: cancelResult?.payment_type,
+        transactionTime: cancelResult?.transaction_time,
+        settlementTime: cancelResult?.settlement_time,
+        midtransTransactionId: cancelResult?.transaction_id,
+        midtransResponse: cancelResult,
+      });
+
+      cancelledOrderIds.push(orderId);
+    }
+
+    return res.json({
+      success: true,
+      message: "Transaksi pending dibatalkan",
+      data: { orderIds: cancelledOrderIds },
+    });
+  } catch (error) {
+    console.error("Cancel pending payment error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to cancel pending payment",
       error: error.message,
     });
   }

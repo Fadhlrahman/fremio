@@ -161,7 +161,13 @@ export default function AdminSettings() {
 
     try {
       // Save maintenance mode to backend API
-      const token = localStorage.getItem("token");
+      const token =
+        localStorage.getItem("fremio_token") ||
+        localStorage.getItem("auth_token") ||
+        localStorage.getItem("token");
+      if (!token) {
+        throw new Error("No token provided");
+      }
       const raw = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
       const base = raw;
       const prefix = raw.endsWith("/api") ? "" : "/api";

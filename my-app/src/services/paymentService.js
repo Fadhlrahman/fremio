@@ -81,6 +81,32 @@ class PaymentService {
   }
 
   /**
+   * Get latest pending transaction so user can resume payment.
+   */
+  async getPending() {
+    try {
+      const response = await api.get("/payment/pending");
+      return response;
+    } catch (error) {
+      console.error("Get pending payment error:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Cancel the latest pending transaction (so user can create a new one).
+   */
+  async cancelLatestPending() {
+    try {
+      const response = await api.post("/payment/pending/cancel", {});
+      return response;
+    } catch (error) {
+      console.error("Cancel pending payment error:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Reconcile latest pending transaction (fallback if orderId is unknown)
    */
   async reconcileLatest() {

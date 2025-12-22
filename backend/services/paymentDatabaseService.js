@@ -30,6 +30,36 @@ class PaymentDatabaseService {
   }
 
   /**
+   * Store checkout info for a transaction (Snap token + redirect URL).
+   * This enables the frontend to resume a pending payment.
+   */
+  async setTransactionCheckoutInfo({ orderId, snapToken, redirectUrl }) {
+    const query = `
+      UPDATE payment_transactions
+      SET
+        invoice_url = COALESCE($1, invoice_url),
+        gateway_response = COALESCE(gateway_response, '{}'::jsonb) || $2::jsonb,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE invoice_number = $3
+      RETURNING *
+    `;
+
+    const payload = {
+      ...(snapToken ? { snapToken } : {}),
+      ...(redirectUrl ? { redirectUrl } : {}),
+      storedAt: new Date().toISOString(),
+    };
+
+    const result = await pool.query(query, [
+      redirectUrl || null,
+      JSON.stringify(payload),
+      orderId,
+    ]);
+
+    return result.rows[0];
+  }
+
+  /**
    * Update transaction status
    */
   async updateTransactionStatus({
@@ -207,24 +237,24 @@ class PaymentDatabaseService {
   async getUserAccessibleFrames(userId) {
     const access = await this.getUserActiveAccess(userId);
 
-    if (!access || !access.package_ids) {
+    // Subscription model: if the user has active access, they can access ALL
+    // premium frames (including any newly uploaded premium frames) until expiry.
+    if (!access) {
       return [];
     }
 
-    const query = `
-      SELECT frame_ids 
-      FROM frame_packages 
-      WHERE id = ANY($1) AND is_active = true
-    `;
+    const result = await pool.query(
+      `
+        SELECT id
+        FROM frames
+        WHERE is_active = true
+          AND is_hidden = false
+          AND is_premium = true
+        ORDER BY created_at DESC
+      `
+    );
 
-    const result = await pool.query(query, [access.package_ids]);
-
-    // Flatten array of frame_ids
-    const frameIds = result.rows.reduce((acc, row) => {
-      return acc.concat(row.frame_ids);
-    }, []);
-
-    return frameIds;
+    return (result.rows || []).map((r) => r.id);
   }
 
   /**

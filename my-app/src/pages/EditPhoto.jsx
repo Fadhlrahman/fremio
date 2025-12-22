@@ -4162,20 +4162,22 @@ export default function EditPhoto() {
                         const img = await loadImageWithFallback(element.data.image);
                         console.log(`  📸 Image loaded successfully, drawing to canvas...`);
 
-                        // IMPORTANT: Only photo slots should receive the active filter.
-                        // Non-slot uploads (stickers/logos/decor) must remain unfiltered like in the preview.
+                        // IMPORTANT: Match preview behavior:
+                        // A "photo slot" is determined by having a numeric photoIndex.
+                        // Do NOT rely on element.type === "photo" because some non-slot elements
+                        // can be typed as "photo" but should never be filtered (e.g. overlays).
                         const isPhotoSlot =
-                          element.type === "photo" ||
-                          (element.type === "upload" &&
-                            Number.isFinite(element.data?.photoIndex));
+                          typeof element.data?.photoIndex === "number";
                         
                         // Check if this is a frame overlay (should NOT be filtered)
                         // Multiple checks to ensure ALL frame-related elements are excluded
-                        const isFrameOverlay = element.data?.isOverlay === true || 
-                                             element.zIndex >= 500 || 
-                                             element.type === "frame-overlay" ||
-                                             element.id?.includes("frame") ||
-                                             element.id?.includes("overlay");
+                        const isFrameOverlay =
+                          element.data?.__isOverlay === true ||
+                          element.data?.isOverlay === true ||
+                          element.zIndex >= 500 ||
+                          element.type === "frame-overlay" ||
+                          element.id?.includes("frame") ||
+                          element.id?.includes("overlay");
                         
                         console.log(`  🔍 [v3.0-16Dec-FINAL] Element ID=${element.id}, type=${element.type}, photoIndex=${element.data?.photoIndex}, isPhotoSlot=${isPhotoSlot}, isOverlay=${element.data?.isOverlay}, zIndex=${element.zIndex}, isFrameOverlay=${isFrameOverlay}`);
                         

@@ -54,14 +54,23 @@ export default function Maintenance() {
           </div>
 
           {/* Contact */}
-          <div className="text-sm text-gray-500">
-            Butuh bantuan?{" "}
+          <div className="flex flex-col gap-3">
             <Link
-              to="/help-center"
-              className="text-purple-600 hover:text-purple-700 font-medium"
+              to="/login"
+              className="inline-flex items-center justify-center rounded-xl bg-purple-600 px-4 py-3 text-sm font-semibold text-white hover:bg-purple-700"
             >
-              Hubungi Support
+              Login Admin / Whitelist
             </Link>
+
+            <div className="text-sm text-gray-500">
+              Butuh bantuan?{" "}
+              <Link
+                to="/help-center"
+                className="text-purple-600 hover:text-purple-700 font-medium"
+              >
+                Hubungi Support
+              </Link>
+            </div>
           </div>
         </div>
 

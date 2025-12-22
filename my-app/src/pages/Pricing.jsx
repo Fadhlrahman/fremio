@@ -12,8 +12,16 @@ const Pricing = () => {
   const [access, setAccess] = useState(null);
   const [canPurchase, setCanPurchase] = useState(false);
   const [checkingAccess, setCheckingAccess] = useState(true);
+  const [pendingPayment, setPendingPayment] = useState(null);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
-  const tabs = ["Fremio Series", "Music", "Sport Series"];
+  // Premium frames categories shown on Pricing page
+  // Must match the exact category strings used when uploading frames in Admin.
+  const tabs = [
+    "Christmas Fremio Series",
+    "Holiday Fremio Series",
+    "Year-End Recap Fremio Series",
+  ];
   const [activeTab, setActiveTab] = useState(tabs[0]);
   const [premiumFramesByCategory, setPremiumFramesByCategory] = useState({});
   const [loadingPreviewFrames, setLoadingPreviewFrames] = useState(true);
@@ -71,6 +79,9 @@ const Pricing = () => {
     try {
       setCheckingAccess(true);
 
+      // Reset pending state
+      setPendingPayment(null);
+
       // Check current access
       try {
         const accessResponse = await paymentService.getAccess();
@@ -103,6 +114,18 @@ const Pricing = () => {
         );
         setCanPurchase(true); // Default: allow purchase if check fails
       }
+
+      // Check if there is a pending payment to resume
+      try {
+        const pendingResponse = await paymentService.getPending();
+        if (pendingResponse?.success && pendingResponse?.hasPending && pendingResponse?.data) {
+          setPendingPayment(pendingResponse.data);
+          // Prevent new checkout while pending exists
+          setCanPurchase(false);
+        }
+      } catch (pendingError) {
+        console.log("⚠️ Could not load pending payment:", pendingError.message);
+      }
     } catch (error) {
       console.error("Load access info error:", error);
       // Set defaults on error
@@ -110,6 +133,98 @@ const Pricing = () => {
       setCanPurchase(true);
     } finally {
       setCheckingAccess(false);
+    }
+  };
+
+  const syncAccess = async (orderId = null, retries = 3) => {
+    try {
+      if (orderId) {
+        await paymentService.checkStatus(orderId);
+      } else {
+        await paymentService.reconcileLatest?.();
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const accessResponse = await paymentService.getAccess();
+      if (accessResponse?.success && accessResponse?.hasAccess) {
+        alert("✅ Access berhasil! Sekarang Anda bisa menggunakan semua frame premium.");
+        navigate("/frames");
+        return true;
+      }
+
+      if (retries > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        return syncAccess(orderId, retries - 1);
+      }
+
+      return false;
+    } catch (e) {
+      if (retries > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        return syncAccess(orderId, retries - 1);
+      }
+      return false;
+    }
+  };
+
+  const handleResumePendingPayment = async () => {
+    if (!pendingPayment) return;
+
+    try {
+      setLoading(true);
+      await paymentService.loadSnapScript();
+
+      if (pendingPayment.snapToken) {
+        paymentService.openSnapPayment(pendingPayment.snapToken, {
+          onSuccess: () => syncAccess(pendingPayment.orderId).finally(() => setLoading(false)),
+          onPending: () => syncAccess(pendingPayment.orderId).finally(() => setLoading(false)),
+          onError: () => setLoading(false),
+        });
+        return;
+      }
+
+      if (pendingPayment.redirectUrl) {
+        window.open(pendingPayment.redirectUrl, "_blank", "noopener,noreferrer");
+        // Still try to reconcile in background after a short delay
+        setTimeout(() => {
+          syncAccess(pendingPayment.orderId);
+        }, 1500);
+        setLoading(false);
+        return;
+      }
+
+      alert(
+        "Transaksi pending ditemukan, tapi link pembayaran tidak tersedia.\n\nJika tombol 'Batalkan & Buat Ulang' tidak ada, berarti fitur pending-resume belum aktif di server."
+      );
+      setLoading(false);
+    } catch (e) {
+      console.error("Resume pending payment error:", e);
+      setLoading(false);
+    }
+  };
+
+  const handleCancelPendingAndRetry = async () => {
+    if (!pendingPayment) return;
+
+    const ok = confirm(
+      "Anda akan membatalkan transaksi pending, lalu membuat pembayaran baru. Lanjutkan?"
+    );
+    if (!ok) return;
+
+    try {
+      setLoading(true);
+      await paymentService.cancelLatestPending();
+      setPendingPayment(null);
+      setCanPurchase(true);
+      // Start a fresh checkout
+      await handleBuyPackage();
+    } catch (e) {
+      console.error("Cancel pending error:", e);
+      alert(
+        "Gagal membatalkan transaksi pending.\n\nKemungkinan endpoint cancel belum aktif di server. Silakan coba lagi nanti atau hubungi admin."
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -149,6 +264,13 @@ const Pricing = () => {
 
     if (!canPurchase && access) {
       alert("Anda masih memiliki akses aktif. Tidak bisa membeli paket baru.");
+      return;
+    }
+
+    if (!termsAccepted) {
+      alert(
+        "Sebelum melanjutkan pembayaran, Anda wajib menyetujui Syarat & Ketentuan (termasuk kebijakan No Refund)."
+      );
       return;
     }
 
@@ -193,59 +315,6 @@ const Pricing = () => {
 
       const orderId = paymentData.orderId;
 
-      const syncAccess = async (retries = 3) => {
-        console.log(`🔄 Syncing access... (retries left: ${retries})`);
-        try {
-          if (orderId) {
-            console.log("📞 Checking payment status for order:", orderId);
-            const statusResponse = await paymentService.checkStatus(orderId);
-            console.log("📊 Status response:", statusResponse);
-          } else {
-            console.log("⚠️ No orderId, reconciling latest...");
-            await paymentService.reconcileLatest?.();
-          }
-
-          // Wait a bit for backend to process
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-
-          const accessResponse = await paymentService.getAccess();
-          console.log("🔑 Access response:", accessResponse);
-
-          if (
-            accessResponse &&
-            accessResponse.success &&
-            accessResponse.hasAccess
-          ) {
-            console.log("✅ Access granted! Redirecting to frames...");
-            alert(
-              "✅ Access berhasil! Sekarang Anda bisa menggunakan semua frame premium."
-            );
-            navigate("/frames");
-            return true;
-          }
-
-          // Retry if access not yet granted
-          if (retries > 0) {
-            console.log("⏳ Access not yet granted, retrying...");
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-            return syncAccess(retries - 1);
-          }
-
-          console.warn("⚠️ Access not granted after retries");
-          alert(
-            "⚠️ Pembayaran berhasil tapi access belum aktif. Silakan refresh halaman atau hubungi admin."
-          );
-          return false;
-        } catch (e) {
-          console.error("❌ Sync access error:", e);
-          if (retries > 0) {
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-            return syncAccess(retries - 1);
-          }
-          return false;
-        }
-      };
-
       // Open Midtrans Snap
       console.log("🚀 Opening Midtrans Snap popup...");
 
@@ -264,7 +333,7 @@ const Pricing = () => {
           alert(
             "Pembayaran berhasil. Sedang memverifikasi akses... Jika belum terbuka, tunggu beberapa detik lalu coba lagi."
           );
-          syncAccess().then((ok) => {
+          syncAccess(orderId).then((ok) => {
             if (!ok) {
               setLoading(false);
             }
@@ -275,7 +344,7 @@ const Pricing = () => {
           alert(
             "Pembayaran pending. Silakan selesaikan pembayaran. Kami akan cek statusnya secara otomatis."
           );
-          syncAccess().finally(() => setLoading(false));
+          syncAccess(orderId).finally(() => setLoading(false));
         },
         onError: (result) => {
           console.error("Payment error:", result);
@@ -299,6 +368,48 @@ const Pricing = () => {
       alert(
         `Gagal membuat pembayaran:\n${errorMsg}\n\nSilakan coba login ulang jika masalah berlanjut.`
       );
+
+      // If backend says there's a pending transaction, fetch it so UI can show "Resume".
+      try {
+        if (
+          String(errorMsg || "")
+            .toLowerCase()
+            .includes("pending")
+        ) {
+          const pendingResponse = await paymentService.getPending();
+          if (pendingResponse?.success && pendingResponse?.hasPending && pendingResponse?.data) {
+            setPendingPayment(pendingResponse.data);
+            setCanPurchase(false);
+          } else {
+            // Fallback: mark as pending locally to block repeated attempts.
+            setPendingPayment({
+              orderId: null,
+              status: "pending",
+              snapToken: null,
+              redirectUrl: null,
+              unavailable: true,
+            });
+            setCanPurchase(false);
+          }
+        }
+      } catch (_) {
+        // Fallback: mark as pending locally to block repeated attempts.
+        if (
+          String(errorMsg || "")
+            .toLowerCase()
+            .includes("pending")
+        ) {
+          setPendingPayment({
+            orderId: null,
+            status: "pending",
+            snapToken: null,
+            redirectUrl: null,
+            unavailable: true,
+          });
+          setCanPurchase(false);
+        }
+      }
+
       setLoading(false);
     }
   };
@@ -314,15 +425,28 @@ const Pricing = () => {
     );
   }
 
-  const fremioSeriesFrames = premiumFramesByCategory["Fremio Series"] || [];
-  const musicFrames = premiumFramesByCategory["Music"] || [];
-  const sportFrames = premiumFramesByCategory["Sport Series"] || [];
+  const christmasFrames = premiumFramesByCategory["Christmas Fremio Series"] || [];
+  const holidayFrames = premiumFramesByCategory["Holiday Fremio Series"] || [];
+  const yearEndFrames = premiumFramesByCategory["Year-End Recap Fremio Series"] || [];
   const tabFrames = premiumFramesByCategory[activeTab] || [];
+
+  const pendingCanResume =
+    !!pendingPayment &&
+    !pendingPayment.unavailable &&
+    !!(pendingPayment.snapToken || pendingPayment.redirectUrl);
+
+  const pendingCanManage = !!pendingPayment && !pendingPayment.unavailable;
+
+  const previewQuote =
+    activeTab === "Christmas Fremio Series"
+      ? "“Christmas Frames untuk rayakan Natal”"
+      : activeTab === "Holiday Fremio Series"
+      ? "“Holiday Frames untuk temani liburan”"
+      : "“Year-End Frames untuk rayakan tahun baru”";
 
   return (
     <div className="pricing-container">
       <div className="pricing-hero">
-        <div className="pricing-brand">fremio</div>
         <div className="pricing-tagline">
           <span className="brand-soft">fremio</span> tempat dunia
           mengekspresikan dirinya
@@ -359,21 +483,22 @@ const Pricing = () => {
       )}
 
       <div className="pricing-offer-card">
-        <div className="offer-title">Fremio Premium Frame Collection</div>
-        <div className="offer-price">Rp 10.000/bulan</div>
+        <div className="offer-title">fremio Monthly Series</div>
+        <div className="offer-price">
+          <span className="offer-price-old">Rp 50.000/bulan</span>
+          <span className="offer-price-new">Rp 10.000/bulan</span>
+        </div>
 
         <div className="offer-columns">
           <div className="offer-col">
             <div className="offer-col-title">Akses Semua Frames:</div>
             <ul>
-              <li>{fremioSeriesFrames.length || 0} Fremio Series frames</li>
-              <li>{musicFrames.length || 0} Music-inspired frames</li>
-              <li>{sportFrames.length || 0} Sport frames</li>
+              <li>{christmasFrames.length || 0} Christmas Fremio Series frames</li>
+              <li>{holidayFrames.length || 0} Holiday Fremio Series frames</li>
+              <li>{yearEndFrames.length || 0} Year-End Recap Fremio Series frames</li>
               <li>
                 Total:{" "}
-                {fremioSeriesFrames.length +
-                  musicFrames.length +
-                  sportFrames.length}{" "}
+                {christmasFrames.length + holidayFrames.length + yearEndFrames.length}{" "}
                 frames
               </li>
             </ul>
@@ -382,17 +507,50 @@ const Pricing = () => {
             <div className="offer-col-title">Benefit Premium:</div>
             <ul>
               <li>Akses unlimited ke semua frame</li>
-              <li>Download tanpa watermark</li>
               <li>Update frame baru setiap bulan</li>
-              <li>Support 24/7</li>
+              <li>Beli di bulan Desember dapat gratis January Fremio Series (coming soon)</li>
             </ul>
           </div>
         </div>
 
+        <div className="pricing-terms">
+          <div className="pricing-terms-title">Syarat & Ketentuan Pembelian</div>
+          <div className="pricing-terms-updated">Terakhir diperbarui: 22 Desember 2025</div>
+          <ul className="pricing-terms-list">
+            <li>
+              Dengan menekan tombol pembayaran, Anda menyetujui Syarat & Ketentuan ini.
+            </li>
+            <li>
+              Pembelian layanan digital/langganan bersifat final.
+            </li>
+            <li>
+              <strong>No Refund:</strong> setelah pembayaran berhasil, dana <strong>tidak dapat dikembalikan</strong> dengan alasan apa pun.
+            </li>
+            <li>
+              Jika Anda mengalami kendala pembayaran, hubungi kami di{" "}
+              <a className="pricing-terms-link" href="mailto:fremioid@gmail.com">
+                fremioid@gmail.com
+              </a>
+              .
+            </li>
+          </ul>
+
+          <label className="pricing-terms-agree">
+            <input
+              type="checkbox"
+              checked={termsAccepted}
+              onChange={(e) => setTermsAccepted(e.target.checked)}
+            />
+            <span>
+              Saya telah membaca dan setuju dengan Syarat & Ketentuan (termasuk kebijakan No Refund).
+            </span>
+          </label>
+        </div>
+
         <button
-          className={`offer-cta ${loading || !!access ? "disabled" : ""}`}
+          className={`offer-cta ${loading || !!access || (currentUser && !access && !termsAccepted) ? "disabled" : ""}`}
           onClick={handleBuyPackage}
-          disabled={!!access || loading}
+          disabled={!!access || loading || (currentUser && !access && !termsAccepted)}
         >
           {loading
             ? "Memproses..."
@@ -404,6 +562,47 @@ const Pricing = () => {
         {!currentUser && (
           <div className="offer-note">
             Login diperlukan untuk melakukan pembelian.
+          </div>
+        )}
+
+        {currentUser && !access && pendingPayment && (
+          <div className="offer-note">
+            Anda memiliki transaksi yang sedang pending.
+            {pendingPayment.unavailable && (
+              <div style={{ marginTop: "8px" }}>
+                Fitur lanjutkan/batalkan transaksi pending belum aktif di server.
+                Silakan hubungi admin atau coba lagi beberapa menit.
+              </div>
+            )}
+            <div className="offer-pending-actions">
+              {pendingCanManage && (
+                <>
+                  <button
+                    type="button"
+                    className={`offer-cta offer-pending-cancel ${loading ? "disabled" : ""}`}
+                    onClick={handleCancelPendingAndRetry}
+                    disabled={loading}
+                  >
+                    Batalkan & Buat Ulang
+                  </button>
+                  {pendingCanResume ? (
+                    <button
+                      type="button"
+                      className={`offer-cta offer-pending-resume ${loading ? "disabled" : ""}`}
+                      onClick={handleResumePendingPayment}
+                      disabled={loading}
+                    >
+                      Lanjutkan Pembayaran
+                    </button>
+                  ) : (
+                    <div className="offer-pending-message">
+                      Link pembayaran tidak tersedia untuk transaksi pending ini.
+                      Silakan batalkan & buat ulang.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         )}
         {currentUser && !canPurchase && access && (
@@ -434,7 +633,7 @@ const Pricing = () => {
 
         <div className="preview-panel">
           <div className="preview-quote">
-            “Year-End Frames untuk rayakan tahun baru”
+            {previewQuote}
           </div>
 
           {loadingPreviewFrames ? (

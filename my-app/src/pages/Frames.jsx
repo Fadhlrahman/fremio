@@ -465,39 +465,42 @@ export default function Frames() {
           {currentUser && !hasAccess && !loading && (
             <div
               style={{
-                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                color: "white",
-                padding: "20px",
-                borderRadius: "12px",
+                background:
+                  "linear-gradient(135deg, #f7e3da 0%, #e0b7a9 55%, #c89585 100%)",
+                color: "#4a302b",
+                padding: "24px",
+                borderRadius: "16px",
                 marginBottom: "30px",
                 textAlign: "center",
-                boxShadow: "0 4px 12px rgba(102, 126, 234, 0.3)",
+                border: "1px solid rgba(224, 183, 169, 0.35)",
+                boxShadow: "0 12px 32px rgba(224, 183, 169, 0.22)",
               }}
             >
               <h3
                 style={{
                   fontSize: "18px",
-                  fontWeight: "bold",
+                  fontWeight: "800",
                   marginBottom: "8px",
                 }}
               >
                 🎨 Unlock Premium Frames!
               </h3>
-              <p style={{ marginBottom: "15px", opacity: 0.95 }}>
+              <p style={{ marginBottom: "16px", opacity: 0.9 }}>
                 Dapatkan akses ke 30 frames premium hanya Rp 10.000 selama 30
                 hari
               </p>
               <button
                 onClick={() => navigate("/pricing")}
                 style={{
-                  background: "white",
-                  color: "#667eea",
+                  background: "linear-gradient(to right, #e0b7a9, #d4a99a)",
+                  color: "white",
                   border: "none",
-                  padding: "10px 24px",
-                  borderRadius: "8px",
-                  fontWeight: "600",
+                  padding: "10px 22px",
+                  borderRadius: "12px",
+                  fontWeight: "700",
                   cursor: "pointer",
                   fontSize: "14px",
+                  boxShadow: "0 10px 22px rgba(224, 183, 169, 0.35)",
                 }}
               >
                 Lihat Paket Premium →
@@ -513,7 +516,7 @@ export default function Frames() {
                   width: "50px",
                   height: "50px",
                   border: "4px solid #f3f3f3",
-                  borderTop: "4px solid #667eea",
+                  borderTop: "4px solid #c89585",
                   borderRadius: "50%",
                   animation: "spin 1s linear infinite",
                   margin: "0 auto 20px",

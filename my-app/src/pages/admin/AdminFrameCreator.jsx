@@ -208,6 +208,7 @@ export default function AdminFrameCreator() {
                   y: slot.top * CANVAS_HEIGHT,
                   width: slot.width * CANVAS_WIDTH,
                   height: slot.height * CANVAS_HEIGHT,
+                  rotation: typeof slot.rotation === "number" ? slot.rotation : 0,
                   zIndex: 1, // Always low z-index for photo slots
                   data: {
                     photoIndex: slot.photoIndex !== undefined ? slot.photoIndex : index,
@@ -524,6 +525,7 @@ export default function AdminFrameCreator() {
         zIndex: 1, // Always low z-index for photo slots
         photoIndex: index,
         borderRadius: el.data?.borderRadius || 0,
+        rotation: Number.isFinite(el.rotation) ? el.rotation : 0,
       }));
 
       // Collect non-photo elements (upload, text, shape) for storage in layout

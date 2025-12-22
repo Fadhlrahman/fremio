@@ -735,6 +735,7 @@ export async function getFrameConfig(frameId) {
         y: s.top * H,
         width: s.width * W,
         height: s.height * H,
+        rotation: Number.isFinite(s.rotation) ? s.rotation : 0,
         zIndex: s.zIndex || 2,
         data: {
           photoIndex: s.photoIndex !== undefined ? s.photoIndex : i,

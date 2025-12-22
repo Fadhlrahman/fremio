@@ -6,6 +6,7 @@ import logoSalem from "../assets/logo-salem.png";
 import burgerBarIcon from "../assets/burger-bar.png";
 import homeIcon from "../assets/page-icon/page-home.png";
 import aboutIcon from "../assets/page-icon/page-about.png";
+import pricingIcon from "../assets/page-icon/pricing.png";
 import framesIcon from "../assets/page-icon/page-frames.png";
 import createIcon from "../assets/page-icon/page-create.png";
 import profileIcon from "../assets/page-icon/page-profile.png";
@@ -145,6 +146,7 @@ export default function Header() {
                 "nav-link" + (isActive ? " active" : "")
               }
             >
+              <img src={pricingIcon} alt="" className="nav-icon" />
               <span>Pricing</span>
             </NavLink>
             <NavLink
@@ -418,6 +420,7 @@ export default function Header() {
             }
             onClick={() => setMenuOpen(false)}
           >
+            <img src={pricingIcon} alt="" className="nav-icon" />
             <span>Pricing</span>
           </NavLink>
           <NavLink

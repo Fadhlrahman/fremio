@@ -106,6 +106,7 @@ export class FrameDataProvider {
               y: slot.top * canvasHeight,
               width: slot.width * canvasWidth,
               height: slot.height * canvasHeight,
+              rotation: Number.isFinite(slot.rotation) ? slot.rotation : 0,
               zIndex: slot.zIndex || 2,
               data: {
                 photoIndex: slot.photoIndex !== undefined ? slot.photoIndex : index,

@@ -84,6 +84,7 @@ export default function AdminLayout() {
       label: "Affiliates",
       badge: pendingAffiliates,
     },
+    { path: "/admin/maintenance", icon: Shield, label: "Maintenance" },
     { path: "/admin/settings", icon: Settings, label: "Settings" },
   ];
 

@@ -2354,29 +2354,48 @@ export default function EditPhoto() {
               }))
             );
             
-            // FALLBACK: Try to create background-photo from frameImage or imagePath
-            const fallbackImageUrl = config.frameImage || config.imagePath || config.thumbnailUrl || config.image_url;
-            if (fallbackImageUrl) {
-              console.log("🔄 Creating background-photo from fallback URL:", fallbackImageUrl.substring(0, 80) + "...");
-              const fallbackBackgroundPhoto = {
-                id: "background-photo-fallback",
-                type: "background-photo",
-                x: 0,
-                y: 0,
-                width: 1080,
-                height: 1920,
-                zIndex: 0,
-                data: {
-                  image: fallbackImageUrl,
-                  objectFit: "cover",
-                  label: "Frame Background (fallback)",
-                }
-              };
-              setBackgroundPhotoElement(fallbackBackgroundPhoto);
-              console.log("✅ Created fallback background-photo element");
-            } else {
-              console.warn("⚠️ No fallback image URL available (frameImage, imagePath, thumbnailUrl, image_url)");
+            // FALLBACK: Only create background-photo from images for NON-CUSTOM frames.
+            // For custom frames, `frameImage/imagePath` is a flattened preview that already
+            // contains text/shapes, so using it as background would DUPLICATE those elements.
+            const isCustomFrame = Boolean(config?.isCustom) || String(config?.id || "").startsWith("custom-");
+            if (isCustomFrame) {
+              console.log(
+                "✅ Custom frame: skipping background-photo fallback from frameImage/imagePath to avoid duplicated elements"
+              );
               setBackgroundPhotoElement(null);
+            } else {
+              const fallbackImageUrl =
+                config.frameImage ||
+                config.imagePath ||
+                config.thumbnailUrl ||
+                config.image_url;
+              if (fallbackImageUrl) {
+                console.log(
+                  "🔄 Creating background-photo from fallback URL:",
+                  fallbackImageUrl.substring(0, 80) + "..."
+                );
+                const fallbackBackgroundPhoto = {
+                  id: "background-photo-fallback",
+                  type: "background-photo",
+                  x: 0,
+                  y: 0,
+                  width: 1080,
+                  height: 1920,
+                  zIndex: 0,
+                  data: {
+                    image: fallbackImageUrl,
+                    objectFit: "cover",
+                    label: "Frame Background (fallback)",
+                  },
+                };
+                setBackgroundPhotoElement(fallbackBackgroundPhoto);
+                console.log("✅ Created fallback background-photo element");
+              } else {
+                console.warn(
+                  "⚠️ No fallback image URL available (frameImage, imagePath, thumbnailUrl, image_url)"
+                );
+                setBackgroundPhotoElement(null);
+              }
             }
           }
         } else {
@@ -3438,7 +3457,9 @@ export default function EditPhoto() {
                           top: `${element.y || 0}px`,
                           width: `${element.width || 100}px`,
                           height: `${element.height || 100}px`,
-                          zIndex: isSelected || isSwapSource ? 9000 : finalZIndex,
+                          // Keep zIndex consistent with designer config so text can stay above photos
+                          // (selected/swap visual state is handled via outline/shadow, not stacking)
+                          zIndex: finalZIndex,
                           pointerEvents: "auto",
                           borderRadius: `${element.data?.borderRadius ?? 0}px`,
                           overflow: "hidden",

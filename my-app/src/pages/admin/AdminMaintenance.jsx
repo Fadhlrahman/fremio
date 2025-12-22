@@ -17,12 +17,17 @@ export default function AdminMaintenance() {
     loadWhitelist();
   }, []);
 
+  const getMaintenanceApiBase = () => {
+    const raw = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
+    if (raw.endsWith("/api")) return { base: raw, prefix: "" };
+    return { base: raw, prefix: "/api" };
+  };
+
   const loadMaintenanceStatus = async () => {
     try {
       setLoading(true);
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/maintenance/status`
-      );
+      const { base, prefix } = getMaintenanceApiBase();
+      const response = await fetch(`${base}${prefix}/maintenance/status`);
       const data = await response.json();
       
       if (data.success) {
@@ -39,8 +44,9 @@ export default function AdminMaintenance() {
   const loadWhitelist = async () => {
     try {
       const token = localStorage.getItem("token");
+      const { base, prefix } = getMaintenanceApiBase();
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/maintenance/whitelist`,
+        `${base}${prefix}/maintenance/admin/whitelist`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -61,8 +67,9 @@ export default function AdminMaintenance() {
     try {
       setSaving(true);
       const token = localStorage.getItem("token");
+      const { base, prefix } = getMaintenanceApiBase();
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/maintenance/admin/status`,
+        `${base}${prefix}/maintenance/admin/status`,
         {
           method: "PUT",
           headers: {
@@ -98,8 +105,9 @@ export default function AdminMaintenance() {
     try {
       setSaving(true);
       const token = localStorage.getItem("token");
+      const { base, prefix } = getMaintenanceApiBase();
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/maintenance/whitelist`,
+        `${base}${prefix}/maintenance/admin/whitelist`,
         {
           method: "POST",
           headers: {
@@ -133,10 +141,9 @@ export default function AdminMaintenance() {
     try {
       setSaving(true);
       const token = localStorage.getItem("token");
+      const { base, prefix } = getMaintenanceApiBase();
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/maintenance/whitelist/${encodeURIComponent(
-          email
-        )}`,
+        `${base}${prefix}/maintenance/admin/whitelist/${encodeURIComponent(email)}`,
         {
           method: "DELETE",
           headers: {

@@ -99,7 +99,10 @@ export default function AdminSettings() {
 
   const loadMaintenanceStatus = async () => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/maintenance/status`);
+      const raw = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
+      const base = raw;
+      const prefix = raw.endsWith("/api") ? "" : "/api";
+      const response = await fetch(`${base}${prefix}/maintenance/status`);
       const data = await response.json();
       if (data.success) {
         setMaintenanceMode(data.enabled);
@@ -159,8 +162,11 @@ export default function AdminSettings() {
     try {
       // Save maintenance mode to backend API
       const token = localStorage.getItem("token");
+      const raw = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
+      const base = raw;
+      const prefix = raw.endsWith("/api") ? "" : "/api";
       const maintenanceResponse = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/maintenance/admin/status`,
+        `${base}${prefix}/maintenance/admin/status`,
         {
           method: "PUT",
           headers: {

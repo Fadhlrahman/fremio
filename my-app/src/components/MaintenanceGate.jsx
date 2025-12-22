@@ -18,6 +18,14 @@ export default function MaintenanceGate({ children }) {
     checkMaintenanceStatus();
   }, [location.pathname]);
 
+  const getMaintenanceApiBase = () => {
+    const raw = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
+    // If VITE_API_URL already includes trailing /api (e.g. https://api.fremio.id/api),
+    // do NOT prepend another /api.
+    if (raw.endsWith("/api")) return { base: raw, prefix: "" };
+    return { base: raw, prefix: "/api" };
+  };
+
   const checkMaintenanceStatus = async () => {
     // Skip check if already on maintenance page
     if (location.pathname === "/maintenance") {
@@ -26,12 +34,8 @@ export default function MaintenanceGate({ children }) {
     }
 
     try {
-      // Always use production API URL for maintenance check
-      const apiUrl = import.meta.env.VITE_API_URL === '/api' 
-        ? 'https://api.fremio.id' 
-        : import.meta.env.VITE_API_URL;
-      
-      const response = await fetch(`${apiUrl}/api/maintenance/status`);
+      const { base, prefix } = getMaintenanceApiBase();
+      const response = await fetch(`${base}${prefix}/maintenance/status`);
       const data = await response.json();
 
       if (data.success && data.enabled) {

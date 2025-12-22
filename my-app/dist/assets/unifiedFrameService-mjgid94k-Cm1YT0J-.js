@@ -1,1 +1,0 @@
-import{ct as e,st as t}from"./index-mjgid94k-D4_b_lFG.js";export{t as VPSFrameClient,e as default};

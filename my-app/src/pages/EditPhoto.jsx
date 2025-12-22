@@ -3229,6 +3229,18 @@ export default function EditPhoto() {
 
                   // Render text
                   if (element.type === "text") {
+                    const verticalAlign =
+                      element.data?.verticalAlign === "middle" ||
+                      element.data?.verticalAlign === "center"
+                        ? "center"
+                        : element.data?.verticalAlign === "bottom"
+                        ? "flex-end"
+                        : element.data?.verticalAlign === "top"
+                        ? "flex-start"
+                        : "center"; // Match Create default
+
+                    const horizontalAlign = element.data?.align || "left";
+
                     return (
                       <div
                         key={`element-${element.id || idx}`}
@@ -3244,20 +3256,20 @@ export default function EditPhoto() {
                           fontSize: `${element.data?.fontSize || 24}px`,
                           color: element.data?.color || "#111827",
                           fontWeight: element.data?.fontWeight || 500,
-                          textAlign: element.data?.align || "left",
+                          textAlign: horizontalAlign,
                           display: "flex",
-                          alignItems:
-                            element.data?.verticalAlign === "middle"
-                              ? "center"
-                              : element.data?.verticalAlign === "bottom"
-                              ? "flex-end"
-                              : "flex-start",
+                          alignItems: verticalAlign,
                           justifyContent:
-                            element.data?.align === "center"
+                            horizontalAlign === "center"
                               ? "center"
-                              : element.data?.align === "right"
+                              : horizontalAlign === "right"
                               ? "flex-end"
                               : "flex-start",
+                          // Match Create defaults so text sits visually the same
+                          padding: "12px 18px",
+                          boxSizing: "border-box",
+                          whiteSpace: "pre-wrap",
+                          lineHeight: 1.25,
                         }}
                       >
                         {element.data?.text || ""}

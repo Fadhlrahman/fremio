@@ -49,6 +49,10 @@ import AdminMessages from "./pages/admin/AdminMessages.jsx";
 import AdminAffiliates from "./pages/admin/AdminAffiliates.jsx";
 import AdminPackages from "./pages/admin/AdminPackages.jsx";
 
+// Maintenance
+import Maintenance from "./pages/Maintenance.jsx";
+import MaintenanceGate from "./components/MaintenanceGate.jsx";
+
 // In-app browser detector
 import InAppBrowserDetector from "./components/InAppBrowserDetector.jsx";
 
@@ -58,11 +62,15 @@ export default function App() {
   return (
     <AuthProvider>
       <ToastProvider>
-        {/* Detect and prompt if opened from Instagram/Facebook/TikTok */}
-        <InAppBrowserDetector />
-        <Routes>
-          {/* layout di root */}
-          <Route path="/" element={<RootLayout />}>
+        <MaintenanceGate>
+          {/* Detect and prompt if opened from Instagram/Facebook/TikTok */}
+          <InAppBrowserDetector />
+          <Routes>
+            {/* Maintenance page - accessible even during maintenance */}
+            <Route path="/maintenance" element={<Maintenance />} />
+
+            {/* layout di root */}
+            <Route path="/" element={<RootLayout />}>
             {/* "/" */}
             <Route index element={<Home />} />
 
@@ -200,6 +208,7 @@ export default function App() {
             }
           />
         </Routes>
+        </MaintenanceGate>
       </ToastProvider>
     </AuthProvider>
   );

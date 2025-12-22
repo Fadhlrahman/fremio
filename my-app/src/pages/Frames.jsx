@@ -201,7 +201,7 @@ function FrameCard({
 
 export default function Frames() {
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const { user: currentUser } = useAuth();
   const [customFrames, setCustomFrames] = useState([]);
   const [imageErrors, setImageErrors] = useState({});
   const [accessibleFrameIds, setAccessibleFrameIds] = useState([]);

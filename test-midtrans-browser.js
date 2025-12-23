@@ -19,8 +19,8 @@ if (!window.snap) {
   console.error("❌ Midtrans Snap NOT LOADED!");
   console.log("Try loading manually...");
   const script = document.createElement("script");
-  script.src = "https://app.sandbox.midtrans.com/snap/snap.js";
-  script.setAttribute("data-client-key", "Mid-client-J1httIljA1-8-Kh7");
+  script.src = "https://app.midtrans.com/snap/snap.js";
+  script.setAttribute("data-client-key", "Mid-client-jyhfGU7aHoJc6SE3");
   script.onload = () => console.log("✅ Snap loaded!");
   script.onerror = () => console.error("❌ Failed to load Snap");
   document.head.appendChild(script);

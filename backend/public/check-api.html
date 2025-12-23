@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Check API Status - Fremio</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+    .status { padding: 15px; margin: 10px 0; border-radius: 8px; }
+    .success { background: #d4edda; color: #155724; }
+    .error { background: #f8d7da; color: #721c24; }
+    .waiting { background: #fff3cd; color: #856404; }
+    pre { background: #f4f4f4; padding: 10px; overflow-x: auto; font-size: 12px; }
+    button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>🔌 Fremio API Status Check</h1>
+  
+  <div id="worker-status" class="status waiting">
+    <strong>Cloudflare Worker:</strong> Checking...
+  </div>
+  
+  <div id="vps-direct" class="status waiting">
+    <strong>VPS Direct (may fail due to mixed content):</strong> Checking...
+  </div>
+  
+  <div id="frames-count" class="status waiting">
+    <strong>Frames Count:</strong> Waiting...
+  </div>
+  
+  <h2>Response Data:</h2>
+  <pre id="response-data">Waiting for response...</pre>
+  
+  <button onclick="checkAll()">🔄 Refresh All</button>
+  <button onclick="openWorkerDashboard()">📊 Open Cloudflare Dashboard</button>
+  
+  <h2>Troubleshooting:</h2>
+  <ul>
+    <li>Error 1027: Worker timeout - need to check Cloudflare Worker</li>
+    <li>Error 429: Rate limited - wait a few minutes</li>
+    <li>Mixed Content: Can't access HTTP from HTTPS site</li>
+  </ul>
+
+  <script>
+    const WORKER_URL = 'https://fremio-api-proxy.array111103.workers.dev/api/frames';
+    const VPS_URL = 'http://72.61.210.203/api/frames';
+    
+    async function checkWorker() {
+      const el = document.getElementById('worker-status');
+      const dataEl = document.getElementById('response-data');
+      const countEl = document.getElementById('frames-count');
+      
+      el.className = 'status waiting';
+      el.innerHTML = '<strong>Cloudflare Worker:</strong> Checking...';
+      
+      try {
+        const start = Date.now();
+        const res = await fetch(WORKER_URL + '?_t=' + Date.now(), {
+          signal: AbortSignal.timeout(15000)
+        });
+        const time = Date.now() - start;
+        
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        
+        const data = await res.json();
+        el.className = 'status success';
+        el.innerHTML = `<strong>Cloudflare Worker:</strong> ✅ Working! (${time}ms)`;
+        
+        dataEl.textContent = JSON.stringify(data, null, 2).substring(0, 2000);
+        
+        if (Array.isArray(data)) {
+          countEl.className = 'status success';
+          countEl.innerHTML = `<strong>Frames Count:</strong> ${data.length} frames found`;
+        }
+        
+        return data;
+      } catch (err) {
+        el.className = 'status error';
+        el.innerHTML = `<strong>Cloudflare Worker:</strong> ❌ ${err.message}`;
+        dataEl.textContent = 'Error: ' + err.message;
+        
+        countEl.className = 'status error';
+        countEl.innerHTML = `<strong>Frames Count:</strong> Failed to load`;
+        
+        return null;
+      }
+    }
+    
+    async function checkVPSDirect() {
+      const el = document.getElementById('vps-direct');
+      el.className = 'status waiting';
+      el.innerHTML = '<strong>VPS Direct:</strong> Checking (will likely fail due to mixed content)...';
+      
+      try {
+        const res = await fetch(VPS_URL + '?_t=' + Date.now(), {
+          signal: AbortSignal.timeout(10000)
+        });
+        const data = await res.json();
+        el.className = 'status success';
+        el.innerHTML = `<strong>VPS Direct:</strong> ✅ Working! ${data.length} frames`;
+        return data;
+      } catch (err) {
+        el.className = 'status error';
+        el.innerHTML = `<strong>VPS Direct:</strong> ❌ ${err.message} (expected on HTTPS site)`;
+        return null;
+      }
+    }
+    
+    async function checkAll() {
+      await Promise.all([checkWorker(), checkVPSDirect()]);
+    }
+    
+    function openWorkerDashboard() {
+      window.open('https://dash.cloudflare.com/', '_blank');
+    }
+    
+    // Check on page load
+    checkAll();
+  </script>
+</body>
+</html>

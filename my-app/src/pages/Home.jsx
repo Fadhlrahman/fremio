@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext.jsx";
 import { trackUserSession, trackFunnelEvent } from "../services/analyticsService";
@@ -8,6 +8,20 @@ import frame3 from "../assets/frame3.png";
 
 export default function Home() {
   const { isAuthenticated } = useAuth();
+  const [heroVariant, setHeroVariant] = useState('A');
+
+  // A/B Test: Determine variant on first load
+  useEffect(() => {
+    const storedVariant = localStorage.getItem('heroVariant');
+    if (storedVariant) {
+      setHeroVariant(storedVariant);
+    } else {
+      // Random 50/50 split
+      const variant = Math.random() < 0.5 ? 'A' : 'B';
+      setHeroVariant(variant);
+      localStorage.setItem('heroVariant', variant);
+    }
+  }, []);
 
   // Track user visit on Home page
   useEffect(() => {
@@ -25,6 +39,31 @@ export default function Home() {
     trackVisit();
   }, []);
 
+  const heroContent = {
+    A: {
+      headline: (
+        <>
+          <span className="accent">Momen</span> tidak perlu dijelaskan.
+          <br />
+          Cukup <span className="accent">dirasakan</span>.
+        </>
+      ),
+      subCopy: "Fremio membantu kamu mengemas momen menjadi sesuatu yang layak diingat. Dengan cara yang sederhana, indah, dan terasa milikmu.",
+      cta: "Ciptakan Momen"
+    },
+    B: {
+      headline: (
+        <>
+          Setiap orang punya <span className="accent">cara sendiri</span> untuk merayakan <span className="accent">momen</span>.
+        </>
+      ),
+      subCopy: "Fremio bukan tentang bagaimana seharusnya momen terlihat. Ini tentang bagaimana momen itu terasa — bagi kamu.",
+      cta: "Rayakan Momenmu"
+    }
+  };
+
+  const currentHero = heroContent[heroVariant];
+
   return (
     <>
       {/* ======= HERO (/#home) ======= */}
@@ -38,20 +77,18 @@ export default function Home() {
             {/* LEFT */}
             <div className="hero-left">
               <h1 className="hero-h1">
-                Not a <span className="accent">photobooth</span>
-                <br />
-                Not a <span className="accent">photobox</span>
+                {currentHero.headline}
               </h1>
 
               <p className="hero-sub">
-                fremio adalah <strong>cara baru</strong> merayakan momen. Pilih frame, bagikan ceritamu, dan <strong>tunjukkan versi dirimu</strong> dengan <strong>cara berbeda</strong>!
+                {currentHero.subCopy}
               </p>
 
               <NavLink
                 to="/frames"
                 className="cta-pink"
               >
-                Get Started
+                {currentHero.cta}
               </NavLink>
 
               {/* dekorasi: kamera + roll film */}

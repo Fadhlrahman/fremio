@@ -270,6 +270,12 @@ const AdminFrames = () => {
       
       await unifiedFrameService.updateFramesOrder(frameOrders);
       console.log("✅ Frame orders saved successfully!");
+      
+      // Reload frames from server to ensure sync
+      const freshData = await unifiedFrameService.getAllFrames({ includeHidden: true });
+      const sortedData = [...freshData].sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
+      setFrames(sortedData);
+      
       alert("Urutan berhasil disimpan!");
       setIsReorderMode(false);
     } catch (err) {
@@ -284,7 +290,10 @@ const AdminFrames = () => {
       try {
         const result = await unifiedFrameService.deleteFrame(frameId);
         if (result.success !== false) {
-          setFrames(frames.filter(f => f.id !== frameId));
+          // Reload frames from server instead of just filtering
+          const freshData = await unifiedFrameService.getAllFrames({ includeHidden: true });
+          const sortedData = [...freshData].sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
+          setFrames(sortedData);
           alert("Frame berhasil dihapus!");
         } else {
           alert("Gagal menghapus: " + result.message);
@@ -307,16 +316,10 @@ const AdminFrames = () => {
         throw new Error(result?.message || "Gagal mengubah status paid/free");
       }
 
-      setFrames((prev) =>
-        prev.map((f) => {
-          if (f.id !== frame.id) return f;
-          return {
-            ...f,
-            isPremium: !isPaid,
-            is_premium: !isPaid,
-          };
-        })
-      );
+      // Reload frames from server to ensure sync
+      const freshData = await unifiedFrameService.getAllFrames({ includeHidden: true });
+      const sortedData = [...freshData].sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
+      setFrames(sortedData);
     } catch (err) {
       alert("Gagal mengubah status: " + (err?.message || String(err)));
     } finally {
@@ -336,16 +339,10 @@ const AdminFrames = () => {
         throw new Error(result?.message || "Gagal mengubah visibilitas (hide/show)");
       }
 
-      setFrames((prev) =>
-        prev.map((f) => {
-          if (f.id !== frame.id) return f;
-          return {
-            ...f,
-            isHidden: !isHidden,
-            is_hidden: !isHidden,
-          };
-        })
-      );
+      // Reload frames from server to ensure sync
+      const freshData = await unifiedFrameService.getAllFrames({ includeHidden: true });
+      const sortedData = [...freshData].sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
+      setFrames(sortedData);
     } catch (err) {
       alert("Gagal mengubah visibilitas: " + (err?.message || String(err)));
     } finally {
@@ -655,6 +652,38 @@ const AdminFrames = () => {
         >
           + Upload Frame Baru
         </Link>
+        
+        {/* Reload Button */}
+        <button
+          onClick={async () => {
+            setLoading(true);
+            try {
+              const freshData = await unifiedFrameService.getAllFrames({ includeHidden: true });
+              const sortedData = [...freshData].sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
+              setFrames(sortedData);
+              alert("✅ Data berhasil dimuat ulang!");
+            } catch (err) {
+              alert("Gagal memuat ulang: " + err.message);
+            } finally {
+              setLoading(false);
+            }
+          }}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            background: "#eff6ff",
+            color: "#1e40af",
+            padding: "10px 20px",
+            borderRadius: "8px",
+            border: "1px solid #93c5fd",
+            cursor: "pointer",
+            fontSize: "14px",
+            fontWeight: "500"
+          }}
+        >
+          🔄 Reload Data
+        </button>
         
         {/* Reorder Mode Toggle Button */}
         {!isReorderMode && (

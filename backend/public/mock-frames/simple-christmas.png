@@ -1,7 +1,0 @@
-<svg width="800" height="1200" xmlns="http://www.w3.org/2000/svg">
-  <rect width="800" height="1200" fill="#E8F5E9"/>
-  <rect x="50" y="50" width="700" height="1100" fill="none" stroke="#2E7D32" stroke-width="10" rx="20"/>
-  <text x="400" y="580" font-family="Arial, sans-serif" font-size="42" font-weight="bold" fill="#1B5E20" text-anchor="middle">Simple Christmas</text>
-  <text x="400" y="630" font-family="Arial, sans-serif" font-size="32" fill="#2E7D32" text-anchor="middle">Free Frame</text>
-  <text x="400" y="720" font-family="Arial, sans-serif" font-size="18" fill="#388E3C" text-anchor="middle">🎅 Upload real frame via Admin Panel 🎅</text>
-</svg>

@@ -102,13 +102,13 @@ class MidtransService {
         callbacks: {
           finish: `${
             process.env.FRONTEND_URL || "https://localhost:5180"
-          }/payment/success`,
+          }/frames`,
           error: `${
             process.env.FRONTEND_URL || "https://localhost:5180"
-          }/payment/error`,
+          }/pricing`,
           pending: `${
             process.env.FRONTEND_URL || "https://localhost:5180"
-          }/payment/pending`,
+          }/pricing`,
         },
         expiry: {
           unit: "hours",

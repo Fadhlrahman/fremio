@@ -21,14 +21,20 @@ const buildImageUrl = (imagePath, req) => {
  */
 router.get('/', optionalAuth, async (req, res) => {
   try {
-    const { category, limit = 50, offset = 0, search } = req.query;
+    const { category, limit = 50, offset = 0, search, includeHidden } = req.query;
     
     let query = `
       SELECT id, name, description, category, image_path, slots, layout,
-             max_captures, view_count, download_count, created_at, display_order
+             max_captures, view_count, download_count, created_at, display_order,
+             is_hidden, is_premium
       FROM frames 
       WHERE is_active = true
     `;
+    
+    // Admin can see hidden frames via includeHidden=true parameter
+    if (!includeHidden || includeHidden !== 'true') {
+      query += ` AND (is_hidden IS NULL OR is_hidden = false)`;
+    }
     const params = [];
     
     if (category && category !== 'all') {
@@ -69,6 +75,10 @@ router.get('/', optionalAuth, async (req, res) => {
         downloadCount: frame.download_count,
         createdAt: frame.created_at,
         displayOrder: frame.display_order ?? 999,
+        isHidden: frame.is_hidden || false,
+        is_hidden: frame.is_hidden || false,
+        isPremium: frame.is_premium || false,
+        is_premium: frame.is_premium || false,
         isCustom: true
       };
     });
@@ -284,7 +294,10 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
 router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, category, imagePath, slots, maxCaptures, layout, displayOrder, display_order } = req.body;
+    const { 
+      name, description, category, imagePath, slots, maxCaptures, layout, 
+      displayOrder, display_order, is_hidden, is_premium 
+    } = req.body;
     
     const frameLayout = layout ? JSON.stringify(layout) : null;
     const finalDisplayOrder = displayOrder ?? display_order;
@@ -299,6 +312,8 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
            max_captures = COALESCE($7, max_captures),
            layout = COALESCE($8, layout),
            display_order = COALESCE($9, display_order),
+           is_hidden = COALESCE($10, is_hidden),
+           is_premium = COALESCE($11, is_premium),
            updated_at = NOW()
        WHERE id = $1 AND is_active = true
        RETURNING *`,
@@ -311,7 +326,9 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
         slots ? JSON.stringify(slots) : null, 
         maxCaptures,
         frameLayout,
-        finalDisplayOrder !== undefined ? parseInt(finalDisplayOrder) : null
+        finalDisplayOrder !== undefined ? parseInt(finalDisplayOrder) : null,
+        is_hidden !== undefined ? is_hidden : null,
+        is_premium !== undefined ? is_premium : null
       ]
     );
     
@@ -319,7 +336,7 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Frame tidak ditemukan' });
     }
     
-    console.log(`✅ Frame updated: ${id}, layout elements: ${layout?.elements?.length || 0}, displayOrder: ${finalDisplayOrder}`);
+    console.log(`✅ Frame updated: ${id}, layout elements: ${layout?.elements?.length || 0}, displayOrder: ${finalDisplayOrder}, is_hidden: ${is_hidden}, is_premium: ${is_premium}`);
     
     res.json({
       success: true,

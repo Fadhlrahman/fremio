@@ -635,7 +635,7 @@ body {
     padding: 48px 0 56px;
   }
   .hero-h1 {
-    font-size: clamp(28px, 5.5vw, 36px);
+    font-size: clamp(32px, 6vw, 38px);
   }
   .hero-right {
     width: 420px;
@@ -726,7 +726,7 @@ body {
     padding: 38px 0 46px;
   }
   .hero-h1 {
-    font-size: clamp(18px, 5vw, 22px);
+    font-size: clamp(22px, 6vw, 26px);
     line-height: 1.45;
   }
   .hero-sub {
@@ -767,7 +767,8 @@ body {
     padding: 36px 0 44px;
   }
   .hero-h1 {
-    font-size: clamp(32px, 9vw, 40px);
+    font-size: clamp(22px, 6.5vw, 26px);
+    line-height: 1.45;
   }
   .hero-right {
     width: 280px;
@@ -799,7 +800,8 @@ body {
     padding: 32px 0 40px;
   }
   .hero-h1 {
-    font-size: clamp(28px, 9.5vw, 36px);
+    font-size: clamp(20px, 6.5vw, 24px);
+    line-height: 1.5;
   }
   .hero-sub {
     font-size: 14px;

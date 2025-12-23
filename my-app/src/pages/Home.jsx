@@ -54,7 +54,7 @@ export default function Home() {
     B: {
       headline: (
         <>
-          Setiap orang punya <span className="accent">cara sendiri</span> untuk merayakan <span className="accent">momen</span>.
+          Setiap orang punya <span className="accent">cara sendiri</span> merayakan <span className="accent">momen</span>
         </>
       ),
       subCopy: "Fremio bukan tentang bagaimana seharusnya momen terlihat. Ini tentang bagaimana momen itu terasa — bagi kamu.",

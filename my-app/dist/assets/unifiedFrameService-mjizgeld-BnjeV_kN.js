@@ -1,0 +1,1 @@
+import{ct as e,st as t}from"./index-mjizgeld-CRloQODv.js";export{t as VPSFrameClient,e as default};

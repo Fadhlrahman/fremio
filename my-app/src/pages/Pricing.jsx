@@ -27,6 +27,9 @@ const Pricing = () => {
   const [loadingPreviewFrames, setLoadingPreviewFrames] = useState(true);
 
   useEffect(() => {
+    // Set page title
+    document.title = "Membership — Fremio";
+
     // Pricing page should be viewable without login (Midtrans verification / marketing)
     // Only purchase flow requires auth.
     if (currentUser) {
@@ -380,9 +383,30 @@ const Pricing = () => {
   return (
     <div className="pricing-container">
       <div className="pricing-hero">
-        <div className="pricing-tagline">
-          <span className="brand-soft">fremio</span> tempat dunia
-          mengekspresikan dirinya
+        <div style={{
+          background: "linear-gradient(135deg, #fef5f1 0%, #fff 100%)",
+          padding: "40px 30px",
+          borderRadius: "16px",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+          maxWidth: "800px",
+          margin: "0 auto 40px"
+        }}>
+          <div className="pricing-tagline">
+            <span className="brand-soft">Jadi bagian dari perjalanan cerita di Fremio</span>
+          </div>
+          <div className="pricing-subtitle" style={{ 
+            fontSize: "16px", 
+            lineHeight: "1.6", 
+            color: "#666", 
+            marginTop: "20px",
+            textAlign: "center"
+          }}>
+            Setiap orang punya momen.<br />
+            Fremio hadir untuk memberi ruang agar momen itu bisa diekspresikan, dirasakan, dan diingat.<br />
+            Bukan sekadar frame.<br />
+            Ini tentang bagaimana kita memaknai cerita hidup.<br />
+            <strong>Mulai sebagai member, dan ikut menjaga ruang ini tetap hidup.</strong>
+          </div>
         </div>
       </div>
 
@@ -390,17 +414,17 @@ const Pricing = () => {
         <div className="current-access">
           <div className="access-card">
             <div className="access-header">
-              <span className="access-badge active">✅ Akses Aktif</span>
+              <span className="access-badge active">✅ Member Aktif</span>
               <span className="days-remaining">
                 {access.daysRemaining} hari tersisa
               </span>
             </div>
             <div className="access-info">
               <p>
-                <strong>Total Frames:</strong> {access.totalFrames} frames
+                <strong>Akses Frame:</strong> {access.totalFrames} frames
               </p>
               <p>
-                <strong>Paket Aktif:</strong> {access.packageIds.length} paket
+                <strong>Status:</strong> Member Fremio Aktif
               </p>
               <p>
                 <strong>Berakhir:</strong>{" "}
@@ -415,11 +439,63 @@ const Pricing = () => {
         </div>
       )}
 
+      {/* WHY FREMIO EXISTS SECTION */}
+      <div className="why-fremio-section" style={{
+        padding: "30px 20px",
+        background: "linear-gradient(135deg, #fef5f1 0%, #fff 100%)",
+        marginBottom: "30px",
+        borderRadius: "12px"
+      }}>
+        <h2 style={{
+          fontSize: "24px",
+          fontWeight: "700",
+          textAlign: "center",
+          marginBottom: "15px",
+          color: "#333"
+        }}>Mengapa Fremio Ada?</h2>
+        <div style={{
+          maxWidth: "650px",
+          margin: "0 auto",
+          fontSize: "15px",
+          lineHeight: "1.6",
+          color: "#555",
+          textAlign: "center"
+        }}>
+          <p style={{ marginBottom: "12px" }}>
+            Di tengah dunia yang serba cepat, banyak momen berlalu tanpa sempat dirayakan.
+          </p>
+          <p style={{ marginBottom: "15px" }}>
+            Fremio diciptakan sebagai ruang kecil untuk berhenti sejenak — menyimpan, membingkai, dan merayakan cerita yang berarti.
+          </p>
+          <div style={{
+            marginTop: "15px",
+            padding: "20px",
+            background: "white",
+            borderRadius: "10px",
+            boxShadow: "0 2px 6px rgba(0,0,0,0.05)"
+          }}>
+            <p style={{ fontWeight: "600", marginBottom: "10px", fontSize: "14px" }}>Kami percaya:</p>
+            <ul style={{ 
+              listStyle: "none", 
+              padding: 0,
+              textAlign: "left",
+              maxWidth: "450px",
+              margin: "0 auto",
+              fontSize: "14px"
+            }}>
+              <li style={{ marginBottom: "8px" }}>✓ Setiap momen layak punya tempat</li>
+              <li style={{ marginBottom: "8px" }}>✓ Ekspresi tidak harus ramai untuk bermakna</li>
+              <li style={{ marginBottom: "8px" }}>✓ Cerita personal juga penting</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
       <div className="pricing-offer-card">
         {access ? (
           <>
             <div className="offer-title" style={{ color: "#10b981" }}>
-              ✓ Anda Sudah Berlangganan
+              ✓ Terima kasih sudah menjadi Member Fremio
             </div>
             <div className="offer-subtitle" style={{ 
               fontSize: "16px", 
@@ -427,7 +503,7 @@ const Pricing = () => {
               marginTop: "10px",
               textAlign: "center" 
             }}>
-              Nikmati akses premium Anda hingga{" "}
+              Keanggotaan Anda aktif hingga{" "}
               {new Date(access.accessEnd).toLocaleDateString("id-ID", {
                 day: "numeric",
                 month: "long",
@@ -437,81 +513,223 @@ const Pricing = () => {
 
             <div className="offer-columns" style={{ marginTop: "30px" }}>
               <div className="offer-col">
-                <div className="offer-col-title">Akses Anda Saat Ini:</div>
+                <div className="offer-col-title">Yang Kamu Dapatkan:</div>
                 <ul>
-                  <li>✓ {access.totalFrames} Premium Frames</li>
-                  <li>✓ {access.packageIds.length} Paket Aktif</li>
-                  <li>✓ Semua kategori terbuka</li>
-                  <li>✓ Update frame baru gratis</li>
+                  <li>✓ Akses ke {access.totalFrames} premium frames</li>
+                  <li>✓ Semua koleksi frame Fremio</li>
+                  <li>✓ Frame baru setiap bulan</li>
+                  <li>✓ Akses lebih awal ke seri mendatang</li>
                 </ul>
               </div>
               <div className="offer-col">
-                <div className="offer-col-title">Yang Bisa Anda Lakukan:</div>
+                <div className="offer-col-title">Manfaatkan Keanggotaan:</div>
                 <ul>
-                  <li>Gunakan semua frame premium</li>
+                  <li>Ekspresikan momen dengan frame pilihan</li>
                   <li>Download hasil tanpa watermark</li>
-                  <li>Akses frame baru yang akan datang</li>
-                  <li>Perpanjang setelah masa aktif berakhir</li>
+                  <li>Akses seri khusus (Holiday, Year-End, dll)</li>
+                  <li>Perpanjang kapan saja sebelum berakhir</li>
                 </ul>
               </div>
             </div>
           </>
         ) : (
           <>
-            <div className="offer-title">fremio Monthly Series</div>
-            <div className="offer-price">
-              <span className="offer-price-old">Rp 50.000/bulan</span>
-              <span className="offer-price-new">Rp 10.000/bulan</span>
+            {/* WHAT YOU UNLOCK SECTION */}
+            <div style={{
+              padding: "30px 20px 15px",
+              marginBottom: "10px"
+            }}>
+              <h2 style={{
+                fontSize: "28px",
+                fontWeight: "700",
+                textAlign: "center",
+                marginBottom: "20px",
+                color: "#333"
+              }}>Yang Kamu Dapatkan sebagai Member Fremio</h2>
+              <p style={{
+                textAlign: "center",
+                fontSize: "16px",
+                color: "#666",
+                marginBottom: "30px"
+              }}>
+                Sebagai member, kamu mendapatkan akses penuh ke seluruh ekosistem Fremio:
+              </p>
+              <div className="offer-columns">
+                <div className="offer-col">
+                  <div className="offer-col-title">Akses Penuh:</div>
+                  <ul>
+                    <li>✓ Unlimited ke seluruh koleksi frame Fremio</li>
+                    <li>✓ Frame baru setiap bulan</li>
+                    <li>✓ Seri khusus (Holiday, Year-End, dll)</li>
+                    <li>✓ Akses lebih awal ke seri mendatang</li>
+                  </ul>
+                </div>
+                <div className="offer-col">
+                  <div className="offer-col-title">December Series Frames:</div>
+                  <ul>
+                    <li>{christmasFrames.length || 0} Christmas Fremio Series frames</li>
+                    <li>{holidayFrames.length || 0} Holiday Fremio Series frames</li>
+                    <li>{yearEndFrames.length || 0} Year-End Recap Fremio Series frames</li>
+                    <li>
+                      Total:{" "}
+                      {christmasFrames.length + holidayFrames.length + yearEndFrames.length}{" "}
+                      frames
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              <p style={{
+                textAlign: "center",
+                fontSize: "16px",
+                fontStyle: "italic",
+                color: "#888",
+                marginTop: "10px",
+                marginBottom: "0"
+              }}>
+                Tanpa perlu memilih satu per satu.
+              </p>
             </div>
 
-            <div className="offer-columns">
-              <div className="offer-col">
-                <div className="offer-col-title">Akses Semua Frames:</div>
-                <ul>
-                  <li>{christmasFrames.length || 0} Christmas Fremio Series frames</li>
-                  <li>{holidayFrames.length || 0} Holiday Fremio Series frames</li>
-                  <li>{yearEndFrames.length || 0} Year-End Recap Fremio Series frames</li>
-                  <li>
-                    Total:{" "}
-                    {christmasFrames.length + holidayFrames.length + yearEndFrames.length}{" "}
-                    frames
-                  </li>
-                </ul>
-              </div>
-              <div className="offer-col">
-                <div className="offer-col-title">Benefit Premium:</div>
-                <ul>
-                  <li>Akses unlimited ke semua frame</li>
-                  <li>Update frame baru setiap bulan</li>
-                  <li>Beli di bulan Desember dapat gratis January Fremio Series (coming soon)</li>
-                </ul>
-              </div>
+            {/* MEMBERSHIP CARD SECTION */}
+            <div 
+              onClick={() => {
+                const socialSection = document.getElementById('social-belonging-section');
+                if (socialSection) {
+                  socialSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+              }}
+              style={{
+                background: "linear-gradient(135deg, #e0b7a9 0%, #d4a59a 100%)",
+                padding: "20px 20px",
+                borderRadius: "12px",
+                color: "white",
+                textAlign: "center",
+                marginTop: "10px",
+                marginBottom: "10px",
+                boxShadow: "0 4px 12px rgba(224, 183, 169, 0.25)",
+                maxWidth: "400px",
+                margin: "15px auto",
+                cursor: "pointer",
+                transition: "transform 0.2s, box-shadow 0.2s"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 6px 16px rgba(224, 183, 169, 0.35)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(224, 183, 169, 0.25)';
+              }}
+            >
+              <h2 style={{
+                fontSize: "18px",
+                fontWeight: "700",
+                marginBottom: "6px"
+              }}>Keanggotaan Fremio</h2>
+              <div style={{
+                fontSize: "14px",
+                fontWeight: "600",
+                marginBottom: "15px",
+                opacity: 0.95
+              }}>fremio Member</div>
+              
+              <div style={{
+                fontSize: "28px",
+                fontWeight: "800",
+                marginBottom: "6px"
+              }}>Rp 10.000<span style={{ fontSize: "16px", fontWeight: "400" }}> / bulan</span></div>
+              
+              <p style={{
+                fontSize: "13px",
+                lineHeight: "1.4",
+                marginTop: "12px",
+                opacity: 0.95
+              }}>
+                Kontribusi ini membantu Fremio terus berkembang, menciptakan frame baru, dan menjaga ruang ekspresi ini tetap terbuka.
+              </p>
+            </div>
+
+            {/* SOCIAL / BELONGING SECTION */}
+            <div id="social-belonging-section" style={{
+              padding: "20px 20px 15px",
+              textAlign: "center",
+              marginBottom: "5px"
+            }}>
+              <h3 style={{
+                fontSize: "20px",
+                fontWeight: "700",
+                marginBottom: "15px",
+                color: "#333"
+              }}>Kamu Tidak Sendiri di Sini</h3>
+              <p style={{
+                fontSize: "15px",
+                lineHeight: "1.6",
+                color: "#666",
+                maxWidth: "550px",
+                margin: "0 auto"
+              }}>
+                Fremio digunakan oleh banyak orang dengan cerita yang berbeda-beda.<br />
+                Namun semuanya berbagi satu hal yang sama:<br />
+                <strong>keinginan untuk mengekspresikan momen dengan cara yang lebih bermakna.</strong><br /><br />
+                Setiap member adalah bagian dari perjalanan ini.
+              </p>
             </div>
           </>
         )}
 
         {!access && (
           <>
+            {/* FINAL CTA SECTION - Moved to top */}
+            <div id="membership-cta-section" style={{
+              textAlign: "center",
+              padding: "15px 20px 10px",
+              marginTop: "5px"
+            }}>
+              <h3 style={{
+                fontSize: "26px",
+                fontWeight: "700",
+                marginBottom: "15px",
+                color: "#333"
+              }}>Siap Menjadi Bagian dari Fremio?</h3>
+              <p style={{
+                fontSize: "16px",
+                color: "#666",
+                marginBottom: "25px"
+              }}>
+                Ini bukan tentang membeli sesuatu.<br />
+                Ini tentang memilih untuk ikut dalam sebuah perjalanan.
+              </p>
+            </div>
+
+            {/* TRANSPARENCY & TRUST SECTION */}
             <div className="pricing-terms">
-              <div className="pricing-terms-title">Syarat & Ketentuan Pembelian</div>
+              <div className="pricing-terms-title">Tentang Keanggotaan</div>
               <ul className="pricing-terms-list">
                 <li>
-                  Dengan menekan tombol pembayaran, Anda menyetujui Syarat & Ketentuan ini.
+                  Keanggotaan bersifat digital dan aktif selama periode berlangganan
                 </li>
                 <li>
-                  Pembelian layanan digital/langganan bersifat final.
+                  Akses diberikan selama status member aktif
                 </li>
                 <li>
-                  <strong>No Refund:</strong> setelah pembayaran berhasil, dana <strong>tidak dapat dikembalikan</strong> dengan alasan apa pun.
+                  Pembayaran bersifat final setelah berhasil diproses
                 </li>
                 <li>
-                  Jika Anda mengalami kendala pembayaran, hubungi kami di{" "}
+                  Jika ada kendala, kamu selalu bisa menghubungi kami di{" "}
                   <a className="pricing-terms-link" href="mailto:fremioid@gmail.com">
                     fremioid@gmail.com
                   </a>
-                  .
                 </li>
               </ul>
+              <p style={{
+                textAlign: "center",
+                fontSize: "15px",
+                color: "#666",
+                marginTop: "20px",
+                fontStyle: "italic"
+              }}>
+                Kami ingin hubungan yang jujur, sederhana, dan saling menghargai.
+              </p>
 
               <label className="pricing-terms-agree">
                 <input
@@ -520,7 +738,7 @@ const Pricing = () => {
                   onChange={(e) => setTermsAccepted(e.target.checked)}
                 />
                 <span>
-                  Saya telah membaca dan setuju dengan Syarat & Ketentuan (termasuk kebijakan No Refund).
+                  Saya memahami dan menyetujui ketentuan keanggotaan Fremio
                 </span>
               </label>
             </div>
@@ -537,28 +755,35 @@ const Pricing = () => {
           }`}
           onClick={access ? () => navigate("/frames") : handleBuyPackage}
           disabled={!access && (loading || (currentUser && !access && !termsAccepted))}
+          style={{
+            fontSize: access ? "16px" : "18px",
+            padding: access ? "12px 30px" : "16px 50px",
+            fontWeight: "700",
+            minHeight: access ? "auto" : "60px",
+            boxShadow: access ? "" : "0 8px 20px rgba(224, 183, 169, 0.4)"
+          }}
         >
           {loading
             ? "Memproses..."
             : access
             ? "Gunakan Frame Premium Sekarang →"
-            : "Dapatkan Sekarang"}
+            : "Gabung sebagai Member Fremio"}
         </button>
 
         {!currentUser && (
           <div className="offer-note">
-            Login diperlukan untuk melakukan pembelian.
+            Login diperlukan untuk melanjutkan.
           </div>
         )}
 
         {currentUser && !access && pendingPayment && (
           <div className="offer-note">
-            Anda memiliki transaksi yang sedang pending. Klik "Dapatkan Sekarang" untuk melanjutkan pembayaran.
+            Anda memiliki transaksi yang sedang pending. Klik "Gabung sebagai Member Fremio" untuk melanjutkan pembayaran.
           </div>
         )}
         {currentUser && !canPurchase && access && (
           <div className="offer-note">
-            Anda dapat membeli lagi setelah berakhir pada{" "}
+            Anda dapat memperpanjang keanggotaan setelah berakhir pada{" "}
             {new Date(access.accessEnd).toLocaleDateString("id-ID", {
               day: "numeric",
               month: "long",
@@ -569,6 +794,14 @@ const Pricing = () => {
       </div>
 
       <div className="pricing-preview">
+        <h3 style={{
+          fontSize: "24px",
+          fontWeight: "700",
+          textAlign: "center",
+          marginBottom: "20px",
+          color: "#333"
+        }}>Preview Frame Koleksi Fremio</h3>
+        
         <div className="preview-tabs">
           {tabs.map((tab) => (
             <button
@@ -684,28 +917,31 @@ const Pricing = () => {
       <div className="faq-section">
         <h3>❓ Pertanyaan Umum</h3>
         <div className="faq-item">
-          <h4>Berapa lama akses berlaku?</h4>
-          <p>Akses berlaku selama 30 hari sejak pembayaran berhasil.</p>
+          <h4>Berapa lama keanggotaan berlaku?</h4>
+          <p>Keanggotaan Fremio berlaku selama 30 hari sejak pembayaran berhasil diproses.</p>
         </div>
         <div className="faq-item">
-          <h4>Bisakah saya beli paket lagi sebelum 30 hari?</h4>
+          <h4>Apa yang didapat sebagai member?</h4>
           <p>
-            Tidak. Anda hanya bisa membeli paket baru setelah masa aktif
-            berakhir.
+            Akses unlimited ke semua koleksi frame Fremio, termasuk frame baru yang dirilis setiap bulan dan seri khusus (Holiday, Year-End, dll).
           </p>
         </div>
         <div className="faq-item">
-          <h4>Apa yang terjadi setelah 30 hari?</h4>
+          <h4>Bisakah saya perpanjang keanggotaan sebelum 30 hari berakhir?</h4>
           <p>
-            Frames akan terkunci kembali. Anda perlu membeli paket baru untuk
-            mendapat akses lagi.
+            Saat ini perpanjangan otomatis hanya bisa dilakukan setelah masa aktif berakhir. Kami akan mengingatkan Anda mendekati tanggal berakhir.
+          </p>
+        </div>
+        <div className="faq-item">
+          <h4>Apa yang terjadi setelah keanggotaan berakhir?</h4>
+          <p>
+            Frame premium akan terkunci kembali. Anda perlu memperpanjang keanggotaan untuk mendapatkan akses lagi ke seluruh koleksi.
           </p>
         </div>
         <div className="faq-item">
           <h4>Bagaimana cara pembayaran?</h4>
           <p>
-            Klik "Beli Sekarang", pilih metode pembayaran favorit Anda, dan
-            ikuti instruksi pembayaran.
+            Klik "Gabung sebagai Member Fremio", pilih metode pembayaran favorit Anda (Kartu Kredit/Debit, Bank Transfer, E-Wallet, atau Convenience Store), dan ikuti instruksi pembayaran dari Midtrans.
           </p>
         </div>
       </div>

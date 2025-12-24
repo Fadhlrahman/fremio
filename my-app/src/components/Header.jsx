@@ -147,7 +147,7 @@ export default function Header() {
               }
             >
               <img src={pricingIcon} alt="" className="nav-icon" />
-              <span>Pricing</span>
+              <span>Membership</span>
             </NavLink>
             <NavLink
               to="/frames"
@@ -421,7 +421,7 @@ export default function Header() {
             onClick={() => setMenuOpen(false)}
           >
             <img src={pricingIcon} alt="" className="nav-icon" />
-            <span>Pricing</span>
+            <span>Membership</span>
           </NavLink>
           <NavLink
             to="/frames"

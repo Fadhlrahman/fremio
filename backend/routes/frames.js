@@ -99,11 +99,11 @@ router.get("/", optionalAuth, async (req, res) => {
     res.setHeader("Surrogate-Control", "no-store");
 
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
+    const limit = parseInt(req.query.limit); // No default limit for admin - load all frames
     const category = req.query.category;
     const includeHidden = isIncludeHiddenRequested(req.query.includeHidden);
     const allowHidden = includeHidden ? await isAdminForRequest(req) : false;
-    const offset = (page - 1) * limit;
+    const offset = limit ? (page - 1) * limit : 0;
 
     // Determine user access for premium frames (for redaction)
     let accessibleSet = new Set();
@@ -145,10 +145,14 @@ router.get("/", optionalAuth, async (req, res) => {
       paramIndex++;
     }
 
-    queryText += ` ORDER BY display_order ASC, created_at DESC LIMIT $${paramIndex} OFFSET $${
-      paramIndex + 1
-    }`;
-    queryParams.push(limit, offset);
+    queryText += ` ORDER BY display_order ASC, created_at DESC`;
+    
+    // Only apply LIMIT and OFFSET if limit is specified
+    if (limit) {
+      queryText += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+      queryParams.push(limit, offset);
+      paramIndex += 2;
+    }
 
     let result;
     let total = 0;

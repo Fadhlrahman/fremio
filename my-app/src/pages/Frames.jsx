@@ -91,7 +91,7 @@ function FrameCard({
             gap: "4px",
           }}
         >
-          🔒 Premium
+          🔒 Member Only
         </div>
       )}
 
@@ -486,7 +486,7 @@ export default function Frames() {
                 🎨 Unlock Premium Frames!
               </h3>
               <p style={{ marginBottom: "16px", opacity: 0.9 }}>
-                Dapatkan akses ke 30 frames premium hanya Rp 10.000 selama 30
+                Gabung sebagai member dan dapatkan akses unlimited hanya Rp 10.000 selama 30
                 hari
               </p>
               <button
@@ -503,7 +503,7 @@ export default function Frames() {
                   boxShadow: "0 10px 22px rgba(224, 183, 169, 0.35)",
                 }}
               >
-                Lihat Paket Premium →
+                Lihat Keanggotaan →
               </button>
             </div>
           )}

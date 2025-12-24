@@ -21,7 +21,7 @@ const buildImageUrl = (imagePath, req) => {
  */
 router.get('/', optionalAuth, async (req, res) => {
   try {
-    const { category, limit = 50, offset = 0, search, includeHidden } = req.query;
+    const { category, limit, offset = 0, search, includeHidden } = req.query;
     
     let query = `
       SELECT id, name, description, category, image_path, slots, layout,
@@ -49,11 +49,14 @@ router.get('/', optionalAuth, async (req, res) => {
     
     query += ` ORDER BY display_order ASC, created_at DESC`;
     
-    params.push(parseInt(limit));
-    query += ` LIMIT $${params.length}`;
-    
-    params.push(parseInt(offset));
-    query += ` OFFSET $${params.length}`;
+    // Only apply LIMIT if explicitly provided (no default limit for admin)
+    if (limit) {
+      params.push(parseInt(limit));
+      query += ` LIMIT $${params.length}`;
+      
+      params.push(parseInt(offset));
+      query += ` OFFSET $${params.length}`;
+    }
     
     const result = await db.query(query, params);
     

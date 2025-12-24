@@ -1,0 +1,1 @@
+import{ct as e,st as t}from"./index-mjjhgjbi-DOXb-OLp.js";export{t as VPSFrameClient,e as default};

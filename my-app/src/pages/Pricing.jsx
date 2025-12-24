@@ -593,9 +593,9 @@ const Pricing = () => {
             {/* MEMBERSHIP CARD SECTION */}
             <div 
               onClick={() => {
-                const socialSection = document.getElementById('social-belonging-section');
-                if (socialSection) {
-                  socialSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                const ctaButton = document.querySelector('.offer-cta');
+                if (ctaButton) {
+                  ctaButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 }
               }}
               style={{
@@ -634,10 +634,38 @@ const Pricing = () => {
               }}>fremio Member</div>
               
               <div style={{
-                fontSize: "28px",
-                fontWeight: "800",
-                marginBottom: "6px"
-              }}>Rp 10.000<span style={{ fontSize: "16px", fontWeight: "400" }}> / bulan</span></div>
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "4px",
+                marginBottom: "8px"
+              }}>
+                <span style={{
+                  fontSize: "18px",
+                  fontWeight: "600",
+                  textDecoration: "line-through",
+                  opacity: 0.85,
+                  color: "#dc2626",
+                  letterSpacing: "-0.5px"
+                }}>Rp 50.000</span>
+                <div style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: "4px"
+                }}>
+                  <span style={{
+                    fontSize: "32px",
+                    fontWeight: "800",
+                    lineHeight: "1"
+                  }}>Rp 10.000</span>
+                  <span style={{
+                    fontSize: "15px",
+                    fontWeight: "400",
+                    opacity: 0.9
+                  }}>/ bulan</span>
+                </div>
+              </div>
               
               <p style={{
                 fontSize: "13px",

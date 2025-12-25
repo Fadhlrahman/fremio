@@ -18,15 +18,20 @@ import {
   cleanupAllVideoBlobs,
   getMemoryUsage,
 } from "../utils/videoMemoryManager.js";
-import { trackFunnelEvent, trackCameraPermission } from "../services/analyticsService";
+import {
+  trackFunnelEvent,
+  trackCameraPermission,
+} from "../services/analyticsService";
 import flipIcon from "../assets/flip.png";
 import fremioLogo from "../assets/logo.svg";
 import { useToast } from "../contexts/ToastContext";
-import { 
-  requestCameraWithFallback, 
+import {
+  requestCameraWithFallback,
   getCameraPermissionStatus,
   requestCameraPermissionWithSave,
-  wasPermissionGranted 
+  wasPermissionGranted,
+  isSecureContext,
+  isCameraAvailable,
 } from "../utils/cameraHelper";
 import CameraPermissionPrimer from "../components/CameraPermissionPrimer";
 
@@ -558,30 +563,32 @@ export default function TakeMoment() {
       try {
         // Check if permission was previously granted
         const permStatus = await getCameraPermissionStatus();
-        
-        if (permStatus.status === 'granted' || wasPermissionGranted()) {
+
+        if (permStatus.status === "granted" || wasPermissionGranted()) {
           // Already granted, no need to show primer
           setPermissionChecked(true);
           setShowPermissionPrimer(false);
-          console.log('✅ Camera permission already granted');
-        } else if (permStatus.status === 'denied') {
+          console.log("✅ Camera permission already granted");
+        } else if (permStatus.status === "denied") {
           // Denied, show error and upload option
           setPermissionChecked(true);
           setShowPermissionPrimer(false);
-          setCameraError('Izin kamera ditolak. Silakan gunakan opsi upload foto.');
-          await trackCameraPermission('denied', 'auto_check');
+          setCameraError(
+            "Izin kamera ditolak. Silakan gunakan opsi upload foto."
+          );
+          await trackCameraPermission("denied", "auto_check");
         } else {
           // Need to request - show primer
           setShowPermissionPrimer(true);
-          await trackCameraPermission('primer_shown');
+          await trackCameraPermission("primer_shown");
         }
       } catch (error) {
-        console.log('Permission check not supported, showing primer');
+        console.log("Permission check not supported, showing primer");
         setShowPermissionPrimer(true);
-        await trackCameraPermission('primer_shown', 'fallback');
+        await trackCameraPermission("primer_shown", "fallback");
       }
     };
-    
+
     checkPermission();
   }, []);
 
@@ -590,7 +597,10 @@ export default function TakeMoment() {
     if (isMobile && mobileContentRef.current) {
       // Small delay to ensure DOM is ready
       const timer = setTimeout(() => {
-        mobileContentRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
+        mobileContentRef.current?.scrollIntoView({
+          behavior: "auto",
+          block: "start",
+        });
       }, 100);
       return () => clearTimeout(timer);
     }
@@ -704,9 +714,10 @@ export default function TakeMoment() {
   const [isDuplicateMode, setIsDuplicateMode] = useState(false); // Duplicate mode: each photo fills 2 slots
 
   // Calculate photos needed based on duplicate mode - defined early to avoid reference errors
-  const photosNeeded = isDuplicateMode && maxCaptures > 1 
-    ? Math.ceil(maxCaptures / 2) 
-    : maxCaptures;
+  const photosNeeded =
+    isDuplicateMode && maxCaptures > 1
+      ? Math.ceil(maxCaptures / 2)
+      : maxCaptures;
 
   const pendingStorageIdleRef = useRef(null);
   const pendingStorageTimeoutRef = useRef(null);
@@ -822,53 +833,69 @@ export default function TakeMoment() {
     try {
       const keys = Object.keys(localStorage);
       let freedSpace = 0;
-      
+
       // Remove large frame slots cache (keep only essential ones)
-      keys.forEach(key => {
-        if (key.startsWith('fremio_frame_slots_')) {
+      keys.forEach((key) => {
+        if (key.startsWith("fremio_frame_slots_")) {
           const value = localStorage.getItem(key);
-          if (value && value.length > 100000) { // > 100KB
+          if (value && value.length > 100000) {
+            // > 100KB
             localStorage.removeItem(key);
             freedSpace += value.length;
-            console.log(`🧹 Removed large cache: ${key} (${Math.round(value.length/1024)}KB)`);
+            console.log(
+              `🧹 Removed large cache: ${key} (${Math.round(
+                value.length / 1024
+              )}KB)`
+            );
           }
         }
       });
-      
+
       // Also remove old frame cache versions
-      ['fremio_frames_cache_v1', 'fremio_frames_cache_v2', 'fremio_frames_cache_time_v1', 'fremio_frames_cache_time_v2'].forEach(key => {
+      [
+        "fremio_frames_cache_v1",
+        "fremio_frames_cache_v2",
+        "fremio_frames_cache_time_v1",
+        "fremio_frames_cache_time_v2",
+      ].forEach((key) => {
         if (localStorage.getItem(key)) {
           localStorage.removeItem(key);
           console.log(`🧹 Removed old cache: ${key}`);
         }
       });
-      
+
       if (freedSpace > 0) {
-        console.log(`✅ Freed ${Math.round(freedSpace/1024)}KB from localStorage`);
+        console.log(
+          `✅ Freed ${Math.round(freedSpace / 1024)}KB from localStorage`
+        );
       }
     } catch (e) {
-      console.warn('Failed to clear cache:', e);
+      console.warn("Failed to clear cache:", e);
     }
   }, []);
 
   const runStorageWrite = useCallback(() => {
     console.log("💾 [runStorageWrite] Starting...");
-    
+
     // Clear large cache items first to make room
     clearLargeCacheItems();
-    
+
     if (!safeStorage.isAvailable()) {
       console.warn("⚠️ [runStorageWrite] safeStorage not available!");
       return;
     }
-    
+
     const payload = latestStoragePayloadRef.current;
     if (!payload?.photos) {
       console.log("ℹ️ [runStorageWrite] No photos in payload, skipping");
       return;
     }
 
-    console.log("📸 [runStorageWrite] Processing", payload.photos.length, "photos");
+    console.log(
+      "📸 [runStorageWrite] Processing",
+      payload.photos.length,
+      "photos"
+    );
 
     const photosPayload = Array.isArray(payload.photos)
       ? payload.photos.map((entry, idx) => {
@@ -877,13 +904,22 @@ export default function TakeMoment() {
             return null;
           }
           if (typeof entry === "string") {
-            console.log(`   Photo ${idx}: string (${entry.startsWith('data:') ? 'data URL' : 'other'})`);
+            console.log(
+              `   Photo ${idx}: string (${
+                entry.startsWith("data:") ? "data URL" : "other"
+              })`
+            );
             return entry;
           }
 
           const { dataUrl, previewUrl } = entry;
-          console.log(`   Photo ${idx}: object - dataUrl=${dataUrl?.substring?.(0,30)}, previewUrl=${previewUrl?.substring?.(0,30)}`);
-          
+          console.log(
+            `   Photo ${idx}: object - dataUrl=${dataUrl?.substring?.(
+              0,
+              30
+            )}, previewUrl=${previewUrl?.substring?.(0, 30)}`
+          );
+
           if (typeof dataUrl === "string" && dataUrl.startsWith("data:")) {
             console.log(`   Photo ${idx}: ✅ Using dataUrl`);
             return dataUrl;
@@ -895,7 +931,9 @@ export default function TakeMoment() {
             console.log(`   Photo ${idx}: ✅ Using previewUrl (data)`);
             return previewUrl;
           }
-          console.warn(`   Photo ${idx}: ❌ NO VALID DATA URL - has blob=${!!entry.blob}`);
+          console.warn(
+            `   Photo ${idx}: ❌ NO VALID DATA URL - has blob=${!!entry.blob}`
+          );
           return null;
         })
       : [];
@@ -912,13 +950,25 @@ export default function TakeMoment() {
         typeof item?.dataUrl === "string" && item.dataUrl.startsWith("data:")
     );
 
-    console.log("📊 [runStorageWrite] photosPayload:", photosPayload.length, "items");
-    console.log("📊 [runStorageWrite] hasPersistablePhotos:", hasPersistablePhotos);
-    console.log("📊 [runStorageWrite] hasPersistableVideos:", hasPersistableVideos);
+    console.log(
+      "📊 [runStorageWrite] photosPayload:",
+      photosPayload.length,
+      "items"
+    );
+    console.log(
+      "📊 [runStorageWrite] hasPersistablePhotos:",
+      hasPersistablePhotos
+    );
+    console.log(
+      "📊 [runStorageWrite] hasPersistableVideos:",
+      hasPersistableVideos
+    );
 
     try {
       if (!hasPersistablePhotos && !hasPersistableVideos) {
-        console.warn("⚠️ [runStorageWrite] No persistable data - REMOVING storage!");
+        console.warn(
+          "⚠️ [runStorageWrite] No persistable data - REMOVING storage!"
+        );
         safeStorage.removeItem("capturedPhotos");
         safeStorage.removeItem("capturedVideos");
       } else {
@@ -926,10 +976,14 @@ export default function TakeMoment() {
         safeStorage.setJSON("capturedPhotos", photosPayload);
         safeStorage.setJSON("capturedVideos", videosPayload);
         console.log("✅ [runStorageWrite] Saved successfully!");
-        
+
         // Verify
         const verify = safeStorage.getJSON("capturedPhotos");
-        console.log("🔍 [runStorageWrite] Verification:", verify?.length || 0, "photos saved");
+        console.log(
+          "🔍 [runStorageWrite] Verification:",
+          verify?.length || 0,
+          "photos saved"
+        );
       }
     } catch (error) {
       console.error("❌ Failed to persist captured media", error);
@@ -1011,7 +1065,11 @@ export default function TakeMoment() {
     latestStoragePayloadRef.current = { photos: null, videos: null };
     safeStorage.removeItem("capturedPhotos");
     safeStorage.removeItem("capturedVideos");
-  }, [cleanupCapturedPhotoPreview, cleanupCapturedVideoPreview, clearScheduledStorage]);
+  }, [
+    cleanupCapturedPhotoPreview,
+    cleanupCapturedVideoPreview,
+    clearScheduledStorage,
+  ]);
 
   const cleanUpStorage = useCallback(() => {
     try {
@@ -1071,47 +1129,52 @@ export default function TakeMoment() {
 
   // Handle shared frame from URL
   useEffect(() => {
-    const shareId = searchParams.get("share");  // NEW: VPS share link
-    const sharedData = searchParams.get("d");   // Embedded data fallback
+    const shareId = searchParams.get("share"); // NEW: VPS share link
+    const sharedData = searchParams.get("d"); // Embedded data fallback
     const sharedFrameId = searchParams.get("frame"); // Legacy local ID
-    
+
     // PRIORITY 1: VPS Share ID (from PostgreSQL)
     if (shareId) {
       console.log("🔗 Loading shared frame from VPS:", shareId);
-      
+
       (async () => {
         try {
           showToast("info", "⏳ Memuat frame...");
-          
-          const draftService = (await import("../services/draftService.js")).default;
+
+          const draftService = (await import("../services/draftService.js"))
+            .default;
           const cloudDraft = await draftService.getSharedDraft(shareId);
-          
+
           if (!cloudDraft) {
             showToast("error", "Frame tidak ditemukan atau tidak publik");
             setTimeout(() => navigate("/frames"), 2000);
             return;
           }
-          
+
           // Parse frame data
-          const frameData = typeof cloudDraft.frame_data === 'string' 
-            ? JSON.parse(cloudDraft.frame_data) 
-            : cloudDraft.frame_data;
-          
+          const frameData =
+            typeof cloudDraft.frame_data === "string"
+              ? JSON.parse(cloudDraft.frame_data)
+              : cloudDraft.frame_data;
+
           console.log("✅ Shared frame loaded from VPS:", {
             title: cloudDraft.title,
             elementsCount: frameData?.elements?.length,
-            elementTypes: frameData?.elements?.map(el => el.type),
-            hasBackground: frameData?.elements?.some(el => el.type === 'background-photo'),
-            hasUpload: frameData?.elements?.some(el => el.type === 'upload'),
+            elementTypes: frameData?.elements?.map((el) => el.type),
+            hasBackground: frameData?.elements?.some(
+              (el) => el.type === "background-photo"
+            ),
+            hasUpload: frameData?.elements?.some((el) => el.type === "upload"),
           });
-          
+
           // Canvas dimensions for coordinate conversion
           const canvasWidth = frameData.canvasWidth || 1080;
           const canvasHeight = frameData.canvasHeight || 1920;
-          
+
           // Filter photo elements for slots
-          const photoElements = frameData.elements?.filter(el => el.type === "photo") || [];
-          
+          const photoElements =
+            frameData.elements?.filter((el) => el.type === "photo") || [];
+
           // Convert to frame config with FULL designer elements
           const frameConfig = {
             id: `shared-${shareId}`,
@@ -1124,13 +1187,13 @@ export default function TakeMoment() {
             maxCaptures: photoElements.length || 1,
             slots: photoElements.map((el, idx) => ({
               id: el.id || `slot_${idx + 1}`,
-              left: el.x / canvasWidth,    // Convert absolute to normalized (0-1)
+              left: el.x / canvasWidth, // Convert absolute to normalized (0-1)
               top: el.y / canvasHeight,
               width: el.width / canvasWidth,
               height: el.height / canvasHeight,
               zIndex: el.zIndex || 1,
               photoIndex: idx,
-              aspectRatio: el.data?.aspectRatio || '4:5'
+              aspectRatio: el.data?.aspectRatio || "4:5",
             })),
             // CRITICAL: Include designer object with ALL elements
             // This enables background-photo, upload overlays, text, etc.
@@ -1139,73 +1202,81 @@ export default function TakeMoment() {
               canvasBackground: frameData.canvasBackground || "#f7f1ed",
               aspectRatio: frameData.aspectRatio || "9:16",
               canvasWidth: canvasWidth,
-              canvasHeight: canvasHeight
+              canvasHeight: canvasHeight,
             },
             isCustom: true,
             isSharedFrame: true,
             shareId: shareId,
-            preview: cloudDraft.preview_url
+            preview: cloudDraft.preview_url,
           };
-          
+
           // Set frame via frameProvider
           await frameProvider.setCustomFrame(frameConfig);
-          
+
           // Store in safeStorage
           safeStorage.setJSON("frameConfig", {
             ...frameConfig,
             __timestamp: Date.now(),
-            __savedFrom: "TakeMoment_vpsShare"
+            __savedFrom: "TakeMoment_vpsShare",
           });
           safeStorage.setItem("selectedFrame", frameConfig.id);
           safeStorage.setItem("frameConfigTimestamp", String(Date.now()));
-          
+
           // Update state
           setMaxCaptures(frameConfig.maxCaptures);
           updateSlotAspectRatio(frameConfig);
           persistLayerPlan(frameConfig);
-          
-          showToast("success", `✅ Frame "${cloudDraft.title}" berhasil dimuat!`);
-          
+
+          showToast(
+            "success",
+            `✅ Frame "${cloudDraft.title}" berhasil dimuat!`
+          );
+
           // Clean up URL
-          window.history.replaceState({}, '', '/take-moment');
+          window.history.replaceState({}, "", "/take-moment");
         } catch (error) {
           console.error("Error loading shared frame from VPS:", error);
           showToast("error", "Gagal memuat frame dari server");
           setTimeout(() => navigate("/frames"), 2000);
         }
       })();
-      
+
       return;
     }
-    
+
     // PRIORITY 2: Check for embedded data in URL (offline fallback)
     if (sharedData) {
       console.log("🔗 Found embedded frame data in URL");
-      
+
       (async () => {
         try {
-          const { decompressFrameData } = await import("../services/frameShareService.js");
+          const { decompressFrameData } = await import(
+            "../services/frameShareService.js"
+          );
           const draft = decompressFrameData(sharedData);
-          
+
           if (!draft) {
             showToast("error", "Data frame rusak atau tidak valid");
             setTimeout(() => navigate("/frames"), 2000);
             return;
           }
-          
+
           console.log("✅ Shared frame decompressed:", {
             title: draft.title,
             elementsCount: draft.elements?.length,
-            elementTypes: draft.elements?.map(el => el.type || el.tp),
+            elementTypes: draft.elements?.map((el) => el.type || el.tp),
           });
-          
+
           // Canvas dimensions for coordinate conversion
           const canvasWidth = draft.canvasWidth || 1080;
           const canvasHeight = draft.canvasHeight || 1920;
-          
+
           // Filter photo elements
-          const photoElements = draft.elements?.filter(el => el.type === "photo" || el.tp === "ph") || [];
-          
+          const photoElements =
+            draft.elements?.filter(
+              (el) => el.type === "photo" || el.tp === "ph"
+            ) || [];
+
           // Convert draft to frame config with FULL designer elements
           const frameConfig = {
             id: draft.id || `shared-${Date.now()}`,
@@ -1224,7 +1295,7 @@ export default function TakeMoment() {
               height: (el.height || el.h || 100) / canvasHeight,
               zIndex: el.zIndex || el.z || 1,
               photoIndex: idx,
-              aspectRatio: el.data?.aspectRatio || el.d?.ar || '4:5'
+              aspectRatio: el.data?.aspectRatio || el.d?.ar || "4:5",
             })),
             // CRITICAL: Include designer object with ALL elements
             designer: {
@@ -1232,85 +1303,93 @@ export default function TakeMoment() {
               canvasBackground: draft.canvasBackground || "#f7f1ed",
               aspectRatio: draft.aspectRatio || "9:16",
               canvasWidth: canvasWidth,
-              canvasHeight: canvasHeight
+              canvasHeight: canvasHeight,
             },
             isCustom: true,
             isSharedFrame: true,
-            preview: draft.preview
+            preview: draft.preview,
           };
-          
+
           // Set frame via frameProvider (same as legacy method)
           await frameProvider.setCustomFrame(frameConfig);
-          
+
           // Store in safeStorage
           safeStorage.setJSON("frameConfig", {
             ...frameConfig,
             __timestamp: Date.now(),
-            __savedFrom: "TakeMoment_embeddedShare"
+            __savedFrom: "TakeMoment_embeddedShare",
           });
           safeStorage.setItem("selectedFrame", frameConfig.id);
           safeStorage.setItem("frameConfigTimestamp", String(Date.now()));
-          
+
           // Update state
           setMaxCaptures(frameConfig.maxCaptures);
           updateSlotAspectRatio(frameConfig);
           persistLayerPlan(frameConfig);
-          
+
           showToast("success", `✅ Frame "${draft.title}" berhasil dimuat!`);
-          
+
           // Clean up URL
-          window.history.replaceState({}, '', '/take-moment');
+          window.history.replaceState({}, "", "/take-moment");
         } catch (error) {
           console.error("Error loading embedded frame:", error);
           showToast("error", "Gagal memuat frame");
           setTimeout(() => navigate("/frames"), 2000);
         }
       })();
-      
+
       return;
     }
-    
+
     // PRIORITY 3: Legacy method - frame ID param (local IndexedDB)
     if (!sharedFrameId) return;
-    
+
     console.log("🔗 Shared frame detected from URL:", sharedFrameId);
-    
+
     (async () => {
       try {
         let draft = null;
-        
+
         // PRIORITY 1: Check if sharedDraftData exists in storage (from SharedFrame page)
         const sharedDraftData = safeStorage.getJSON("sharedDraftData");
-        if (sharedDraftData && (sharedDraftData.id === sharedFrameId || sharedDraftData.id === `shared-${sharedFrameId}`)) {
+        if (
+          sharedDraftData &&
+          (sharedDraftData.id === sharedFrameId ||
+            sharedDraftData.id === `shared-${sharedFrameId}`)
+        ) {
           console.log("✅ Using sharedDraftData from storage (cloud frame)");
           draft = sharedDraftData;
         }
-        
+
         // PRIORITY 2: Try local IndexedDB (for same-device)
         if (!draft) {
-          const { default: draftStorage } = await import("../utils/draftStorage.js");
+          const { default: draftStorage } = await import(
+            "../utils/draftStorage.js"
+          );
           draft = await draftStorage.getDraftById(sharedFrameId);
           if (draft) {
             console.log("✅ Found draft in local IndexedDB");
           }
         }
-        
+
         // PRIORITY 3: Try loading from cloud API (for cross-device sharing)
         if (!draft && sharedFrameId.length === 8) {
           // 8-char IDs are likely share_ids from cloud
           console.log("🔄 Trying to load from cloud API...");
           try {
-            const draftService = (await import("../services/draftService.js")).default;
+            const draftService = (await import("../services/draftService.js"))
+              .default;
             const cloudDraft = await draftService.getSharedDraft(sharedFrameId);
             if (cloudDraft?.frame_data) {
-              const frameData = typeof cloudDraft.frame_data === 'string' 
-                ? JSON.parse(cloudDraft.frame_data) 
-                : cloudDraft.frame_data;
+              const frameData =
+                typeof cloudDraft.frame_data === "string"
+                  ? JSON.parse(cloudDraft.frame_data)
+                  : cloudDraft.frame_data;
               draft = {
                 id: `shared-${cloudDraft.share_id}`,
                 title: cloudDraft.title,
                 ...frameData,
-                preview: cloudDraft.preview_url
+                preview: cloudDraft.preview_url,
               };
               console.log("✅ Loaded draft from cloud API");
             }
@@ -1318,32 +1397,36 @@ export default function TakeMoment() {
             console.warn("⚠️ Cloud API failed:", cloudError.message);
           }
         }
-        
+
         if (!draft) {
           console.error("❌ Shared frame not found:", sharedFrameId);
-          showToast("error", "Frame tidak ditemukan. Silakan pilih frame lain.");
+          showToast(
+            "error",
+            "Frame tidak ditemukan. Silakan pilih frame lain."
+          );
           // Redirect to frames page after 2 seconds
           setTimeout(() => {
             navigate("/frames");
           }, 2000);
           return;
         }
-        
+
         console.log("✅ Shared frame loaded:", {
           id: draft.id,
           title: draft.title,
           hasElements: !!draft.elements,
           elementsCount: draft.elements?.length,
-          elementTypes: draft.elements?.map(el => el.type),
+          elementTypes: draft.elements?.map((el) => el.type),
         });
-        
+
         // Canvas dimensions for coordinate conversion
         const canvasWidth = draft.canvasWidth || 1080;
         const canvasHeight = draft.canvasHeight || 1920;
-        
+
         // Filter photo elements
-        const photoElements = draft.elements?.filter(el => el.type === "photo") || [];
-        
+        const photoElements =
+          draft.elements?.filter((el) => el.type === "photo") || [];
+
         // Convert draft to frame config with FULL designer elements
         const frameConfig = {
           id: draft.id,
@@ -1362,7 +1445,7 @@ export default function TakeMoment() {
             height: el.height / canvasHeight,
             zIndex: el.zIndex || 1,
             photoIndex: idx,
-            aspectRatio: el.data?.aspectRatio || '4:5'
+            aspectRatio: el.data?.aspectRatio || "4:5",
           })),
           // CRITICAL: Include designer object with ALL elements
           designer: {
@@ -1370,36 +1453,35 @@ export default function TakeMoment() {
             canvasBackground: draft.canvasBackground || "#f7f1ed",
             aspectRatio: draft.aspectRatio || "9:16",
             canvasWidth: canvasWidth,
-            canvasHeight: canvasHeight
+            canvasHeight: canvasHeight,
           },
           isCustom: true,
           isSharedFrame: true,
           preview: draft.preview,
         };
-        
+
         // Set frame via frameProvider
         await frameProvider.setCustomFrame(frameConfig);
-        
+
         // Store in safeStorage
         safeStorage.setJSON("frameConfig", {
           ...frameConfig,
           __timestamp: Date.now(),
-          __savedFrom: "TakeMoment_sharedFrame"
+          __savedFrom: "TakeMoment_sharedFrame",
         });
         safeStorage.setItem("selectedFrame", frameConfig.id);
         safeStorage.setItem("activeDraftId", draft.id);
         safeStorage.setItem("frameConfigTimestamp", String(Date.now()));
-        
+
         // Update state
         setMaxCaptures(frameConfig.maxCaptures);
         updateSlotAspectRatio(frameConfig);
         persistLayerPlan(frameConfig);
-        
+
         showToast("success", `Frame "${frameConfig.title}" dimuat`);
-        
+
         // Remove query param from URL to prevent reload issues
         window.history.replaceState({}, "", "/take-moment");
-        
       } catch (error) {
         console.error("❌ Error loading shared frame:", error);
         showToast("error", "Gagal memuat frame");
@@ -1414,28 +1496,31 @@ export default function TakeMoment() {
     clearStaleFrameCache();
 
     // 🎯 PRIORITY 0: Check for shared frame in sessionStorage (highest priority)
-    const SHARED_FRAME_KEY = '__fremio_shared_frame_temp__';
+    const SHARED_FRAME_KEY = "__fremio_shared_frame_temp__";
     let sharedFrameData = null;
     try {
       const rawSharedData = sessionStorage.getItem(SHARED_FRAME_KEY);
       if (rawSharedData) {
         sharedFrameData = JSON.parse(rawSharedData);
         console.log("🔗 [SHARED FRAME] Found in sessionStorage");
-        
+
         const sharedConfig = sharedFrameData.frameConfig;
         if (sharedConfig) {
-          console.log("✅ Using shared frame from sessionStorage:", sharedConfig.id);
-          
+          console.log(
+            "✅ Using shared frame from sessionStorage:",
+            sharedConfig.id
+          );
+
           // Set the frame via frameProvider
           frameProvider.setCustomFrame(sharedConfig);
-          
+
           // Update state
           if (sharedConfig.maxCaptures) {
             setMaxCaptures(sharedConfig.maxCaptures);
           }
           updateSlotAspectRatio(sharedConfig);
           persistLayerPlan(sharedConfig);
-          
+
           // DO NOT persist to localStorage - keep shared frames in sessionStorage only
           console.log("✅ Shared frame loaded, keeping in sessionStorage only");
           return; // Skip all other loading logic
@@ -1448,36 +1533,44 @@ export default function TakeMoment() {
     // 🎯 PRIORITY 1: Check if frame is already in memory (just set from Frames page)
     const memoryConfig = frameProvider.getCurrentConfig();
     const memoryFrameName = frameProvider.getCurrentFrameName();
-    
+
     if (memoryConfig?.id || memoryFrameName) {
-      console.log("✅ Frame already in memory from Frames page:", memoryConfig?.id || memoryFrameName);
+      console.log(
+        "✅ Frame already in memory from Frames page:",
+        memoryConfig?.id || memoryFrameName
+      );
       // Frame is fresh from Frames page, use it
       if (memoryConfig?.maxCaptures) {
         setMaxCaptures(memoryConfig.maxCaptures);
       }
       updateSlotAspectRatio(memoryConfig);
       persistLayerPlan(memoryConfig);
-      
+
       // 🆕 CRITICAL: Ensure localStorage is in sync with memory
       // This prevents next page load from thinking data is stale
       const currentTimestamp = safeStorage.getItem("frameConfigTimestamp");
       if (!currentTimestamp) {
-        console.log("📝 Setting timestamp for memory frame to prevent stale detection");
+        console.log(
+          "📝 Setting timestamp for memory frame to prevent stale detection"
+        );
         safeStorage.setItem("frameConfigTimestamp", String(Date.now()));
       }
-      
+
       // Also ensure frameConfig is persisted if missing
       const storedConfig = safeStorage.getJSON("frameConfig");
       if (!storedConfig?.id && memoryConfig?.id) {
-        console.log("📝 Persisting memory frame to localStorage:", memoryConfig.id);
+        console.log(
+          "📝 Persisting memory frame to localStorage:",
+          memoryConfig.id
+        );
         safeStorage.setJSON("frameConfig", {
           ...memoryConfig,
           __timestamp: Date.now(),
-          __savedFrom: "TakeMoment_memorySync"
+          __savedFrom: "TakeMoment_memorySync",
         });
         safeStorage.setItem("selectedFrame", memoryConfig.id);
       }
-      
+
       return; // Skip all the localStorage clearing logic
     }
 
@@ -1513,7 +1606,10 @@ export default function TakeMoment() {
         safeStorage.removeItem("frameConfig");
         safeStorage.removeItem("selectedFrame");
       } else {
-        console.log("📦 Found existing frameConfig, keeping it:", storedConfig.id);
+        console.log(
+          "📦 Found existing frameConfig, keeping it:",
+          storedConfig.id
+        );
       }
     }
 
@@ -1522,26 +1618,69 @@ export default function TakeMoment() {
     if (pendingFrameFetch === "true") {
       safeStorage.removeItem("pendingFrameFetch");
       const selectedFrameId = safeStorage.getItem("selectedFrame");
-      
+
       if (selectedFrameId) {
-        console.log("🔄 Pending frame fetch detected, loading slots for:", selectedFrameId);
-        
+        console.log(
+          "🔄 Pending frame fetch detected, loading slots for:",
+          selectedFrameId
+        );
+
         // Default slots for 4-photo frame (standard layout)
         // Values in decimal (0-1) representing percentage of frame dimensions
         const DEFAULT_SLOTS = [
-          { id: 1, left: 0.05, top: 0.05, width: 0.42, height: 0.20, zIndex: 1, photoIndex: 0, aspectRatio: '4:5' },
-          { id: 2, left: 0.53, top: 0.05, width: 0.42, height: 0.20, zIndex: 1, photoIndex: 1, aspectRatio: '4:5' },
-          { id: 3, left: 0.05, top: 0.28, width: 0.42, height: 0.20, zIndex: 1, photoIndex: 2, aspectRatio: '4:5' },
-          { id: 4, left: 0.53, top: 0.28, width: 0.42, height: 0.20, zIndex: 1, photoIndex: 3, aspectRatio: '4:5' }
+          {
+            id: 1,
+            left: 0.05,
+            top: 0.05,
+            width: 0.42,
+            height: 0.2,
+            zIndex: 1,
+            photoIndex: 0,
+            aspectRatio: "4:5",
+          },
+          {
+            id: 2,
+            left: 0.53,
+            top: 0.05,
+            width: 0.42,
+            height: 0.2,
+            zIndex: 1,
+            photoIndex: 1,
+            aspectRatio: "4:5",
+          },
+          {
+            id: 3,
+            left: 0.05,
+            top: 0.28,
+            width: 0.42,
+            height: 0.2,
+            zIndex: 1,
+            photoIndex: 2,
+            aspectRatio: "4:5",
+          },
+          {
+            id: 4,
+            left: 0.53,
+            top: 0.28,
+            width: 0.42,
+            height: 0.2,
+            zIndex: 1,
+            photoIndex: 3,
+            aspectRatio: "4:5",
+          },
         ];
-        
+
         (async () => {
           try {
-            const unifiedFrameService = (await import("../services/unifiedFrameService")).default;
-            
+            const unifiedFrameService = (
+              await import("../services/unifiedFrameService")
+            ).default;
+
             // Try to get frame - single attempt with short timeout
-            let fullFrame = await unifiedFrameService.getFrameById(selectedFrameId);
-            
+            let fullFrame = await unifiedFrameService.getFrameById(
+              selectedFrameId
+            );
+
             // If no slots, use default slots
             if (!fullFrame?.slots || fullFrame.slots.length === 0) {
               console.log("⚠️ No slots found, using default slots");
@@ -1550,20 +1689,22 @@ export default function TakeMoment() {
                 ...storedConfig,
                 ...fullFrame,
                 slots: DEFAULT_SLOTS,
-                maxCaptures: 4
+                maxCaptures: 4,
               };
             }
-            
+
             console.log("✅ Frame ready with slots:", fullFrame.slots.length);
-            
+
             // Set frame via frameProvider
             await frameProvider.setCustomFrame(fullFrame);
-            
+
             const frameConfig = frameProvider.getCurrentConfig();
             if (frameConfig?.maxCaptures) {
               setMaxCaptures(frameConfig.maxCaptures);
             } else {
-              setMaxCaptures(fullFrame.maxCaptures || fullFrame.max_captures || 4);
+              setMaxCaptures(
+                fullFrame.maxCaptures || fullFrame.max_captures || 4
+              );
             }
             updateSlotAspectRatio(frameConfig || fullFrame);
             persistLayerPlan(frameConfig || fullFrame);
@@ -1572,7 +1713,11 @@ export default function TakeMoment() {
             // Use stored config with default slots as fallback
             const storedConfig = safeStorage.getJSON("frameConfig");
             if (storedConfig) {
-              const fallbackFrame = { ...storedConfig, slots: DEFAULT_SLOTS, maxCaptures: 4 };
+              const fallbackFrame = {
+                ...storedConfig,
+                slots: DEFAULT_SLOTS,
+                maxCaptures: 4,
+              };
               await frameProvider.setCustomFrame(fallbackFrame);
               setMaxCaptures(4);
               console.log("✅ Using fallback frame with default slots");
@@ -1613,19 +1758,21 @@ export default function TakeMoment() {
       (async () => {
         try {
           // 🆕 SHARED FRAME SUPPORT: Check if this is a shared frame first
-          const isSharedFrame = activeDraftId.startsWith('shared-');
-          const isDraftFrame = activeDraftId.startsWith('draft-');
+          const isSharedFrame = activeDraftId.startsWith("shared-");
+          const isDraftFrame = activeDraftId.startsWith("draft-");
           let draft = null;
-          
+
           if (isSharedFrame) {
             // For shared frames, use sharedDraftData from storage (no network call needed)
-            const sharedData = safeStorage.getJSON('sharedDraftData');
+            const sharedData = safeStorage.getJSON("sharedDraftData");
             if (sharedData && sharedData.id === activeDraftId) {
-              console.log('✅ Using sharedDraftData from storage (no login required)');
+              console.log(
+                "✅ Using sharedDraftData from storage (no login required)"
+              );
               draft = sharedData;
             }
           }
-          
+
           // For regular drafts, try load from local draftStorage first
           if (!draft) {
             const { default: draftStorage } = await import(
@@ -1633,14 +1780,20 @@ export default function TakeMoment() {
             );
             draft = await draftStorage.getDraftById(activeDraftId);
             if (draft) {
-              console.log('✅ Loaded draft from local IndexedDB');
+              console.log("✅ Loaded draft from local IndexedDB");
             }
           }
-          
+
           // 🆕 FALLBACK: If draft not found locally and storedConfig exists, use storedConfig
           // This handles the case where shared frame data is in frameConfig but not in draftStorage
-          if (!draft && storedConfig && (storedConfig.isCustom || storedConfig.isShared)) {
-            console.log('✅ Using storedConfig as fallback (shared/custom frame)');
+          if (
+            !draft &&
+            storedConfig &&
+            (storedConfig.isCustom || storedConfig.isShared)
+          ) {
+            console.log(
+              "✅ Using storedConfig as fallback (shared/custom frame)"
+            );
             // Build draft-like object from storedConfig
             draft = {
               id: storedConfig.id,
@@ -1648,7 +1801,7 @@ export default function TakeMoment() {
               aspectRatio: storedConfig.aspectRatio,
               elements: storedConfig.elements,
               canvasBackground: storedConfig.canvasBackground,
-              preview: storedConfig.preview
+              preview: storedConfig.preview,
             };
           }
 
@@ -1910,7 +2063,7 @@ export default function TakeMoment() {
 
     // Check if stream tracks are active
     const videoTrack = stream.getVideoTracks()[0];
-    if (!videoTrack || videoTrack.readyState !== 'live') {
+    if (!videoTrack || videoTrack.readyState !== "live") {
       console.log("⚠️ Video track not ready for pre-init");
       return;
     }
@@ -1918,18 +2071,25 @@ export default function TakeMoment() {
     const initRecorder = () => {
       try {
         // Get adaptive bitrate based on how many videos captured
-        const videoIndex = capturedVideosRef.current?.filter(v => v).length || 0;
+        const videoIndex =
+          capturedVideosRef.current?.filter((v) => v).length || 0;
         const baseBitrate = 600000; // 600kbps base - lower for smoother performance
         const qualityFactors = [1.0, 0.9, 0.7, 0.5, 0.4, 0.35];
-        const factor = qualityFactors[Math.min(videoIndex, qualityFactors.length - 1)];
+        const factor =
+          qualityFactors[Math.min(videoIndex, qualityFactors.length - 1)];
         const bitrate = Math.round(baseBitrate * factor);
 
         // Find supported mime type
         const mimeTypes = ["video/webm;codecs=vp8", "video/webm", "video/mp4"];
-        const mimeType = mimeTypes.find(t => {
-          try { return MediaRecorder.isTypeSupported(t); } catch { return false; }
-        }) || "";
-        
+        const mimeType =
+          mimeTypes.find((t) => {
+            try {
+              return MediaRecorder.isTypeSupported(t);
+            } catch {
+              return false;
+            }
+          }) || "";
+
         if (!mimeType) {
           console.warn("❌ No supported video mime type found");
           return;
@@ -1951,7 +2111,6 @@ export default function TakeMoment() {
           videoIndex: videoIndex + 1,
           quality: `${Math.round(factor * 100)}%`,
         });
-
       } catch (error) {
         console.error("❌ Pre-init failed:", error);
         isRecorderReadyRef.current = false;
@@ -1960,7 +2119,7 @@ export default function TakeMoment() {
 
     // Small delay to ensure stream is stable
     const timer = setTimeout(initRecorder, 300);
-    
+
     return () => {
       clearTimeout(timer);
       // Don't cleanup recorder here - let it be reused
@@ -2353,26 +2512,33 @@ export default function TakeMoment() {
   const determineVideoBitrate = (recordSeconds) => {
     // Get current video count to reduce quality as more videos are captured
     const currentVideoCount = capturedVideosRef.current?.length || 0;
-    
+
     // ✅ AGGRESSIVE MEMORY OPTIMIZATION for mobile
     // Use very low bitrates to keep video files small
     if (isMobileDevice()) {
       // Progressive quality reduction - MUCH more aggressive
       // Video 1: 100%, Video 2: 80%, Video 3: 60%, Video 4+: 40%
-      const qualityMultiplier = 
-        currentVideoCount === 0 ? 1.0 :
-        currentVideoCount === 1 ? 0.8 :
-        currentVideoCount === 2 ? 0.6 :
-        0.4; // 40% bitrate for video 4, 5, 6
-      
+      const qualityMultiplier =
+        currentVideoCount === 0
+          ? 1.0
+          : currentVideoCount === 1
+          ? 0.8
+          : currentVideoCount === 2
+          ? 0.6
+          : 0.4; // 40% bitrate for video 4, 5, 6
+
       // Base bitrate already reduced significantly
       let baseBitrate;
-      if (recordSeconds <= 4) baseBitrate = 800_000;  // Reduced from 1.2M
+      if (recordSeconds <= 4) baseBitrate = 800_000; // Reduced from 1.2M
       else if (recordSeconds <= 6) baseBitrate = 600_000; // Reduced from 1M
       else baseBitrate = 500_000; // Reduced
-      
+
       const finalBitrate = Math.round(baseBitrate * qualityMultiplier);
-      console.log(`🎬 Video ${currentVideoCount + 1} bitrate: ${(finalBitrate / 1000).toFixed(0)}kbps (${(qualityMultiplier * 100).toFixed(0)}% quality)`);
+      console.log(
+        `🎬 Video ${currentVideoCount + 1} bitrate: ${(
+          finalBitrate / 1000
+        ).toFixed(0)}kbps (${(qualityMultiplier * 100).toFixed(0)}% quality)`
+      );
       return finalBitrate;
     }
 
@@ -2394,15 +2560,17 @@ export default function TakeMoment() {
     // ✅ MEMORY OPTIMIZATION: Store blob in memory manager, NOT in React state!
     // This prevents React from holding onto large blobs and causing memory issues
     let previewUrl = videoSource.previewUrl || null;
-    
+
     if (blob && !hasDataUrl) {
       // Store blob externally and get preview URL
       previewUrl = storeVideoBlob(id, blob);
       console.log(`📹 Video blob stored externally: ${id.slice(-8)}`);
-      
+
       // Log memory usage
       const memUsage = getMemoryUsage();
-      console.log(`💾 Total video memory: ${memUsage.totalMB}MB (${memUsage.count} videos)`);
+      console.log(
+        `💾 Total video memory: ${memUsage.totalMB}MB (${memUsage.count} videos)`
+      );
     }
 
     // Return lightweight entry - blob is stored in memory manager, NOT in state!
@@ -2558,11 +2726,11 @@ export default function TakeMoment() {
         facingMode: desiredFacingMode,
         width: { ideal: 1280 },
         height: { ideal: 720 },
-        keepStream: true
+        keepStream: true,
       });
 
       if (!result.granted) {
-        await trackCameraPermission('denied', 'start_camera_failed');
+        await trackCameraPermission("denied", "start_camera_failed");
         throw new Error(result.message || "Tidak dapat mengakses kamera");
       }
 
@@ -2573,7 +2741,7 @@ export default function TakeMoment() {
 
       cameraStreamRef.current = stream;
       setCameraActive(true);
-      
+
       // Note: Mirror state is automatically computed from isUsingBackCamera via useMemo
       // No need to manually set it - shouldMirrorVideo = !isUsingBackCamera
 
@@ -2593,14 +2761,18 @@ export default function TakeMoment() {
     } catch (error) {
       console.error("❌ Error accessing camera", error);
       setCameraError(error.message);
-      
+
       // Show user-friendly error message
-      const errorMessage = error.message || "Pastikan izin kamera sudah diberikan di browser.";
-      const isPermissionError = errorMessage.includes("izin") || errorMessage.includes("permission");
-      
+      const errorMessage =
+        error.message || "Pastikan izin kamera sudah diberikan di browser.";
+      const isPermissionError =
+        errorMessage.includes("izin") || errorMessage.includes("permission");
+
       showToast({
         type: "error",
-        title: isPermissionError ? "Izin Kamera Diperlukan" : "Kamera Tidak Dapat Diakses",
+        title: isPermissionError
+          ? "Izin Kamera Diperlukan"
+          : "Kamera Tidak Dapat Diakses",
         message: errorMessage,
         action: {
           label: "Coba Lagi",
@@ -2615,58 +2787,77 @@ export default function TakeMoment() {
   // Handle permission primer request
   const handleRequestCameraPermission = useCallback(async () => {
     try {
-      await trackCameraPermission('requested');
-      
+      // Check secure context first
+      if (!isSecureContext()) {
+        throw new Error(
+          "Kamera hanya dapat diakses melalui HTTPS atau localhost. Pastikan Anda menggunakan koneksi aman."
+        );
+      }
+
+      // Check if camera is available
+      if (!isCameraAvailable()) {
+        throw new Error(
+          "Browser Anda tidak mendukung akses kamera. Gunakan browser modern seperti Chrome, Firefox, atau Safari."
+        );
+      }
+
+      await trackCameraPermission("requested");
+
       const result = await requestCameraPermissionWithSave({
-        facingMode: 'user',
+        facingMode: "user",
         width: { ideal: 1280 },
         height: { ideal: 720 },
-        keepStream: false
+        keepStream: false,
       });
-      
+
       setShowPermissionPrimer(false);
       setPermissionChecked(true);
-      
+
       if (result.granted) {
-        await trackCameraPermission('granted');
+        await trackCameraPermission("granted");
         setCameraError(null);
-        console.log('✅ Camera permission granted - Auto-starting camera...');
-        
+        console.log("✅ Camera permission granted - Auto-starting camera...");
+
         // Auto-start camera immediately after permission granted
         try {
           await startCamera(isUsingBackCamera ? "environment" : "user");
-          console.log('✅ Camera auto-started after permission grant');
+          console.log("✅ Camera auto-started after permission grant");
         } catch (cameraError) {
-          console.error('❌ Failed to auto-start camera after permission:', cameraError);
-          setCameraError('Gagal mengaktifkan kamera. Silakan coba lagi.');
+          console.error(
+            "❌ Failed to auto-start camera after permission:",
+            cameraError
+          );
+          setCameraError("Gagal mengaktifkan kamera. Silakan coba lagi.");
         }
       } else {
-        await trackCameraPermission('denied', 'user_denied');
-        setCameraError('Izin kamera ditolak. Silakan gunakan opsi upload foto.');
+        await trackCameraPermission("denied", "user_denied");
+        setCameraError(
+          "Izin kamera ditolak. Silakan gunakan opsi upload foto."
+        );
         showToast({
-          type: 'warning',
-          title: 'Izin Kamera Ditolak',
-          message: 'Anda masih bisa upload foto dari galeri.'
+          type: "warning",
+          title: "Izin Kamera Ditolak",
+          message: "Anda masih bisa upload foto dari galeri.",
         });
       }
     } catch (error) {
-      console.error('Permission request error:', error);
-      await trackCameraPermission('error', error.message);
+      console.error("Permission request error:", error);
+      await trackCameraPermission("error", error.message);
       setCameraError(error.message);
     }
   }, [showToast, startCamera, isUsingBackCamera]);
 
   // Handle skip permission (use upload only)
   const handleSkipCameraPermission = useCallback(async () => {
-    await trackCameraPermission('dismissed');
+    await trackCameraPermission("dismissed");
     setShowPermissionPrimer(false);
     setPermissionChecked(true);
-    setCameraError('Upload foto dari galeri untuk melanjutkan.');
-    
+    setCameraError("Upload foto dari galeri untuk melanjutkan.");
+
     showToast({
-      type: 'info',
-      title: 'Mode Upload',
-      message: 'Gunakan tombol upload untuk menambah foto dari galeri.'
+      type: "info",
+      title: "Mode Upload",
+      message: "Gunakan tombol upload untuk menambah foto dari galeri.",
     });
   }, [showToast]);
 
@@ -2740,7 +2931,10 @@ export default function TakeMoment() {
           return;
         }
 
-        const availableSlots = Math.max(0, photosNeeded - capturedPhotos.length);
+        const availableSlots = Math.max(
+          0,
+          photosNeeded - capturedPhotos.length
+        );
         const acceptedEntries = availableSlots
           ? validEntries.slice(0, availableSlots)
           : [];
@@ -2859,11 +3053,11 @@ export default function TakeMoment() {
         recordingStream = baseStream; // Use original stream, no clone needed
         usePreInitialized = true;
         supportedMimeType = recorder?.mimeType || "";
-        
+
         // Clear pre-initialized refs (will be re-initialized after recording)
         preInitializedRecorderRef.current = null;
         isRecorderReadyRef.current = false;
-        
+
         // No need to stop stream since we're using the original
         stopRecordingStream = () => {
           console.log("🛑 Recording stream cleanup (using original stream)");
@@ -2880,15 +3074,22 @@ export default function TakeMoment() {
             const currentVideoCount = capturedVideosRef.current?.length || 0;
             const targetWidth = currentVideoCount >= 2 ? 480 : 640;
             const targetHeight = currentVideoCount >= 2 ? 360 : 480;
-            
+
             try {
               videoTrack.applyConstraints({
                 width: { ideal: targetWidth },
                 height: { ideal: targetHeight },
               });
-              console.log(`📐 Video ${currentVideoCount + 1} resolution: ${targetWidth}x${targetHeight}`);
+              console.log(
+                `📐 Video ${
+                  currentVideoCount + 1
+                } resolution: ${targetWidth}x${targetHeight}`
+              );
             } catch (constraintErr) {
-              console.warn("⚠️ Could not apply resolution constraints:", constraintErr);
+              console.warn(
+                "⚠️ Could not apply resolution constraints:",
+                constraintErr
+              );
             }
           }
         }
@@ -3285,10 +3486,10 @@ export default function TakeMoment() {
 
     replaceCurrentPhoto(payload);
     setShowConfirmation(true);
-    
+
     // Track funnel event for photo taken
     trackFunnelEvent("photo_taken");
-    
+
     return payload;
   }, [replaceCurrentPhoto, shouldMirrorVideo, blurMode, filterMode]);
 
@@ -3329,11 +3530,19 @@ export default function TakeMoment() {
     const currentVideoCount = capturedVideosRef.current?.length || 0;
     if (isMobileDevice() && currentVideoCount >= 4) {
       // Log memory warning for video 5+
-      console.log(`⚠️ Recording video ${currentVideoCount + 1} - memory optimization active`);
-      
+      console.log(
+        `⚠️ Recording video ${
+          currentVideoCount + 1
+        } - memory optimization active`
+      );
+
       // Try to trigger garbage collection by clearing old references
-      if (typeof window !== 'undefined' && window.gc) {
-        try { window.gc(); } catch (e) { /* ignore */ }
+      if (typeof window !== "undefined" && window.gc) {
+        try {
+          window.gc();
+        } catch (e) {
+          /* ignore */
+        }
       }
     }
 
@@ -3564,7 +3773,7 @@ export default function TakeMoment() {
         : [];
 
       const appendedPhotos = [...basePhotos, photoEntry];
-      
+
       // DEBUG: Log maxCaptures to verify it's correct before trimming
       console.log("📷 [CAPTURE DEBUG] Photo capture state:", {
         maxCaptures,
@@ -3573,7 +3782,7 @@ export default function TakeMoment() {
         isDuplicateMode,
         photosNeeded,
       });
-      
+
       const trimmedPhotos = appendedPhotos.slice(0, maxCaptures);
       const overflowPhotos = appendedPhotos.slice(maxCaptures);
       overflowPhotos.forEach((entry) => cleanupCapturedPhotoPreview(entry));
@@ -3597,7 +3806,7 @@ export default function TakeMoment() {
             console.log("🎥 Video dataUrl generated from blob", {
               length: dataUrl?.length || 0,
             });
-            
+
             // ✅ MEMORY OPTIMIZATION: Revoke blob URL and clear blob after conversion
             if (videoToSave.previewUrl && isBlobUrl(videoToSave.previewUrl)) {
               revokeObjectURL(videoToSave.previewUrl);
@@ -3657,27 +3866,36 @@ export default function TakeMoment() {
       capturedVideosRef.current = trimmedVideos;
       setCapturedPhotos(trimmedPhotos);
       setCapturedVideos(trimmedVideos);
-      
+
       // Check if this is the last photo - if so, save IMMEDIATELY
       willReachMax = trimmedPhotos.length >= photosNeeded;
-      
+
       if (willReachMax) {
         console.log("🔥 [FINAL PHOTO] Force immediate storage write!");
         // Save with immediate flag to bypass requestIdleCallback
         scheduleStorageWrite(trimmedPhotos, trimmedVideos, { immediate: true });
-        
+
         // Also do a direct backup save
         try {
-          const backupPhotos = trimmedPhotos.map(p => {
-            if (typeof p === 'string' && p.startsWith('data:')) return p;
-            if (p?.dataUrl && p.dataUrl.startsWith('data:')) return p.dataUrl;
-            return null;
-          }).filter(Boolean);
-          
+          const backupPhotos = trimmedPhotos
+            .map((p) => {
+              if (typeof p === "string" && p.startsWith("data:")) return p;
+              if (p?.dataUrl && p.dataUrl.startsWith("data:")) return p.dataUrl;
+              return null;
+            })
+            .filter(Boolean);
+
           if (backupPhotos.length > 0) {
-            localStorage.setItem('capturedPhotos', JSON.stringify(backupPhotos));
+            localStorage.setItem(
+              "capturedPhotos",
+              JSON.stringify(backupPhotos)
+            );
             window.__fremio_photos = backupPhotos;
-            console.log("✅ [FINAL PHOTO] Direct backup saved:", backupPhotos.length, "photos");
+            console.log(
+              "✅ [FINAL PHOTO] Direct backup saved:",
+              backupPhotos.length,
+              "photos"
+            );
           }
         } catch (backupErr) {
           console.warn("⚠️ Direct backup failed:", backupErr.message);
@@ -3693,11 +3911,13 @@ export default function TakeMoment() {
         console.log(
           `🧹 Mobile memory cleanup after photo ${trimmedPhotos.length}/${maxCaptures}`
         );
-        
+
         // Clean up old video blobs that are no longer needed (we have dataUrl)
         trimmedVideos.forEach((video, idx) => {
           if (video?.blob && video?.dataUrl) {
-            console.log(`   🗑️ Clearing blob for video ${idx} (dataUrl exists)`);
+            console.log(
+              `   🗑️ Clearing blob for video ${idx} (dataUrl exists)`
+            );
             video.blob = null;
           }
           if (video?.previewUrl && isBlobUrl(video.previewUrl)) {
@@ -3705,7 +3925,7 @@ export default function TakeMoment() {
             video.previewUrl = null;
           }
         });
-        
+
         // Force garbage collection hint
         setTimeout(() => {
           if (window.gc) {
@@ -3851,15 +4071,18 @@ export default function TakeMoment() {
 
   const handleEdit = useCallback(async () => {
     console.log("🚀 [handleEdit] START");
-    console.log("📊 [handleEdit] capturedPhotos.length:", capturedPhotos.length);
+    console.log(
+      "📊 [handleEdit] capturedPhotos.length:",
+      capturedPhotos.length
+    );
     console.log("📊 [handleEdit] maxCaptures:", maxCaptures);
-    
+
     // DETAILED DEBUG: Show what's in each photo
     console.log("🔬 [DEBUG] Detailed capturedPhotos analysis:");
     capturedPhotos.forEach((p, i) => {
       console.log(`   Photo ${i}:`, {
         type: typeof p,
-        isString: typeof p === 'string',
+        isString: typeof p === "string",
         hasDataUrl: !!p?.dataUrl,
         dataUrlPreview: p?.dataUrl?.substring?.(0, 60),
         hasPreviewUrl: !!p?.previewUrl,
@@ -3869,7 +4092,7 @@ export default function TakeMoment() {
         blobSize: p?.blob?.size,
       });
     });
-    
+
     if (capturedPhotos.length < photosNeeded) {
       console.log("❌ [handleEdit] EARLY RETURN - photos not complete");
       showToast({
@@ -3883,76 +4106,114 @@ export default function TakeMoment() {
     }
 
     console.log("✅ [handleEdit] Photos complete, proceeding...");
-    
+
     // EMERGENCY: Save photos immediately at start of handleEdit
     console.log("🆘 [EMERGENCY] Saving photos immediately...");
     try {
       // First, collect all dataUrls (only data: URLs, not blob: URLs)
-      let emergencyPhotos = capturedPhotos.map((p, idx) => {
-        if (typeof p === 'string' && p.startsWith('data:')) {
-          console.log(`   Photo ${idx}: Using direct string (data URL)`);
-          return p;
-        }
-        if (p?.dataUrl && typeof p.dataUrl === 'string' && p.dataUrl.startsWith('data:')) {
-          console.log(`   Photo ${idx}: Using dataUrl property`);
-          return p.dataUrl;
-        }
-        // DON'T use previewUrl as it's a blob URL which can't be serialized!
-        console.warn(`   Photo ${idx}: NO VALID DATA URL! dataUrl=${p?.dataUrl?.substring?.(0,30)}, previewUrl=${p?.previewUrl?.substring?.(0,30)}`);
-        return null;
-      }).filter(Boolean);
-      
+      let emergencyPhotos = capturedPhotos
+        .map((p, idx) => {
+          if (typeof p === "string" && p.startsWith("data:")) {
+            console.log(`   Photo ${idx}: Using direct string (data URL)`);
+            return p;
+          }
+          if (
+            p?.dataUrl &&
+            typeof p.dataUrl === "string" &&
+            p.dataUrl.startsWith("data:")
+          ) {
+            console.log(`   Photo ${idx}: Using dataUrl property`);
+            return p.dataUrl;
+          }
+          // DON'T use previewUrl as it's a blob URL which can't be serialized!
+          console.warn(
+            `   Photo ${idx}: NO VALID DATA URL! dataUrl=${p?.dataUrl?.substring?.(
+              0,
+              30
+            )}, previewUrl=${p?.previewUrl?.substring?.(0, 30)}`
+          );
+          return null;
+        })
+        .filter(Boolean);
+
       // DUPLICATE MODE: If enabled, duplicate each photo for emergency save too
       if (isDuplicateMode && maxCaptures > emergencyPhotos.length) {
-        console.log("🔁 [EMERGENCY DUPLICATE] Duplicating photos in emergency save...");
+        console.log(
+          "🔁 [EMERGENCY DUPLICATE] Duplicating photos in emergency save..."
+        );
         const duplicated = [];
         for (let i = 0; i < emergencyPhotos.length; i++) {
           duplicated.push(emergencyPhotos[i]);
           duplicated.push(emergencyPhotos[i]);
         }
         emergencyPhotos = duplicated.slice(0, maxCaptures);
-        console.log("✅ [EMERGENCY DUPLICATE] Photos duplicated:", emergencyPhotos.length);
+        console.log(
+          "✅ [EMERGENCY DUPLICATE] Photos duplicated:",
+          emergencyPhotos.length
+        );
       }
-      
+
       console.log("🆘 [EMERGENCY] Photos to save:", emergencyPhotos.length);
-      console.log("🆘 [EMERGENCY] First photo type:", typeof emergencyPhotos[0]);
-      console.log("🆘 [EMERGENCY] First photo preview:", emergencyPhotos[0]?.substring?.(0, 60));
-      
+      console.log(
+        "🆘 [EMERGENCY] First photo type:",
+        typeof emergencyPhotos[0]
+      );
+      console.log(
+        "🆘 [EMERGENCY] First photo preview:",
+        emergencyPhotos[0]?.substring?.(0, 60)
+      );
+
       if (emergencyPhotos.length > 0) {
         // Save to localStorage
-        localStorage.setItem('capturedPhotos', JSON.stringify(emergencyPhotos));
+        localStorage.setItem("capturedPhotos", JSON.stringify(emergencyPhotos));
         console.log("✅ [EMERGENCY] Photos saved to localStorage!");
-        
+
         // Also save to window for backup
         window.__fremio_photos = emergencyPhotos;
         console.log("✅ [EMERGENCY] Photos saved to window.__fremio_photos!");
-        
+
         // Also save to sessionStorage as backup
         try {
-          sessionStorage.setItem('capturedPhotos_backup', JSON.stringify(emergencyPhotos));
+          sessionStorage.setItem(
+            "capturedPhotos_backup",
+            JSON.stringify(emergencyPhotos)
+          );
           console.log("✅ [EMERGENCY] Photos saved to sessionStorage backup!");
         } catch (sessErr) {
           console.warn("⚠️ sessionStorage backup failed:", sessErr.message);
         }
-        
+
         // Verify localStorage
-        const verify = localStorage.getItem('capturedPhotos');
+        const verify = localStorage.getItem("capturedPhotos");
         const parsed = verify ? JSON.parse(verify) : [];
-        console.log("🔍 [EMERGENCY] Verification - localStorage has:", parsed.length, "photos");
-        console.log("🔍 [EMERGENCY] Verification - first photo starts with:", parsed[0]?.substring?.(0, 30));
-        
+        console.log(
+          "🔍 [EMERGENCY] Verification - localStorage has:",
+          parsed.length,
+          "photos"
+        );
+        console.log(
+          "🔍 [EMERGENCY] Verification - first photo starts with:",
+          parsed[0]?.substring?.(0, 30)
+        );
+
         if (parsed.length === 0) {
-          console.error("❌ [EMERGENCY] localStorage save FAILED! Data not persisted.");
+          console.error(
+            "❌ [EMERGENCY] localStorage save FAILED! Data not persisted."
+          );
         }
       } else {
         console.error("❌ [EMERGENCY] No valid photos to save!");
-        console.log("📊 [EMERGENCY] This means photos don't have dataUrl property");
-        console.log("📊 [EMERGENCY] Need to check if capturePhoto() is creating dataUrl correctly");
+        console.log(
+          "📊 [EMERGENCY] This means photos don't have dataUrl property"
+        );
+        console.log(
+          "📊 [EMERGENCY] Need to check if capturePhoto() is creating dataUrl correctly"
+        );
       }
     } catch (emergencyError) {
       console.error("❌ [EMERGENCY] Save failed:", emergencyError);
     }
-    
+
     setIsEditorTransitioning(true);
 
     const photosSnapshot = Array.isArray(capturedPhotosRef.current)
@@ -4097,36 +4358,45 @@ export default function TakeMoment() {
       // This prevents memory spikes when converting 6 videos at once
       console.log("🎬 Converting videos for editing (using memory manager)...");
       console.log(`📊 Total videos to convert: ${entries.length}`);
-      
+
       // Use the memory manager's sequential conversion
       const convertedVideos = await convertAllVideosToDataUrl(
         entries,
         (current, total, id) => {
-          console.log(`🎬 Progress: ${current}/${total} (${id?.slice(-8) || 'unknown'})`);
+          console.log(
+            `🎬 Progress: ${current}/${total} (${id?.slice(-8) || "unknown"})`
+          );
         }
       );
-      
+
       // Cleanup all blobs from memory manager after conversion
       cleanupAllVideoBlobs();
       console.log("✅ All video blobs cleaned up from memory manager");
-      
+
       // Map to the expected format
       const results = convertedVideos.map((entry, index) => {
         if (!entry) return null;
-        
+
         return {
           ...entry,
           blob: null, // Already cleaned up
           isConverting: false,
           conversionError: false,
           sizeBytes:
-            typeof entry.sizeBytes === "number" && Number.isFinite(entry.sizeBytes)
+            typeof entry.sizeBytes === "number" &&
+            Number.isFinite(entry.sizeBytes)
               ? entry.sizeBytes
-              : entry.dataUrl ? entry.dataUrl.length * 2 : null,
+              : entry.dataUrl
+              ? entry.dataUrl.length * 2
+              : null,
         };
       });
-      
-      console.log(`✅ Video conversion complete: ${results.filter(r => r?.dataUrl).length}/${entries.length} videos`);
+
+      console.log(
+        `✅ Video conversion complete: ${
+          results.filter((r) => r?.dataUrl).length
+        }/${entries.length} videos`
+      );
       return results;
     };
 
@@ -4244,29 +4514,41 @@ export default function TakeMoment() {
       let photoPayloadSource = convertedPhotos.map(
         (entry) => entry?.dataUrl ?? null
       );
-      
+
       console.log("📸 [SAVE DEBUG] Photo payload preparation:");
       console.log("  - convertedPhotos count:", convertedPhotos.length);
       console.log("  - photoPayloadSource count:", photoPayloadSource.length);
-      console.log("  - Has null values:", photoPayloadSource.some((value) => !value));
-      console.log("  - First photo preview:", photoPayloadSource[0]?.substring(0, 50));
+      console.log(
+        "  - Has null values:",
+        photoPayloadSource.some((value) => !value)
+      );
+      console.log(
+        "  - First photo preview:",
+        photoPayloadSource[0]?.substring(0, 50)
+      );
       console.log("  - isDuplicateMode:", isDuplicateMode);
       console.log("  - maxCaptures:", maxCaptures);
       console.log("  - convertedVideos count:", convertedVideos.length);
-      
+
       if (photoPayloadSource.some((value) => !value)) {
         throw new Error("Foto tidak lengkap untuk disimpan.");
       }
 
       // Prepare video source for potential duplication
       let videoPayloadSource = [...convertedVideos];
-      
+
       console.log("🎬 [VIDEO DEBUG] Before duplication check:");
       console.log("  - videoPayloadSource.length:", videoPayloadSource.length);
       console.log("  - maxCaptures:", maxCaptures);
       console.log("  - isDuplicateMode:", isDuplicateMode);
-      console.log("  - Condition (isDuplicateMode && maxCaptures > 1):", isDuplicateMode && maxCaptures > 1);
-      console.log("  - Condition (videoPayloadSource.length < maxCaptures):", videoPayloadSource.length < maxCaptures);
+      console.log(
+        "  - Condition (isDuplicateMode && maxCaptures > 1):",
+        isDuplicateMode && maxCaptures > 1
+      );
+      console.log(
+        "  - Condition (videoPayloadSource.length < maxCaptures):",
+        videoPayloadSource.length < maxCaptures
+      );
 
       // DUPLICATE MODE: If enabled, duplicate each photo AND video to fill all slots
       // Example: 3 photos with 6 slots -> Photo1, Photo1, Photo2, Photo2, Photo3, Photo3
@@ -4277,7 +4559,7 @@ export default function TakeMoment() {
           console.log("🔁 [DUPLICATE MODE] Duplicating photos...");
           console.log("  - Original photos:", photoPayloadSource.length);
           console.log("  - Target slots:", maxCaptures);
-          
+
           const duplicatedPhotos = [];
           for (let i = 0; i < photoPayloadSource.length; i++) {
             const photo = photoPayloadSource[i];
@@ -4286,26 +4568,38 @@ export default function TakeMoment() {
           }
           // Trim to maxCaptures in case we have odd number
           photoPayloadSource = duplicatedPhotos.slice(0, maxCaptures);
-          
-          console.log("✅ [DUPLICATE MODE] Photos duplicated:", photoPayloadSource.length);
+
+          console.log(
+            "✅ [DUPLICATE MODE] Photos duplicated:",
+            photoPayloadSource.length
+          );
         } else {
-          console.log("📸 [DUPLICATE MODE] Photos already at target count:", photoPayloadSource.length);
+          console.log(
+            "📸 [DUPLICATE MODE] Photos already at target count:",
+            photoPayloadSource.length
+          );
         }
-        
+
         // ALWAYS duplicate videos if they're less than maxCaptures
         // Videos are NOT duplicated in capture step, only here
         if (videoPayloadSource.length < maxCaptures) {
           console.log("🔁 [DUPLICATE MODE] Duplicating videos...");
           console.log("  - Original videos:", videoPayloadSource.length);
           console.log("  - Target slots:", maxCaptures);
-          
+
           const duplicatedVideos = [];
           for (let i = 0; i < videoPayloadSource.length; i++) {
             const video = videoPayloadSource[i];
             if (video) {
               // Create duplicate with unique IDs but same content
-              duplicatedVideos.push({ ...video, id: video.id || `video-${i * 2}` });
-              duplicatedVideos.push({ ...video, id: `${video.id || 'video'}-dup-${i * 2 + 1}` });
+              duplicatedVideos.push({
+                ...video,
+                id: video.id || `video-${i * 2}`,
+              });
+              duplicatedVideos.push({
+                ...video,
+                id: `${video.id || "video"}-dup-${i * 2 + 1}`,
+              });
             } else {
               duplicatedVideos.push(null);
               duplicatedVideos.push(null);
@@ -4313,62 +4607,85 @@ export default function TakeMoment() {
           }
           // Trim to maxCaptures
           videoPayloadSource = duplicatedVideos.slice(0, maxCaptures);
-          
-          console.log("✅ [DUPLICATE MODE] Videos duplicated:", videoPayloadSource.length);
+
+          console.log(
+            "✅ [DUPLICATE MODE] Videos duplicated:",
+            videoPayloadSource.length
+          );
         } else {
-          console.log("🎬 [DUPLICATE MODE] Videos already at target count:", videoPayloadSource.length);
+          console.log(
+            "🎬 [DUPLICATE MODE] Videos already at target count:",
+            videoPayloadSource.length
+          );
         }
       }
-      
+
       // SAFETY CHECK: If photos count > videos count, duplicate videos to match
       // This handles cases where photos were duplicated but videos weren't
       console.log("🔍 [SAFETY CHECK] Before duplication check:");
       console.log("  - photoPayloadSource.length:", photoPayloadSource.length);
       console.log("  - videoPayloadSource.length:", videoPayloadSource.length);
-      console.log("  - Condition (photos > videos):", photoPayloadSource.length > videoPayloadSource.length);
+      console.log(
+        "  - Condition (photos > videos):",
+        photoPayloadSource.length > videoPayloadSource.length
+      );
       console.log("  - Condition (videos > 0):", videoPayloadSource.length > 0);
-      
-      if (photoPayloadSource.length > videoPayloadSource.length && videoPayloadSource.length > 0) {
-        console.log("⚠️ [SAFETY] Photo/Video count mismatch, duplicating videos to match...");
+
+      if (
+        photoPayloadSource.length > videoPayloadSource.length &&
+        videoPayloadSource.length > 0
+      ) {
+        console.log(
+          "⚠️ [SAFETY] Photo/Video count mismatch, duplicating videos to match..."
+        );
         console.log("  - Photos:", photoPayloadSource.length);
         console.log("  - Videos:", videoPayloadSource.length);
-        
+
         const duplicatedVideos = [];
         const targetCount = photoPayloadSource.length;
         const originalCount = videoPayloadSource.length;
-        
+
         // Each original video should be duplicated to fill slots
         // ratio = targetCount / originalCount (e.g., 6/3 = 2)
         const ratio = Math.ceil(targetCount / originalCount);
-        
+
         for (let i = 0; i < originalCount; i++) {
           const video = videoPayloadSource[i];
           for (let j = 0; j < ratio; j++) {
             if (duplicatedVideos.length >= targetCount) break;
             if (video) {
-              duplicatedVideos.push({ 
-                ...video, 
-                id: j === 0 ? (video.id || `video-${i}`) : `${video.id || 'video'}-dup-${i}-${j}` 
+              duplicatedVideos.push({
+                ...video,
+                id:
+                  j === 0
+                    ? video.id || `video-${i}`
+                    : `${video.id || "video"}-dup-${i}-${j}`,
               });
             } else {
               duplicatedVideos.push(null);
             }
           }
         }
-        
+
         videoPayloadSource = duplicatedVideos.slice(0, targetCount);
-        console.log("✅ [SAFETY] Videos duplicated to match photos:", videoPayloadSource.length);
+        console.log(
+          "✅ [SAFETY] Videos duplicated to match photos:",
+          videoPayloadSource.length
+        );
       }
 
       // Flush any pending writes first
       flushStorageWrite();
-      
+
       // NOTE: Do NOT call cleanUpStorage() here - it would read empty storage and write empty back!
       // cleanUpStorage() should only be called AFTER photos are written
 
-      const basePayload = preparePayload(photoPayloadSource, videoPayloadSource);
+      const basePayload = preparePayload(
+        photoPayloadSource,
+        videoPayloadSource
+      );
       const storageSize = calculateStorageSize(basePayload);
-      
+
       console.log("📸 [SAVE DEBUG] Storage preparation:");
       console.log("  - Payload photos count:", basePayload.photos.length);
       console.log("  - Payload videos count:", basePayload.videos.length);
@@ -4388,39 +4705,66 @@ export default function TakeMoment() {
           emergencyCompressedBase,
           videoPayloadSource
         );
-        
+
         // Try direct localStorage first, then fallback to safeStorage
         try {
           console.log("📸 [SAVE DEBUG] Attempting direct localStorage save...");
-          localStorage.setItem("capturedPhotos", JSON.stringify(emergencyPayload.photos));
-          localStorage.setItem("capturedVideos", JSON.stringify(emergencyPayload.videos));
+          localStorage.setItem(
+            "capturedPhotos",
+            JSON.stringify(emergencyPayload.photos)
+          );
+          localStorage.setItem(
+            "capturedVideos",
+            JSON.stringify(emergencyPayload.videos)
+          );
           console.log("✅ [SAVE DEBUG] Direct localStorage save successful!");
         } catch (directError) {
-          console.warn("⚠️ [SAVE DEBUG] Direct save failed, trying safeStorage:", directError);
+          console.warn(
+            "⚠️ [SAVE DEBUG] Direct save failed, trying safeStorage:",
+            directError
+          );
           safeStorage.setJSON("capturedPhotos", emergencyPayload.photos);
           safeStorage.setJSON("capturedVideos", emergencyPayload.videos);
         }
-        console.log("✅ [SAVE DEBUG] Emergency photos saved:", emergencyPayload.photos.length);
+        console.log(
+          "✅ [SAVE DEBUG] Emergency photos saved:",
+          emergencyPayload.photos.length
+        );
       } else {
         console.log("📸 [SAVE DEBUG] Saving normal payload");
-        
+
         // Try direct localStorage first, then fallback to safeStorage
         try {
           console.log("📸 [SAVE DEBUG] Attempting direct localStorage save...");
-          localStorage.setItem("capturedPhotos", JSON.stringify(basePayload.photos));
-          localStorage.setItem("capturedVideos", JSON.stringify(basePayload.videos));
+          localStorage.setItem(
+            "capturedPhotos",
+            JSON.stringify(basePayload.photos)
+          );
+          localStorage.setItem(
+            "capturedVideos",
+            JSON.stringify(basePayload.videos)
+          );
           console.log("✅ [SAVE DEBUG] Direct localStorage save successful!");
         } catch (directError) {
-          console.warn("⚠️ [SAVE DEBUG] Direct save failed, trying safeStorage:", directError);
+          console.warn(
+            "⚠️ [SAVE DEBUG] Direct save failed, trying safeStorage:",
+            directError
+          );
           safeStorage.setJSON("capturedPhotos", basePayload.photos);
           safeStorage.setJSON("capturedVideos", basePayload.videos);
         }
-        console.log("✅ [SAVE DEBUG] Photos saved to localStorage:", basePayload.photos.length);
+        console.log(
+          "✅ [SAVE DEBUG] Photos saved to localStorage:",
+          basePayload.photos.length
+        );
       }
-      
+
       // VERIFY SAVE
       const verifyPhotos = safeStorage.getJSON("capturedPhotos");
-      console.log("🔍 [SAVE DEBUG] Verification - Photos in localStorage:", verifyPhotos?.length || 0);
+      console.log(
+        "🔍 [SAVE DEBUG] Verification - Photos in localStorage:",
+        verifyPhotos?.length || 0
+      );
 
       const activeDraftId = safeStorage.getItem("activeDraftId");
 
@@ -4454,15 +4798,25 @@ export default function TakeMoment() {
 
       // PRIORITY 0: Check for shared frame in sessionStorage FIRST
       // Shared frames have ALL elements including background-photo and uploads
-      const SHARED_FRAME_KEY = '__fremio_shared_frame_temp__';
+      const SHARED_FRAME_KEY = "__fremio_shared_frame_temp__";
       try {
         const rawSharedData = sessionStorage.getItem(SHARED_FRAME_KEY);
         if (rawSharedData) {
           const sharedFrameData = JSON.parse(rawSharedData);
           if (sharedFrameData?.frameConfig) {
-            console.log("🔗 [SHARED FRAME] Using frameConfig from sessionStorage");
-            console.log("   Elements count:", sharedFrameData.frameConfig.designer?.elements?.length);
-            console.log("   Element types:", sharedFrameData.frameConfig.designer?.elements?.map(el => el?.type));
+            console.log(
+              "🔗 [SHARED FRAME] Using frameConfig from sessionStorage"
+            );
+            console.log(
+              "   Elements count:",
+              sharedFrameData.frameConfig.designer?.elements?.length
+            );
+            console.log(
+              "   Element types:",
+              sharedFrameData.frameConfig.designer?.elements?.map(
+                (el) => el?.type
+              )
+            );
             configToSave = sharedFrameData.frameConfig;
           }
         }
@@ -4516,7 +4870,9 @@ export default function TakeMoment() {
       } else if (!configToSave) {
         // No activeDraftId AND no shared frame, means user came from Frames page (regular frame)
         // Use stored frameConfig or frameProvider
-        console.log("📦 No activeDraftId and no shared frame, using regular frame");
+        console.log(
+          "📦 No activeDraftId and no shared frame, using regular frame"
+        );
         configToSave = safeStorage.getJSON("frameConfig");
 
         if (!configToSave || !configToSave.id) {
@@ -4635,56 +4991,75 @@ export default function TakeMoment() {
     // FINAL VERIFICATION before navigate
     const finalPhotosCheck = safeStorage.getJSON("capturedPhotos");
     console.log("🔍 FINAL CHECK before navigate:");
-    console.log("  - capturedPhotos in localStorage:", finalPhotosCheck?.length || 0);
-    console.log("  - capturedPhotosRef.current length:", capturedPhotosRef.current?.length || 0);
-    console.log("  - capturedPhotos state length:", capturedPhotos?.length || 0);
-    
+    console.log(
+      "  - capturedPhotos in localStorage:",
+      finalPhotosCheck?.length || 0
+    );
+    console.log(
+      "  - capturedPhotosRef.current length:",
+      capturedPhotosRef.current?.length || 0
+    );
+    console.log(
+      "  - capturedPhotos state length:",
+      capturedPhotos?.length || 0
+    );
+
     // Always save to window object as backup (survives navigation)
     try {
-      let backupPhotos = (capturedPhotosRef.current || []).map(p => 
-        typeof p === 'string' ? p : p?.dataUrl || null
-      ).filter(Boolean);
-      
+      let backupPhotos = (capturedPhotosRef.current || [])
+        .map((p) => (typeof p === "string" ? p : p?.dataUrl || null))
+        .filter(Boolean);
+
       if (backupPhotos.length === 0 && capturedPhotos?.length > 0) {
-        backupPhotos = capturedPhotos.map(p => 
-          typeof p === 'string' ? p : p?.dataUrl || null
-        ).filter(Boolean);
+        backupPhotos = capturedPhotos
+          .map((p) => (typeof p === "string" ? p : p?.dataUrl || null))
+          .filter(Boolean);
       }
-      
+
       if (backupPhotos.length > 0) {
         window.__fremio_photos = backupPhotos;
-        console.log("💾 Saved photos to window.__fremio_photos:", backupPhotos.length);
+        console.log(
+          "💾 Saved photos to window.__fremio_photos:",
+          backupPhotos.length
+        );
       }
     } catch (e) {
       console.warn("Failed to backup photos to window:", e);
     }
-    
+
     if (!finalPhotosCheck || finalPhotosCheck.length === 0) {
       console.error("❌ CRITICAL: Photos not saved to localStorage!");
       console.error("  - capturedPhotosRef:", capturedPhotosRef.current);
       console.error("  - Attempting emergency save...");
-      
+
       // Clear large cache items first
       clearLargeCacheItems();
-      
+
       // Emergency direct save - try multiple sources
       try {
         // First try capturedPhotosRef
-        let emergencyPhotos = (capturedPhotosRef.current || []).map(p => 
-          typeof p === 'string' ? p : p?.dataUrl || null
-        ).filter(Boolean);
-        
+        let emergencyPhotos = (capturedPhotosRef.current || [])
+          .map((p) => (typeof p === "string" ? p : p?.dataUrl || null))
+          .filter(Boolean);
+
         // If ref is empty, try state
         if (emergencyPhotos.length === 0 && capturedPhotos?.length > 0) {
           console.log("  - Using capturedPhotos state instead of ref");
-          emergencyPhotos = capturedPhotos.map(p => 
-            typeof p === 'string' ? p : p?.dataUrl || null
-          ).filter(Boolean);
+          emergencyPhotos = capturedPhotos
+            .map((p) => (typeof p === "string" ? p : p?.dataUrl || null))
+            .filter(Boolean);
         }
-        
+
         if (emergencyPhotos.length > 0) {
-          localStorage.setItem('capturedPhotos', JSON.stringify(emergencyPhotos));
-          console.log("✅ Emergency save successful:", emergencyPhotos.length, "photos");
+          localStorage.setItem(
+            "capturedPhotos",
+            JSON.stringify(emergencyPhotos)
+          );
+          console.log(
+            "✅ Emergency save successful:",
+            emergencyPhotos.length,
+            "photos"
+          );
         } else {
           console.error("❌ No photos to save!");
         }
@@ -4717,26 +5092,32 @@ export default function TakeMoment() {
     if (!permissionChecked || showPermissionPrimer || cameraActive) {
       return;
     }
-    
-    console.log('🎥 Auto-starting camera after permission check...', {
+
+    console.log("🎥 Auto-starting camera after permission check...", {
       permissionChecked,
       showPermissionPrimer,
       cameraActive,
-      isUsingBackCamera
+      isUsingBackCamera,
     });
-    
+
     const autoStart = async () => {
       try {
         await startCamera(isUsingBackCamera ? "environment" : "user");
-        console.log('✅ Camera auto-started successfully');
+        console.log("✅ Camera auto-started successfully");
       } catch (error) {
-        console.error('❌ Failed to auto-start camera:', error);
+        console.error("❌ Failed to auto-start camera:", error);
         // Don't set error here, let startCamera handle it
       }
     };
-    
+
     autoStart();
-  }, [permissionChecked, showPermissionPrimer, cameraActive, isUsingBackCamera, startCamera]);
+  }, [
+    permissionChecked,
+    showPermissionPrimer,
+    cameraActive,
+    isUsingBackCamera,
+    startCamera,
+  ]);
 
   const renderEditorTransitionOverlay = () => {
     if (!isEditorTransitioning) return null;
@@ -5034,14 +5415,16 @@ export default function TakeMoment() {
     // Mobile: Clean minimal controls
     if (isMobileVariant) {
       return (
-        <div style={{
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          gap: "0.5rem",
-          marginBottom: "0.5rem",
-          width: "100%",
-        }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            gap: "0.5rem",
+            marginBottom: "0.5rem",
+            width: "100%",
+          }}
+        >
           <input
             ref={fileInputRef}
             type="file"
@@ -5055,15 +5438,19 @@ export default function TakeMoment() {
               pointerEvents: "none",
             }}
           />
-          
+
           {/* Photo Counter - Left side, clickable to toggle duplicate mode */}
-          {maxCaptures > 1 && maxCaptures % 2 === 0 && capturedPhotos.length === 0 ? (
+          {maxCaptures > 1 &&
+          maxCaptures % 2 === 0 &&
+          capturedPhotos.length === 0 ? (
             <button
               onClick={() => setIsDuplicateMode(!isDuplicateMode)}
               disabled={capturing}
               style={{
                 padding: "0.45rem 0.7rem",
-                background: isDuplicateMode ? "rgba(139,92,246,0.15)" : "rgba(232,168,137,0.15)",
+                background: isDuplicateMode
+                  ? "rgba(139,92,246,0.15)"
+                  : "rgba(232,168,137,0.15)",
                 color: isDuplicateMode ? "#8B5CF6" : "#5D4E47",
                 borderRadius: "999px",
                 fontSize: "0.8rem",
@@ -5071,19 +5458,26 @@ export default function TakeMoment() {
                 display: "flex",
                 alignItems: "center",
                 gap: "0.3rem",
-                border: isDuplicateMode ? "1px solid rgba(139,92,246,0.4)" : "1px solid rgba(232,168,137,0.3)",
+                border: isDuplicateMode
+                  ? "1px solid rgba(139,92,246,0.4)"
+                  : "1px solid rgba(232,168,137,0.3)",
                 cursor: capturing ? "not-allowed" : "pointer",
                 transition: "all 0.2s ease",
               }}
             >
-              {isDuplicateMode ? "🔁" : "📸"} {capturedPhotos.length}/{photosNeeded}
-              {isDuplicateMode && <span style={{ fontSize: "0.7rem", opacity: 0.8 }}>ON</span>}
+              {isDuplicateMode ? "🔁" : "📸"} {capturedPhotos.length}/
+              {photosNeeded}
+              {isDuplicateMode && (
+                <span style={{ fontSize: "0.7rem", opacity: 0.8 }}>ON</span>
+              )}
             </button>
           ) : (
             <div
               style={{
                 padding: "0.45rem 0.7rem",
-                background: hasReachedMaxPhotos ? "rgba(239,68,68,0.1)" : "rgba(232,168,137,0.15)",
+                background: hasReachedMaxPhotos
+                  ? "rgba(239,68,68,0.1)"
+                  : "rgba(232,168,137,0.15)",
                 color: hasReachedMaxPhotos ? "#ef4444" : "#5D4E47",
                 borderRadius: "999px",
                 fontSize: "0.8rem",
@@ -5091,14 +5485,16 @@ export default function TakeMoment() {
                 display: "flex",
                 alignItems: "center",
                 gap: "0.3rem",
-                border: hasReachedMaxPhotos ? "1px solid rgba(239,68,68,0.3)" : "1px solid rgba(232,168,137,0.3)",
+                border: hasReachedMaxPhotos
+                  ? "1px solid rgba(239,68,68,0.3)"
+                  : "1px solid rgba(232,168,137,0.3)",
               }}
             >
               📸 {capturedPhotos.length}/{photosNeeded}
               {isDuplicateMode && <span style={{ color: "#8B5CF6" }}>🔁</span>}
             </div>
           )}
-          
+
           {/* Upload Galeri */}
           <button
             onClick={() => {
@@ -5108,13 +5504,18 @@ export default function TakeMoment() {
             disabled={capturedPhotos.length >= photosNeeded}
             style={{
               padding: "0.45rem 0.7rem",
-              background: capturedPhotos.length >= photosNeeded ? "#f1f5f9" : "#fff",
-              color: capturedPhotos.length >= photosNeeded ? "#94a3b8" : "#5D4E47",
+              background:
+                capturedPhotos.length >= photosNeeded ? "#f1f5f9" : "#fff",
+              color:
+                capturedPhotos.length >= photosNeeded ? "#94a3b8" : "#5D4E47",
               border: "1px solid rgba(232,168,137,0.3)",
               borderRadius: "999px",
               fontSize: "0.8rem",
               fontWeight: 500,
-              cursor: capturedPhotos.length >= photosNeeded ? "not-allowed" : "pointer",
+              cursor:
+                capturedPhotos.length >= photosNeeded
+                  ? "not-allowed"
+                  : "pointer",
               boxShadow: "0 4px 12px rgba(139,92,77,0.08)",
               display: "flex",
               alignItems: "center",
@@ -5131,7 +5532,9 @@ export default function TakeMoment() {
               padding: "0.45rem 0.7rem",
               background: cameraActive ? "#E8A889" : "#fff",
               color: cameraActive ? "#fff" : "#5D4E47",
-              border: cameraActive ? "1px solid #E8A889" : "1px solid rgba(232,168,137,0.3)",
+              border: cameraActive
+                ? "1px solid #E8A889"
+                : "1px solid rgba(232,168,137,0.3)",
               borderRadius: "999px",
               fontSize: "0.8rem",
               fontWeight: 500,
@@ -5170,32 +5573,42 @@ export default function TakeMoment() {
               >
                 ⚙️
               </button>
-              
+
               {/* Settings Dropdown */}
               {showMobileSettings && (
-                <div style={{
-                  position: "absolute",
-                  top: "calc(100% + 8px)",
-                  right: 0,
-                  background: "rgba(255,255,255,0.98)",
-                  borderRadius: "16px",
-                  padding: "12px",
-                  boxShadow: "0 12px 32px rgba(139,92,77,0.2)",
-                  border: "1px solid rgba(232,168,137,0.3)",
-                  zIndex: 200,
-                  minWidth: "160px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "10px",
-                }}>
-                  {/* Timer */}
-                  <div style={{
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 8px)",
+                    right: 0,
+                    background: "rgba(255,255,255,0.98)",
+                    borderRadius: "16px",
+                    padding: "12px",
+                    boxShadow: "0 12px 32px rgba(139,92,77,0.2)",
+                    border: "1px solid rgba(232,168,137,0.3)",
+                    zIndex: 200,
+                    minWidth: "160px",
                     display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "8px",
-                  }}>
-                    <span style={{ fontSize: "0.85rem", fontWeight: 500, color: "#5D4E47" }}>
+                    flexDirection: "column",
+                    gap: "10px",
+                  }}
+                >
+                  {/* Timer */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "8px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: "0.85rem",
+                        fontWeight: 500,
+                        color: "#5D4E47",
+                      }}
+                    >
                       ⏱️ Timer
                     </span>
                     <select
@@ -5221,14 +5634,22 @@ export default function TakeMoment() {
                   </div>
 
                   {/* Live Mode */}
-                  <label style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "8px",
-                    cursor: capturing ? "not-allowed" : "pointer",
-                  }}>
-                    <span style={{ fontSize: "0.85rem", fontWeight: 500, color: "#5D4E47" }}>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "8px",
+                      cursor: capturing ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: "0.85rem",
+                        fontWeight: 500,
+                        color: "#5D4E47",
+                      }}
+                    >
                       🎥 Live Mode
                     </span>
                     <input
@@ -5412,9 +5833,11 @@ export default function TakeMoment() {
                     cursor: capturing ? "not-allowed" : "pointer",
                     fontSize: isMobileVariant ? "0.88rem" : "0.95rem",
                     fontWeight: isMobileVariant ? 600 : 500,
-                    color: isDuplicateMode 
-                      ? "#8B5CF6" 
-                      : (isMobileVariant ? "#1E293B" : "#475569"),
+                    color: isDuplicateMode
+                      ? "#8B5CF6"
+                      : isMobileVariant
+                      ? "#1E293B"
+                      : "#475569",
                   }}
                 >
                   <input
@@ -5425,7 +5848,10 @@ export default function TakeMoment() {
                     style={{
                       width: "18px",
                       height: "18px",
-                      cursor: capturing || capturedPhotos.length > 0 ? "not-allowed" : "pointer",
+                      cursor:
+                        capturing || capturedPhotos.length > 0
+                          ? "not-allowed"
+                          : "pointer",
                       accentColor: "#8B5CF6",
                     }}
                   />
@@ -5459,7 +5885,8 @@ export default function TakeMoment() {
                     padding: "4px 10px",
                     borderRadius: "8px",
                     border: "none",
-                    background: filterMode === "original" ? "#E8A889" : "transparent",
+                    background:
+                      filterMode === "original" ? "#E8A889" : "transparent",
                     color: filterMode === "original" ? "#fff" : "#5D4E47",
                     fontSize: "11px",
                     fontWeight: 600,
@@ -5481,11 +5908,13 @@ export default function TakeMoment() {
                     padding: "4px 10px",
                     borderRadius: "8px",
                     border: "none",
-                    background: filterMode === "blur" ? "#E8A889" : "transparent",
+                    background:
+                      filterMode === "blur" ? "#E8A889" : "transparent",
                     color: filterMode === "blur" ? "#fff" : "#5D4E47",
                     fontSize: "11px",
                     fontWeight: 600,
-                    cursor: capturing || isLoadingBlur ? "not-allowed" : "pointer",
+                    cursor:
+                      capturing || isLoadingBlur ? "not-allowed" : "pointer",
                     opacity: capturing || isLoadingBlur ? 0.5 : 1,
                     transition: "all 0.2s ease",
                     display: "flex",
@@ -5521,9 +5950,11 @@ export default function TakeMoment() {
                   cursor: capturedPhotos.length > 0 ? "not-allowed" : "pointer",
                   fontSize: isMobileVariant ? "0.88rem" : "0.95rem",
                   fontWeight: isMobileVariant ? 600 : 500,
-                  color: isDuplicateMode 
-                    ? "#8B5CF6" 
-                    : (isMobileVariant ? "#1E293B" : "#475569"),
+                  color: isDuplicateMode
+                    ? "#8B5CF6"
+                    : isMobileVariant
+                    ? "#1E293B"
+                    : "#475569",
                 }}
               >
                 <input
@@ -5534,7 +5965,8 @@ export default function TakeMoment() {
                   style={{
                     width: "18px",
                     height: "18px",
-                    cursor: capturedPhotos.length > 0 ? "not-allowed" : "pointer",
+                    cursor:
+                      capturedPhotos.length > 0 ? "not-allowed" : "pointer",
                     accentColor: "#8B5CF6",
                   }}
                 />
@@ -5718,18 +6150,20 @@ export default function TakeMoment() {
                   <img
                     src={flipIcon}
                     alt="Flip camera"
-                    style={{ 
-                      width: "22px", 
+                    style={{
+                      width: "22px",
                       height: "22px",
                       filter: "brightness(0) invert(1)",
                     }}
                   />
-                  <span style={{
-                    color: "#fff",
-                    fontSize: "12px",
-                    fontWeight: 600,
-                    whiteSpace: "nowrap",
-                  }}>
+                  <span
+                    style={{
+                      color: "#fff",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
                     {isUsingBackCamera ? "Depan" : "Belakang"}
                   </span>
                 </button>
@@ -5763,7 +6197,8 @@ export default function TakeMoment() {
                       padding: "6px 10px",
                       borderRadius: "14px",
                       border: "none",
-                      background: filterMode === "original" ? "#E8A889" : "transparent",
+                      background:
+                        filterMode === "original" ? "#E8A889" : "transparent",
                       color: "#fff",
                       fontSize: "11px",
                       fontWeight: 600,
@@ -5784,11 +6219,13 @@ export default function TakeMoment() {
                       padding: "6px 10px",
                       borderRadius: "14px",
                       border: "none",
-                      background: filterMode === "blur" ? "#E8A889" : "transparent",
+                      background:
+                        filterMode === "blur" ? "#E8A889" : "transparent",
                       color: "#fff",
                       fontSize: "11px",
                       fontWeight: 600,
-                      cursor: capturing || isLoadingBlur ? "not-allowed" : "pointer",
+                      cursor:
+                        capturing || isLoadingBlur ? "not-allowed" : "pointer",
                       opacity: capturing || isLoadingBlur ? 0.5 : 1,
                       transition: "all 0.2s ease",
                       display: "flex",
@@ -5797,7 +6234,9 @@ export default function TakeMoment() {
                     }}
                   >
                     🎨
-                    {isLoadingBlur && <span style={{ fontSize: "9px" }}>⏳</span>}
+                    {isLoadingBlur && (
+                      <span style={{ fontSize: "9px" }}>⏳</span>
+                    )}
                   </button>
                 </div>
               )}
@@ -6161,7 +6600,9 @@ export default function TakeMoment() {
           }}
         >
           Foto: {capturedPhotos.length}/{photosNeeded}
-          {isDuplicateMode && <span style={{ color: "#8B5CF6", marginLeft: "4px" }}>🔁</span>}
+          {isDuplicateMode && (
+            <span style={{ color: "#8B5CF6", marginLeft: "4px" }}>🔁</span>
+          )}
           {hasReachedMaxPhotos && " - maksimal tercapai!"}
         </div>
       </div>

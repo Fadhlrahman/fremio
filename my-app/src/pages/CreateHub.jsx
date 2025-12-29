@@ -87,47 +87,43 @@ export default function CreateHub() {
     
     console.log("📂 [CreateHub] Loading drafts for user:", user.email);
 
-    setLoading(true);
+    // Show cached summaries immediately to avoid long spinner
     try {
-      // Load from local storage
-      const localDrafts = await draftStorage.loadDrafts();
+      const cached = draftStorage.getCachedDraftSummaries
+        ? draftStorage.getCachedDraftSummaries(user.email)
+        : [];
+      if (Array.isArray(cached) && cached.length > 0 && isMountedRef.current) {
+        setDrafts(cached);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+    } catch {
+      setLoading(true);
+    }
+
+    try {
+      // Load local drafts fast (summaries) so the list renders quickly
+      const localDrafts = draftStorage.loadDraftSummaries
+        ? await draftStorage.loadDraftSummaries()
+        : await draftStorage.loadDrafts();
       if (isMountedRef.current) {
         setDrafts(Array.isArray(localDrafts) ? localDrafts : []);
         console.log(`✅ [CreateHub] Loaded ${localDrafts?.length || 0} local drafts`);
-        
-        // 🔍 DEBUG: Log elements in each draft
-        localDrafts?.forEach((draft, index) => {
-          console.log(`📋 Draft ${index + 1}:`, draft.name);
-          console.log(`   - Total elements: ${draft.elements?.length || 0}`);
-          if (draft.elements && draft.elements.length > 0) {
-            const elementTypes = draft.elements.reduce((acc, el) => {
-              const type = el.type || 'unknown';
-              acc[type] = (acc[type] || 0) + 1;
-              return acc;
-            }, {});
-            console.log(`   - Element types:`, elementTypes);
-            console.log(`   - Sample elements:`, draft.elements.slice(0, 3).map(el => ({
-              type: el.type,
-              id: el.id,
-              x: el.x,
-              y: el.y,
-              width: el.width,
-              height: el.height
-            })));
-          }
-        });
       }
-      
-      // Also load from cloud if user is logged in
+
+      // Load from cloud in the background (do not block initial render)
       if (user) {
-        try {
-          const cloudData = await draftService.getCloudDrafts();
-          if (isMountedRef.current) {
-            setCloudDrafts(Array.isArray(cloudData) ? cloudData : []);
+        void (async () => {
+          try {
+            const cloudData = await draftService.getCloudDrafts();
+            if (isMountedRef.current) {
+              setCloudDrafts(Array.isArray(cloudData) ? cloudData : []);
+            }
+          } catch (cloudError) {
+            console.log("☁️ Cloud drafts not available:", cloudError.message);
           }
-        } catch (cloudError) {
-          console.log("☁️ Cloud drafts not available:", cloudError.message);
-        }
+        })();
       }
     } catch (error) {
       console.error("⚠️ Failed to load drafts", error);
@@ -184,32 +180,41 @@ export default function CreateHub() {
     setIsGeneratingLink(true);
     
     try {
+
+      // Ensure we have the full draft (summaries may not include elements)
+      let fullDraft = draft;
+      if (!Array.isArray(fullDraft?.elements)) {
+        fullDraft = await draftStorage.getDraftById(draft.id, user?.email);
+      }
+      if (!fullDraft) {
+        throw new Error("Draft tidak ditemukan");
+      }
       
       // Step 1: Upload draft to VPS PostgreSQL
       // CRITICAL: Include ALL data needed for EditPhoto to render properly
       // This includes canvasWidth/Height for coordinate conversion and ALL elements
       console.log("📤 [SHARE] Draft data being shared:", {
-        title: draft.title,
-        elementsCount: draft.elements?.length,
-        elementTypes: draft.elements?.map(el => el.type),
-        hasBackground: draft.elements?.some(el => el.type === 'background-photo'),
-        hasOverlay: draft.elements?.some(el => el.type === 'upload'),
-        canvasWidth: draft.canvasWidth,
-        canvasHeight: draft.canvasHeight,
+        title: fullDraft.title,
+        elementsCount: fullDraft.elements?.length,
+        elementTypes: fullDraft.elements?.map(el => el.type),
+        hasBackground: fullDraft.elements?.some(el => el.type === 'background-photo'),
+        hasOverlay: fullDraft.elements?.some(el => el.type === 'upload'),
+        canvasWidth: fullDraft.canvasWidth,
+        canvasHeight: fullDraft.canvasHeight,
       });
       
       const frameData = JSON.stringify({
-        aspectRatio: draft.aspectRatio || "9:16",
-        canvasBackground: draft.canvasBackground || "#f7f1ed",
-        canvasWidth: draft.canvasWidth || 1080,
-        canvasHeight: draft.canvasHeight || 1920,
-        elements: draft.elements || []
+        aspectRatio: fullDraft.aspectRatio || "9:16",
+        canvasBackground: fullDraft.canvasBackground || "#f7f1ed",
+        canvasWidth: fullDraft.canvasWidth || 1080,
+        canvasHeight: fullDraft.canvasHeight || 1920,
+        elements: fullDraft.elements || []
       });
       
       const result = await draftService.saveDraftToCloud({
-        title: draft.title || "Shared Frame",
+        title: fullDraft.title || "Shared Frame",
         frameData: frameData,
-        previewUrl: draft.preview || null,
+        previewUrl: fullDraft.preview || null,
         draftId: null // Always create new for sharing
       });
       
@@ -225,7 +230,7 @@ export default function CreateHub() {
       const link = `${baseUrl}/take-moment?share=${result.draft.share_id}`;
       
       setShareLink(link);
-      setShareDraftTitle(draft.title || "Draft");
+      setShareDraftTitle(fullDraft.title || "Draft");
       setShowShareModal(true);
       setCopied(false);
       setIsGeneratingLink(false);

@@ -20,13 +20,16 @@ const AdminFrames = () => {
       console.log("AdminFrames loading...");
       console.log(`📡 Backend mode: ${unifiedFrameService.isVPSMode() ? 'VPS' : 'Firebase'}`);
       try {
-        const data = await unifiedFrameService.getAllFrames({ includeHidden: true });
+        const data = await unifiedFrameService.getAllFrames({ includeHidden: true, throwOnError: true });
         console.log("Frames loaded:", data);
         // Sort by displayOrder initially
-        const sortedData = [...data].sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
+        const sortedData = [...data].sort(
+          (a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999)
+        );
         setFrames(sortedData);
       } catch (err) {
         console.error("Error:", err);
+        alert("Gagal memuat frames dari server. Coba reload halaman / cek koneksi.");
       }
       setLoading(false);
     };
@@ -83,7 +86,7 @@ const AdminFrames = () => {
     result.sort((a, b) => {
       switch (sortOrder) {
         case "display-order":
-          return (a.displayOrder || 999) - (b.displayOrder || 999);
+          return (a.displayOrder ?? 999) - (b.displayOrder ?? 999);
         case "category-asc":
           return (a.category || "Uncategorized").localeCompare(b.category || "Uncategorized");
         case "category-desc":
@@ -238,7 +241,7 @@ const AdminFrames = () => {
     newCategoryOrder.forEach(cat => {
       const categoryFrames = frames.filter(f => (f.category || "Uncategorized") === cat);
       // Sort by current displayOrder within category
-      categoryFrames.sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
+      categoryFrames.sort((a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999));
       newFrames.push(...categoryFrames);
     });
     
@@ -270,11 +273,20 @@ const AdminFrames = () => {
       
       await unifiedFrameService.updateFramesOrder(frameOrders);
       console.log("✅ Frame orders saved successfully!");
-      
-      // Reload frames from server to ensure sync
-      const freshData = await unifiedFrameService.getAllFrames({ includeHidden: true });
-      const sortedData = [...freshData].sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
-      setFrames(sortedData);
+
+      // Reload frames from server to ensure sync.
+      // IMPORTANT: do not wipe the UI if the reload fails (network/auth hiccup).
+      try {
+        const freshData = await unifiedFrameService.getAllFrames({ includeHidden: true, throwOnError: true });
+        const sortedData = [...freshData].sort(
+          (a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999)
+        );
+        if (sortedData.length > 0) {
+          setFrames(sortedData);
+        }
+      } catch (reloadErr) {
+        console.error("Error reloading frames after save:", reloadErr);
+      }
       
       alert("Urutan berhasil disimpan!");
       setIsReorderMode(false);
@@ -292,7 +304,9 @@ const AdminFrames = () => {
         if (result.success !== false) {
           // Reload frames from server instead of just filtering
           const freshData = await unifiedFrameService.getAllFrames({ includeHidden: true });
-          const sortedData = [...freshData].sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
+          const sortedData = [...freshData].sort(
+            (a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999)
+          );
           setFrames(sortedData);
           alert("Frame berhasil dihapus!");
         } else {
@@ -318,7 +332,9 @@ const AdminFrames = () => {
 
       // Reload frames from server to ensure sync
       const freshData = await unifiedFrameService.getAllFrames({ includeHidden: true });
-      const sortedData = [...freshData].sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
+      const sortedData = [...freshData].sort(
+        (a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999)
+      );
       setFrames(sortedData);
     } catch (err) {
       alert("Gagal mengubah status: " + (err?.message || String(err)));
@@ -341,7 +357,9 @@ const AdminFrames = () => {
 
       // Reload frames from server to ensure sync
       const freshData = await unifiedFrameService.getAllFrames({ includeHidden: true });
-      const sortedData = [...freshData].sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
+      const sortedData = [...freshData].sort(
+        (a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999)
+      );
       setFrames(sortedData);
     } catch (err) {
       alert("Gagal mengubah visibilitas: " + (err?.message || String(err)));
@@ -658,8 +676,10 @@ const AdminFrames = () => {
           onClick={async () => {
             setLoading(true);
             try {
-              const freshData = await unifiedFrameService.getAllFrames({ includeHidden: true });
-              const sortedData = [...freshData].sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
+              const freshData = await unifiedFrameService.getAllFrames({ includeHidden: true, throwOnError: true });
+              const sortedData = [...freshData].sort(
+                (a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999)
+              );
               setFrames(sortedData);
               alert("✅ Data berhasil dimuat ulang!");
             } catch (err) {

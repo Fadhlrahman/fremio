@@ -76,9 +76,164 @@ export default function EditPhoto() {
   const [activeFilter, setActiveFilter] = useState(null);
   const photosFilled = React.useRef(false);
   const previewSectionRef = React.useRef(null);
+  
+  // Download instruction modal for mobile
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [downloadModalType, setDownloadModalType] = useState('photo'); // 'photo' or 'video'
 
   // Detect mobile
   const isMobileDevice = typeof window !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+  // ✅ Shared helper: load image with CORS fallback + retry (used by photo & video export)
+  const loadImageWithFallback = useCallback(async (url, retries = 2) => {
+    return new Promise(async (resolve, reject) => {
+      if (!url) {
+        reject(new Error("Missing image url"));
+        return;
+      }
+
+      // Skip if already data URL
+      if (url.startsWith("data:")) {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = url;
+        return;
+      }
+
+      // Add cache-busting for api.fremio.id to ensure fresh CORS headers
+      let finalUrl = url;
+      if (url.includes("api.fremio.id")) {
+        const separator = url.includes("?") ? "&" : "?";
+        finalUrl = `${url}${separator}_cors=1`;
+      }
+
+      // Check if this is a Supabase or external URL that needs proxying
+      const needsProxy = url.includes("supabase.co") || url.includes("imagekit.io");
+
+      // First try: direct load with crossOrigin
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+
+      let resolved = false;
+      const directLoadTimeout = setTimeout(() => {
+        if (!resolved) {
+          console.log("⏱️ Direct load timeout, trying fallback...");
+          tryFallback();
+        }
+      }, 8000);
+
+      img.onload = () => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(directLoadTimeout);
+        console.log("✅ Image loaded directly with crossOrigin");
+        resolve(img);
+      };
+
+      img.onerror = () => {
+        if (resolved) return;
+        clearTimeout(directLoadTimeout);
+        console.log("⚠️ Direct load failed, trying fallback...");
+        tryFallback();
+      };
+
+      const tryFallback = async () => {
+        if (resolved) return;
+
+        try {
+          let fetchUrl = finalUrl;
+
+          // Use VPS proxy for Supabase/external URLs
+          if (needsProxy) {
+            const proxyUrl = `http://72.61.210.203/api/static/proxy?url=${encodeURIComponent(
+              url
+            )}`;
+            console.log(
+              "🔄 Using VPS proxy for image:",
+              url.substring(0, 60) + "..."
+            );
+            fetchUrl = proxyUrl;
+          }
+
+          // Fetch image via proxy or directly
+          const response = await fetch(fetchUrl, {
+            mode: "cors",
+            credentials: "omit",
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          const blob = await response.blob();
+          const dataUrl = await new Promise((res) => {
+            const reader = new FileReader();
+            reader.onloadend = () => res(reader.result);
+            reader.readAsDataURL(blob);
+          });
+
+          const fallbackImg = new Image();
+          fallbackImg.onload = () => {
+            if (resolved) return;
+            resolved = true;
+            console.log("✅ Image loaded via proxy/fetch approach");
+            resolve(fallbackImg);
+          };
+          fallbackImg.onerror = () => {
+            if (resolved) return;
+            console.error("❌ Fallback image load also failed");
+            reject(new Error("All image loading methods failed"));
+          };
+          fallbackImg.src = dataUrl;
+        } catch (fetchError) {
+          console.error("❌ Fetch/proxy approach failed:", fetchError);
+
+          // Retry logic for transient errors
+          if (
+            retries > 0 &&
+            (fetchError.message.includes("502") ||
+              fetchError.message.includes("544"))
+          ) {
+            console.log(`🔄 Retrying in 1s... (${retries} retries left)`);
+            await new Promise((r) => setTimeout(r, 1000));
+            try {
+              const retryResult = await loadImageWithFallback(url, retries - 1);
+              if (!resolved) {
+                resolved = true;
+                resolve(retryResult);
+              }
+              return;
+            } catch (retryError) {
+              // Fall through to last resort
+            }
+          }
+
+          // Last resort: try loading without crossOrigin
+          const lastResortImg = new Image();
+          lastResortImg.onload = () => {
+            if (resolved) return;
+            resolved = true;
+            console.log(
+              "⚠️ Image loaded without crossOrigin (may cause tainted canvas)"
+            );
+            resolve(lastResortImg);
+          };
+          lastResortImg.onerror = () => {
+            if (resolved) return;
+            reject(
+              new Error(
+                "All methods failed - server may be temporarily unavailable"
+              )
+            );
+          };
+          lastResortImg.src = finalUrl;
+        }
+      };
+
+      img.src = finalUrl;
+    });
+  }, []);
 
   // Handler for swapping photos between two slots
   const swapPhotos = useCallback((sourceId, targetId) => {
@@ -1085,6 +1240,7 @@ export default function EditPhoto() {
         
         // CRITICAL FIX: Use userStorage for activeDraftId (Create.jsx uses userStorage which prefixes with user email)
         let activeDraftId = userStorage.getItem("activeDraftId");
+        const hasSharedFrameSession = Boolean(sharedFrameData?.frameConfig);
         
         console.log("🔍 activeDraftId from userStorage:", activeDraftId);
         console.log("🔍 Has shared frame in session:", !!sharedFrameData);
@@ -1528,9 +1684,11 @@ export default function EditPhoto() {
         // For draft-based custom frames, DON'T try to load from service
         // They don't exist in Supabase - they're stored locally
         // Includes: custom-xxx, draft-xxx, shared-xxx prefixes
-        const isDraftBasedCustomFrame = selectedFrameId?.startsWith("custom-") || 
-                                        selectedFrameId?.startsWith("draft-") ||
-                                        selectedFrameId?.startsWith("shared-");
+        const isDraftBasedCustomFrame =
+          hasSharedFrameSession ||
+          selectedFrameId?.startsWith("custom-") ||
+          selectedFrameId?.startsWith("draft-") ||
+          selectedFrameId?.startsWith("shared-");
         
         if (isCustomFrame && !isDraftBasedCustomFrame) {
           // Only try service for UUID-based frames (Supabase frames)
@@ -3713,137 +3871,6 @@ export default function EditPhoto() {
                   canvas.height = 1920;
                   const ctx = canvas.getContext("2d", { alpha: true }); // ✅ Enable alpha for transparency
 
-                  // ✅ Helper function to load image with CORS fallback and retry
-                  const loadImageWithFallback = async (url, retries = 2) => {
-                    return new Promise(async (resolve, reject) => {
-                      // Skip if already data URL
-                      if (url.startsWith('data:')) {
-                        const img = new Image();
-                        img.onload = () => resolve(img);
-                        img.onerror = reject;
-                        img.src = url;
-                        return;
-                      }
-
-                      // Add cache-busting for api.fremio.id to ensure fresh CORS headers
-                      let finalUrl = url;
-                      if (url.includes('api.fremio.id')) {
-                        const separator = url.includes('?') ? '&' : '?';
-                        finalUrl = `${url}${separator}_cors=1`;
-                      }
-
-                      // Check if this is a Supabase or external URL that needs proxying
-                      const needsProxy = url.includes('supabase.co') || url.includes('imagekit.io');
-                      
-                      // First try: direct load with crossOrigin
-                      const img = new Image();
-                      img.crossOrigin = "anonymous";
-                      
-                      let resolved = false;
-                      const directLoadTimeout = setTimeout(() => {
-                        if (!resolved) {
-                          console.log("⏱️ Direct load timeout, trying fallback...");
-                          tryFallback();
-                        }
-                      }, 8000);
-
-                      img.onload = () => {
-                        if (resolved) return;
-                        resolved = true;
-                        clearTimeout(directLoadTimeout);
-                        console.log("✅ Image loaded directly with crossOrigin");
-                        resolve(img);
-                      };
-
-                      img.onerror = () => {
-                        if (resolved) return;
-                        clearTimeout(directLoadTimeout);
-                        console.log("⚠️ Direct load failed, trying fallback...");
-                        tryFallback();
-                      };
-
-                      const tryFallback = async () => {
-                        if (resolved) return;
-                        
-                        try {
-                          let fetchUrl = finalUrl;
-                          
-                          // Use VPS proxy for Supabase/external URLs
-                          if (needsProxy) {
-                            const proxyUrl = `http://72.61.210.203/api/static/proxy?url=${encodeURIComponent(url)}`;
-                            console.log("🔄 Using VPS proxy for image:", url.substring(0, 60) + "...");
-                            fetchUrl = proxyUrl;
-                          }
-                          
-                          // Fetch image via proxy or directly
-                          const response = await fetch(fetchUrl, { 
-                            mode: 'cors',
-                            credentials: 'omit'
-                          });
-                          
-                          if (!response.ok) {
-                            throw new Error(`HTTP ${response.status}`);
-                          }
-                          
-                          const blob = await response.blob();
-                          const dataUrl = await new Promise((res) => {
-                            const reader = new FileReader();
-                            reader.onloadend = () => res(reader.result);
-                            reader.readAsDataURL(blob);
-                          });
-                          
-                          const fallbackImg = new Image();
-                          fallbackImg.onload = () => {
-                            if (resolved) return;
-                            resolved = true;
-                            console.log("✅ Image loaded via proxy/fetch approach");
-                            resolve(fallbackImg);
-                          };
-                          fallbackImg.onerror = () => {
-                            if (resolved) return;
-                            console.error("❌ Fallback image load also failed");
-                            reject(new Error("All image loading methods failed"));
-                          };
-                          fallbackImg.src = dataUrl;
-                        } catch (fetchError) {
-                          console.error("❌ Fetch/proxy approach failed:", fetchError);
-                          
-                          // Retry logic for transient errors
-                          if (retries > 0 && (fetchError.message.includes('502') || fetchError.message.includes('544'))) {
-                            console.log(`🔄 Retrying in 1s... (${retries} retries left)`);
-                            await new Promise(r => setTimeout(r, 1000));
-                            try {
-                              const retryResult = await loadImageWithFallback(url, retries - 1);
-                              if (!resolved) {
-                                resolved = true;
-                                resolve(retryResult);
-                              }
-                              return;
-                            } catch (retryError) {
-                              // Fall through to last resort
-                            }
-                          }
-                          
-                          // Last resort: try loading without crossOrigin
-                          const lastResortImg = new Image();
-                          lastResortImg.onload = () => {
-                            if (resolved) return;
-                            resolved = true;
-                            console.log("⚠️ Image loaded without crossOrigin (may cause tainted canvas)");
-                            resolve(lastResortImg);
-                          };
-                          lastResortImg.onerror = () => {
-                            if (resolved) return;
-                            reject(new Error("All methods failed - server may be temporarily unavailable"));
-                          };
-                          lastResortImg.src = finalUrl;
-                        }
-                      };
-
-                      img.src = finalUrl;
-                    });
-                  };
-
                   // ✅ Helper function to apply filter using temporary canvas (Safari compatible)
                   const applyFilterToImage = (img, filterValues) => {
                     // Create temporary canvas same size as image
@@ -4541,7 +4568,9 @@ export default function EditPhoto() {
                   const result = await downloadPhotoToGallery(dataUrl, {
                     filename,
                     frameId,
-                    frameName
+                    frameName,
+                    useShareApi: true,
+                    showWebToasts: false,
                   });
                   
                   if (result.success) {
@@ -4549,11 +4578,21 @@ export default function EditPhoto() {
                     
                     // Only show success toast if not cancelled
                     if (!result.cancelled) {
-                      showToast({
-                        type: "success",
-                        title: "Download Berhasil",
-                        message: "Foto berhasil disimpan.",
-                      });
+                      // Show modal for mobile devices
+                      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                      const nativeShareShown = String(result.method || '').includes('share');
+                      
+                      // Backup popup only when native share/save sheet cannot be shown
+                      if (isMobile && !nativeShareShown) {
+                        setDownloadModalType('photo');
+                        setShowDownloadModal(true);
+                      } else {
+                        showToast({
+                          type: "success",
+                          title: "Download Berhasil",
+                          message: "Foto berhasil disimpan.",
+                        });
+                      }
                     }
                   } else {
                     throw new Error(result.error || "Download failed");
@@ -4579,6 +4618,7 @@ export default function EditPhoto() {
             >
               Download Photo
             </button>
+            
             <button
               onClick={async () => {
                 // Check if videos exist
@@ -4941,23 +4981,27 @@ export default function EditPhoto() {
                     backgroundPhotoElement.data?.image
                   ) {
                     console.log("🖼️ Preloading background image...");
-                    backgroundImage = new Image();
-                    backgroundImage.crossOrigin = "anonymous";
-                    await new Promise((resolve) => {
-                      backgroundImage.onload = () => {
-                        console.log("✅ Background image loaded");
-                        resolve();
-                      };
-                      backgroundImage.onerror = () => {
-                        console.warn("⚠️ Background image failed to load");
-                        backgroundImage = null;
-                        resolve();
-                      };
-                      // Use original URL for video export (full quality)
-                      backgroundImage.src = getOriginalUrl(backgroundPhotoElement.data.image);
-                      // Timeout after 3 seconds
-                      setTimeout(() => resolve(), 3000);
-                    });
+                    try {
+                      const bgUrl = getOriginalUrl(
+                        backgroundPhotoElement.data.image
+                      );
+                      backgroundImage = await Promise.race([
+                        loadImageWithFallback(bgUrl),
+                        new Promise((_, reject) =>
+                          setTimeout(
+                            () => reject(new Error("Background load timeout")),
+                            12000
+                          )
+                        ),
+                      ]);
+                      console.log("✅ Background image loaded");
+                    } catch (err) {
+                      console.warn(
+                        "⚠️ Background image failed to load (continuing without it)",
+                        err
+                      );
+                      backgroundImage = null;
+                    }
                   }
 
                   // Preload frame overlay image
@@ -4965,22 +5009,25 @@ export default function EditPhoto() {
                   let frameImage = null;
                   if (frameConfig && frameConfig.frameImage && !frameConfig.isCustom) {
                     console.log("🖼️ Preloading frame overlay image...");
-                    frameImage = new Image();
-                    frameImage.crossOrigin = "anonymous";
-                    await new Promise((resolve) => {
-                      frameImage.onload = () => {
-                        console.log("✅ Frame overlay loaded");
-                        resolve();
-                      };
-                      frameImage.onerror = () => {
-                        console.warn("⚠️ Frame overlay failed to load");
-                        frameImage = null;
-                        resolve();
-                      };
-                      frameImage.src = frameConfig.frameImage;
-                      // Timeout after 3 seconds
-                      setTimeout(() => resolve(), 3000);
-                    });
+                    try {
+                      const frameUrl = getOriginalUrl(frameConfig.frameImage);
+                      frameImage = await Promise.race([
+                        loadImageWithFallback(frameUrl),
+                        new Promise((_, reject) =>
+                          setTimeout(
+                            () => reject(new Error("Frame overlay load timeout")),
+                            12000
+                          )
+                        ),
+                      ]);
+                      console.log("✅ Frame overlay loaded");
+                    } catch (err) {
+                      console.warn(
+                        "⚠️ Frame overlay failed to load (video will export without frame)",
+                        err
+                      );
+                      frameImage = null;
+                    }
                   }
 
                   // Preload overlay upload images (non-photo elements)
@@ -5967,7 +6014,9 @@ export default function EditPhoto() {
                     filename,
                     mimeType: downloadMime,
                     frameId,
-                    frameName
+                    frameName,
+                    useShareApi: true,
+                    showWebToasts: false,
                   });
                   
                   // Clear loading screen
@@ -5985,11 +6034,21 @@ export default function EditPhoto() {
                       );
                       setTimeout(() => setSaveMessage(""), 3000);
                       
-                      showToast({
-                        type: "success",
-                        title: "Video Berhasil",
-                        message: "Video berhasil dirender dan disimpan.",
-                      });
+                      // Show modal for mobile devices
+                      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                      const nativeShareShown = String(result.method || '').includes('share');
+                      
+                      // Backup popup only when native share/save sheet cannot be shown
+                      if (isMobile && !nativeShareShown) {
+                        setDownloadModalType('video');
+                        setShowDownloadModal(true);
+                      } else {
+                        showToast({
+                          type: "success",
+                          title: "Video Berhasil",
+                          message: "Video berhasil dirender dan disimpan.",
+                        });
+                      }
                     }
                   } else {
                     throw new Error(result.error || "Download failed");
@@ -6099,6 +6158,247 @@ export default function EditPhoto() {
             >
               🏠 Back to Home
             </button>
+          </div>
+        </div>
+      )}
+      
+      {/* Download Instruction Modal for Mobile */}
+      {showDownloadModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: '20px',
+          }}
+          onClick={() => setShowDownloadModal(false)}
+        >
+          <div
+            style={{
+              background: 'white',
+              borderRadius: '16px',
+              padding: '24px',
+              maxWidth: '400px',
+              width: '100%',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <div
+                style={{
+                  width: '60px',
+                  height: '60px',
+                  margin: '0 auto 12px',
+                  background: 'linear-gradient(135deg, #E8A889 0%, #C4A484 100%)',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '28px',
+                }}
+              >
+                {downloadModalType === 'photo' ? '📸' : '🎥'}
+              </div>
+              <h3
+                style={{
+                  fontSize: '20px',
+                  fontWeight: '700',
+                  color: '#1F2937',
+                  margin: '0 0 8px 0',
+                }}
+              >
+                Download {downloadModalType === 'photo' ? 'Foto' : 'Video'} Berhasil!
+              </h3>
+              <p
+                style={{
+                  fontSize: '14px',
+                  color: '#6B7280',
+                  margin: 0,
+                }}
+              >
+                Ikuti langkah berikut untuk menyimpan ke Galeri
+              </p>
+            </div>
+
+            {/* Instructions */}
+            <div
+              style={{
+                background: '#F9FAFB',
+                borderRadius: '12px',
+                padding: '16px',
+                marginBottom: '20px',
+              }}
+            >
+              <div style={{ marginBottom: '16px' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '12px',
+                    marginBottom: '12px',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      background: '#E8A889',
+                      color: 'white',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '12px',
+                      fontWeight: '700',
+                      flexShrink: 0,
+                    }}
+                  >
+                    1
+                  </div>
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: '14px',
+                      color: '#374151',
+                      lineHeight: '1.5',
+                    }}
+                  >
+                    <strong>Cek Notifikasi Download</strong>
+                    <br />
+                    Geser dari atas layar untuk melihat progress download
+                  </p>
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '12px',
+                    marginBottom: '12px',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      background: '#E8A889',
+                      color: 'white',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '12px',
+                      fontWeight: '700',
+                      flexShrink: 0,
+                    }}
+                  >
+                    2
+                  </div>
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: '14px',
+                      color: '#374151',
+                      lineHeight: '1.5',
+                    }}
+                  >
+                    <strong>Buka File Manager/Galeri</strong>
+                    <br />
+                    Cari di folder <code style={{ background: '#E5E7EB', padding: '2px 6px', borderRadius: '4px' }}>Downloads</code> atau <code style={{ background: '#E5E7EB', padding: '2px 6px', borderRadius: '4px' }}>DCIM</code>
+                  </p>
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '12px',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      background: '#E8A889',
+                      color: 'white',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '12px',
+                      fontWeight: '700',
+                      flexShrink: 0,
+                    }}
+                  >
+                    3
+                  </div>
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: '14px',
+                      color: '#374151',
+                      lineHeight: '1.5',
+                    }}
+                  >
+                    <strong>Simpan ke Galeri</strong>
+                    <br />
+                    Tap file → Pilih "Simpan ke Galeri" atau "Move to Photos"
+                  </p>
+                </div>
+              </div>
+
+              {/* Tips */}
+              <div
+                style={{
+                  background: 'white',
+                  borderLeft: '3px solid #E8A889',
+                  padding: '12px',
+                  borderRadius: '6px',
+                  marginTop: '12px',
+                }}
+              >
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: '13px',
+                    color: '#6B7280',
+                    lineHeight: '1.5',
+                  }}
+                >
+                  💡 <strong>Tips:</strong> Jika tidak muncul di Galeri, coba restart aplikasi Galeri atau File Manager kamu.
+                </p>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={() => setShowDownloadModal(false)}
+                style={{
+                  flex: 1,
+                  padding: '12px 24px',
+                  background: 'linear-gradient(135deg, #E8A889 0%, #C4A484 100%)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '10px',
+                  fontSize: '15px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(232, 168, 137, 0.3)',
+                }}
+              >
+                Mengerti
+              </button>
+            </div>
           </div>
         </div>
       )}

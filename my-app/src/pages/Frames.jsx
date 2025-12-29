@@ -223,7 +223,7 @@ export default function Frames() {
     // Sort frames within each category by displayOrder
     Object.keys(groups).forEach((category) => {
       groups[category].sort(
-        (a, b) => (a.displayOrder || 999) - (b.displayOrder || 999)
+        (a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999)
       );
     });
 
@@ -231,7 +231,7 @@ export default function Frames() {
     const categoryOrder = Object.keys(groups).map((category) => ({
       category,
       minDisplayOrder: Math.min(
-        ...groups[category].map((f) => f.displayOrder || 999)
+        ...groups[category].map((f) => f.displayOrder ?? 999)
       ),
     }));
 

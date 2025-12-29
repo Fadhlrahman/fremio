@@ -99,10 +99,18 @@ router.get("/", optionalAuth, async (req, res) => {
     res.setHeader("Surrogate-Control", "no-store");
 
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit); // No default limit for admin - load all frames
     const category = req.query.category;
     const includeHidden = isIncludeHiddenRequested(req.query.includeHidden);
     const allowHidden = includeHidden ? await isAdminForRequest(req) : false;
+
+    // Public endpoints default to 50 for performance, but admin screens must not be capped.
+    const parsedLimit = Number.parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0
+      ? parsedLimit
+      : allowHidden
+        ? null
+        : 50;
+
     const offset = limit ? (page - 1) * limit : 0;
 
     // Determine user access for premium frames (for redaction)
@@ -145,9 +153,10 @@ router.get("/", optionalAuth, async (req, res) => {
       paramIndex++;
     }
 
-    queryText += ` ORDER BY display_order ASC, created_at DESC`;
+    // Deterministic ordering avoids "random" disappearance when paging/limits apply
+    queryText += ` ORDER BY COALESCE(display_order, 999999) ASC, created_at DESC, id ASC`;
     
-    // Only apply LIMIT and OFFSET if limit is specified
+    // Only apply LIMIT/OFFSET when we have a limit.
     if (limit) {
       queryText += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
       queryParams.push(limit, offset);
@@ -387,7 +396,7 @@ router.get("/", optionalAuth, async (req, res) => {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit),
+        totalPages: limit ? Math.ceil(total / limit) : 1,
       },
     });
   } catch (error) {

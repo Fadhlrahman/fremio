@@ -10,20 +10,36 @@ const CameraPermissionPrimer = ({ onRequestPermission, onSkip }) => {
   const [errorMessage, setErrorMessage] = React.useState(null);
 
   const handleRequestPermission = async () => {
-    if (isRequesting) return;
+    if (isRequesting) {
+      console.log("⏸️ Already requesting, skipping");
+      return;
+    }
 
+    console.log("🎬 Camera permission button clicked");
     setIsRequesting(true);
     setErrorMessage(null);
 
     try {
       await onRequestPermission();
+      console.log("✅ Permission request completed");
     } catch (error) {
-      console.error("Permission request error:", error);
+      console.error("❌ Permission request error:", error);
       setErrorMessage(
         error.message || "Gagal meminta izin kamera. Silakan coba lagi."
       );
     } finally {
       setIsRequesting(false);
+      console.log("🔄 Request state reset");
+    }
+  };
+
+  const handleSkip = () => {
+    console.log("⏭️ Skip button clicked");
+    try {
+      onSkip();
+    } catch (error) {
+      console.error("❌ Error in skip handler:", error);
+      // Still try to call onSkip even if there's an error
     }
   };
 
@@ -107,13 +123,20 @@ const CameraPermissionPrimer = ({ onRequestPermission, onSkip }) => {
           style={{
             opacity: isRequesting ? 0.6 : 1,
             cursor: isRequesting ? "not-allowed" : "pointer",
-            pointerEvents: isRequesting ? "none" : "auto",
+            pointerEvents: "auto", // Always allow pointer events
           }}
         >
           {isRequesting ? "⏳ Meminta Izin..." : "Izinkan Kamera"}
         </button>
 
-        <button className="permission-primer-secondary" onClick={onSkip}>
+        <button 
+          className="permission-primer-secondary" 
+          onClick={handleSkip}
+          disabled={isRequesting}
+          style={{
+            pointerEvents: "auto", // Always allow pointer events
+          }}
+        >
           Upload Foto Saja
         </button>
 

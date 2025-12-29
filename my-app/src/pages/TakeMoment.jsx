@@ -508,6 +508,35 @@ export default function TakeMoment() {
   const isMobile = useIsMobile();
   const { showToast } = useToast();
 
+  const [isLandscape, setIsLandscape] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return !!window.matchMedia?.("(orientation: landscape)")?.matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const mediaQuery = window.matchMedia?.("(orientation: landscape)");
+    const update = () => setIsLandscape(!!mediaQuery?.matches);
+
+    if (mediaQuery?.addEventListener) {
+      mediaQuery.addEventListener("change", update);
+    }
+    window.addEventListener("orientationchange", update);
+    window.addEventListener("resize", update);
+    update();
+
+    return () => {
+      if (mediaQuery?.removeEventListener) {
+        mediaQuery.removeEventListener("change", update);
+      }
+      window.removeEventListener("orientationchange", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  const isMobileLandscape = isMobile && isLandscape;
+
   const fileInputRef = useRef(null);
   const videoRef = useRef(null);
   const cameraStreamRef = useRef(null);
@@ -578,14 +607,15 @@ export default function TakeMoment() {
           );
           await trackCameraPermission("denied", "auto_check");
         } else {
-          // Need to request - show primer
-          setShowPermissionPrimer(true);
-          await trackCameraPermission("primer_shown");
+          // Don't show primer - let user access controls directly
+          setPermissionChecked(true);
+          setShowPermissionPrimer(false);
+          console.log("✅ No permission primer - user can access controls directly");
         }
       } catch (error) {
-        console.log("Permission check not supported, showing primer");
-        setShowPermissionPrimer(true);
-        await trackCameraPermission("primer_shown", "fallback");
+        console.log("Permission check not supported, no primer shown");
+        setPermissionChecked(true);
+        setShowPermissionPrimer(false);
       }
     };
 
@@ -710,8 +740,8 @@ export default function TakeMoment() {
   const [cameraError, setCameraError] = useState(null);
   const [showPermissionPrimer, setShowPermissionPrimer] = useState(false);
   const [permissionChecked, setPermissionChecked] = useState(false);
-  const [liveModeEnabled, setLiveModeEnabled] = useState(true); // Live mode: video + photo
-  const [isDuplicateMode, setIsDuplicateMode] = useState(false); // Duplicate mode: each photo fills 2 slots
+  const [liveModeEnabled, setLiveModeEnabled] = useState(false); // Live mode: video + photo
+  const [isDuplicateMode, setIsDuplicateMode] = useState(true); // Duplicate mode: each photo fills 2 slots
 
   // Calculate photos needed based on duplicate mode - defined early to avoid reference errors
   const photosNeeded =
@@ -2601,6 +2631,8 @@ export default function TakeMoment() {
   const renderConfirmationModal = () => {
     if (!showConfirmation || !currentPhoto) return null;
 
+    const isMobileLandscapeModal = isMobileLandscape;
+
     return (
       <div
         style={{
@@ -2618,7 +2650,7 @@ export default function TakeMoment() {
           style={{
             background: "#fff",
             borderRadius: "18px",
-            width: "min(420px, 100%)",
+            width: isMobileLandscapeModal ? "min(720px, 100%)" : "min(420px, 100%)",
             maxHeight: "calc(100vh - 3rem)",
             padding: "1.75rem",
             boxShadow: "0 24px 48px rgba(0,0,0,0.25)",
@@ -2643,25 +2675,16 @@ export default function TakeMoment() {
                 color: "#333",
               }}
             >
-              📸 Foto berhasil diambil!
+              {!isMobileLandscapeModal && "📸 Foto berhasil diambil!"}
             </div>
-            <img
-              src={currentPhoto.previewUrl || currentPhoto.dataUrl || ""}
-              alt="Captured"
-              style={{
-                width: "100%",
-                maxHeight: "320px",
-                borderRadius: "12px",
-                objectFit: "contain",
-                boxShadow: "0 12px 24px rgba(0,0,0,0.2)",
-              }}
-            />
             {isVideoProcessing && (
               <div
                 style={{
+                  marginTop: "0.25rem",
                   fontSize: "0.95rem",
-                  fontWeight: 600,
-                  color: "#E8A889",
+                  color: "#6c757d",
+                  lineHeight: 1.4,
+                  textAlign: "center",
                 }}
               >
                 ⏳ Menyiapkan video, mohon tunggu sebentar...
@@ -2669,48 +2692,140 @@ export default function TakeMoment() {
             )}
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              gap: "1rem",
-              flexWrap: "wrap",
-              justifyContent: "center",
-            }}
-          >
-            <button
-              onClick={handleChoosePhoto}
-              disabled={isVideoProcessing}
+          {isMobileLandscapeModal ? (
+            <div
               style={{
-                flex: "1 1 120px",
-                padding: "0.85rem 1.5rem",
-                borderRadius: "999px",
-                border: "none",
-                background: isVideoProcessing ? "#6c757d" : "#28a745",
-                color: "#fff",
-                fontWeight: 600,
-                cursor: isVideoProcessing ? "not-allowed" : "pointer",
-                boxShadow: "0 16px 32px rgba(40,167,69,0.35)",
+                display: "flex",
+                flexDirection: "row",
+                alignItems: "center",
+                gap: "14px",
               }}
             >
-              {isVideoProcessing ? "⏳ Sedang menyiapkan..." : "✓ Pilih"}
-            </button>
-            <button
-              onClick={handleRetakePhoto}
-              style={{
-                flex: "1 1 120px",
-                padding: "0.85rem 1.5rem",
-                borderRadius: "999px",
-                border: "none",
-                background: "#6c757d",
-                color: "#fff",
-                fontWeight: 600,
-                cursor: "pointer",
-                boxShadow: "0 16px 32px rgba(108,117,125,0.35)",
-              }}
-            >
-              🔄 Ulangi
-            </button>
-          </div>
+              <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+                <img
+                  src={currentPhoto.previewUrl || currentPhoto.dataUrl || ""}
+                  alt="Captured"
+                  style={{
+                    width: "100%",
+                    maxHeight: "260px",
+                    borderRadius: "12px",
+                    objectFit: "contain",
+                    boxShadow: "0 12px 24px rgba(0,0,0,0.2)",
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  width: "110px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                  alignItems: "stretch",
+                }}
+              >
+                <button
+                  onClick={handleChoosePhoto}
+                  disabled={isVideoProcessing}
+                  aria-label="Pilih"
+                  style={{
+                    width: "100%",
+                    height: "56px",
+                    borderRadius: "16px",
+                    border: "none",
+                    background: isVideoProcessing ? "#6c757d" : "#28a745",
+                    color: "#fff",
+                    fontWeight: 700,
+                    cursor: isVideoProcessing ? "not-allowed" : "pointer",
+                    boxShadow: "0 16px 32px rgba(40,167,69,0.35)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "18px",
+                  }}
+                >
+                  <span aria-hidden="true">✓</span>
+                </button>
+                <button
+                  onClick={handleRetakePhoto}
+                  aria-label="Ulangi"
+                  style={{
+                    width: "100%",
+                    height: "56px",
+                    borderRadius: "16px",
+                    border: "none",
+                    background: "#6c757d",
+                    color: "#fff",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    boxShadow: "0 16px 32px rgba(108,117,125,0.35)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "18px",
+                  }}
+                >
+                  <span aria-hidden="true">🔄</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <img
+                src={currentPhoto.previewUrl || currentPhoto.dataUrl || ""}
+                alt="Captured"
+                style={{
+                  width: "100%",
+                  maxHeight: "320px",
+                  borderRadius: "12px",
+                  objectFit: "contain",
+                  boxShadow: "0 12px 24px rgba(0,0,0,0.2)",
+                }}
+              />
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: "1rem",
+                  flexWrap: "nowrap",
+                  justifyContent: "center",
+                }}
+              >
+                <button
+                  onClick={handleRetakePhoto}
+                  style={{
+                    flex: "1 1 120px",
+                    padding: "0.85rem 1.5rem",
+                    borderRadius: "999px",
+                    border: "none",
+                    background: "#6c757d",
+                    color: "#fff",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    boxShadow: "0 16px 32px rgba(108,117,125,0.35)",
+                  }}
+                >
+                  🔄 Ulangi
+                </button>
+                <button
+                  onClick={handleChoosePhoto}
+                  disabled={isVideoProcessing}
+                  style={{
+                    flex: "1 1 120px",
+                    padding: "0.85rem 1.5rem",
+                    borderRadius: "999px",
+                    border: "none",
+                    background: isVideoProcessing ? "#6c757d" : "#28a745",
+                    color: "#fff",
+                    fontWeight: 600,
+                    cursor: isVideoProcessing ? "not-allowed" : "pointer",
+                    boxShadow: "0 16px 32px rgba(40,167,69,0.35)",
+                  }}
+                >
+                  {isVideoProcessing ? "⏳ Sedang menyiapkan..." : "✓ Pilih"}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
@@ -2786,23 +2901,34 @@ export default function TakeMoment() {
 
   // Handle permission primer request
   const handleRequestCameraPermission = useCallback(async () => {
+    console.log("🎬 handleRequestCameraPermission called");
+    
     try {
       // Check secure context first
       if (!isSecureContext()) {
-        throw new Error(
-          "Kamera hanya dapat diakses melalui HTTPS atau localhost. Pastikan Anda menggunakan koneksi aman."
-        );
+        const error = "Kamera hanya dapat diakses melalui HTTPS atau localhost. Pastikan Anda menggunakan koneksi aman.";
+        console.error("❌ Not secure context:", error);
+        // Close popup even on error
+        setShowPermissionPrimer(false);
+        setPermissionChecked(true);
+        setCameraError(error);
+        throw new Error(error);
       }
 
       // Check if camera is available
       if (!isCameraAvailable()) {
-        throw new Error(
-          "Browser Anda tidak mendukung akses kamera. Gunakan browser modern seperti Chrome, Firefox, atau Safari."
-        );
+        const error = "Browser Anda tidak mendukung akses kamera. Gunakan browser modern seperti Chrome, Firefox, atau Safari.";
+        console.error("❌ Camera not available:", error);
+        // Close popup even on error
+        setShowPermissionPrimer(false);
+        setPermissionChecked(true);
+        setCameraError(error);
+        throw new Error(error);
       }
 
       await trackCameraPermission("requested");
 
+      console.log("🎥 Requesting camera permission...");
       const result = await requestCameraPermissionWithSave({
         facingMode: "user",
         width: { ideal: 1280 },
@@ -2810,6 +2936,9 @@ export default function TakeMoment() {
         keepStream: false,
       });
 
+      console.log("📱 Camera permission result:", result);
+
+      // Always close the popup after requesting permission
       setShowPermissionPrimer(false);
       setPermissionChecked(true);
 
@@ -2841,24 +2970,38 @@ export default function TakeMoment() {
         });
       }
     } catch (error) {
-      console.error("Permission request error:", error);
+      console.error("❌ Permission request error:", error);
+      // Make sure popup is closed on error
+      setShowPermissionPrimer(false);
+      setPermissionChecked(true);
       await trackCameraPermission("error", error.message);
-      setCameraError(error.message);
+      setCameraError(error.message || "Gagal meminta izin kamera");
+      // Re-throw to let CameraPermissionPrimer handle it
+      throw error;
     }
   }, [showToast, startCamera, isUsingBackCamera]);
 
   // Handle skip permission (use upload only)
   const handleSkipCameraPermission = useCallback(async () => {
-    await trackCameraPermission("dismissed");
-    setShowPermissionPrimer(false);
-    setPermissionChecked(true);
-    setCameraError("Upload foto dari galeri untuk melanjutkan.");
+    console.log("⏭️ handleSkipCameraPermission called");
+    try {
+      await trackCameraPermission("dismissed");
+      setShowPermissionPrimer(false);
+      setPermissionChecked(true);
+      setCameraError("Upload foto dari galeri untuk melanjutkan.");
 
-    showToast({
-      type: "info",
-      title: "Mode Upload",
-      message: "Gunakan tombol upload untuk menambah foto dari galeri.",
-    });
+      showToast({
+        type: "info",
+        title: "Mode Upload",
+        message: "Gunakan tombol upload untuk menambah foto dari galeri.",
+      });
+      console.log("✅ Permission primer dismissed successfully");
+    } catch (error) {
+      console.error("❌ Error skipping permission:", error);
+      // Still close popup even on error
+      setShowPermissionPrimer(false);
+      setPermissionChecked(true);
+    }
   }, [showToast]);
 
   const handleCameraToggle = useCallback(() => {
@@ -6011,6 +6154,9 @@ export default function TakeMoment() {
 
   const renderCaptureArea = (variant, sectionRef) => {
     const isMobileVariant = variant === "mobile";
+    const mobileCaptureHeight = isMobileLandscape
+      ? "min(320px, 70vh)"
+      : "min(400px, 60vh)";
 
     return (
       <div
@@ -6030,7 +6176,7 @@ export default function TakeMoment() {
             overflow: "hidden",
             position: "relative",
             // Fixed size for consistent video preview - not dependent on slot aspect ratio
-            height: isMobileVariant ? "min(400px, 60vh)" : "480px",
+            height: isMobileVariant ? mobileCaptureHeight : "480px",
             width: isMobileVariant ? "100%" : "640px",
             maxWidth: "100%",
             margin: "0 auto",
@@ -6509,7 +6655,7 @@ export default function TakeMoment() {
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            padding: "0.75rem 0",
+            padding: isMobileLandscape ? "0" : "0.75rem 0",
           }}
         >
           <button
@@ -6724,7 +6870,7 @@ export default function TakeMoment() {
   const renderMobileLayout = () => (
     <main
       style={{
-        minHeight: "100vh",
+        minHeight: "100dvh",
         background: "#F4E6DA",
         display: "flex",
         flexDirection: "column",
@@ -6794,8 +6940,14 @@ export default function TakeMoment() {
           }}
         >
           {renderCameraControls("mobile")}
-          {renderCaptureArea("mobile", captureSectionRef)}
-          {renderCaptureButton("mobile")}
+          <div className="take-moment-mobile-capture-stack">
+            <div className="take-moment-mobile-stream">
+              {renderCaptureArea("mobile", captureSectionRef)}
+            </div>
+            <div className="take-moment-mobile-shutter">
+              {renderCaptureButton("mobile")}
+            </div>
+          </div>
         </div>
 
         <div ref={previewSectionRef} style={{ width: "100%" }}>

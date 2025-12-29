@@ -68,6 +68,45 @@ body {
   border-bottom: 1px solid #eee;
   transition: box-shadow 0.2s ease;
 }
+
+/* Default (portrait / non-landscape): keep capture button below stream */
+.take-moment-mobile-capture-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Mobile landscape: hide header to maximize vertical space */
+@media (orientation: landscape) and (max-width: 900px) {
+  .site-header {
+    display: none;
+  }
+  .admin-top-header {
+    display: none;
+  }
+  .anchor {
+    scroll-margin-top: 0;
+  }
+
+  /* TakeMoment: move capture button to the right of the stream */
+  .take-moment-mobile-capture-stack {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .take-moment-mobile-stream {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .take-moment-mobile-shutter {
+    flex: 0 0 110px;
+    width: 110px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
 .site-header.elev {
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
 } /* saat scroll */

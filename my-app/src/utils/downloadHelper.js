@@ -5,6 +5,17 @@
 
 import { trackDownload } from "../services/analyticsService";
 
+const safeTrackDownload = (frameId, frameName, fileType, isPremium, method) => {
+  if (!frameId) return;
+  try {
+    const p = trackDownload(frameId, frameName, fileType, isPremium, method);
+    // Never block UI on analytics.
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch {
+    // Ignore analytics errors
+  }
+};
+
 /**
  * Show toast notification
  */
@@ -50,6 +61,16 @@ const detectDevice = () => {
   };
 };
 
+const dataUrlToBlob = (dataUrl) => {
+  const [header, base64] = dataUrl.split(',');
+  const mimeMatch = header.match(/data:([^;]+);base64/);
+  const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+};
+
 /**
  * Download blob as file with proper filename
  */
@@ -84,8 +105,63 @@ export const downloadToGallery = async (source, filename, mimeType = 'image/png'
   try {
     const device = detectDevice();
     const { frameId, frameName } = options;
+    // If false, we will NOT invoke navigator.share (native share sheet)
+    // Useful when you want only a website-side instruction modal.
+    const useShareApi = options.useShareApi !== false;
+    const showWebToasts = options.showWebToasts !== false;
+
+    const isDataUrl = typeof source === 'string' && source.startsWith('data:');
     
-    // Convert data URL to blob if needed
+    // IMPORTANT: Keep download triggers inside the user gesture.
+    // For data URLs (like canvas.toDataURL), avoid async fetch->blob conversion,
+    // because it can break the gesture and cause the browser to block downloads.
+    if (isDataUrl) {
+      console.log('📥 Using direct data URL download');
+
+      // 1) Trigger browser download UI
+      const a = document.createElement('a');
+      a.href = source;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      // 2) Optionally trigger native share/save sheet (closest to “Save to Gallery” on web)
+      if (useShareApi && device.isMobile && navigator.share) {
+        try {
+          const blob = dataUrlToBlob(source);
+          const file = new File([blob], filename, { type: mimeType });
+          const canShareFiles = navigator.canShare && navigator.canShare({ files: [file] });
+          if (canShareFiles) {
+            await navigator.share({
+              files: [file],
+              title: frameName || 'Fremio Photo',
+              text: 'Simpan foto ke Galeri'
+            });
+            if (frameId) {
+              safeTrackDownload(frameId, frameName, mimeType.split('/')[1], false, 'download+share');
+            }
+            return { success: true, method: 'download+share' };
+          }
+        } catch (shareError) {
+          if (shareError?.name === 'AbortError') {
+            // User cancelled share; download already started
+            return { success: true, method: 'download', shareCancelled: true };
+          }
+          // Ignore share errors; download already started
+          console.log('⚠️ Share after download failed:', shareError?.message);
+        }
+      }
+
+      if (frameId) {
+        safeTrackDownload(frameId, frameName, mimeType.split('/')[1], false, 'data-url');
+      }
+
+      return { success: true, method: 'data-url' };
+    }
+
+    // Convert to blob if needed
     let blob = source;
     if (typeof source === 'string') {
       const response = await fetch(source);
@@ -99,42 +175,43 @@ export const downloadToGallery = async (source, filename, mimeType = 'image/png'
     
     console.log('📥 Starting download:', { filename, mimeType, device });
     
-    // Strategy 1: Web Share API (Best for mobile - saves directly to gallery)
-    if (device.isMobile && navigator.share && navigator.canShare) {
+    // Strategy 1: Web Share API (native share sheet)
+    // Optional: can be disabled via options.useShareApi=false
+    if (useShareApi && device.isMobile && navigator.share) {
       try {
         const file = new File([blob], filename, { type: mimeType });
         
-        // Check if can share files
-        if (navigator.canShare({ files: [file] })) {
+        // Check if can share files (some browsers support share but not file sharing)
+        const canShareFiles = navigator.canShare && navigator.canShare({ files: [file] });
+        
+        if (canShareFiles) {
+          console.log('🔄 Attempting Web Share API for direct save to gallery...');
+          
           await navigator.share({
             files: [file],
-            title: 'Fremio - Save to Gallery',
-            text: 'Simpan ke Galeri'
+            title: frameName || 'Fremio Photo',
+            text: 'Simpan foto ke Galeri'
           });
           
-          console.log('✅ Download via Web Share API');
+          console.log('✅ Download via Web Share API - User saved file');
           
           // Track download
           if (frameId) {
-            await trackDownload(frameId, frameName, mimeType.split('/')[1], false, 'share');
+            safeTrackDownload(frameId, frameName, mimeType.split('/')[1], false, 'share');
           }
           
-          // Show success message
-          showToast({
-            type: 'success',
-            title: 'Berhasil!',
-            message: 'File tersimpan di Galeri'
-          });
-          
           return { success: true, method: 'share' };
+        } else {
+          console.log('⚠️ Browser does not support file sharing via Web Share API');
         }
       } catch (shareError) {
         // If user cancels share dialog, it's not really an error
         if (shareError.name === 'AbortError') {
-          console.log('User cancelled share');
+          console.log('ℹ️ User cancelled share dialog');
           return { success: false, cancelled: true };
         }
-        console.log('Share API failed, trying fallback:', shareError.message);
+        console.log('⚠️ Share API failed, trying fallback:', shareError.message);
+        // Continue to fallback methods
       }
     }
     
@@ -169,13 +246,15 @@ export const downloadToGallery = async (source, filename, mimeType = 'image/png'
         
         // Track download
         if (frameId) {
-          await trackDownload(frameId, frameName, mimeType.split('/')[1], false, 'ios-download');
+          safeTrackDownload(frameId, frameName, mimeType.split('/')[1], false, 'ios-download');
         }
         
-        showToast({
-          type: 'success',
-          message: 'Foto berhasil disimpan ke Downloads!'
-        });
+        if (showWebToasts) {
+          showToast({
+            type: 'success',
+            message: 'Foto berhasil disimpan ke Downloads!'
+          });
+        }
         
         return { success: true, method: 'ios-download' };
       } catch (iosError) {
@@ -184,25 +263,50 @@ export const downloadToGallery = async (source, filename, mimeType = 'image/png'
       }
     }
     
-    // Strategy 3: Standard download link (Android Chrome, Desktop)
-    downloadBlob(blob, filename);
+    // Strategy 3: Standard download link (Android Chrome, Desktop, and fallback)
+    console.log('📥 Using standard download with HTML anchor...');
+
+    // Create object URL
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.setAttribute('download', filename);
+    a.style.display = 'none';
+
+    // Append to body and trigger click immediately (keep gesture)
+    document.body.appendChild(a);
+    a.click();
+
+    // Cleanup after download starts
+    setTimeout(() => {
+      if (a.parentNode) document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 250);
     
     // Track download
     if (frameId) {
-      await trackDownload(frameId, frameName, mimeType.split('/')[1], false, 'download');
+      safeTrackDownload(frameId, frameName, mimeType.split('/')[1], false, 'download');
     }
     
-    // Show appropriate message based on device
-    if (device.isAndroid) {
-      showToast({
-        type: 'success',
-        message: 'File berhasil diunduh. Cek di Galeri atau folder Downloads.'
-      });
-    } else {
-      showToast({
-        type: 'success',
-        message: 'File berhasil diunduh!'
-      });
+    // Show appropriate message based on device with helpful instructions
+    if (showWebToasts) {
+      if (device.isAndroid) {
+        showToast({
+          type: 'success',
+          message: '✓ Foto disimpan! Cek notifikasi download atau buka Galeri > Download/Fremio'
+        });
+      } else if (device.isIOS) {
+        showToast({
+          type: 'success',
+          message: '✓ Foto disimpan! Cek folder Downloads atau Files'
+        });
+      } else {
+        showToast({
+          type: 'success',
+          message: '✓ Foto berhasil diunduh!'
+        });
+      }
     }
     
     console.log('✅ Download completed via standard download');

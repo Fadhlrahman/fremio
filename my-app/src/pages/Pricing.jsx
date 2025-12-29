@@ -65,7 +65,7 @@ const Pricing = () => {
       // Sort within each category by displayOrder then createdAt
       Object.keys(grouped).forEach((category) => {
         grouped[category].sort(
-          (a, b) => (a.displayOrder || 999) - (b.displayOrder || 999)
+            (a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999)
         );
       });
 
@@ -407,6 +407,63 @@ const Pricing = () => {
 
   return (
     <div className="pricing-container">
+      {/* PREVIEW FRAME KOLEKSI FREMIO - At the top for immediate visibility */}
+      <div className="pricing-preview">
+        <h3
+          style={{
+            fontSize: "24px",
+            fontWeight: "700",
+            textAlign: "center",
+            marginBottom: "20px",
+            color: "#333",
+          }}
+        >
+          Preview Frame Koleksi Fremio
+        </h3>
+
+        <div className="preview-tabs">
+          {tabs.map((tab) => (
+            <button
+              key={tab}
+              className={`preview-tab ${activeTab === tab ? "active" : ""}`}
+              onClick={() => setActiveTab(tab)}
+              type="button"
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        <div className="preview-panel">
+          <div className="preview-quote">{previewQuote}</div>
+
+          {loadingPreviewFrames ? (
+            <div className="preview-loading">Memuat preview frames...</div>
+          ) : tabFrames.length === 0 ? (
+            <div className="preview-empty">
+              Belum ada frames untuk kategori ini.
+            </div>
+          ) : (
+            <div className="preview-grid">
+              {tabFrames.slice(0, 10).map((frame, idx) => (
+                <div key={frame.id || idx} className="preview-item">
+                  <div className="preview-thumb">
+                    <img
+                      src={
+                        frame.thumbnailUrl || frame.imageUrl || frame.imagePath
+                      }
+                      alt={frame.name || `Frame ${idx + 1}`}
+                      onError={(e) => (e.currentTarget.style.display = "none")}
+                    />
+                  </div>
+                  <div className="preview-name">Frame {idx + 1}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="pricing-hero">
         <div
           style={{
@@ -477,63 +534,6 @@ const Pricing = () => {
           </div>
         </div>
       )}
-
-      {/* PREVIEW FRAME KOLEKSI FREMIO - Moved to top */}
-      <div className="pricing-preview">
-        <h3
-          style={{
-            fontSize: "24px",
-            fontWeight: "700",
-            textAlign: "center",
-            marginBottom: "20px",
-            color: "#333",
-          }}
-        >
-          Preview Frame Koleksi Fremio
-        </h3>
-
-        <div className="preview-tabs">
-          {tabs.map((tab) => (
-            <button
-              key={tab}
-              className={`preview-tab ${activeTab === tab ? "active" : ""}`}
-              onClick={() => setActiveTab(tab)}
-              type="button"
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
-
-        <div className="preview-panel">
-          <div className="preview-quote">{previewQuote}</div>
-
-          {loadingPreviewFrames ? (
-            <div className="preview-loading">Memuat preview frames...</div>
-          ) : tabFrames.length === 0 ? (
-            <div className="preview-empty">
-              Belum ada frames untuk kategori ini.
-            </div>
-          ) : (
-            <div className="preview-grid">
-              {tabFrames.slice(0, 10).map((frame, idx) => (
-                <div key={frame.id || idx} className="preview-item">
-                  <div className="preview-thumb">
-                    <img
-                      src={
-                        frame.thumbnailUrl || frame.imageUrl || frame.imagePath
-                      }
-                      alt={frame.name || `Frame ${idx + 1}`}
-                      onError={(e) => (e.currentTarget.style.display = "none")}
-                    />
-                  </div>
-                  <div className="preview-name">Frame {idx + 1}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
 
       {/* WHY FREMIO EXISTS SECTION */}
       <div

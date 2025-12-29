@@ -22,6 +22,12 @@ const buildImageUrl = (imagePath, req) => {
 router.get('/', optionalAuth, async (req, res) => {
   try {
     const { category, limit, offset = 0, search, includeHidden } = req.query;
+
+    const wantsIncludeHidden = includeHidden === 'true';
+    const isAdmin = wantsIncludeHidden && req.user?.role === 'admin';
+    const parsedLimit = Number.parseInt(limit, 10);
+    const parsedOffset = Number.parseInt(offset, 10);
+    const safeOffset = Number.isFinite(parsedOffset) && parsedOffset > 0 ? parsedOffset : 0;
     
     let query = `
       SELECT id, name, description, category, image_path, slots, layout,
@@ -31,8 +37,8 @@ router.get('/', optionalAuth, async (req, res) => {
       WHERE is_active = true
     `;
     
-    // Admin can see hidden frames via includeHidden=true parameter
-    if (!includeHidden || includeHidden !== 'true') {
+    // Only admin can see hidden frames via includeHidden=true
+    if (!isAdmin) {
       query += ` AND (is_hidden IS NULL OR is_hidden = false)`;
     }
     const params = [];
@@ -47,14 +53,16 @@ router.get('/', optionalAuth, async (req, res) => {
       query += ` AND (name ILIKE $${params.length} OR description ILIKE $${params.length})`;
     }
     
-    query += ` ORDER BY display_order ASC, created_at DESC`;
+    // Deterministic ordering so pagination/limits never "randomly" reshuffle
+    query += ` ORDER BY COALESCE(display_order, 999999) ASC, created_at DESC, id ASC`;
     
-    // Only apply LIMIT if explicitly provided (no default limit for admin)
-    if (limit) {
-      params.push(parseInt(limit));
+    // Apply pagination only for non-admin callers.
+    // Admin screens should never be capped at 50 (or any other default) implicitly.
+    if (!isAdmin && Number.isFinite(parsedLimit) && parsedLimit > 0) {
+      params.push(parsedLimit);
       query += ` LIMIT $${params.length}`;
-      
-      params.push(parseInt(offset));
+
+      params.push(safeOffset);
       query += ` OFFSET $${params.length}`;
     }
     

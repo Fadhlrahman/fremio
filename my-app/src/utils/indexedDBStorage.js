@@ -5,8 +5,9 @@
  */
 
 const DB_NAME = 'fremio-storage';
-const DB_VERSION = 1;
-const STORE_NAME = 'drafts';
+const DB_VERSION = 2;
+const STORE_DRAFTS = 'drafts';
+const STORE_SUMMARIES = 'draft_summaries';
 
 let dbInstance = null;
 
@@ -40,12 +41,32 @@ const initDB = () => {
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
-      
-      // Create object store if it doesn't exist
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const objectStore = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-        objectStore.createIndex('updatedAt', 'updatedAt', { unique: false });
-        console.log('✅ IndexedDB object store created');
+
+      // Drafts store
+      if (!db.objectStoreNames.contains(STORE_DRAFTS)) {
+        const draftsStore = db.createObjectStore(STORE_DRAFTS, { keyPath: 'id' });
+        draftsStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+        draftsStore.createIndex('userId', 'userId', { unique: false });
+        console.log('✅ IndexedDB drafts store created');
+      } else {
+        const transaction = event.target.transaction;
+        const draftsStore = transaction.objectStore(STORE_DRAFTS);
+        if (!draftsStore.indexNames.contains('userId')) {
+          draftsStore.createIndex('userId', 'userId', { unique: false });
+        }
+        if (!draftsStore.indexNames.contains('updatedAt')) {
+          draftsStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+        }
+      }
+
+      // Summaries store (fast list rendering)
+      if (!db.objectStoreNames.contains(STORE_SUMMARIES)) {
+        const summariesStore = db.createObjectStore(STORE_SUMMARIES, {
+          keyPath: 'id',
+        });
+        summariesStore.createIndex('userId', 'userId', { unique: false });
+        summariesStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+        console.log('✅ IndexedDB draft summaries store created');
       }
     };
   });
@@ -58,8 +79,8 @@ export const getAllDrafts = async () => {
   try {
     const db = await initDB();
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction([STORE_NAME], 'readonly');
-      const objectStore = transaction.objectStore(STORE_NAME);
+      const transaction = db.transaction([STORE_DRAFTS], 'readonly');
+      const objectStore = transaction.objectStore(STORE_DRAFTS);
       const request = objectStore.getAll();
 
       request.onsuccess = () => {
@@ -80,14 +101,49 @@ export const getAllDrafts = async () => {
 };
 
 /**
+ * Get drafts for a specific user (avoids loading all drafts then filtering)
+ */
+export const getDraftsByUserId = async (userId) => {
+  try {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_DRAFTS], 'readonly');
+      const objectStore = transaction.objectStore(STORE_DRAFTS);
+
+      if (!objectStore.indexNames.contains('userId')) {
+        // Fallback for older schemas; caller may still filter.
+        const requestAll = objectStore.getAll();
+        requestAll.onsuccess = () => resolve((requestAll.result || []).filter((d) => d?.userId === userId));
+        requestAll.onerror = () => reject(requestAll.error);
+        return;
+      }
+
+      const index = objectStore.index('userId');
+      const request = index.getAll(IDBKeyRange.only(userId));
+
+      request.onsuccess = () => {
+        resolve(request.result || []);
+      };
+
+      request.onerror = () => {
+        reject(request.error);
+      };
+    });
+  } catch (error) {
+    console.error('❌ IndexedDB: getDraftsByUserId failed:', error);
+    return [];
+  }
+};
+
+/**
  * Get a single draft by ID
  */
 export const getDraft = async (id) => {
   try {
     const db = await initDB();
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction([STORE_NAME], 'readonly');
-      const objectStore = transaction.objectStore(STORE_NAME);
+      const transaction = db.transaction([STORE_DRAFTS], 'readonly');
+      const objectStore = transaction.objectStore(STORE_DRAFTS);
       const request = objectStore.get(id);
 
       request.onsuccess = () => {
@@ -127,8 +183,8 @@ export const saveDraft = async (draft) => {
     });
 
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction([STORE_NAME], 'readwrite');
-      const objectStore = transaction.objectStore(STORE_NAME);
+      const transaction = db.transaction([STORE_DRAFTS], 'readwrite');
+      const objectStore = transaction.objectStore(STORE_DRAFTS);
       const request = objectStore.put(draft);
 
       request.onsuccess = () => {
@@ -154,8 +210,8 @@ export const deleteDraft = async (id) => {
   try {
     const db = await initDB();
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction([STORE_NAME], 'readwrite');
-      const objectStore = transaction.objectStore(STORE_NAME);
+      const transaction = db.transaction([STORE_DRAFTS], 'readwrite');
+      const objectStore = transaction.objectStore(STORE_DRAFTS);
       const request = objectStore.delete(id);
 
       request.onsuccess = () => {
@@ -181,8 +237,8 @@ export const clearAllDrafts = async () => {
   try {
     const db = await initDB();
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction([STORE_NAME], 'readwrite');
-      const objectStore = transaction.objectStore(STORE_NAME);
+      const transaction = db.transaction([STORE_DRAFTS], 'readwrite');
+      const objectStore = transaction.objectStore(STORE_DRAFTS);
       const request = objectStore.clear();
 
       request.onsuccess = () => {
@@ -228,10 +284,112 @@ export const getStorageEstimate = async () => {
   }
 };
 
+/**
+ * Save a lightweight summary for fast draft list rendering.
+ */
+export const saveDraftSummary = async (summary) => {
+  try {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_SUMMARIES], 'readwrite');
+      const objectStore = transaction.objectStore(STORE_SUMMARIES);
+      const request = objectStore.put(summary);
+
+      request.onsuccess = () => resolve(summary);
+      request.onerror = () => reject(request.error);
+    });
+  } catch (error) {
+    console.error('❌ IndexedDB: saveDraftSummary failed:', error);
+    return null;
+  }
+};
+
+export const saveDraftSummariesBulk = async (summaries) => {
+  try {
+    const list = Array.isArray(summaries) ? summaries.filter(Boolean) : [];
+    if (list.length === 0) return true;
+
+    const db = await initDB();
+    return await new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORE_SUMMARIES)) {
+        resolve(false);
+        return;
+      }
+
+      const transaction = db.transaction([STORE_SUMMARIES], 'readwrite');
+      const objectStore = transaction.objectStore(STORE_SUMMARIES);
+
+      transaction.oncomplete = () => resolve(true);
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+
+      for (const summary of list) {
+        objectStore.put(summary);
+      }
+    });
+  } catch (error) {
+    console.error('❌ IndexedDB: saveDraftSummariesBulk failed:', error);
+    return false;
+  }
+};
+
+/**
+ * Get draft summaries for a user.
+ */
+export const getDraftSummariesByUserId = async (userId) => {
+  try {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORE_SUMMARIES)) {
+        resolve([]);
+        return;
+      }
+
+      const transaction = db.transaction([STORE_SUMMARIES], 'readonly');
+      const objectStore = transaction.objectStore(STORE_SUMMARIES);
+      const index = objectStore.index('userId');
+      const request = index.getAll(IDBKeyRange.only(userId));
+
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+  } catch (error) {
+    console.error('❌ IndexedDB: getDraftSummariesByUserId failed:', error);
+    return [];
+  }
+};
+
+export const deleteDraftSummary = async (id) => {
+  try {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORE_SUMMARIES)) {
+        resolve(true);
+        return;
+      }
+
+      const transaction = db.transaction([STORE_SUMMARIES], 'readwrite');
+      const objectStore = transaction.objectStore(STORE_SUMMARIES);
+      const request = objectStore.delete(id);
+
+      request.onsuccess = () => resolve(true);
+      request.onerror = () => reject(request.error);
+    });
+  } catch (error) {
+    console.error('❌ IndexedDB: deleteDraftSummary failed:', error);
+    return false;
+  }
+};
+
 export default {
   getAllDrafts,
+  getDraftsByUserId,
   getDraft,
   saveDraft,
+  saveDraftSummary,
+  saveDraftSummariesBulk,
+  getDraftSummariesByUserId,
+  deleteDraftSummary,
   deleteDraft,
   clearAllDrafts,
   getStorageEstimate,

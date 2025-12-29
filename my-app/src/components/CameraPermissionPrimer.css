@@ -8,10 +8,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 9999;
+  z-index: 99999; /* Increased z-index to ensure it's on top */
   padding: 16px;
   backdrop-filter: blur(6px);
   animation: fadeIn 0.2s ease-out;
+  pointer-events: auto; /* Ensure pointer events work */
 }
 
 @keyframes fadeIn {
@@ -35,6 +36,9 @@
   overflow: auto;
   animation: slideUp 0.25s ease-out;
   box-shadow: 0 26px 70px rgba(15, 23, 42, 0.28);
+  position: relative; /* Ensure proper stacking context */
+  z-index: 100000; /* Higher than overlay */
+  pointer-events: auto; /* Ensure pointer events work */
 }
 
 @keyframes slideUp {
@@ -113,10 +117,20 @@
   background: #1e293b;
   color: #fff;
   box-shadow: 0 16px 30px rgba(15, 23, 42, 0.18);
+  position: relative; /* Ensure proper stacking */
+  z-index: 1; /* Above other elements */
+  pointer-events: auto; /* Always allow pointer events */
+  touch-action: manipulation; /* Better touch handling on mobile */
+  -webkit-tap-highlight-color: transparent; /* Remove tap highlight on iOS */
 }
 
 .permission-primer-primary:active {
   transform: translateY(1px);
+}
+
+.permission-primer-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .permission-primer-secondary {
@@ -129,10 +143,20 @@
   padding: 8px 10px;
   margin: 8px 0 12px;
   font-family: inherit;
+  position: relative; /* Ensure proper stacking */
+  z-index: 1; /* Above other elements */
+  pointer-events: auto; /* Always allow pointer events */
+  touch-action: manipulation; /* Better touch handling on mobile */
+  -webkit-tap-highlight-color: transparent; /* Remove tap highlight on iOS */
 }
 
 .permission-primer-secondary:hover {
   text-decoration: underline;
+}
+
+.permission-primer-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .permission-error-message {
@@ -158,12 +182,6 @@
 
 .permission-note strong {
   color: #1e293b;
-}
-
-.permission-primer-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  pointer-events: none;
 }
 
 /* Mobile Responsive */

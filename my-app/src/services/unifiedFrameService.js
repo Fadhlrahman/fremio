@@ -103,36 +103,78 @@ class VPSFrameClient {
   // Get all frames
   async getAllFrames(options = {}) {
     try {
-      const params = new URLSearchParams();
+      const normalizeFrames = (frames) => {
+        return (frames || []).map((frame) => {
+          // Use imageUrl from backend if available, otherwise construct from image_path or imagePath
+          const imagePath = frame.image_path || frame.imagePath;
+          let imageUrl = frame.imageUrl;
+
+          if (!imageUrl && imagePath) {
+            imageUrl = imagePath.startsWith('http')
+              ? imagePath
+              : `${this.baseUrl.replace('/api', '')}${imagePath}`;
+          }
+
+          return {
+            ...frame,
+            imageUrl,
+            imagePath,
+            thumbnailUrl: imageUrl,
+          };
+        });
+      };
+
       // Cache-bust list requests to avoid stale results (e.g., CDN/browser caching)
-      params.set('ts', String(Date.now()));
-      if (options?.includeHidden) {
-        params.set('includeHidden', 'true');
+      const ts = String(Date.now());
+      const includeHidden = !!options?.includeHidden;
+
+      // If backend supports pagination, fetch all pages so admin isn't capped at default page sizes.
+      // Keep a conservative hard limit to avoid infinite loops if the backend reports bad pagination.
+      const pageSize = Number.isFinite(options?.limit) ? options.limit : 500;
+      const maxPages = 50;
+      const maxItems = 10000;
+
+      const allFrames = [];
+      const seenIds = new Set();
+      let page = 1;
+      let totalPages = 1;
+
+      while (page <= totalPages && page <= maxPages && allFrames.length < maxItems) {
+        const params = new URLSearchParams();
+        params.set('ts', ts);
+        params.set('page', String(page));
+        params.set('limit', String(pageSize));
+        if (includeHidden) params.set('includeHidden', 'true');
+
+        const data = await this.request(`/frames?${params.toString()}`);
+
+        // Handle both array and {frames, pagination} response
+        const pageFramesRaw = Array.isArray(data) ? data : (data.frames || []);
+        const pageFrames = normalizeFrames(pageFramesRaw);
+
+        for (const frame of pageFrames) {
+          const frameId = frame?.id != null ? String(frame.id) : null;
+          if (frameId && seenIds.has(frameId)) continue;
+          if (frameId) seenIds.add(frameId);
+          allFrames.push(frame);
+        }
+
+        const pagination = (!Array.isArray(data) && data && data.pagination) ? data.pagination : null;
+        const reportedTotalPages = pagination?.totalPages;
+        totalPages = Number.isFinite(reportedTotalPages) && reportedTotalPages > 0 ? reportedTotalPages : 1;
+
+        // If backend doesn't paginate (or returns everything), stop after first request.
+        if (totalPages <= 1) break;
+        page += 1;
+
+        // If backend returns empty page, stop.
+        if (!pageFramesRaw || pageFramesRaw.length === 0) break;
       }
 
-      const data = await this.request(`/frames?${params.toString()}`);
-      // Handle both array and object response
-      const frames = Array.isArray(data) ? data : (data.frames || []);
-      return frames.map(frame => {
-        // Use imageUrl from backend if available, otherwise construct from image_path or imagePath
-        const imagePath = frame.image_path || frame.imagePath;
-        let imageUrl = frame.imageUrl;
-        
-        if (!imageUrl && imagePath) {
-          imageUrl = imagePath.startsWith('http')
-            ? imagePath
-            : `${this.baseUrl.replace('/api', '')}${imagePath}`;
-        }
-        
-        return {
-          ...frame,
-          imageUrl,
-          imagePath,
-          thumbnailUrl: imageUrl
-        };
-      });
+      return allFrames;
     } catch (error) {
       console.error('Error getting frames:', error);
+      if (options?.throwOnError) throw error;
       return [];
     }
   }

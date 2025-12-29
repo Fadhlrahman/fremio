@@ -354,6 +354,7 @@ export default function AdminLayout() {
       >
         {/* Top Header */}
         <header
+          className="admin-top-header"
           style={{
             backgroundColor: "white",
             borderBottom: "1px solid #e5e7eb",

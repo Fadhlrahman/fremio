@@ -10,6 +10,10 @@ import {
 const STORAGE_KEY = "fremio-creator-drafts";
 const USE_INDEXEDDB = true; // Enable IndexedDB for larger storage capacity
 
+const DEBUG = !!import.meta?.env?.DEV;
+
+const SUMMARY_CACHE_PREFIX = "fremio-creator-draft-summaries:";
+
 // DISABLED: Firebase cloud sync is not used in VPS mode
 // Cloud sync now uses VPS backend via draftService.js (called from Create.jsx)
 const USE_CLOUD_SYNC = false; // Disabled - using VPS backend instead of Firebase
@@ -31,7 +35,7 @@ const getCurrentUserId = () => {
       const user = JSON.parse(userStr);
       const userId = user?.email || user?.id;
       if (userId) {
-        console.log('🔑 [getCurrentUserId] Found user:', userId);
+        if (DEBUG) console.log('🔑 [getCurrentUserId] Found user:', userId);
         return userId;
       }
     }
@@ -40,8 +44,110 @@ const getCurrentUserId = () => {
   }
   
   // Only return guest as last resort
-  console.warn('⚠️ [getCurrentUserId] Returning guest - no user found in localStorage');
+  if (DEBUG) console.warn('⚠️ [getCurrentUserId] Returning guest - no user found in localStorage');
   return "guest";
+};
+
+const buildDraftSummary = (draft) => {
+  if (!draft?.id) return null;
+  return {
+    id: draft.id,
+    userId: draft.userId,
+    title: draft.title ?? "Draft",
+    name: draft.name,
+    createdAt: draft.createdAt,
+    updatedAt: draft.updatedAt,
+    preview: draft.preview,
+    signature: draft.signature,
+    aspectRatio: draft.aspectRatio,
+  };
+};
+
+export const getCachedDraftSummaries = (userId = null) => {
+  try {
+    const uid = userId || getCurrentUserId();
+    if (!uid) return [];
+    const cached = safeStorage.getJSON(`${SUMMARY_CACHE_PREFIX}${uid}`, []);
+    return Array.isArray(cached) ? cached : [];
+  } catch {
+    return [];
+  }
+};
+
+const setCachedDraftSummaries = (userId, summaries) => {
+  try {
+    if (!userId) return;
+    const list = Array.isArray(summaries) ? summaries : [];
+    safeStorage.setJSON(`${SUMMARY_CACHE_PREFIX}${userId}`, list);
+  } catch {
+    // ignore cache write errors
+  }
+};
+
+const upsertCachedDraftSummary = (userId, summary) => {
+  try {
+    if (!userId || !summary?.id) return;
+    const existing = getCachedDraftSummaries(userId);
+    const idx = existing.findIndex((s) => s?.id === summary.id);
+    const next = idx >= 0 ? [...existing.slice(0, idx), summary, ...existing.slice(idx + 1)] : [summary, ...existing];
+    setCachedDraftSummaries(userId, next);
+  } catch {
+    // ignore
+  }
+};
+
+const removeCachedDraftSummary = (userId, id) => {
+  try {
+    if (!userId || !id) return;
+    const existing = getCachedDraftSummaries(userId);
+    setCachedDraftSummaries(
+      userId,
+      existing.filter((s) => s?.id !== id)
+    );
+  } catch {
+    // ignore
+  }
+};
+
+export const loadDraftSummaries = async () => {
+  const currentUserId = getCurrentUserId();
+
+  // Fast path: local cache (instant)
+  const cached = getCachedDraftSummaries(currentUserId);
+  if (cached.length > 0) {
+    return cached;
+  }
+
+  if (USE_INDEXEDDB) {
+    try {
+      if (DEBUG) console.log("📦 Loading draft summaries from IndexedDB for user:", currentUserId);
+      const summaries = await indexedDBStorage.getDraftSummariesByUserId(currentUserId);
+      if (Array.isArray(summaries) && summaries.length > 0) {
+        setCachedDraftSummaries(currentUserId, summaries);
+        return summaries;
+      }
+
+      // Backfill summaries from full drafts (one-time cost per browser)
+      const userDrafts = await indexedDBStorage.getDraftsByUserId(currentUserId);
+      const built = ensureArray(userDrafts)
+        .map(buildDraftSummary)
+        .filter(Boolean);
+
+      // Write summaries in bulk (faster) but don't block returning
+      setCachedDraftSummaries(currentUserId, built);
+      void indexedDBStorage.saveDraftSummariesBulk(built);
+      return built;
+    } catch (error) {
+      console.error("❌ Failed to load draft summaries from IndexedDB:", error);
+    }
+  }
+
+  // Fallback to localStorage (metadata-only best effort)
+  const drafts = safeStorage.getJSON(STORAGE_KEY, []);
+  const userDrafts = ensureArray(drafts).filter(
+    (draft) => draft.userId === currentUserId
+  );
+  return userDrafts.map(buildDraftSummary).filter(Boolean);
 };
 
 const generateId = () => {
@@ -84,15 +190,9 @@ export const loadDrafts = async () => {
 
   if (USE_INDEXEDDB) {
     try {
-      console.log("📦 Loading drafts from IndexedDB for user:", currentUserId);
-      const allDrafts = await indexedDBStorage.getAllDrafts();
-      // Filter drafts for current user only
-      const userDrafts = ensureArray(allDrafts).filter(
-        (draft) => draft.userId === currentUserId
-      );
-      console.log(
-        `✅ Loaded ${userDrafts.length} drafts for user ${currentUserId}`
-      );
+      if (DEBUG) console.log("📦 Loading drafts from IndexedDB for user:", currentUserId);
+      const userDrafts = await indexedDBStorage.getDraftsByUserId(currentUserId);
+      if (DEBUG) console.log(`✅ Loaded ${userDrafts.length} drafts for user ${currentUserId}`);
       return userDrafts;
     } catch (error) {
       console.error(
@@ -175,14 +275,14 @@ export const getDraftById = async (id, userEmail = null) => {
 
 const persistDraftsToLocalStorage = async (drafts) => {
   try {
-    console.log("💾 [persistDrafts] Attempting to save to localStorage:", {
+    if (DEBUG) console.log("💾 [persistDrafts] Attempting to save to localStorage:", {
       count: drafts.length,
       ids: drafts.map((d) => d.id),
     });
 
     const success = safeStorage.setJSON(STORAGE_KEY, drafts);
 
-    console.log("💾 [persistDrafts] setJSON result:", success);
+    if (DEBUG) console.log("💾 [persistDrafts] setJSON result:", success);
 
     if (!success) {
       throw new Error(
@@ -192,7 +292,7 @@ const persistDraftsToLocalStorage = async (drafts) => {
 
     const verification = safeStorage.getJSON(STORAGE_KEY);
 
-    console.log("✅ [persistDrafts] Verification result:", {
+    if (DEBUG) console.log("✅ [persistDrafts] Verification result:", {
       isArray: Array.isArray(verification),
       count: verification?.length,
       ids: verification?.map((d) => d.id),
@@ -209,9 +309,7 @@ const persistDraftsToLocalStorage = async (drafts) => {
       });
     }
 
-    console.log(
-      "✅ [persistDrafts] Drafts successfully persisted and verified"
-    );
+    if (DEBUG) console.log("✅ [persistDrafts] Drafts successfully persisted and verified");
     return true;
   } catch (error) {
     console.error("❌ [persistDrafts] Failed to persist drafts", error);
@@ -238,11 +336,13 @@ const buildSavedDraft = (incoming, nowIso, existing, id) => {
   };
   
   // Debug logging for userId tracking - use string interpolation for better visibility
-  console.log(`🔍 [buildSavedDraft] userId resolution for ${id.substring(0, 20)}:`);
-  console.log(`   incoming.userId: "${incoming.userId}"`);
-  console.log(`   existing.userId: "${existing?.userId}"`);
-  console.log(`   currentUserId: "${currentUserId}"`);
-  console.log(`   FINAL userId: "${result.userId}"`);
+  if (DEBUG) {
+    console.log(`🔍 [buildSavedDraft] userId resolution for ${id.substring(0, 20)}:`);
+    console.log(`   incoming.userId: "${incoming.userId}"`);
+    console.log(`   existing.userId: "${existing?.userId}"`);
+    console.log(`   currentUserId: "${currentUserId}"`);
+    console.log(`   FINAL userId: "${result.userId}"`);
+  }
   
   return result;
 };
@@ -255,12 +355,18 @@ const saveDraftToIndexedDB = async (incoming, nowIso) => {
     : null;
   const savedDraft = buildSavedDraft(normalizedIncoming, nowIso, existing, id);
 
-  console.log("💾 [saveDraft] Persisting single draft to IndexedDB:", {
+  if (DEBUG) console.log("💾 [saveDraft] Persisting single draft to IndexedDB:", {
     id: savedDraft.id,
     hasElements: Array.isArray(savedDraft.elements),
   });
 
   await indexedDBStorage.saveDraft(savedDraft);
+  // Keep summary in sync for faster listing
+  const summary = buildDraftSummary(savedDraft);
+  if (summary) {
+    await indexedDBStorage.saveDraftSummary(summary);
+    upsertCachedDraftSummary(savedDraft.userId, summary);
+  }
   return savedDraft;
 };
 
@@ -290,6 +396,8 @@ export const deleteDraft = async (id) => {
       const draft = await indexedDBStorage.getDraft(id);
       if (draft && draft.userId === currentUserId) {
         await indexedDBStorage.deleteDraft(id);
+        await indexedDBStorage.deleteDraftSummary(id);
+        removeCachedDraftSummary(currentUserId, id);
         console.log(
           `✅ Deleted draft ${id} from IndexedDB for user ${currentUserId}`
         );
@@ -411,6 +519,8 @@ export const saveDraft = async (inputDraft) => {
 
 export default {
   loadDrafts,
+  loadDraftSummaries,
+  getCachedDraftSummaries,
   getDraftById,
   saveDraft,
   deleteDraft,

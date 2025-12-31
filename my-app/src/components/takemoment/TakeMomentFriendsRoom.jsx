@@ -206,6 +206,7 @@ export default function TakeMomentFriendsRoom({
 
   const [error, setError] = useState(null);
   const [status, setStatus] = useState("connecting");
+  const [selectedTileId, setSelectedTileId] = useState(null);
 
   const wsUrl = useMemo(() => deriveWsUrl(), []);
 
@@ -1126,7 +1127,11 @@ export default function TakeMomentFriendsRoom({
         </div>
       </div>
 
-      <div ref={stageRef} style={stageStyle}>
+      <div
+        ref={stageRef}
+        style={stageStyle}
+        onMouseDown={() => setSelectedTileId(null)}
+      >
         {/* Local video element (hidden UI, but used for rendering/capture) */}
         <video
           ref={localVideoRef}
@@ -1210,7 +1215,15 @@ export default function TakeMomentFriendsRoom({
                 });
                 upsertLayoutFor(id, nextNorm);
               }}
-              onMouseDown={() => {
+              onMouseDown={(e) => {
+                try {
+                  e?.stopPropagation?.();
+                } catch {
+                  // ignore
+                }
+
+                setSelectedTileId(id);
+
                 if (!isMaster) return;
                 const baseLayout = ensureNormLayoutNow();
                 if (!baseLayout) return;
@@ -1232,6 +1245,20 @@ export default function TakeMomentFriendsRoom({
                   position: "relative",
                 }}
               >
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    borderRadius: 14,
+                    border:
+                      selectedTileId === id
+                        ? "2px solid rgba(15,23,42,0.28)"
+                        : "2px solid transparent",
+                    pointerEvents: "none",
+                    boxSizing: "border-box",
+                    zIndex: 3,
+                  }}
+                />
                 <canvas
                   data-peer={isLocal ? undefined : id}
                   ref={(el) => {

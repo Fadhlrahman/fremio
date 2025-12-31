@@ -211,6 +211,7 @@ export default function TakeMomentFriendsRoom({
   const pinchRafRef = useRef(null);
   const [pinchingTileId, setPinchingTileId] = useState(null);
   const tileTouchCleanupRef = useRef(new Map()); // id -> () => void
+  const pointerPointsRef = useRef(new Map()); // pointerId -> { x, y }
 
   // Keep refs in sync so callbacks can be stable
   useEffect(() => {
@@ -331,6 +332,13 @@ export default function TakeMomentFriendsRoom({
 
       if (!el || !isMaster) return;
 
+      // Help browsers route pinch/scroll behavior to JS (Pointer Events path).
+      try {
+        el.style.touchAction = "none";
+      } catch {
+        // ignore
+      }
+
       const onStart = (e) => {
         if (!roleRef.current || roleRef.current !== "master") return;
         if (!e?.touches || e.touches.length !== 2) return;
@@ -364,18 +372,149 @@ export default function TakeMomentFriendsRoom({
         clearPinch();
       };
 
+      // Pointer Events path (best on modern Android + iOS)
+      const onPointerDown = (e) => {
+        if (e?.pointerType !== "touch") return;
+        if (!roleRef.current || roleRef.current !== "master") return;
+        try {
+          e.preventDefault();
+          e.stopPropagation();
+        } catch {
+          // ignore
+        }
+        try {
+          el.setPointerCapture?.(e.pointerId);
+        } catch {
+          // ignore
+        }
+        pointerPointsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pointerPointsRef.current.size === 2) {
+          // synthesize touches-like array to reuse logic
+          const pts = [...pointerPointsRef.current.values()].map((p) => ({ clientX: p.x, clientY: p.y }));
+          setSelectedTileId(tileId);
+          startPinchForTile(tileId, pts);
+        }
+      };
+
+      const onPointerMove = (e) => {
+        if (e?.pointerType !== "touch") return;
+        const state = pinchStateRef.current;
+        if (!state || state.id !== tileId) return;
+        if (!pointerPointsRef.current.has(e.pointerId)) return;
+        pointerPointsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pointerPointsRef.current.size !== 2) return;
+        try {
+          e.preventDefault();
+          e.stopPropagation();
+        } catch {
+          // ignore
+        }
+        const pts = [...pointerPointsRef.current.values()].map((p) => ({ clientX: p.x, clientY: p.y }));
+        updatePinchScale(tileId, pts);
+      };
+
+      const onPointerUp = (e) => {
+        if (e?.pointerType !== "touch") return;
+        pointerPointsRef.current.delete(e.pointerId);
+        if (pointerPointsRef.current.size < 2) {
+          const state = pinchStateRef.current;
+          if (state && state.id === tileId) clearPinch();
+        }
+      };
+
+      // iOS Safari fallback (non-standard)
+      let gestureStartScale = 1;
+      const onGestureStart = (e) => {
+        if (!roleRef.current || roleRef.current !== "master") return;
+        // @ts-ignore
+        if (typeof e?.scale !== "number") return;
+        try {
+          e.preventDefault();
+          e.stopPropagation();
+        } catch {
+          // ignore
+        }
+        gestureStartScale = e.scale || 1;
+        // seed pinch state from current layout
+        const baseLayout = ensureNormLayoutNow();
+        if (!baseLayout) return;
+        const currentNorm = baseLayout?.[tileId] || getDefaultTileNorm(stageSize.w, stageSize.h);
+        pinchStateRef.current = {
+          id: tileId,
+          startDist: 1,
+          startNorm: currentNorm,
+          centerX: (currentNorm.x ?? 0) + (currentNorm.w ?? 0) / 2,
+          centerY: (currentNorm.y ?? 0) + (currentNorm.h ?? 0) / 2,
+          latestScale: 1,
+        };
+        setPinchingTileId(tileId);
+        setSelectedTileId(tileId);
+      };
+
+      const onGestureChange = (e) => {
+        const state = pinchStateRef.current;
+        if (!state || state.id !== tileId) return;
+        // @ts-ignore
+        if (typeof e?.scale !== "number") return;
+        try {
+          e.preventDefault();
+          e.stopPropagation();
+        } catch {
+          // ignore
+        }
+        const rel = (e.scale || 1) / (gestureStartScale || 1);
+        state.latestScale = clamp(rel, 0.25, 4);
+        if (pinchRafRef.current) return;
+        pinchRafRef.current = requestAnimationFrame(() => {
+          pinchRafRef.current = null;
+          const s = pinchStateRef.current;
+          if (!s || s.id !== tileId) return;
+          const start = s.startNorm || getDefaultTileNorm(stageSize.w, stageSize.h);
+          const nextW = (start.w ?? 0.2) * (s.latestScale ?? 1);
+          const nextH = (start.h ?? 0.2) * (s.latestScale ?? 1);
+          const nextX = (s.centerX ?? 0) - nextW / 2;
+          const nextY = (s.centerY ?? 0) - nextH / 2;
+          const nextNorm = clampNormRect({ ...start, w: nextW, h: nextH, x: nextX, y: nextY });
+          upsertLayoutFor(tileId, nextNorm);
+        });
+      };
+
+      const onGestureEnd = () => {
+        const state = pinchStateRef.current;
+        if (!state || state.id !== tileId) return;
+        clearPinch();
+      };
+
       // Non-passive listeners so preventDefault works (esp. iOS)
       el.addEventListener("touchstart", onStart, { passive: false, capture: true });
       el.addEventListener("touchmove", onMove, { passive: false, capture: true });
       el.addEventListener("touchend", onEnd, { passive: true, capture: true });
       el.addEventListener("touchcancel", onEnd, { passive: true, capture: true });
 
+      el.addEventListener("pointerdown", onPointerDown, { capture: true });
+      el.addEventListener("pointermove", onPointerMove, { capture: true });
+      el.addEventListener("pointerup", onPointerUp, { capture: true });
+      el.addEventListener("pointercancel", onPointerUp, { capture: true });
+
+      el.addEventListener("gesturestart", onGestureStart, { passive: false, capture: true });
+      el.addEventListener("gesturechange", onGestureChange, { passive: false, capture: true });
+      el.addEventListener("gestureend", onGestureEnd, { passive: true, capture: true });
+
       const cleanup = () => {
         try {
-          el.removeEventListener("touchstart", onStart, { capture: true });
-          el.removeEventListener("touchmove", onMove, { capture: true });
-          el.removeEventListener("touchend", onEnd, { capture: true });
-          el.removeEventListener("touchcancel", onEnd, { capture: true });
+          el.removeEventListener("touchstart", onStart, true);
+          el.removeEventListener("touchmove", onMove, true);
+          el.removeEventListener("touchend", onEnd, true);
+          el.removeEventListener("touchcancel", onEnd, true);
+
+          el.removeEventListener("pointerdown", onPointerDown, true);
+          el.removeEventListener("pointermove", onPointerMove, true);
+          el.removeEventListener("pointerup", onPointerUp, true);
+          el.removeEventListener("pointercancel", onPointerUp, true);
+
+          el.removeEventListener("gesturestart", onGestureStart, true);
+          el.removeEventListener("gesturechange", onGestureChange, true);
+          el.removeEventListener("gestureend", onGestureEnd, true);
         } catch {
           // ignore
         }
@@ -383,7 +522,7 @@ export default function TakeMomentFriendsRoom({
 
       tileTouchCleanupRef.current.set(tileId, cleanup);
     },
-    [clearPinch, isMaster, startPinchForTile, updatePinchScale]
+    [clearPinch, isMaster, stageSize.h, stageSize.w, startPinchForTile, updatePinchScale, upsertLayoutFor]
   );
 
   // Use state so video tiles re-render when stream becomes available

@@ -1,0 +1,1 @@
+import{ht as e,mt as t}from"./index-mjung4w2-BsTns-m_.js";export{t as VPSFrameClient,e as default};

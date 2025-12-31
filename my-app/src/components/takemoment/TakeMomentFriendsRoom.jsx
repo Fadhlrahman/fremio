@@ -93,10 +93,35 @@ const inferLayoutUnits = (layout) => {
 
 const normalizeIncomingState = (incoming) => {
   const state = incoming && typeof incoming === "object" ? incoming : {};
-  const background = typeof state.background === "string" ? state.background : "#F4E6DA";
+
+  const legacyBackground = typeof state.background === "string" ? state.background : null;
+  const backgroundColorCandidate =
+    typeof state.backgroundColor === "string" ? state.backgroundColor : legacyBackground;
+  const backgroundImageCandidate =
+    typeof state.backgroundImage === "string" ? state.backgroundImage : null;
+
+  // Back-compat: if legacy background is a URL/dataURL, treat it as an image.
+  const backgroundImage =
+    backgroundImageCandidate ||
+    (legacyBackground &&
+    (legacyBackground.startsWith("data:image") ||
+      legacyBackground.startsWith("http://") ||
+      legacyBackground.startsWith("https://"))
+      ? legacyBackground
+      : null);
+
+  const backgroundColor =
+    typeof backgroundColorCandidate === "string" && backgroundColorCandidate.trim()
+      ? backgroundColorCandidate
+      : "#F4E6DA";
+
   const layout = state.layout && typeof state.layout === "object" ? state.layout : {};
-  const layoutUnits = state.layoutUnits === "norm" || state.layoutUnits === "px" ? state.layoutUnits : inferLayoutUnits(layout);
-  return { background, layoutUnits, layout };
+  const layoutUnits =
+    state.layoutUnits === "norm" || state.layoutUnits === "px"
+      ? state.layoutUnits
+      : inferLayoutUnits(layout);
+
+  return { background: backgroundColor, backgroundColor, backgroundImage, layoutUnits, layout };
 };
 
 const DEFAULT_TILE_PX = { x: 40, y: 40, w: 220, h: 220, z: 0 };
@@ -154,6 +179,7 @@ export default function TakeMomentFriendsRoom({
   const wsRef = useRef(null);
   const localVideoRef = useRef(null);
   const localCutoutCanvasRef = useRef(null);
+  const backgroundFileInputRef = useRef(null);
   const localStreamRef = useRef(null);
   const clientIdRef = useRef(null);
   const roleRef = useRef(null);
@@ -280,7 +306,9 @@ export default function TakeMomentFriendsRoom({
   const [remoteStreams, setRemoteStreams] = useState([]); // [{id, stream}]
 
   const [roomState, setRoomState] = useState({
-    background: "#F4E6DA",
+    background: "#F4E6DA", // legacy
+    backgroundColor: "#F4E6DA",
+    backgroundImage: null,
     layoutUnits: "norm", // 'norm' (0..1) | legacy 'px'
     layout: {},
   });
@@ -537,18 +565,86 @@ export default function TakeMomentFriendsRoom({
     (next) => {
       // Use ref to avoid stale role inside stable callbacks
       if (roleRef.current !== "master") return;
+      const backgroundColor =
+        typeof next.backgroundColor === "string"
+          ? next.backgroundColor
+          : (roomState.backgroundColor ||
+              (typeof roomState.background === "string" ? roomState.background : "#F4E6DA") ||
+              "#F4E6DA");
+
+      const backgroundImage =
+        next.backgroundImage === null
+          ? null
+          : (typeof next.backgroundImage === "string"
+              ? next.backgroundImage
+              : (roomState.backgroundImage || null));
+
       const state = {
-        background:
-          typeof next.background === "string"
-            ? next.background
-            : roomState.background,
+        // Back-compat for older payload consumers
+        background: backgroundColor,
+        backgroundColor,
+        backgroundImage,
         layoutUnits: "norm",
-        layout: next.layout && typeof next.layout === "object" ? next.layout : roomState.layout,
+        layout:
+          next.layout && typeof next.layout === "object" ? next.layout : roomState.layout,
       };
       setRoomState(state);
       safeJsonSend(wsRef.current, { type: "STATE_UPDATE", payload: { state } });
     },
     [roomState]
+  );
+
+  const resizeImageFileToDataUrl = useCallback(async (file, { maxDim = 1600, quality = 0.88 } = {}) => {
+    if (!file) return null;
+    const blobUrl = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.decoding = "async";
+      await new Promise((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("image load failed"));
+        img.src = blobUrl;
+      });
+
+      const iw = img.naturalWidth || img.width || 1;
+      const ih = img.naturalHeight || img.height || 1;
+      const scale = Math.min(1, maxDim / Math.max(iw, ih));
+      const w = Math.max(1, Math.round(iw * scale));
+      const h = Math.max(1, Math.round(ih * scale));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(img, 0, 0, w, h);
+      return canvas.toDataURL("image/jpeg", quality);
+    } finally {
+      try {
+        URL.revokeObjectURL(blobUrl);
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
+
+  const handleBackgroundFileChange = useCallback(
+    async (e) => {
+      if (!isMaster) return;
+      const file = e?.target?.files?.[0] || null;
+      // allow selecting the same file again
+      try {
+        if (e?.target) e.target.value = "";
+      } catch {
+        // ignore
+      }
+
+      if (!file) return;
+      const dataUrl = await resizeImageFileToDataUrl(file);
+      if (!dataUrl) return;
+      sendStateUpdate({ backgroundImage: dataUrl });
+    },
+    [isMaster, resizeImageFileToDataUrl, sendStateUpdate]
   );
 
   const upsertLayoutFor = useCallback(
@@ -741,8 +837,35 @@ export default function TakeMomentFriendsRoom({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    ctx.fillStyle = roomState.background || "#F4E6DA";
+    // Draw background (image cover if present, else solid color)
+    const bgColor = roomState.backgroundColor || "#F4E6DA";
+    ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, width, height);
+
+    const bgImg = roomState.backgroundImage;
+    if (typeof bgImg === "string" && bgImg) {
+      try {
+        const img = new Image();
+        img.decoding = "async";
+        await new Promise((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error("background image load failed"));
+          img.src = bgImg;
+        });
+
+        // cover
+        const iw = img.naturalWidth || img.width || 1;
+        const ih = img.naturalHeight || img.height || 1;
+        const scale = Math.max(width / iw, height / ih);
+        const dw = iw * scale;
+        const dh = ih * scale;
+        const dx = (width - dw) / 2;
+        const dy = (height - dh) / 2;
+        ctx.drawImage(img, dx, dy, dw, dh);
+      } catch {
+        // ignore background draw failures, keep solid color
+      }
+    }
 
     // Build list of all nodes to draw (prefer cutout canvas if ready; otherwise raw video)
     const nodes = [];
@@ -804,7 +927,7 @@ export default function TakeMomentFriendsRoom({
     // End session for everyone
     safeJsonSend(wsRef.current, { type: "END_SESSION", payload: { reason: "captured" } });
     onMasterCaptured?.(dataUrl);
-  }, [clientId, isMaster, onMasterCaptured, roomState.background, roomState.layout]);
+  }, [clientId, isMaster, onMasterCaptured, roomState.backgroundColor, roomState.backgroundImage, roomState.layout]);
 
   const [stageSize, setStageSize] = useState({ w: 0, h: 0 });
 
@@ -854,7 +977,15 @@ export default function TakeMomentFriendsRoom({
     }
 
     const nextState = {
-      background: current.background || "#F4E6DA",
+      backgroundColor:
+        current.backgroundColor ||
+        (typeof current.background === "string" ? current.background : "#F4E6DA") ||
+        "#F4E6DA",
+      backgroundImage: current.backgroundImage || null,
+      background:
+        current.backgroundColor ||
+        (typeof current.background === "string" ? current.background : "#F4E6DA") ||
+        "#F4E6DA",
       layoutUnits: "norm",
       layout: migrated,
     };
@@ -883,7 +1014,15 @@ export default function TakeMomentFriendsRoom({
     if (roleRef.current === "master") {
       safeJsonSend(wsRef.current, {
         type: "STATE_UPDATE",
-        payload: { state: { background: roomState.background, layoutUnits: "norm", layout: migrated } },
+        payload: {
+          state: {
+            background: roomState.backgroundColor || roomState.background || "#F4E6DA",
+            backgroundColor: roomState.backgroundColor || roomState.background || "#F4E6DA",
+            backgroundImage: roomState.backgroundImage || null,
+            layoutUnits: "norm",
+            layout: migrated,
+          },
+        },
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1112,7 +1251,10 @@ export default function TakeMomentFriendsRoom({
     // Use a viewport-based height with a sensible minimum.
     height: "min(60vh, 520px)",
     minHeight: "320px",
-    background: roomState.background || "#F4E6DA",
+    backgroundColor: roomState.backgroundColor || "#F4E6DA",
+    backgroundImage: roomState.backgroundImage ? `url(${roomState.backgroundImage})` : "none",
+    backgroundSize: "cover",
+    backgroundPosition: "center",
     borderRadius: "18px",
     overflow: "hidden",
     position: "relative",
@@ -1197,11 +1339,40 @@ export default function TakeMomentFriendsRoom({
                 Background
                 <input
                   type="color"
-                  value={roomState.background || "#F4E6DA"}
-                  onChange={(e) => sendStateUpdate({ background: e.target.value })}
+                  value={roomState.backgroundColor || "#F4E6DA"}
+                  onChange={(e) =>
+                    sendStateUpdate({
+                      backgroundColor: e.target.value,
+                      // allow reverting from image background by changing the color
+                      backgroundImage: null,
+                    })
+                  }
                   style={{ width: "30px", height: "22px", border: "none" }}
                 />
               </label>
+
+              <input
+                ref={backgroundFileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleBackgroundFileChange}
+                style={{ display: "none" }}
+              />
+
+              <button
+                type="button"
+                onClick={() => backgroundFileInputRef.current?.click?.()}
+                style={{
+                  padding: "0.55rem 0.9rem",
+                  borderRadius: "999px",
+                  border: "1px solid rgba(15,23,42,0.14)",
+                  background: "white",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Upload Background
+              </button>
             </>
           )}
         </div>

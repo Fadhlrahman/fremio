@@ -54,12 +54,26 @@ export default function TakeMomentFriendsRoom({
   const wsRef = useRef(null);
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
+  const clientIdRef = useRef(null);
+  const roleRef = useRef(null);
   const pcsRef = useRef(new Map()); // peerId -> RTCPeerConnection
   const remoteStreamsRef = useRef(new Map()); // peerId -> MediaStream
 
   const [clientId, setClientId] = useState(null);
   const [role, setRole] = useState(null); // 'master' | 'participant'
   const isMaster = role === "master";
+
+  // Keep refs in sync so callbacks can be stable
+  useEffect(() => {
+    clientIdRef.current = clientId;
+  }, [clientId]);
+
+  useEffect(() => {
+    roleRef.current = role;
+  }, [role]);
+
+  // Use state so video tiles re-render when stream becomes available
+  const [localStream, setLocalStream] = useState(null);
 
   const [peers, setPeers] = useState([]); // list of peerIds
   const [remoteStreams, setRemoteStreams] = useState([]); // [{id, stream}]
@@ -88,6 +102,7 @@ export default function TakeMomentFriendsRoom({
       audio: true,
     });
     localStreamRef.current = stream;
+    setLocalStream(stream);
     if (localVideoRef.current) {
       localVideoRef.current.srcObject = stream;
     }
@@ -122,11 +137,13 @@ export default function TakeMomentFriendsRoom({
       localStreamRef.current.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
     }
+    setLocalStream(null);
   }, [closeAllPeerConnections]);
 
   const sendStateUpdate = useCallback(
     (next) => {
-      if (!isMaster) return;
+      // Use ref to avoid stale role inside stable callbacks
+      if (roleRef.current !== "master") return;
       const state = {
         background:
           typeof next.background === "string"
@@ -137,7 +154,7 @@ export default function TakeMomentFriendsRoom({
       setRoomState(state);
       safeJsonSend(wsRef.current, { type: "STATE_UPDATE", payload: { state } });
     },
-    [isMaster, roomState]
+    [roomState]
   );
 
   const upsertLayoutFor = useCallback(
@@ -158,7 +175,7 @@ export default function TakeMomentFriendsRoom({
 
   const setupPeer = useCallback(
     async (peerId, { initiate }) => {
-      if (!clientId) return;
+      if (!clientIdRef.current) return;
       if (pcsRef.current.has(peerId)) return;
 
       const stream = await ensureLocalMedia();
@@ -188,7 +205,7 @@ export default function TakeMomentFriendsRoom({
         });
       }
     },
-    [clientId, ensureLocalMedia, updateRemoteStreamsState]
+    [ensureLocalMedia, updateRemoteStreamsState]
   );
 
   const handleSignal = useCallback(
@@ -299,6 +316,12 @@ export default function TakeMomentFriendsRoom({
       try {
         setError(null);
         setStatus("connecting");
+
+        // Reset view state for a fresh join (prevents stale role/clientId flicker)
+        setClientId(null);
+        setRole(null);
+        setPeers([]);
+        setRemoteStreams([]);
 
         // Ensure local camera/mic is ready
         await ensureLocalMedia();
@@ -417,7 +440,7 @@ export default function TakeMomentFriendsRoom({
       mounted = false;
       disconnect();
     };
-  }, [disconnect, ensureLocalMedia, handleSignal, onSessionEnded, roomId, setupPeer, updateRemoteStreamsState, wsUrl]);
+  }, [disconnect, ensureLocalMedia, handleSignal, onSessionEnded, roomId, updateRemoteStreamsState, wsUrl, roomState]);
 
   useEffect(() => {
     // keep local video hooked up if ref appears later
@@ -583,8 +606,7 @@ export default function TakeMomentFriendsRoom({
 
           const videoProps = isLocal
             ? {
-                // We'll render local via a second visible element with srcObject
-                srcObject: localStreamRef.current || null,
+                srcObject: localStream,
               }
             : {
                 srcObject:

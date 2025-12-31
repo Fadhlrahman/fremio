@@ -17,6 +17,7 @@ import FrameBuilder from "./pages/FrameBuilder.jsx";
 import Create from "./pages/Create.jsx";
 import CreateHub from "./pages/CreateHub.jsx";
 import SharedFrame from "./pages/SharedFrame.jsx";
+import SharedGroup from "./pages/SharedGroup.jsx";
 import NotFound from "./pages/NotFound.jsx";
 import Login from "./pages/Login.jsx";
 import Register from "./pages/Register.jsx";
@@ -153,6 +154,7 @@ export default function App() {
             />
             <Route path="take-moment" element={<TakeMoment />} />
             <Route path="s/:shareId" element={<SharedFrame />} />
+            <Route path="g/:shareId" element={<SharedGroup />} />
             <Route path="editor" element={<Editor />} />
             <Route path="edit-photo" element={<EditPhoto />} />
             <Route

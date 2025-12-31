@@ -23,6 +23,59 @@ class VPSFrameClient {
     this.baseUrl = VPS_API_URL;
   }
 
+  toPublicUrl(pathOrUrl) {
+    if (!pathOrUrl || typeof pathOrUrl !== 'string') return pathOrUrl;
+
+    // data: URLs are fine as-is
+    if (pathOrUrl.startsWith('data:')) return pathOrUrl;
+
+    // Fix mixed-content: upgrade http -> https for known hosts.
+    // Also handle the raw VPS IP by proxying through the frontend domain.
+    if (pathOrUrl.startsWith('http://')) {
+      // Proxy raw VPS IP (no TLS cert) via Cloudflare route.
+      if (pathOrUrl.includes('72.61.210.203')) {
+        const match = pathOrUrl.match(/72\.61\.210\.203(\/.*)/);
+        if (match) return `https://fremio.id/proxy${match[1]}`;
+      }
+      return pathOrUrl.replace('http://', 'https://');
+    }
+
+    if (pathOrUrl.startsWith('https://')) return pathOrUrl;
+
+    if (pathOrUrl.startsWith('/uploads/')) {
+      return `${this.baseUrl.replace('/api', '')}${pathOrUrl}`;
+    }
+    return pathOrUrl;
+  }
+
+  normalizeFrameMedia(frame) {
+    if (!frame || typeof frame !== 'object') return frame;
+    const layout = frame.layout && typeof frame.layout === 'object' ? frame.layout : null;
+    if (!layout || !Array.isArray(layout.elements)) return frame;
+
+    const elements = layout.elements.map((el) => {
+      if (!el || typeof el !== 'object') return el;
+      const data = el.data && typeof el.data === 'object' ? el.data : null;
+      if (!data) return el;
+      return {
+        ...el,
+        data: {
+          ...data,
+          image: this.toPublicUrl(data.image),
+          originalImage: this.toPublicUrl(data.originalImage),
+        },
+      };
+    });
+
+    return {
+      ...frame,
+      layout: {
+        ...layout,
+        elements,
+      },
+    };
+  }
+
   getToken() {
     // Try both possible token keys
     const token = localStorage.getItem('fremio_token') || localStorage.getItem('auth_token');
@@ -150,7 +203,7 @@ class VPSFrameClient {
 
         // Handle both array and {frames, pagination} response
         const pageFramesRaw = Array.isArray(data) ? data : (data.frames || []);
-        const pageFrames = normalizeFrames(pageFramesRaw);
+        const pageFrames = normalizeFrames(pageFramesRaw).map((f) => this.normalizeFrameMedia(f));
 
         for (const frame of pageFrames) {
           const frameId = frame?.id != null ? String(frame.id) : null;
@@ -184,13 +237,14 @@ class VPSFrameClient {
     try {
       const data = await this.request(`/frames/${id}`);
       const frame = data.frame || data;
-      return {
+      const normalized = {
         ...frame,
         imageUrl: frame.image_path?.startsWith('http')
           ? frame.image_path
           : `${this.baseUrl.replace('/api', '')}${frame.image_path}`,
         imagePath: frame.image_path
       };
+      return this.normalizeFrameMedia(normalized);
     } catch (error) {
       console.error('Error getting frame:', error);
       return null;
@@ -337,6 +391,19 @@ class VPSFrameClient {
       console.error('Error incrementing stats:', error);
     }
   }
+
+  // Upload overlay image (admin only)
+  async uploadOverlayImage(file, fileName = null) {
+    const formData = new FormData();
+    const resolvedName = fileName || file.name || `overlay_${Date.now()}.png`;
+    const resolvedType = file.type || 'image/png';
+    const blob = new Blob([file], { type: resolvedType });
+    formData.append('image', blob, resolvedName);
+    return await this.request('/upload/overlay', {
+      method: 'POST',
+      body: formData,
+    });
+  }
 }
 
 // Create VPS client instance
@@ -351,6 +418,12 @@ const unifiedFrameService = {
     }
     const firebaseSvc = await getFirebaseService();
     return await firebaseSvc.getAllCustomFrames();
+  },
+
+  async uploadOverlayImage(file, fileName = null) {
+    // Overlay uploads are only supported in VPS mode today.
+    // (Firebase mode can be added later if needed.)
+    return await vpsClient.uploadOverlayImage(file, fileName);
   },
 
   // Alias for getAllFrames (compatibility)

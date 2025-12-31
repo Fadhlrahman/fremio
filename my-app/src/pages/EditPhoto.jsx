@@ -73,7 +73,7 @@ export default function EditPhoto() {
     blur: 0,
     hueRotate: 0,
   });
-  const [activeFilter, setActiveFilter] = useState(null);
+  const [activeFilter, setActiveFilter] = useState("Original");
   const photosFilled = React.useRef(false);
   const previewSectionRef = React.useRef(null);
   
@@ -2873,7 +2873,8 @@ export default function EditPhoto() {
     });
   }, [videos, hasValidVideo, isSaving]);
 
-  // Filter presets (9 filters - no Cool Tone, no blur)
+  // Filter presets
+  // NOTE: Keep blur at 0 because the download pipeline applies filters manually and ignores blur.
   const filterPresets = [
     {
       name: "Original",
@@ -2889,11 +2890,89 @@ export default function EditPhoto() {
       },
     },
     {
-      name: "Black & White",
-      icon: "⚫",
+      name: "Instant Soft",
+      icon: "🫧",
       filters: {
-        brightness: 100,
-        contrast: 115,
+        brightness: 110,
+        contrast: 88,
+        saturate: 92,
+        grayscale: 0,
+        sepia: 5,
+        blur: 0,
+        hueRotate: 0,
+      },
+    },
+    {
+      name: "Warm Film",
+      icon: "🎞️",
+      filters: {
+        brightness: 106,
+        contrast: 104,
+        saturate: 112,
+        grayscale: 0,
+        sepia: 18,
+        blur: 0,
+        hueRotate: 12,
+      },
+    },
+    {
+      name: "Muted Color",
+      icon: "🪵",
+      filters: {
+        brightness: 104,
+        contrast: 98,
+        saturate: 70,
+        grayscale: 0,
+        sepia: 0,
+        blur: 0,
+        hueRotate: 0,
+      },
+    },
+    {
+      name: "Pastel Soft",
+      icon: "🍬",
+      filters: {
+        brightness: 112,
+        contrast: 86,
+        saturate: 80,
+        grayscale: 0,
+        sepia: 0,
+        blur: 0,
+        hueRotate: -4,
+      },
+    },
+    {
+      name: "Retro Matte",
+      icon: "🧃",
+      filters: {
+        brightness: 104,
+        contrast: 85,
+        saturate: 90,
+        grayscale: 0,
+        sepia: 6,
+        blur: 0,
+        hueRotate: -8,
+      },
+    },
+    {
+      name: "Soft Grain",
+      icon: "✨",
+      filters: {
+        brightness: 104,
+        contrast: 102,
+        saturate: 92,
+        grayscale: 0,
+        sepia: 8,
+        blur: 0,
+        hueRotate: 0,
+      },
+    },
+    {
+      name: "Soft Mono",
+      icon: "🕊️",
+      filters: {
+        brightness: 108,
+        contrast: 92,
         saturate: 0,
         grayscale: 100,
         sepia: 0,
@@ -2902,89 +2981,11 @@ export default function EditPhoto() {
       },
     },
     {
-      name: "Sepia",
-      icon: "🟤",
+      name: "Film Noir",
+      icon: "🎬",
       filters: {
-        brightness: 110,
-        contrast: 90,
-        saturate: 80,
-        grayscale: 0,
-        sepia: 70,
-        blur: 0,
-        hueRotate: 0,
-      },
-    },
-    {
-      name: "Warm Tone",
-      icon: "🌅",
-      filters: {
-        brightness: 108,
-        contrast: 98,
-        saturate: 115,
-        grayscale: 0,
-        sepia: 15,
-        blur: 0,
-        hueRotate: 15,
-      },
-    },
-    {
-      name: "High Contrast",
-      icon: "⚡",
-      filters: {
-        brightness: 105,
-        contrast: 140,
-        saturate: 120,
-        grayscale: 0,
-        sepia: 0,
-        blur: 0,
-        hueRotate: 0,
-      },
-    },
-    {
-      name: "Soft Light",
-      icon: "☁️",
-      filters: {
-        brightness: 110,
-        contrast: 85,
-        saturate: 90,
-        grayscale: 0,
-        sepia: 0,
-        blur: 0,
-        hueRotate: 0,
-      },
-    },
-    {
-      name: "Vivid",
-      icon: "🌈",
-      filters: {
-        brightness: 110,
-        contrast: 125,
-        saturate: 160,
-        grayscale: 0,
-        sepia: 0,
-        blur: 0,
-        hueRotate: 0,
-      },
-    },
-    {
-      name: "Fade",
-      icon: "🌫️",
-      filters: {
-        brightness: 108,
-        contrast: 75,
-        saturate: 85,
-        grayscale: 0,
-        sepia: 0,
-        blur: 0,
-        hueRotate: 0,
-      },
-    },
-    {
-      name: "Grayscale",
-      icon: "⬜",
-      filters: {
-        brightness: 105,
-        contrast: 100,
+        brightness: 98,
+        contrast: 135,
         saturate: 0,
         grayscale: 100,
         sepia: 0,
@@ -3009,7 +3010,7 @@ export default function EditPhoto() {
       blur: 0,
       hueRotate: 0,
     });
-    setActiveFilter(null);
+    setActiveFilter("Original");
   };
 
   const getFilterStyle = () => {
@@ -3784,7 +3785,13 @@ export default function EditPhoto() {
             {filterPresets.map((preset) => (
               <button
                 key={preset.name}
-                onClick={() => applyFilterPreset(preset)}
+                onClick={() => {
+                  if (activeFilter === preset.name) {
+                    resetFilters();
+                    return;
+                  }
+                  applyFilterPreset(preset);
+                }}
                 style={{
                   padding: "0.35rem 0.5rem",
                   background:

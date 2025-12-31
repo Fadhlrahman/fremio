@@ -17,7 +17,7 @@ NC='\033[0m' # No Color
 # Configuration
 VPS_USER="root"
 VPS_HOST="72.61.214.5"
-BACKEND_PATH="/var/www/fremio-backend"
+BACKEND_PATH=""
 FRONTEND_PATH="/var/www/fremio"
 RELEASE_PATH="/var/www/releases/fremio-launching"
 BACKUP_DIR="/var/www/backups"
@@ -28,6 +28,15 @@ echo "╔═══════════════════════�
 echo "║   FREMIO FULL DEPLOYMENT SCRIPT v2.0      ║"
 echo "╚═══════════════════════════════════════════╝"
 echo -e "${NC}"
+
+# Detect the actual backend directory from PM2 to avoid deploying to the wrong folder
+echo -e "${BLUE}🔎 Detecting backend path from PM2...${NC}"
+BACKEND_PATH=$(ssh ${VPS_USER}@${VPS_HOST} 'node -e "const {execSync}=require(\"child_process\"); const list=JSON.parse(execSync(\"pm2 jlist\",{encoding:\"utf8\"})||\"[]\"); const p=list.find(x=>x.name===\"fremio-api\"); console.log(p?.pm2_env?.pm_cwd||\"\");"' | tr -d '\r')
+if [ -z "$BACKEND_PATH" ]; then
+    echo -e "${YELLOW}⚠️  Could not detect PM2 cwd. Falling back to /var/www/fremio-backend${NC}"
+    BACKEND_PATH="/var/www/fremio-backend"
+fi
+echo -e "${GREEN}✅ Using backend path: ${BACKEND_PATH}${NC}"
 
 # Step 1: Build Frontend
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -129,6 +138,8 @@ rsync -avz --delete \
     --exclude='.env' \
     --exclude='*.log' \
     --exclude='.git' \
+    --exclude='uploads' \
+    --exclude='uploads/**' \
     --exclude='uploads/temp/*' \
     backend/ ${VPS_USER}@${VPS_HOST}:${BACKEND_PATH}/
 
@@ -141,7 +152,13 @@ echo -e "${BLUE}♻️  Step 6/6: Restarting Backend Server...${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
 ssh ${VPS_USER}@${VPS_HOST} << 'ENDSSH'
-    cd /var/www/fremio-backend
+        # Restart from the same folder PM2 runs in
+        BACKEND_CWD=$(node -e "const {execSync}=require('child_process'); const list=JSON.parse(execSync('pm2 jlist',{encoding:'utf8'})||'[]'); const p=list.find(x=>x.name==='fremio-api'); console.log(p?.pm2_env?.pm_cwd||'');")
+        if [ -z "$BACKEND_CWD" ]; then
+            BACKEND_CWD="/var/www/fremio-backend"
+        fi
+
+        cd "$BACKEND_CWD"
     
     # Install/update dependencies
     echo "📦 Installing dependencies..."
@@ -162,6 +179,55 @@ ssh ${VPS_USER}@${VPS_HOST} << 'ENDSSH'
     echo ""
     echo "📝 Recent logs:"
     pm2 logs fremio-api --lines 10 --nostream
+ENDSSH
+
+# Optional: run DB migration for flow_type when credentials are available on server
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}🗄️  Optional: Running DB migration (flow_type)...${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+ssh ${VPS_USER}@${VPS_HOST} << 'ENDSSH'
+        set -e
+        BACKEND_CWD=$(node -e "const {execSync}=require('child_process'); const list=JSON.parse(execSync('pm2 jlist',{encoding:'utf8'})||'[]'); const p=list.find(x=>x.name==='fremio-api'); console.log(p?.pm2_env?.pm_cwd||'');")
+        if [ -z "$BACKEND_CWD" ]; then
+            BACKEND_CWD="/var/www/fremio-backend"
+        fi
+        cd "$BACKEND_CWD"
+
+        MIG_FILE="migrations/add_flow_type_column.sql"
+        if [ ! -f "$MIG_FILE" ]; then
+            echo "⚠️  Migration file not found: $MIG_FILE (skipping)"
+            exit 0
+        fi
+
+        if ! command -v psql >/dev/null 2>&1; then
+            echo "⚠️  psql not installed on server (skipping migration)"
+            exit 0
+        fi
+
+        # Try to load DB creds from .env without printing them
+        if [ -f ".env" ]; then
+            set -a
+            . ./.env
+            set +a
+        fi
+
+        # Support both DB_* and PG* styles
+        DB_HOST_VAL="${DB_HOST:-${PGHOST:-localhost}}"
+        DB_PORT_VAL="${DB_PORT:-${PGPORT:-5432}}"
+        DB_NAME_VAL="${DB_NAME:-${PGDATABASE:-fremio}}"
+        DB_USER_VAL="${DB_USER:-${PGUSER:-fremio_user}}"
+        DB_PASS_VAL="${DB_PASSWORD:-${PGPASSWORD:-}}"
+
+        if [ -z "$DB_PASS_VAL" ]; then
+            echo "⚠️  DB password not found in backend .env (DB_PASSWORD/PGPASSWORD). Run migration manually.";
+            echo "   File: $BACKEND_CWD/$MIG_FILE";
+            exit 0
+        fi
+
+        echo "✅ Running migration: $MIG_FILE"
+        PGPASSWORD="$DB_PASS_VAL" psql -h "$DB_HOST_VAL" -p "$DB_PORT_VAL" -U "$DB_USER_VAL" -d "$DB_NAME_VAL" -f "$MIG_FILE"
+        echo "✅ Migration applied"
 ENDSSH
 
 echo ""

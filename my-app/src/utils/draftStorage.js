@@ -54,10 +54,12 @@ const buildDraftSummary = (draft) => {
     id: draft.id,
     userId: draft.userId,
     title: draft.title ?? "Draft",
+    description: draft.description,
     name: draft.name,
     createdAt: draft.createdAt,
     updatedAt: draft.updatedAt,
     preview: draft.preview,
+    thumbnail: draft.thumbnail,
     signature: draft.signature,
     aspectRatio: draft.aspectRatio,
   };

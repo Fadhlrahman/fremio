@@ -15,6 +15,18 @@ import pg from "pg";
 
 const router = express.Router();
 
+const resolvePublicBaseUrl = (req) => {
+  const explicit = String(process.env.PUBLIC_BASE_URL || "").trim();
+  const host = String(req.get("host") || "").trim();
+  const base = explicit || `${req.protocol}://${host}`;
+
+  // Avoid mixed-content when frontend is HTTPS (Cloudflare Pages)
+  if (base.startsWith("http://") && /(^|\.)fremio\.id$/i.test(host)) {
+    return base.replace("http://", "https://");
+  }
+  return base;
+};
+
 // PostgreSQL pool for VPS mode
 const pool = new pg.Pool({
   host: process.env.DB_HOST || "localhost",
@@ -86,8 +98,7 @@ const isAdminForRequest = async (req) => {
  */
 router.get("/", optionalAuth, async (req, res) => {
   try {
-    const publicBaseUrl =
-      process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
+    const publicBaseUrl = resolvePublicBaseUrl(req);
 
     // Prevent stale lists when frames are hidden/unhidden
     res.setHeader(
@@ -136,7 +147,7 @@ router.get("/", optionalAuth, async (req, res) => {
         SELECT id, name, description, category, image_path, thumbnail_path, 
                slots, max_captures, is_premium, is_active, view_count, 
                download_count, created_by, created_at, updated_at,
-               layout, canvas_background, canvas_width, canvas_height, display_order, is_hidden
+         layout, canvas_background, canvas_width, canvas_height, display_order, is_hidden, flow_type
         FROM frames 
         WHERE is_active = true
       `;
@@ -374,6 +385,7 @@ router.get("/", optionalAuth, async (req, res) => {
         createdAt: frame.created_at,
         updatedAt: frame.updated_at,
         displayOrder: frame.display_order ?? 999,
+        flowType: frame.flow_type || "fixed",
         // Include layout with elements for overlay/background
         layout: {
           aspectRatio: layout.aspectRatio || "9:16",
@@ -414,8 +426,7 @@ router.get("/", optionalAuth, async (req, res) => {
  */
 router.get("/:id", optionalAuth, async (req, res) => {
   try {
-    const publicBaseUrl =
-      process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
+    const publicBaseUrl = resolvePublicBaseUrl(req);
     const result = await pool.query(`SELECT * FROM frames WHERE id = $1`, [
       req.params.id,
     ]);
@@ -473,6 +484,38 @@ router.get("/:id", optionalAuth, async (req, res) => {
       [req.params.id]
     );
 
+    const normalizeUploads = (value) => {
+      if (typeof value !== "string" || value.length === 0) return value;
+      if (value.startsWith("data:") || value.startsWith("https://")) return value;
+      if (value.startsWith("http://")) return value.replace("http://", "https://");
+      if (value.startsWith("/uploads/")) return `${publicBaseUrl}${value}`;
+      return value;
+    };
+
+    const parsedLayout =
+      typeof frame.layout === "string" ? JSON.parse(frame.layout) : frame.layout;
+    const normalizedLayout =
+      parsedLayout && typeof parsedLayout === "object"
+        ? {
+            ...parsedLayout,
+            elements: Array.isArray(parsedLayout.elements)
+              ? parsedLayout.elements.map((el) => {
+                  if (!el || typeof el !== "object") return el;
+                  const data = el.data && typeof el.data === "object" ? el.data : null;
+                  if (!data) return el;
+                  return {
+                    ...el,
+                    data: {
+                      ...data,
+                      image: normalizeUploads(data.image),
+                      originalImage: normalizeUploads(data.originalImage),
+                    },
+                  };
+                })
+              : parsedLayout.elements,
+          }
+        : parsedLayout;
+
     res.json({
       success: true,
       frame: {
@@ -480,6 +523,7 @@ router.get("/:id", optionalAuth, async (req, res) => {
         name: frame.name,
         description: frame.description,
         category: frame.category,
+        flowType: frame.flow_type || "fixed",
         imagePath: frame.image_path,
         // Construct full URL for images
         imageUrl: frame.image_path?.startsWith("http")
@@ -490,9 +534,7 @@ router.get("/:id", optionalAuth, async (req, res) => {
             ? JSON.parse(frame.slots)
             : frame.slots,
         layout:
-          typeof frame.layout === "string"
-            ? JSON.parse(frame.layout)
-            : frame.layout,
+          normalizedLayout,
         canvasBackground: frame.canvas_background,
         canvasWidth: frame.canvas_width,
         canvasHeight: frame.canvas_height,
@@ -521,8 +563,7 @@ router.get("/:id", optionalAuth, async (req, res) => {
  */
 router.get("/:id/config", optionalAuth, async (req, res) => {
   try {
-    const publicBaseUrl =
-      process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
+    const publicBaseUrl = resolvePublicBaseUrl(req);
     const result = await pool.query(`SELECT * FROM frames WHERE id = $1`, [
       req.params.id,
     ]);
@@ -567,6 +608,17 @@ router.get("/:id/config", optionalAuth, async (req, res) => {
       typeof frame.layout === "string"
         ? JSON.parse(frame.layout)
         : frame.layout || {};
+
+    const withAbsoluteUploads = (value) => {
+      if (typeof value !== "string" || value.length === 0) return value;
+      if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("data:")) {
+        return value;
+      }
+      if (value.startsWith("/uploads/")) {
+        return `${publicBaseUrl}${value}`;
+      }
+      return value;
+    };
 
     // Canvas dimensions
     const W = frame.canvas_width || 1080;
@@ -620,6 +672,8 @@ router.get("/:id/config", optionalAuth, async (req, res) => {
         data: {
           ...el.data,
           __isOverlay: true,
+          image: withAbsoluteUploads(el?.data?.image),
+          originalImage: withAbsoluteUploads(el?.data?.originalImage),
         },
       };
     });
@@ -901,7 +955,19 @@ router.put("/:id", verifyToken, requireAdmin, async (req, res) => {
       is_hidden,
       displayOrder,
       display_order,
+      flowType,
+      flow_type,
     } = req.body;
+
+    const normalizeFlowType = (value) => {
+      if (value == null) return null;
+      const normalized = String(value).trim().toLowerCase();
+      if (normalized === "fixed") return "fixed";
+      if (normalized === "personalized" || normalized === "personalised") {
+        return "personalized";
+      }
+      return null;
+    };
 
     // Build dynamic update query
     const updates = [];
@@ -963,6 +1029,18 @@ router.put("/:id", verifyToken, requireAdmin, async (req, res) => {
     if (displayOrder !== undefined || display_order !== undefined) {
       updates.push(`display_order = $${paramIndex++}`);
       values.push(parseInt(displayOrder ?? display_order));
+    }
+
+    const nextFlowType = normalizeFlowType(flowType ?? flow_type);
+    if (flowType !== undefined || flow_type !== undefined) {
+      if (!nextFlowType) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid flow_type. Use 'fixed' or 'personalized'.",
+        });
+      }
+      updates.push(`flow_type = $${paramIndex++}`);
+      values.push(nextFlowType);
     }
 
     updates.push(`updated_at = NOW()`);

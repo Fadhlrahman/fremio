@@ -14,6 +14,13 @@ const AdminFrames = () => {
   const [categoryOrder, setCategoryOrder] = useState([]); // Order of categories for display
   const [togglingPaidId, setTogglingPaidId] = useState(null);
   const [togglingHiddenId, setTogglingHiddenId] = useState(null);
+  const [togglingFlowId, setTogglingFlowId] = useState(null);
+
+  const getFlowType = (frame) => {
+    const raw = frame?.flowType ?? frame?.flow_type;
+    const normalized = String(raw || "fixed").toLowerCase().trim();
+    return normalized === "personalized" ? "personalized" : "fixed";
+  };
 
   useEffect(() => {
     const loadFrames = async () => {
@@ -368,6 +375,67 @@ const AdminFrames = () => {
     }
   };
 
+  const handleSetFlowType = async (frame, nextFlowType) => {
+    const normalized = String(nextFlowType || "fixed").toLowerCase().trim();
+    const safeFlowType = normalized === "personalized" ? "personalized" : "fixed";
+
+    const previousFlowType = getFlowType(frame);
+    // Optimistic UI: update local state immediately so the select doesn't snap back.
+    setFrames((prev) =>
+      (prev || []).map((f) =>
+        f?.id === frame.id
+          ? {
+              ...f,
+              flowType: safeFlowType,
+              flow_type: safeFlowType,
+            }
+          : f
+      )
+    );
+
+    try {
+      setTogglingFlowId(frame.id);
+      const result = await unifiedFrameService.updateFrame(frame.id, {
+        flow_type: safeFlowType,
+      });
+
+      if (result?.success === false) {
+        throw new Error(result?.message || "Gagal mengubah flow type");
+      }
+
+      const freshData = await unifiedFrameService.getAllFrames({ includeHidden: true, throwOnError: true });
+      const sortedData = [...freshData].sort(
+        (a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999)
+      );
+      setFrames(sortedData);
+
+      // Verify server actually persisted the change.
+      const updated = sortedData.find((f) => f?.id === frame.id);
+      const serverFlow = updated ? getFlowType(updated) : null;
+      if (serverFlow && serverFlow !== safeFlowType) {
+        alert(
+          "Flow type belum tersimpan di server. Pastikan backend sudah di-deploy dan migration flow_type sudah dijalankan."
+        );
+      }
+    } catch (err) {
+      // Rollback optimistic update
+      setFrames((prev) =>
+        (prev || []).map((f) =>
+          f?.id === frame.id
+            ? {
+                ...f,
+                flowType: previousFlowType,
+                flow_type: previousFlowType,
+              }
+            : f
+        )
+      );
+      alert("Gagal mengubah flow type: " + (err?.message || String(err)));
+    } finally {
+      setTogglingFlowId(null);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ padding: "20px", textAlign: "center" }}>
@@ -386,6 +454,7 @@ const AdminFrames = () => {
     const isLast = index === categoryFrames.length - 1;
     const isPaid = !!(frame?.isPremium ?? frame?.is_premium);
     const isHidden = !!(frame?.isHidden ?? frame?.is_hidden);
+    const flowType = getFlowType(frame);
     
     return (
       <div 
@@ -460,6 +529,51 @@ const AdminFrames = () => {
           <p style={{ margin: "0 0 8px 0", fontSize: "12px", color: "#6b7280" }}>
             {frame.category || "No category"}
           </p>
+
+          {/* Flow Type Selector (always visible) */}
+          {!isReorderMode && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                margin: "0 0 10px 0",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "12px",
+                  color: "#334155",
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Flow
+              </span>
+              <select
+                value={flowType}
+                disabled={togglingFlowId === frame.id}
+                onChange={(e) => handleSetFlowType(frame, e.target.value)}
+                style={{
+                  flex: 1,
+                  padding: "6px",
+                  background:
+                    flowType === "personalized" ? "#ffedd5" : "#f1f5f9",
+                  color: "#0f172a",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "6px",
+                  cursor:
+                    togglingFlowId === frame.id ? "not-allowed" : "pointer",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                }}
+                title="Pilih flow type: Fixed / Personalized"
+              >
+                <option value="fixed">FIXED</option>
+                <option value="personalized">PERSONALIZED</option>
+              </select>
+            </div>
+          )}
           
           {isReorderMode ? (
             // Reorder controls

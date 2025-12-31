@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Trash2, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown, ChevronDown, Lock, Unlock } from "lucide-react";
 import ColorPicker from "./ColorPicker.jsx";
+import { EDITOR_FONT_FAMILIES } from "../../config/editorFonts.js";
 import "./PropertiesPanel.css";
 
 const panelVariant = {
@@ -293,26 +294,11 @@ export default function PropertiesPanel({
             })
           }
         >
-          <option value="Inter">Inter</option>
-          <option value="Roboto">Roboto</option>
-          <option value="Lato">Lato</option>
-          <option value="Open Sans">Open Sans</option>
-          <option value="Montserrat">Montserrat</option>
-          <option value="Poppins">Poppins</option>
-          <option value="Nunito Sans">Nunito Sans</option>
-          <option value="Rubik">Rubik</option>
-          <option value="Work Sans">Work Sans</option>
-          <option value="Source Sans Pro">Source Sans Pro</option>
-          <option value="Merriweather">Merriweather</option>
-          <option value="Playfair Display">Playfair Display</option>
-          <option value="Libre Baskerville">Libre Baskerville</option>
-          <option value="Cormorant Garamond">Cormorant Garamond</option>
-          <option value="Bitter">Bitter</option>
-          <option value="Raleway">Raleway</option>
-          <option value="Oswald">Oswald</option>
-          <option value="Bebas Neue">Bebas Neue</option>
-          <option value="Anton">Anton</option>
-          <option value="Pacifico">Pacifico</option>
+          {EDITOR_FONT_FAMILIES.map((font) => (
+            <option key={font} value={font} style={{ fontFamily: font }}>
+              {font}
+            </option>
+          ))}
         </select>
       </InputRow>
       <div className="grid grid-cols-2 gap-3">

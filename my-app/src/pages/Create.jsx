@@ -54,6 +54,7 @@ import safeStorage from "../utils/safeStorage.js";
 import userStorage from "../utils/userStorage.js";
 import { useAuth } from "../contexts/AuthContext.jsx";
 import { clearStaleFrameCache } from "../utils/frameCacheCleaner.js";
+import { EDITOR_FONT_FAMILIES } from "../config/editorFonts.js";
 import "./Create.css";
 
 const panelMotion = {
@@ -240,7 +241,10 @@ const computeDraftSaveTimeoutMs = (bytes, baseTimeoutMs = 20000) => {
   return Math.min(Math.max(baseTimeoutMs, computedTimeout), maxTimeout);
 };
 
-const prepareCanvasExportClone = (rootNode) => {
+const prepareCanvasExportClone = (
+  rootNode,
+  { makePhotoSlotsTransparent = true } = {}
+) => {
   if (!rootNode) {
     return;
   }
@@ -257,22 +261,24 @@ const prepareCanvasExportClone = (rootNode) => {
     );
     resizeHandles.forEach((node) => node.remove());
 
-    // Make photo slots transparent (they will be filled with actual photos later)
-    const photoSlots = rootNode.querySelectorAll(
-      ".creator-element--type-photo"
-    );
-    photoSlots.forEach((slot) => {
-      slot.style.background = "transparent";
-      slot.style.backgroundColor = "transparent";
-      slot.style.boxShadow = "none";
-      slot.style.color = "transparent";
-      slot.style.textShadow = "none";
-      slot.style.fontSize = "0px";
-      slot.style.filter = "none";
-      slot.style.mixBlendMode = "normal";
-      const children = Array.from(slot.children || []);
-      children.forEach((child) => slot.removeChild(child));
-    });
+    if (makePhotoSlotsTransparent) {
+      // Make photo slots transparent (used for frame/export images)
+      const photoSlots = rootNode.querySelectorAll(
+        ".creator-element--type-photo"
+      );
+      photoSlots.forEach((slot) => {
+        slot.style.background = "transparent";
+        slot.style.backgroundColor = "transparent";
+        slot.style.boxShadow = "none";
+        slot.style.color = "transparent";
+        slot.style.textShadow = "none";
+        slot.style.fontSize = "0px";
+        slot.style.filter = "none";
+        slot.style.mixBlendMode = "normal";
+        const children = Array.from(slot.children || []);
+        children.forEach((child) => slot.removeChild(child));
+      });
+    }
 
     // ✅ CRITICAL FIX: Physically reorder DOM elements by z-index
     // html2canvas renders based on DOM order when position:absolute is used
@@ -581,6 +587,7 @@ export default function Create() {
   const [canvasAspectRatio, setCanvasAspectRatio] = useState("9:16"); // Story Instagram default
   const [activeDraftId, setActiveDraftId] = useState(null);
   const [draftTitle, setDraftTitle] = useState(""); // Title untuk draft
+  const [draftDescription, setDraftDescription] = useState(""); // Deskripsi untuk draft
   const [justSavedDraft, setJustSavedDraft] = useState(false); // Track if draft was just saved
   const [isExistingDraft, setIsExistingDraft] = useState(false); // Track if draft was loaded from existing drafts
   const [isBackgroundLocked, setIsBackgroundLocked] = useState(false); // Lock background to prevent accidental edits
@@ -593,9 +600,134 @@ export default function Create() {
   const hasLoadedDraftRef = useRef(false);
   const isLoadingDraftRef = useRef(false); // NEW: Track when actively loading a draft
   const loadingTimeoutRef = useRef(null); // Track timeout for cleanup
+  const autoThumbnailGeneratedRef = useRef(new Set());
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth(); // For cloud draft saving
+
+  // Calculate canvas dimensions based on selected aspect ratio
+  // NOTE: Must be defined before any callbacks that reference it.
+  const getCanvasDimensions = useCallback((ratio) => {
+    const defaultDimensions = { width: CANVAS_WIDTH, height: CANVAS_HEIGHT };
+
+    if (typeof ratio !== "string") {
+      return defaultDimensions;
+    }
+
+    // Special case for Photostrip (exact 1200x1800)
+    if (ratio === "1200:1800" || ratio === "photostrip") {
+      return { width: 1200, height: 1800 };
+    }
+
+    const [rawWidth, rawHeight] = ratio.split(":").map(Number);
+    const ratioWidth = Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : null;
+    const ratioHeight = Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : null;
+
+    if (!ratioWidth || !ratioHeight) {
+      return defaultDimensions;
+    }
+
+    if (ratioHeight >= ratioWidth) {
+      return {
+        width: CANVAS_WIDTH,
+        height: Math.round((CANVAS_WIDTH * ratioHeight) / ratioWidth),
+      };
+    }
+
+    return {
+      width: Math.round((CANVAS_HEIGHT * ratioWidth) / ratioHeight),
+      height: CANVAS_HEIGHT,
+    };
+  }, []);
+
+  const buildElementsFromBaseFrame = useCallback(
+    (baseFrame, aspectRatio) => {
+      if (!baseFrame) return [];
+
+      const dims = getCanvasDimensions(aspectRatio);
+      const width = dims.width;
+      const height = dims.height;
+
+      const result = [];
+
+      // 1) Photo slots (normalized 0..1)
+      if (Array.isArray(baseFrame.slots)) {
+        baseFrame.slots.forEach((slot, index) => {
+          if (!slot) return;
+          const left = Number(slot.left);
+          const top = Number(slot.top);
+          const slotWidth = Number(slot.width);
+          const slotHeight = Number(slot.height);
+
+          if (
+            !Number.isFinite(left) ||
+            !Number.isFinite(top) ||
+            !Number.isFinite(slotWidth) ||
+            !Number.isFinite(slotHeight)
+          ) {
+            return;
+          }
+
+          result.push({
+            id: slot.id || `photo_${index + 1}`,
+            type: "photo",
+            x: left * width,
+            y: top * height,
+            width: slotWidth * width,
+            height: slotHeight * height,
+            rotation: typeof slot.rotation === "number" ? slot.rotation : 0,
+            zIndex: 1,
+            data: {
+              photoIndex:
+                slot.photoIndex !== undefined ? slot.photoIndex : index,
+              borderRadius: slot.borderRadius || 0,
+            },
+          });
+        });
+      }
+
+      // 2) Overlay/upload/text/shape elements (may be stored as normalized)
+      const layoutElements = baseFrame?.layout?.elements;
+      if (Array.isArray(layoutElements)) {
+        layoutElements.forEach((el) => {
+          if (!el || typeof el !== "object") return;
+
+          let restoredWidth =
+            el.widthNorm !== undefined ? el.widthNorm * width : el.width;
+          let restoredHeight =
+            el.heightNorm !== undefined ? el.heightNorm * height : el.height;
+
+          if (el.type === "upload" && el.data?.imageAspectRatio) {
+            restoredHeight = restoredWidth / el.data.imageAspectRatio;
+          }
+
+          const restoredZIndex =
+            el.type === "upload"
+              ? Math.max(el.zIndex || 100, 100)
+              : Math.max(el.zIndex || 10, 10);
+
+          const restoredElement = {
+            ...el,
+            x: el.xNorm !== undefined ? el.xNorm * width : el.x,
+            y: el.yNorm !== undefined ? el.yNorm * height : el.y,
+            width: restoredWidth,
+            height: restoredHeight,
+            zIndex: restoredZIndex,
+          };
+
+          delete restoredElement.xNorm;
+          delete restoredElement.yNorm;
+          delete restoredElement.widthNorm;
+          delete restoredElement.heightNorm;
+
+          result.push(restoredElement);
+        });
+      }
+
+      return result;
+    },
+    [getCanvasDimensions]
+  );
 
   // CRITICAL: Reset hasLoadedDraftRef on component unmount so storage clears on re-entry
   useEffect(() => {
@@ -875,53 +1007,6 @@ export default function Create() {
     });
   }, []);
 
-  // Calculate canvas dimensions based on selected aspect ratio
-  const getCanvasDimensions = useCallback((ratio) => {
-    const defaultDimensions = { width: CANVAS_WIDTH, height: CANVAS_HEIGHT };
-
-    console.log("🎯 [getCanvasDimensions] Input ratio:", ratio);
-
-    if (typeof ratio !== "string") {
-      console.log("  ❌ Not a string, returning default");
-      return defaultDimensions;
-    }
-
-    // Special case for Photostrip (exact 1200x1800)
-    if (ratio === "1200:1800" || ratio === "photostrip") {
-      console.log("  ✅ Photostrip mode: 1200x1800");
-      return { width: 1200, height: 1800 };
-    }
-
-    const [rawWidth, rawHeight] = ratio.split(":").map(Number);
-    const ratioWidth =
-      Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : null;
-    const ratioHeight =
-      Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : null;
-
-    console.log("  Parsed:", { rawWidth, rawHeight, ratioWidth, ratioHeight });
-
-    if (!ratioWidth || !ratioHeight) {
-      console.log("  ❌ Invalid ratio parts, returning default");
-      return defaultDimensions;
-    }
-
-    if (ratioHeight >= ratioWidth) {
-      const result = {
-        width: CANVAS_WIDTH,
-        height: Math.round((CANVAS_WIDTH * ratioHeight) / ratioWidth),
-      };
-      console.log("  ✅ Portrait/Square mode (H>=W):", result);
-      return result;
-    }
-
-    const result = {
-      width: Math.round((CANVAS_HEIGHT * ratioWidth) / ratioHeight),
-      height: CANVAS_HEIGHT,
-    };
-    console.log("  ✅ Landscape mode (W>H):", result);
-    return result;
-  }, []);
-
   const deriveAspectRatioFromDraft = useCallback((draft) => {
     if (!draft) {
       return "9:16";
@@ -1062,6 +1147,125 @@ export default function Create() {
     },
     []
   );
+
+  const generateCurrentCanvasThumbnail = useCallback(async () => {
+    const canvasNode = document.getElementById("creator-canvas");
+    if (!canvasNode) return "";
+
+    const { width: canvasWidth, height: canvasHeight } =
+      getCanvasDimensions(canvasAspectRatio);
+
+    const exportWrapper = document.createElement("div");
+    Object.assign(exportWrapper.style, {
+      position: "fixed",
+      top: "-10000px",
+      left: "-10000px",
+      width: `${canvasWidth}px`,
+      height: `${canvasHeight}px`,
+      overflow: "hidden",
+      pointerEvents: "none",
+      opacity: "0",
+      zIndex: "-1",
+    });
+
+    const exportCanvasNode = canvasNode.cloneNode(true);
+    exportCanvasNode.id = "creator-canvas-export-thumb";
+    Object.assign(exportCanvasNode.style, {
+      transform: "none",
+      transformOrigin: "top left",
+      position: "relative",
+      top: "0",
+      left: "0",
+      width: `${canvasWidth}px`,
+      height: `${canvasHeight}px`,
+      margin: "0",
+      boxShadow: "none",
+    });
+
+    exportWrapper.appendChild(exportCanvasNode);
+    document.body.appendChild(exportWrapper);
+
+    try {
+      prepareCanvasExportClone(exportCanvasNode, {
+        makePhotoSlotsTransparent: false,
+      });
+
+      const captureScale = 1;
+      const thumbCanvas = await withTimeout(
+        html2canvas(exportCanvasNode, {
+          backgroundColor: null,
+          useCORS: true,
+          scale: captureScale,
+          width: canvasWidth,
+          height: canvasHeight,
+          windowWidth: canvasWidth,
+          windowHeight: canvasHeight,
+          scrollX: 0,
+          scrollY: 0,
+          allowTaint: true,
+          logging: false,
+          ignoreElements: (element) => {
+            if (!element) return false;
+            if (element.nodeType === Node.ELEMENT_NODE) {
+              if (
+                element.classList?.contains(
+                  "creator-element--captured-overlay"
+                )
+              )
+                return true;
+              if (element.getAttribute?.("data-export-ignore") === "true")
+                return true;
+              if (element.closest?.('[data-export-ignore="true"]'))
+                return true;
+            }
+            return false;
+          },
+        }),
+        {
+          timeoutMs: 20000,
+          timeoutMessage: "Rendering thumbnail took too long",
+        }
+      );
+
+      // Scale down for list thumbnails
+      let thumbExport = thumbCanvas;
+      const maxThumbWidth = 400;
+      if (thumbExport.width > maxThumbWidth) {
+        const previewScale = maxThumbWidth / thumbExport.width;
+        const scaledCanvas = document.createElement("canvas");
+        scaledCanvas.width = Math.max(
+          1,
+          Math.round(thumbExport.width * previewScale)
+        );
+        scaledCanvas.height = Math.max(
+          1,
+          Math.round(thumbExport.height * previewScale)
+        );
+        const ctx = scaledCanvas.getContext("2d");
+        if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "medium";
+          ctx.drawImage(
+            thumbExport,
+            0,
+            0,
+            scaledCanvas.width,
+            scaledCanvas.height
+          );
+          thumbExport = scaledCanvas;
+        }
+      }
+
+      return thumbExport.toDataURL("image/jpeg", 0.55);
+    } catch (err) {
+      console.warn("⚠️ Failed to auto-generate thumbnail", err);
+      return "";
+    } finally {
+      if (exportWrapper.parentNode) {
+        exportWrapper.parentNode.removeChild(exportWrapper);
+      }
+    }
+  }, [canvasAspectRatio, getCanvasDimensions]);
 
   const loadDraftIntoEditor = useCallback(
     async (draftId, { notify = true, userEmail = null } = {}) => {
@@ -1246,8 +1450,26 @@ export default function Create() {
       if (draft.title) {
         setDraftTitle(draft.title);
       }
+      setDraftDescription(draft.description || "");
       clearSelection();
       setActiveMobileProperty(null);
+
+      // Auto-backfill missing thumbnail so CreateHub shows the same preview as Create
+      if (!draft.thumbnail && !autoThumbnailGeneratedRef.current.has(draft.id)) {
+        autoThumbnailGeneratedRef.current.add(draft.id);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(async () => {
+            try {
+              const thumbnail = await generateCurrentCanvasThumbnail();
+              if (thumbnail && thumbnail.startsWith("data:image")) {
+                await draftStorage.saveDraft({ id: draft.id, thumbnail });
+              }
+            } catch (err) {
+              console.warn("⚠️ Failed to persist auto thumbnail", err);
+            }
+          });
+        });
+      }
 
       const effectiveSignature =
         draft.signature ||
@@ -1284,6 +1506,7 @@ export default function Create() {
     [
       clearSelection,
       deriveAspectRatioFromDraft,
+      generateCurrentCanvasThumbnail,
       getCanvasDimensions,
       scaleDraftElements,
       setActiveDraftId,
@@ -1296,9 +1519,13 @@ export default function Create() {
   );
 
   useEffect(() => {
+    let cancelled = false;
+
     const draftId = location.state?.draftId;
     const newFrameName = location.state?.newFrameName;
     const comeFromDraftsPage = !!draftId;
+    const prefillFromBaseFrame = !!location.state?.prefillFromBaseFrame;
+    const baseFrame = location.state?.baseFrame;
 
     console.log("🎯 [Create useEffect] Navigation detected:", {
       hasDraftId: !!draftId,
@@ -1312,6 +1539,7 @@ export default function Create() {
     // Set frame name from CreateHub if provided
     if (newFrameName && !comeFromDraftsPage) {
       setDraftTitle(newFrameName);
+      setDraftDescription("");
     }
 
     if (comeFromDraftsPage) {
@@ -1336,13 +1564,72 @@ export default function Create() {
       loadDraftIntoEditor(draftId, { notify: true, userEmail })
         .then((success) => {
           console.log("📂 [Create] loadDraftIntoEditor result:", success);
+
+          // Only clear navigation state AFTER draft finishes loading.
+          // Otherwise the effect re-runs with draftId undefined while still loading,
+          // and the "first time entry" reset wipes the canvas.
+          if (!cancelled) {
+            navigate(location.pathname, { replace: true, state: null });
+          }
         })
         .catch((error) => {
           console.error("❌ [Create] Failed to load draft:", error);
         });
 
-      navigate(location.pathname, { replace: true, state: null });
+      return () => {
+        cancelled = true;
+      };
+    } else if (prefillFromBaseFrame && baseFrame && !hasLoadedDraftRef.current) {
+      const baseAspectRatio =
+        typeof baseFrame?.layout?.aspectRatio === "string" &&
+        baseFrame.layout.aspectRatio.includes(":")
+          ? baseFrame.layout.aspectRatio
+          : deriveAspectRatioFromDraft({
+              canvasWidth: baseFrame?.canvasWidth,
+              canvasHeight: baseFrame?.canvasHeight,
+            });
+
+      console.log("🧩 [Create] Prefill from base frame:", {
+        id: baseFrame?.id,
+        name: baseFrame?.name,
+        aspectRatio: baseAspectRatio,
+      });
+
+      const builtElements = buildElementsFromBaseFrame(
+        baseFrame,
+        baseAspectRatio
+      );
+
+      setCanvasAspectRatio(baseAspectRatio);
+      setElements(builtElements);
+      setCanvasBackground(
+        baseFrame?.canvasBackground ||
+          baseFrame?.layout?.backgroundColor ||
+          "#f7f1ed"
+      );
+
+      setActiveDraftId(null);
+      setIsExistingDraft(false);
+      setJustSavedDraft(false);
+      setDraftTitle(baseFrame?.name || "");
+      setDraftDescription("");
+      clearSelection();
+      setActiveMobileProperty(null);
+
+      userStorage.removeItem("activeDraftId");
+      userStorage.removeItem("activeDraftSignature");
+
+      hasLoadedDraftRef.current = true;
+      // IMPORTANT: Do NOT clear navigation state here.
+      // Clearing state can cause a remount (e.g. auth/ProtectedRoute) and then the
+      // "first time entry" reset branch runs with no state, wiping the prefilled canvas.
+      // Leaving state intact is safe because hasLoadedDraftRef prevents re-prefill loops.
     } else if (!hasLoadedDraftRef.current) {
+      // If an async draft load is in-flight, do NOT reset the canvas.
+      if (isLoadingDraftRef.current) {
+        console.log("⏳ [Create] Draft load in progress - skipping reset");
+        return;
+      }
       // User entered Create page directly - reset ONLY on first mount
       console.log("🔄 [Create] First time entry - resetting canvas");
       setElements([]);
@@ -1354,6 +1641,7 @@ export default function Create() {
       // Reset title only if not provided from CreateHub
       if (!newFrameName) {
         setDraftTitle("");
+        setDraftDescription("");
       }
       clearSelection();
       userStorage.removeItem("activeDraftId");
@@ -1366,6 +1654,9 @@ export default function Create() {
       hasLoadedDraftRef.current = true; // Mark as initialized
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      cancelled = true;
+    };
   }, [location.state?.draftId, user?.email]); // Re-run when draftId OR user authentication changes
 
   useEffect(() => {
@@ -1567,8 +1858,98 @@ export default function Create() {
       exportWrapper.appendChild(exportCanvasNode);
       document.body.appendChild(exportWrapper);
 
+      // 1) THUMBNAIL CAPTURE (what user sees in Create editor, incl. Area Foto placeholders)
+      let thumbnailDataUrl = "";
+      try {
+        const thumbnailClone = exportCanvasNode.cloneNode(true);
+        thumbnailClone.id = "creator-canvas-export-thumb";
+        exportWrapper.removeChild(exportCanvasNode);
+        exportWrapper.appendChild(thumbnailClone);
+
+        prepareCanvasExportClone(thumbnailClone, {
+          makePhotoSlotsTransparent: false,
+        });
+
+        const thumbCanvas = await withTimeout(
+          html2canvas(thumbnailClone, {
+            backgroundColor: null,
+            useCORS: true,
+            scale: captureScale,
+            width: canvasWidth,
+            height: canvasHeight,
+            windowWidth: canvasWidth,
+            windowHeight: canvasHeight,
+            scrollX: 0,
+            scrollY: 0,
+            allowTaint: true,
+            logging: false,
+            ignoreElements: (element) => {
+              if (!element) return false;
+              if (element.nodeType === Node.ELEMENT_NODE) {
+                if (
+                  element.classList?.contains(
+                    "creator-element--captured-overlay"
+                  )
+                )
+                  return true;
+                if (element.getAttribute?.("data-export-ignore") === "true")
+                  return true;
+                if (element.closest?.('[data-export-ignore="true"]'))
+                  return true;
+              }
+              return false;
+            },
+          }),
+          {
+            timeoutMs: 20000,
+            timeoutMessage: "Rendering thumbnail took too long",
+          }
+        );
+
+        // Scale down aggressively for list thumbnails
+        let thumbExport = thumbCanvas;
+        const maxThumbWidth = 400;
+        if (thumbExport.width > maxThumbWidth) {
+          const previewScale = maxThumbWidth / thumbExport.width;
+          const scaledCanvas = document.createElement("canvas");
+          scaledCanvas.width = Math.max(
+            1,
+            Math.round(thumbExport.width * previewScale)
+          );
+          scaledCanvas.height = Math.max(
+            1,
+            Math.round(thumbExport.height * previewScale)
+          );
+          const ctx = scaledCanvas.getContext("2d");
+          if (ctx) {
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = "medium";
+            ctx.drawImage(
+              thumbExport,
+              0,
+              0,
+              scaledCanvas.width,
+              scaledCanvas.height
+            );
+            thumbExport = scaledCanvas;
+          }
+        }
+
+        thumbnailDataUrl = thumbExport.toDataURL("image/jpeg", 0.55);
+      } catch (thumbErr) {
+        console.warn("⚠️ Failed to generate thumbnail, will fallback", thumbErr);
+        thumbnailDataUrl = "";
+      }
+
+      // 2) PREVIEW CAPTURE (kept as-is, photo slots transparent)
+      // Restore original export node
+      exportWrapper.removeChild(exportWrapper.firstChild);
+      exportWrapper.appendChild(exportCanvasNode);
+
       // ✅ SIMPLIFIED: No overlay logic, just sync z-index
-      prepareCanvasExportClone(exportCanvasNode);
+      prepareCanvasExportClone(exportCanvasNode, {
+        makePhotoSlotsTransparent: true,
+      });
 
       cleanupCapture = () => {
         if (exportWrapper.parentNode) {
@@ -1976,19 +2357,32 @@ export default function Create() {
             }
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-            // ✅ CRITICAL FIX: Check if image has transparency
-            // PNG images with transparency MUST stay as PNG, not convert to JPEG
-            // JPEG doesn't support alpha channel - transparent areas become BLACK!
-            const isOriginalPNG = imageSource.startsWith("data:image/png");
-            const hasTransparency = isOriginalPNG; // Assume PNG has transparency
+            // ✅ CRITICAL FIX: Preserve alpha for PNG/WEBP uploads.
+            // When frames/overlays come from /uploads/*.png or /uploads/*.webp, converting to JPEG
+            // destroys transparency and makes transparent areas appear BLACK.
+            const sourceLower = String(imageSource || "").toLowerCase();
+            const urlNoQuery = sourceLower.split("?")[0].split("#")[0];
+            const isDataPng = urlNoQuery.startsWith("data:image/png");
+            const isDataWebp = urlNoQuery.startsWith("data:image/webp");
+            const isUrlPng = urlNoQuery.endsWith(".png");
+            const isUrlWebp = urlNoQuery.endsWith(".webp");
+
+            // Overlays are commonly transparent; treat upload elements as alpha-capable by default.
+            const hasTransparency =
+              element.type === "upload" || isDataPng || isDataWebp || isUrlPng || isUrlWebp;
 
             let compressedImage;
             if (hasTransparency) {
-              // Keep as PNG to preserve transparency
-              compressedImage = canvas.toDataURL("image/png");
-              console.log("🗜️ Keeping PNG format for transparency:", {
+              // Prefer WebP for WebP sources (smaller) while keeping alpha; otherwise use PNG.
+              const outFormat = isDataWebp || isUrlWebp ? "image/webp" : "image/png";
+              compressedImage =
+                outFormat === "image/webp"
+                  ? canvas.toDataURL("image/webp", quality)
+                  : canvas.toDataURL("image/png");
+
+              console.log("🗜️ Keeping alpha-capable format:", {
                 type: element.type,
-                format: "PNG",
+                format: outFormat === "image/webp" ? "WEBP" : "PNG",
                 original: imageSource.length,
                 compressed: compressedImage.length,
               });
@@ -2077,12 +2471,14 @@ export default function Create() {
       const draftDataToSave = {
         id: activeDraftId || undefined,
         title: draftTitle || undefined, // Include title
+        description: draftDescription || undefined,
         canvasBackground,
         canvasWidth,
         canvasHeight,
         aspectRatio: canvasAspectRatio,
         elements: compressedElements,
         preview: previewDataUrl,
+        thumbnail: thumbnailDataUrl || undefined,
         signature,
         capturedPhotos: undefined,
         // frameArtwork removed - already in elements array
@@ -2993,31 +3389,9 @@ export default function Create() {
           );
           break;
         case "text-font": {
-          const fonts = [
-            "Inter",
-            "Roboto",
-            "Lato",
-            "Open Sans",
-            "Montserrat",
-            "Poppins",
-            "Nunito Sans",
-            "Rubik",
-            "Work Sans",
-            "Source Sans Pro",
-            "Merriweather",
-            "Playfair Display",
-            "Libre Baskerville",
-            "Cormorant Garamond",
-            "Bitter",
-            "Raleway",
-            "Oswald",
-            "Bebas Neue",
-            "Anton",
-            "Pacifico",
-          ];
           content = (
             <div className="create-mobile-property-panel__actions">
-              {fonts.map((font) => (
+              {EDITOR_FONT_FAMILIES.map((font) => (
                 <button
                   key={font}
                   type="button"
@@ -3442,6 +3816,17 @@ export default function Create() {
                 placeholder="Masukkan nama frame..."
                 value={draftTitle}
                 onChange={(e) => setDraftTitle(e.target.value)}
+              />
+
+              <label className="create-tools__name-label" style={{ marginTop: 12 }}>
+                Deskripsi Frame
+              </label>
+              <textarea
+                className="create-tools__name-field create-tools__description-field"
+                placeholder="Tulis deskripsi singkat..."
+                value={draftDescription}
+                onChange={(e) => setDraftDescription(e.target.value)}
+                rows={3}
               />
             </div>
           </Motion.aside>

@@ -1,0 +1,16 @@
+/*
+  Custom editor fonts (self-hosted)
+
+  Put the font files under: my-app/public/fonts/
+  Recommended format: .woff2
+
+  IMPORTANT: Only add fonts you have rights to embed on the web.
+*/
+
+/*
+  No self-hosted fonts currently enabled.
+  Editor fonts are loaded from Google Fonts via my-app/index.html.
+
+  If you later want to self-host fonts, add @font-face blocks here and
+  place the files under my-app/public/fonts/.
+*/

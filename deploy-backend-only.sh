@@ -41,6 +41,8 @@ rsync -avz --delete \
     --exclude='.env' \
     --exclude='*.log' \
     --exclude='.git' \
+    --exclude='uploads' \
+    --exclude='uploads/**' \
     --exclude='uploads/temp/*' \
     --exclude='public' \
     backend/ ${VPS_USER}@${VPS_HOST}:${BACKEND_PATH}/

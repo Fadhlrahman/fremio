@@ -279,6 +279,11 @@
   box-shadow: 0 0 0 3px rgba(224, 183, 169, 0.15);
 }
 
+.create-tools__description-field {
+  resize: vertical;
+  min-height: 76px;
+}
+
 .create-ratio-dropdown:hover {
   border-color: #d4a99a;
   box-shadow: 0 4px 12px rgba(224, 183, 169, 0.2);

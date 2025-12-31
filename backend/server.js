@@ -16,6 +16,7 @@ import storageService from "./services/storageService.js";
 import authRoutes from "./routes/auth.js";
 import framesRoutes from "./routes/frames.js";
 import draftsRoutes from "./routes/drafts-pg.js"; // Use PostgreSQL version
+import groupsRoutes from "./routes/groups-pg.js";
 import uploadRoutes from "./routes/upload.js";
 import analyticsRoutes from "./routes/analytics.js";
 import staticRoutes from "./routes/static.js";
@@ -181,6 +182,7 @@ app.get("/api/health", (req, res) => {
 app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/frames", framesRoutes);
 app.use("/api/drafts", draftsRoutes);
+app.use("/api/groups", groupsRoutes);
 app.use("/api/upload", uploadLimiter, uploadRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/static", staticRoutes);

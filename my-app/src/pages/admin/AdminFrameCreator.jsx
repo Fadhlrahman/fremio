@@ -32,7 +32,6 @@ import {
 } from "../../components/creator/canvasConstants.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import unifiedFrameService from "../../services/unifiedFrameService";
-import { uploadImageSimple } from "../../services/imagekitService.js";
 import "../Create.css";
 
 const panelMotion = {
@@ -178,8 +177,8 @@ export default function AdminFrameCreator() {
             const newElements = [];
             
             // Add background photo if available
-            if (frame.imagePath || frame.image_url || frame.thumbnailUrl) {
-              const imageUrl = frame.imagePath || frame.image_url || frame.thumbnailUrl;
+            if (frame.imageUrl || frame.thumbnailUrl || frame.imagePath || frame.image_url) {
+              const imageUrl = frame.imageUrl || frame.thumbnailUrl || frame.imagePath || frame.image_url;
               console.log("🖼️ Adding background photo:", imageUrl);
               newElements.push({
                 id: "background-photo-1",
@@ -543,11 +542,11 @@ export default function AdminFrameCreator() {
           heightNorm: el.height / canvasHeight,
         };
         
-        // If this is an upload element with a data URL image, upload to ImageKit
+        // If this is an upload element with a data URL image, upload to backend
         // Use originalImage if available (better quality, preserves transparency)
         const imageToUpload = el.data?.originalImage || el.data?.image;
         if (el.type === "upload" && imageToUpload && imageToUpload.startsWith("data:")) {
-          console.log("📤 Uploading overlay element image to ImageKit...");
+          console.log("📤 Uploading overlay element image to backend (/api/upload/overlay)...");
           console.log("📤 Using original image:", !!el.data?.originalImage);
           try {
             // Convert data URL to blob - preserve PNG format for transparency
@@ -566,18 +565,18 @@ export default function AdminFrameCreator() {
             
             console.log("📤 Blob created:", { size: blob.size, type: blob.type });
             
-            // Upload to ImageKit - use .png extension for transparency
+            // Upload to backend - use .png extension for transparency
             const safeName = `overlay_${el.id.substring(0, 8)}.png`;
-            const uploadResult = await uploadImageSimple(blob, safeName, 'frame-overlays');
+            const uploadResult = await unifiedFrameService.uploadOverlayImage(blob, safeName);
             
-            if (uploadResult.url) {
-              console.log("✅ Overlay uploaded to ImageKit:", uploadResult.url);
-              // Replace data URL with ImageKit URL
+            if (uploadResult?.imagePath) {
+              console.log("✅ Overlay uploaded to backend:", uploadResult.imagePath);
+              // Replace data URL with server URL
               // Remove originalImage from saved data to reduce storage
               const { originalImage, ...restData } = elementToSave.data || {};
               elementToSave.data = {
                 ...restData,
-                image: uploadResult.url,
+                image: uploadResult.imagePath,
               };
             } else {
               console.warn("⚠️ Failed to upload overlay, keeping data URL");

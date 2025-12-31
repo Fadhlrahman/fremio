@@ -19,6 +19,15 @@ const __dirname = path.dirname(__filename);
 const router = express.Router();
 
 /**
+ * Ensure directory exists (sync) for upload paths.
+ */
+function ensureDir(dirPath) {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+}
+
+/**
  * POST /api/upload/frame
  * Upload frame image (admin only)
  * Converts to WebP for optimization
@@ -40,9 +49,7 @@ router.post(
       const filepath = path.join(uploadDir, filename);
 
       // Ensure directory exists
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
-      }
+      ensureDir(uploadDir);
 
       // Process and optimize image with Sharp
       await sharp(req.file.buffer)
@@ -66,6 +73,69 @@ router.post(
     } catch (error) {
       console.error("Upload frame error:", error);
       res.status(500).json({ error: "Gagal upload gambar" });
+    }
+  }
+);
+
+/**
+ * POST /api/upload/overlay
+ * Upload overlay element image (admin only)
+ * Preserves transparency (PNG/WebP). Stores on VPS disk and returns /uploads/overlays/*
+ */
+router.post(
+  "/overlay",
+  verifyToken,
+  requireAdmin,
+  uploadImage,
+  handleUploadError,
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "Tidak ada file yang diupload" });
+      }
+
+      const mime = String(req.file.mimetype || "").toLowerCase();
+      const ext = mime === "image/jpeg" ? "jpg" : mime === "image/webp" ? "webp" : "png";
+
+      const filename = `${uuidv4()}.${ext}`;
+      const uploadDir = path.join(__dirname, "../uploads/overlays");
+      const filepath = path.join(uploadDir, filename);
+      ensureDir(uploadDir);
+
+      // Keep alpha and avoid aggressive resizing. Cap the largest side for safety.
+      const maxSide = 3000;
+      let pipeline = sharp(req.file.buffer).rotate();
+      try {
+        pipeline = pipeline.resize({
+          width: maxSide,
+          height: maxSide,
+          fit: "inside",
+          withoutEnlargement: true,
+        });
+      } catch (e) {
+        // ignore resize errors
+      }
+
+      if (ext === "webp") {
+        await pipeline.webp({ quality: 90 }).toFile(filepath);
+      } else if (ext === "jpg") {
+        await pipeline.jpeg({ quality: 90 }).toFile(filepath);
+      } else {
+        // png
+        await pipeline.png({ compressionLevel: 9 }).toFile(filepath);
+      }
+
+      const imageUrl = `/uploads/overlays/${filename}`;
+
+      res.json({
+        success: true,
+        message: "Overlay berhasil diupload",
+        imagePath: imageUrl,
+        filename,
+      });
+    } catch (error) {
+      console.error("Upload overlay error:", error);
+      res.status(500).json({ error: "Gagal upload overlay" });
     }
   }
 );

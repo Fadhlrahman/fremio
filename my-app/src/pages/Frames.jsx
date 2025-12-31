@@ -382,6 +382,19 @@ export default function Frames() {
 
     await trackFrameView(frame.id, null, frame.name);
 
+    const flowTypeRaw = frame?.flowType ?? frame?.flow_type;
+    const flowType = String(flowTypeRaw || "fixed").toLowerCase().trim();
+
+    if (flowType === "personalized") {
+      navigate("/create/editor", {
+        state: {
+          prefillFromBaseFrame: true,
+          baseFrame: frame,
+        },
+      });
+      return;
+    }
+
     try {
       const success = await frameProvider.setCustomFrame(frame);
 

@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import "./index.css";
+import "./styles/editorFonts.css";
 
 // App version for debugging cache issues
 console.log('🚀 Fremio App v14 - Build:', new Date().toISOString().slice(0, 10));

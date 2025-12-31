@@ -25,9 +25,36 @@ const safeJsonSend = (ws, msg) => {
   ws.send(JSON.stringify(msg));
 };
 
+const getIceServers = () => {
+  const servers = [{ urls: "stun:stun.l.google.com:19302" }];
+
+  // Optional TURN for NAT-restricted networks (set in Cloudflare Pages env)
+  // - VITE_WEBRTC_TURN_URL: e.g. "turn:turn.example.com:3478?transport=udp,turns:turn.example.com:5349?transport=tcp"
+  // - VITE_WEBRTC_TURN_USERNAME
+  // - VITE_WEBRTC_TURN_CREDENTIAL
+  const turnUrl = String(import.meta.env?.VITE_WEBRTC_TURN_URL || "").trim();
+  if (turnUrl) {
+    const urls = turnUrl
+      .split(",")
+      .map((u) => u.trim())
+      .filter(Boolean);
+
+    if (urls.length) {
+      servers.push({
+        urls,
+        username: String(import.meta.env?.VITE_WEBRTC_TURN_USERNAME || "").trim() || undefined,
+        credential:
+          String(import.meta.env?.VITE_WEBRTC_TURN_CREDENTIAL || "").trim() || undefined,
+      });
+    }
+  }
+
+  return servers;
+};
+
 const createPeerConnection = ({ onIceCandidate, onTrack }) => {
   const pc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    iceServers: getIceServers(),
   });
 
   pc.onicecandidate = (event) => {
@@ -58,6 +85,7 @@ export default function TakeMomentFriendsRoom({
   const roleRef = useRef(null);
   const pcsRef = useRef(new Map()); // peerId -> RTCPeerConnection
   const remoteStreamsRef = useRef(new Map()); // peerId -> MediaStream
+  const pendingIceRef = useRef(new Map()); // peerId -> RTCIceCandidateInit[]
 
   const [clientId, setClientId] = useState(null);
   const [role, setRole] = useState(null); // 'master' | 'participant'
@@ -119,6 +147,7 @@ export default function TakeMomentFriendsRoom({
     }
     pcsRef.current.clear();
     remoteStreamsRef.current.clear();
+    pendingIceRef.current.clear();
     setRemoteStreams([]);
     setPeers([]);
   }, []);
@@ -193,6 +222,16 @@ export default function TakeMomentFriendsRoom({
         },
       });
 
+      // Helpful diagnostics in console (no UI changes)
+      pc.oniceconnectionstatechange = () => {
+        // eslint-disable-next-line no-console
+        console.log("[friends] ICE state", peerId, pc.iceConnectionState);
+      };
+      pc.onconnectionstatechange = () => {
+        // eslint-disable-next-line no-console
+        console.log("[friends] PC state", peerId, pc.connectionState);
+      };
+
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
       pcsRef.current.set(peerId, pc);
 
@@ -215,9 +254,26 @@ export default function TakeMomentFriendsRoom({
       const pc = pcsRef.current.get(from);
       if (!pc) return;
 
+      const drainPendingIce = async () => {
+        const queued = pendingIceRef.current.get(from);
+        if (!queued || queued.length === 0) return;
+        pendingIceRef.current.delete(from);
+        for (const cand of queued) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(cand));
+          } catch {
+            // ignore
+          }
+        }
+      };
+
       if (data.sdp) {
         const desc = new RTCSessionDescription(data.sdp);
         await pc.setRemoteDescription(desc);
+
+        // Some browsers can deliver ICE candidates before SDP; buffer then apply after SDP
+        await drainPendingIce();
+
         if (desc.type === "offer") {
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
@@ -229,6 +285,13 @@ export default function TakeMomentFriendsRoom({
       }
 
       if (data.candidate) {
+        // If remoteDescription isn't set yet, queue; otherwise add immediately
+        if (!pc.remoteDescription) {
+          const existing = pendingIceRef.current.get(from) || [];
+          existing.push(data.candidate);
+          pendingIceRef.current.set(from, existing);
+          return;
+        }
         try {
           await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
         } catch {

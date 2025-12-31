@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Rnd } from "react-rnd";
 import { VPS_API_URL } from "../../config/backend";
+import "@mediapipe/selfie_segmentation";
 
 const MAX_PEOPLE = 4;
 
@@ -152,12 +153,17 @@ export default function TakeMomentFriendsRoom({
   const stageRef = useRef(null);
   const wsRef = useRef(null);
   const localVideoRef = useRef(null);
+  const localCutoutCanvasRef = useRef(null);
   const localStreamRef = useRef(null);
   const clientIdRef = useRef(null);
   const roleRef = useRef(null);
   const pcsRef = useRef(new Map()); // peerId -> RTCPeerConnection
   const remoteStreamsRef = useRef(new Map()); // peerId -> MediaStream
   const pendingIceRef = useRef(new Map()); // peerId -> RTCIceCandidateInit[]
+
+  const tileVideoElsRef = useRef(new Map()); // id -> HTMLVideoElement
+  const tileCanvasElsRef = useRef(new Map()); // id -> HTMLCanvasElement
+  const segmentationPipelinesRef = useRef(new Map()); // id -> { seg, rafId, stopped }
 
   const [clientId, setClientId] = useState(null);
   const [role, setRole] = useState(null); // 'master' | 'participant'
@@ -236,6 +242,23 @@ export default function TakeMomentFriendsRoom({
     pendingIceRef.current.clear();
     setRemoteStreams([]);
     setPeers([]);
+
+    for (const pipe of segmentationPipelinesRef.current.values()) {
+      pipe.stopped = true;
+      try {
+        if (pipe.rafId) cancelAnimationFrame(pipe.rafId);
+      } catch {
+        // ignore
+      }
+      try {
+        pipe.seg?.close?.();
+      } catch {
+        // ignore
+      }
+    }
+    segmentationPipelinesRef.current.clear();
+    tileVideoElsRef.current.clear();
+    tileCanvasElsRef.current.clear();
   }, []);
 
   const disconnect = useCallback(() => {
@@ -254,6 +277,74 @@ export default function TakeMomentFriendsRoom({
     }
     setLocalStream(null);
   }, [closeAllPeerConnections]);
+
+  const ensureSegmentationPipeline = useCallback((id, isLocal) => {
+    const videoEl = tileVideoElsRef.current.get(id);
+    const canvasEl = tileCanvasElsRef.current.get(id);
+    if (!videoEl || !canvasEl) return;
+
+    if (segmentationPipelinesRef.current.has(id)) return;
+
+    const SelfieSegmentationCtor = globalThis?.SelfieSegmentation;
+    if (!SelfieSegmentationCtor) return;
+
+    const seg = new SelfieSegmentationCtor({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${file}`,
+    });
+
+    seg.setOptions({ modelSelection: 1, selfieMode: Boolean(isLocal) });
+
+    seg.onResults((results) => {
+      const ctx = canvasEl.getContext("2d");
+      if (!ctx) return;
+
+      const cssW = Math.max(1, Math.floor(canvasEl.clientWidth || 1));
+      const cssH = Math.max(1, Math.floor(canvasEl.clientHeight || 1));
+      const dpr = window.devicePixelRatio || 1;
+      const w = Math.max(1, Math.floor(cssW * dpr));
+      const h = Math.max(1, Math.floor(cssH * dpr));
+
+      if (canvasEl.width !== w || canvasEl.height !== h) {
+        canvasEl.width = w;
+        canvasEl.height = h;
+      }
+
+      ctx.save();
+      ctx.clearRect(0, 0, w, h);
+
+      if (isLocal) {
+        ctx.translate(w, 0);
+        ctx.scale(-1, 1);
+      }
+
+      // Mask first, then draw only the person pixels.
+      ctx.drawImage(results.segmentationMask, 0, 0, w, h);
+      ctx.globalCompositeOperation = "source-in";
+      ctx.drawImage(results.image, 0, 0, w, h);
+      ctx.globalCompositeOperation = "source-over";
+
+      ctx.restore();
+    });
+
+    const pipeline = { seg, rafId: null, stopped: false };
+    segmentationPipelinesRef.current.set(id, pipeline);
+
+    const loop = async () => {
+      const current = segmentationPipelinesRef.current.get(id);
+      if (!current || current.stopped) return;
+      try {
+        if (videoEl.readyState >= 2 && videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+          await seg.send({ image: videoEl });
+        }
+      } catch {
+        // keep loop alive; canvas will just not update on failure
+      }
+
+      current.rafId = requestAnimationFrame(loop);
+    };
+
+    pipeline.rafId = requestAnimationFrame(loop);
+  }, []);
 
   const sendStateUpdate = useCallback(
     (next) => {
@@ -466,25 +557,25 @@ export default function TakeMomentFriendsRoom({
     ctx.fillStyle = roomState.background || "#F4E6DA";
     ctx.fillRect(0, 0, width, height);
 
-    // Build list of all video nodes to draw (local + remotes)
+    // Build list of all cutout nodes to draw (local + remotes)
     const nodes = [];
 
-    // Local (master/participant)
-    if (localVideoRef.current) {
+    // Local
+    if (localCutoutCanvasRef.current) {
       nodes.push({
         id: clientId,
-        videoEl: localVideoRef.current,
+        sourceEl: localCutoutCanvasRef.current,
         layout: roomState.layout?.[clientId] || null,
       });
     }
 
     // Remotes
-    const remoteVideoEls = stage.querySelectorAll("video[data-peer]");
-    remoteVideoEls.forEach((videoEl) => {
-      const id = videoEl.getAttribute("data-peer");
+    const remoteCanvases = stage.querySelectorAll("canvas[data-peer]");
+    remoteCanvases.forEach((canvasEl) => {
+      const id = canvasEl.getAttribute("data-peer");
       nodes.push({
         id,
-        videoEl,
+        sourceEl: canvasEl,
         layout: roomState.layout?.[id] || null,
       });
     });
@@ -511,7 +602,7 @@ export default function TakeMomentFriendsRoom({
       const h = clamp(rectPx.h, 1, height * 4);
 
       try {
-        ctx.drawImage(node.videoEl, x, y, w, h);
+        ctx.drawImage(node.sourceEl, x, y, w, h);
       } catch {
         // drawImage can fail if video not ready
       }
@@ -731,6 +822,24 @@ export default function TakeMomentFriendsRoom({
             }
             remoteStreamsRef.current.delete(peerId);
             updateRemoteStreamsState();
+
+            const pipe = segmentationPipelinesRef.current.get(peerId);
+            if (pipe) {
+              pipe.stopped = true;
+              try {
+                if (pipe.rafId) cancelAnimationFrame(pipe.rafId);
+              } catch {
+                // ignore
+              }
+              try {
+                pipe.seg?.close?.();
+              } catch {
+                // ignore
+              }
+              segmentationPipelinesRef.current.delete(peerId);
+            }
+            tileVideoElsRef.current.delete(peerId);
+            tileCanvasElsRef.current.delete(peerId);
             return;
           }
 
@@ -1018,9 +1127,24 @@ export default function TakeMomentFriendsRoom({
                 style={{
                   width: "100%",
                   height: "100%",
-                  background: "rgba(0,0,0,0.15)",
+                  background: "transparent",
+                  position: "relative",
                 }}
               >
+                <canvas
+                  data-peer={isLocal ? undefined : id}
+                  ref={(el) => {
+                    if (!el) return;
+                    tileCanvasElsRef.current.set(id, el);
+                    if (isLocal) localCutoutCanvasRef.current = el;
+                    ensureSegmentationPipeline(id, isLocal);
+                  }}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    display: "block",
+                  }}
+                />
                 <video
                   data-peer={isLocal ? undefined : id}
                   autoPlay
@@ -1037,6 +1161,9 @@ export default function TakeMomentFriendsRoom({
                   }}
                   ref={(el) => {
                     if (!el) return;
+
+                    tileVideoElsRef.current.set(id, el);
+
                     // Attach stream
                     try {
                       if (videoProps.srcObject && el.srcObject !== videoProps.srcObject) {
@@ -1051,12 +1178,17 @@ export default function TakeMomentFriendsRoom({
                     } catch {
                       // ignore
                     }
+
+                    ensureSegmentationPipeline(id, isLocal);
                   }}
                   style={{
+                    position: "absolute",
+                    inset: 0,
                     width: "100%",
                     height: "100%",
                     objectFit: "cover",
-                    transform: isLocal ? "scaleX(-1)" : "none",
+                    opacity: 0,
+                    pointerEvents: "none",
                   }}
                 />
               </div>

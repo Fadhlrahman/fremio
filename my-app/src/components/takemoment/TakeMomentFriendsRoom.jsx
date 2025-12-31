@@ -210,6 +210,7 @@ export default function TakeMomentFriendsRoom({
   const pinchStateRef = useRef(null); // { id, startDist, startNorm, centerX, centerY, latestScale }
   const pinchRafRef = useRef(null);
   const [pinchingTileId, setPinchingTileId] = useState(null);
+  const tileTouchCleanupRef = useRef(new Map()); // id -> () => void
 
   // Keep refs in sync so callbacks can be stable
   useEffect(() => {
@@ -241,6 +242,21 @@ export default function TakeMomentFriendsRoom({
     pinchStateRef.current = null;
     setPinchingTileId(null);
   }, []);
+
+  useEffect(() => {
+    return () => {
+      clearPinch();
+      // Cleanup any per-tile native listeners
+      for (const cleanup of tileTouchCleanupRef.current.values()) {
+        try {
+          cleanup?.();
+        } catch {
+          // ignore
+        }
+      }
+      tileTouchCleanupRef.current.clear();
+    };
+  }, [clearPinch]);
 
   const startPinchForTile = useCallback(
     (tileId, touches) => {
@@ -299,6 +315,75 @@ export default function TakeMomentFriendsRoom({
       });
     },
     [getTouchDistance, stageSize.w, stageSize.h]
+  );
+
+  const bindTileTouchSurface = useCallback(
+    (tileId, el) => {
+      const prev = tileTouchCleanupRef.current.get(tileId);
+      if (prev) {
+        try {
+          prev();
+        } catch {
+          // ignore
+        }
+        tileTouchCleanupRef.current.delete(tileId);
+      }
+
+      if (!el || !isMaster) return;
+
+      const onStart = (e) => {
+        if (!roleRef.current || roleRef.current !== "master") return;
+        if (!e?.touches || e.touches.length !== 2) return;
+        try {
+          e.preventDefault();
+          e.stopPropagation();
+        } catch {
+          // ignore
+        }
+        setSelectedTileId(tileId);
+        startPinchForTile(tileId, e.touches);
+      };
+
+      const onMove = (e) => {
+        const state = pinchStateRef.current;
+        if (!state || state.id !== tileId) return;
+        if (!e?.touches || e.touches.length !== 2) return;
+        try {
+          e.preventDefault();
+          e.stopPropagation();
+        } catch {
+          // ignore
+        }
+        updatePinchScale(tileId, e.touches);
+      };
+
+      const onEnd = (e) => {
+        const state = pinchStateRef.current;
+        if (!state || state.id !== tileId) return;
+        if (e?.touches && e.touches.length >= 2) return;
+        clearPinch();
+      };
+
+      // Non-passive listeners so preventDefault works (esp. iOS)
+      el.addEventListener("touchstart", onStart, { passive: false, capture: true });
+      el.addEventListener("touchmove", onMove, { passive: false, capture: true });
+      el.addEventListener("touchend", onEnd, { passive: true, capture: true });
+      el.addEventListener("touchcancel", onEnd, { passive: true, capture: true });
+
+      const cleanup = () => {
+        try {
+          el.removeEventListener("touchstart", onStart, { capture: true });
+          el.removeEventListener("touchmove", onMove, { capture: true });
+          el.removeEventListener("touchend", onEnd, { capture: true });
+          el.removeEventListener("touchcancel", onEnd, { capture: true });
+        } catch {
+          // ignore
+        }
+      };
+
+      tileTouchCleanupRef.current.set(tileId, cleanup);
+    },
+    [clearPinch, isMaster, startPinchForTile, updatePinchScale]
   );
 
   // Use state so video tiles re-render when stream becomes available
@@ -1436,43 +1521,6 @@ export default function TakeMomentFriendsRoom({
               disableDragging={!canControl || pinchingTileId === id}
               enableResizing={canControl && pinchingTileId !== id}
               style={{ zIndex, borderRadius: 14, overflow: "hidden", touchAction: canControl ? "none" : "manipulation" }}
-              onTouchStart={(e) => {
-                if (!isMaster) return;
-                if (e?.touches?.length === 2) {
-                  try {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  } catch {
-                    // ignore
-                  }
-                  setSelectedTileId(id);
-                  startPinchForTile(id, e.touches);
-                }
-              }}
-              onTouchMove={(e) => {
-                if (!isMaster) return;
-                const state = pinchStateRef.current;
-                if (!state || state.id !== id) return;
-                if (e?.touches?.length !== 2) return;
-                try {
-                  e.preventDefault();
-                  e.stopPropagation();
-                } catch {
-                  // ignore
-                }
-                updatePinchScale(id, e.touches);
-              }}
-              onTouchEnd={(e) => {
-                const state = pinchStateRef.current;
-                if (!state || state.id !== id) return;
-                if (e?.touches?.length && e.touches.length >= 2) return;
-                clearPinch();
-              }}
-              onTouchCancel={() => {
-                const state = pinchStateRef.current;
-                if (!state || state.id !== id) return;
-                clearPinch();
-              }}
               onDragStop={(e, d) => {
                 if (!isMaster) return;
                 const baseLayout = ensureNormLayoutNow();
@@ -1526,11 +1574,13 @@ export default function TakeMomentFriendsRoom({
               }}
             >
               <div
+                ref={(el) => bindTileTouchSurface(id, el)}
                 style={{
                   width: "100%",
                   height: "100%",
                   background: "transparent",
                   position: "relative",
+                  touchAction: canControl ? "none" : "manipulation",
                 }}
               >
                 <div

@@ -61,6 +61,11 @@ const createPeerConnection = ({ onIceCandidate, onTrackEvent }) => {
     if (event.candidate) onIceCandidate(event.candidate);
   };
 
+  pc.onicecandidateerror = (event) => {
+    // eslint-disable-next-line no-console
+    console.warn("[friends] ICE candidate error", event);
+  };
+
   pc.ontrack = (event) => {
     onTrackEvent?.(event);
   };
@@ -206,16 +211,26 @@ export default function TakeMomentFriendsRoom({
       if (!clientIdRef.current) return;
       if (pcsRef.current.has(peerId)) return;
 
+      // eslint-disable-next-line no-console
+      console.log("[friends] setupPeer", { peerId, initiate });
+
       const stream = await ensureLocalMedia();
 
       const pc = createPeerConnection({
         onIceCandidate: (candidate) => {
+          // eslint-disable-next-line no-console
+          console.log("[friends] send ICE ->", peerId);
           safeJsonSend(wsRef.current, {
             type: "SIGNAL",
             payload: { to: peerId, data: { candidate } },
           });
         },
         onTrackEvent: (event) => {
+          // eslint-disable-next-line no-console
+          console.log("[friends] ontrack from", peerId, {
+            hasStreams: Boolean(event.streams && event.streams[0]),
+            trackKind: event.track?.kind,
+          });
           // Safari can provide empty event.streams; build a stream from tracks.
           let stream = (event.streams && event.streams[0]) || remoteStreamsRef.current.get(peerId);
           if (!stream) {
@@ -250,8 +265,12 @@ export default function TakeMomentFriendsRoom({
       pcsRef.current.set(peerId, pc);
 
       if (initiate) {
+        // eslint-disable-next-line no-console
+        console.log("[friends] createOffer ->", peerId);
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
+        // eslint-disable-next-line no-console
+        console.log("[friends] send SDP offer ->", peerId);
         safeJsonSend(wsRef.current, {
           type: "SIGNAL",
           payload: { to: peerId, data: { sdp: pc.localDescription } },
@@ -264,6 +283,14 @@ export default function TakeMomentFriendsRoom({
   const handleSignal = useCallback(
     async (from, data) => {
       if (!from || !data) return;
+
+      // eslint-disable-next-line no-console
+      console.log("[friends] recv SIGNAL <-", from, {
+        hasSdp: Boolean(data.sdp),
+        sdpType: data.sdp?.type,
+        hasCandidate: Boolean(data.candidate),
+      });
+
       await setupPeer(from, { initiate: false });
       const pc = pcsRef.current.get(from);
       if (!pc) return;
@@ -285,12 +312,19 @@ export default function TakeMomentFriendsRoom({
         const desc = new RTCSessionDescription(data.sdp);
         await pc.setRemoteDescription(desc);
 
+        // eslint-disable-next-line no-console
+        console.log("[friends] setRemoteDescription", from, desc.type);
+
         // Some browsers can deliver ICE candidates before SDP; buffer then apply after SDP
         await drainPendingIce();
 
         if (desc.type === "offer") {
+          // eslint-disable-next-line no-console
+          console.log("[friends] createAnswer ->", from);
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
+          // eslint-disable-next-line no-console
+          console.log("[friends] send SDP answer ->", from);
           safeJsonSend(wsRef.current, {
             type: "SIGNAL",
             payload: { to: from, data: { sdp: pc.localDescription } },
@@ -304,6 +338,9 @@ export default function TakeMomentFriendsRoom({
           const existing = pendingIceRef.current.get(from) || [];
           existing.push(data.candidate);
           pendingIceRef.current.set(from, existing);
+
+          // eslint-disable-next-line no-console
+          console.log("[friends] queue ICE (no remoteDescription yet)", from);
           return;
         }
         try {
@@ -430,6 +467,12 @@ export default function TakeMomentFriendsRoom({
           const { type, payload } = msg;
 
           if (type === "WELCOME") {
+            // eslint-disable-next-line no-console
+            console.log("[friends] WELCOME", {
+              clientId: payload?.clientId,
+              role: payload?.role,
+              peers: payload?.peers,
+            });
             setClientId(payload.clientId);
             setRole(payload.role);
             setRoomState(
@@ -452,6 +495,10 @@ export default function TakeMomentFriendsRoom({
           if (type === "PEER_JOINED") {
             const peerId = payload?.clientId;
             if (!peerId) return;
+
+            // eslint-disable-next-line no-console
+            console.log("[friends] PEER_JOINED", peerId);
+
             setPeers((prev) => (prev.includes(peerId) ? prev : [...prev, peerId]));
             // Existing peers wait for offers (do not initiate)
             await setupPeer(peerId, { initiate: false });

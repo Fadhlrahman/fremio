@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Rnd } from "react-rnd";
 import { VPS_API_URL } from "../../config/backend";
-import "@mediapipe/selfie_segmentation";
 
 const MAX_PEOPLE = 4;
 
@@ -165,6 +164,8 @@ export default function TakeMomentFriendsRoom({
   const tileCanvasElsRef = useRef(new Map()); // id -> HTMLCanvasElement
   const segmentationPipelinesRef = useRef(new Map()); // id -> { seg, rafId, stopped }
 
+  const mediapipeLoadPromiseRef = useRef(null);
+
   const [segmentationStatus, setSegmentationStatus] = useState({}); // id -> 'pending' | 'ready' | 'failed'
   const segmentationStatusRef = useRef({});
   const setSegStatus = useCallback((id, status) => {
@@ -289,6 +290,41 @@ export default function TakeMomentFriendsRoom({
     setLocalStream(null);
   }, [closeAllPeerConnections]);
 
+  const ensureMediapipeSelfieSegmentationLoaded = useCallback(() => {
+    if (globalThis?.SelfieSegmentation) return Promise.resolve(true);
+    if (mediapipeLoadPromiseRef.current) return mediapipeLoadPromiseRef.current;
+
+    const src = `${import.meta.env.BASE_URL}mediapipe/selfie_segmentation/selfie_segmentation.js`;
+
+    mediapipeLoadPromiseRef.current = new Promise((resolve, reject) => {
+      try {
+        const existing = document.querySelector(`script[data-mediapipe-selfie][src="${src}"]`);
+        if (existing) {
+          existing.addEventListener("load", () => resolve(true), { once: true });
+          existing.addEventListener("error", () => reject(new Error("mediapipe script failed")), {
+            once: true,
+          });
+          return;
+        }
+
+        const script = document.createElement("script");
+        script.src = src;
+        script.async = true;
+        script.defer = true;
+        script.dataset.mediapipeSelfie = "1";
+        script.onload = () => resolve(true);
+        script.onerror = () => reject(new Error("mediapipe script failed"));
+        document.head.appendChild(script);
+      } catch (e) {
+        reject(e);
+      }
+    })
+      .then(() => Boolean(globalThis?.SelfieSegmentation))
+      .catch(() => false);
+
+    return mediapipeLoadPromiseRef.current;
+  }, []);
+
   const ensureSegmentationPipeline = useCallback((id, isLocal) => {
     const videoEl = tileVideoElsRef.current.get(id);
     const canvasEl = tileCanvasElsRef.current.get(id);
@@ -296,103 +332,118 @@ export default function TakeMomentFriendsRoom({
 
     if (segmentationPipelinesRef.current.has(id)) return;
 
-    const SelfieSegmentationCtor = globalThis?.SelfieSegmentation;
-    if (!SelfieSegmentationCtor) {
-      setSegStatus(id, "failed");
-      return;
-    }
-
     setSegStatus(id, "pending");
 
-    const seg = new SelfieSegmentationCtor({
-      locateFile: (file) => `${import.meta.env.BASE_URL}mediapipe/selfie_segmentation/${file}`,
-    });
-
-    seg.setOptions({ modelSelection: 1, selfieMode: Boolean(isLocal) });
-
-    let hasResults = false;
-    let consecutiveErrors = 0;
-
-    seg.onResults((results) => {
-      if (!hasResults) {
-        hasResults = true;
-        setSegStatus(id, "ready");
-      }
-      consecutiveErrors = 0;
-
-      const ctx = canvasEl.getContext("2d");
-      if (!ctx) return;
-
-      const cssW = Math.max(1, Math.floor(canvasEl.clientWidth || 1));
-      const cssH = Math.max(1, Math.floor(canvasEl.clientHeight || 1));
-      const dpr = window.devicePixelRatio || 1;
-      const w = Math.max(1, Math.floor(cssW * dpr));
-      const h = Math.max(1, Math.floor(cssH * dpr));
-
-      if (canvasEl.width !== w || canvasEl.height !== h) {
-        canvasEl.width = w;
-        canvasEl.height = h;
+    const start = () => {
+      const SelfieSegmentationCtor = globalThis?.SelfieSegmentation;
+      if (!SelfieSegmentationCtor) {
+        setSegStatus(id, "failed");
+        return;
       }
 
-      ctx.save();
-      ctx.clearRect(0, 0, w, h);
+      const seg = new SelfieSegmentationCtor({
+        locateFile: (file) => `${import.meta.env.BASE_URL}mediapipe/selfie_segmentation/${file}`,
+      });
 
-      // Mask first, then draw only the person pixels.
-      ctx.drawImage(results.segmentationMask, 0, 0, w, h);
-      ctx.globalCompositeOperation = "source-in";
-      ctx.drawImage(results.image, 0, 0, w, h);
-      ctx.globalCompositeOperation = "source-over";
+      seg.setOptions({ modelSelection: 1, selfieMode: Boolean(isLocal) });
 
-      ctx.restore();
-    });
+      let hasResults = false;
+      let consecutiveErrors = 0;
 
-    const pipeline = { seg, rafId: null, stopped: false };
-    segmentationPipelinesRef.current.set(id, pipeline);
-
-    const loop = async () => {
-      const current = segmentationPipelinesRef.current.get(id);
-      if (!current || current.stopped) return;
-      try {
-        if (videoEl.readyState >= 2 && videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
-          await seg.send({ image: videoEl });
+      seg.onResults((results) => {
+        if (!hasResults) {
+          hasResults = true;
+          setSegStatus(id, "ready");
         }
-      } catch {
-        consecutiveErrors += 1;
-        if (consecutiveErrors >= 30 && !hasResults) {
-          // If we can't get any results after many attempts (often wasm/model blocked), fall back to raw video.
+        consecutiveErrors = 0;
+
+        const ctx = canvasEl.getContext("2d");
+        if (!ctx) return;
+
+        const cssW = Math.max(1, Math.floor(canvasEl.clientWidth || 1));
+        const cssH = Math.max(1, Math.floor(canvasEl.clientHeight || 1));
+        const dpr = window.devicePixelRatio || 1;
+        const w = Math.max(1, Math.floor(cssW * dpr));
+        const h = Math.max(1, Math.floor(cssH * dpr));
+
+        if (canvasEl.width !== w || canvasEl.height !== h) {
+          canvasEl.width = w;
+          canvasEl.height = h;
+        }
+
+        ctx.save();
+        ctx.clearRect(0, 0, w, h);
+
+        // Mask first, then draw only the person pixels.
+        ctx.drawImage(results.segmentationMask, 0, 0, w, h);
+        ctx.globalCompositeOperation = "source-in";
+        ctx.drawImage(results.image, 0, 0, w, h);
+        ctx.globalCompositeOperation = "source-over";
+
+        ctx.restore();
+      });
+
+      const pipeline = { seg, rafId: null, stopped: false };
+      segmentationPipelinesRef.current.set(id, pipeline);
+
+      const loop = async () => {
+        const current = segmentationPipelinesRef.current.get(id);
+        if (!current || current.stopped) return;
+        try {
+          if (videoEl.readyState >= 2 && videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+            await seg.send({ image: videoEl });
+          }
+        } catch {
+          consecutiveErrors += 1;
+          if (consecutiveErrors >= 30 && !hasResults) {
+            // If we can't get any results after many attempts (often wasm/model blocked), fall back to raw video.
+            setSegStatus(id, "failed");
+            current.stopped = true;
+            try {
+              current.seg?.close?.();
+            } catch {
+              // ignore
+            }
+            segmentationPipelinesRef.current.delete(id);
+            return;
+          }
+        }
+
+        current.rafId = requestAnimationFrame(loop);
+      };
+
+      // Some environments need explicit initialization; if init fails we fall back.
+      Promise.resolve()
+        .then(() => seg.initialize?.())
+        .then(() => {
+          if (!segmentationPipelinesRef.current.has(id)) return;
+          pipeline.rafId = requestAnimationFrame(loop);
+        })
+        .catch(() => {
           setSegStatus(id, "failed");
-          current.stopped = true;
+          pipeline.stopped = true;
           try {
-            current.seg?.close?.();
+            pipeline.seg?.close?.();
           } catch {
             // ignore
           }
           segmentationPipelinesRef.current.delete(id);
-          return;
-        }
-      }
-
-      current.rafId = requestAnimationFrame(loop);
+        });
     };
 
-    // Some environments need explicit initialization; if init fails we fall back.
-    Promise.resolve()
-      .then(() => seg.initialize?.())
-      .then(() => {
-        if (!segmentationPipelinesRef.current.has(id)) return;
-        pipeline.rafId = requestAnimationFrame(loop);
-      })
-      .catch(() => {
+    if (globalThis?.SelfieSegmentation) {
+      start();
+      return;
+    }
+
+    ensureMediapipeSelfieSegmentationLoaded().then((ok) => {
+      if (!ok) {
         setSegStatus(id, "failed");
-        pipeline.stopped = true;
-        try {
-          pipeline.seg?.close?.();
-        } catch {
-          // ignore
-        }
-        segmentationPipelinesRef.current.delete(id);
-      });
-  }, [setSegStatus]);
+        return;
+      }
+      start();
+    });
+  }, [ensureMediapipeSelfieSegmentationLoaded, setSegStatus]);
 
   const sendStateUpdate = useCallback(
     (next) => {

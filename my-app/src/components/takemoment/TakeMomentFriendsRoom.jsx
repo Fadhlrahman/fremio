@@ -355,7 +355,12 @@ export default function TakeMomentFriendsRoom({
           if (type === "WELCOME") {
             setClientId(payload.clientId);
             setRole(payload.role);
-            setRoomState(payload.state || roomState);
+            setRoomState(
+              payload.state || {
+                background: "#F4E6DA",
+                layout: {},
+              }
+            );
             setStatus("connected");
 
             const initialPeers = Array.isArray(payload.peers) ? payload.peers : [];
@@ -440,7 +445,7 @@ export default function TakeMomentFriendsRoom({
       mounted = false;
       disconnect();
     };
-  }, [disconnect, ensureLocalMedia, handleSignal, onSessionEnded, roomId, updateRemoteStreamsState, wsUrl, roomState]);
+  }, [disconnect, ensureLocalMedia, handleSignal, onSessionEnded, roomId, updateRemoteStreamsState, wsUrl, setupPeer]);
 
   useEffect(() => {
     // keep local video hooked up if ref appears later
@@ -696,7 +701,7 @@ export default function TakeMomentFriendsRoom({
         )}
       </div>
 
-      {!isMaster && (
+      {role === "participant" && (
         <div
           style={{
             background: "rgba(255,255,255,0.7)",

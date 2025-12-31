@@ -223,7 +223,11 @@ export default function TakeMomentFriendsRoom({
         typeof initiate === "boolean" ? initiate : shouldInitiateOffer(peerId);
 
       // eslint-disable-next-line no-console
-      console.log("[friends] setupPeer", { peerId, initiate: effectiveInitiate });
+      console.log("[friends] setupPeer", {
+        self: clientIdRef.current,
+        peerId,
+        initiate: effectiveInitiate,
+      });
 
       const stream = await ensureLocalMedia();
 
@@ -489,6 +493,12 @@ export default function TakeMomentFriendsRoom({
               role: payload?.role,
               peers: payload?.peers,
             });
+
+            // IMPORTANT: set refs immediately so setupPeer can run in the same tick
+            // React state updates won't be reflected until after this handler returns.
+            clientIdRef.current = payload.clientId;
+            roleRef.current = payload.role;
+
             setClientId(payload.clientId);
             setRole(payload.role);
             setRoomState(

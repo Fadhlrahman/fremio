@@ -179,6 +179,10 @@ export default function TakeMomentFriendsRoom({
   const [role, setRole] = useState(null); // 'master' | 'participant'
   const isMaster = role === "master";
 
+  const pinchStateRef = useRef(null); // { id, startDist, startNorm, centerX, centerY, latestScale }
+  const pinchRafRef = useRef(null);
+  const [pinchingTileId, setPinchingTileId] = useState(null);
+
   // Keep refs in sync so callbacks can be stable
   useEffect(() => {
     clientIdRef.current = clientId;
@@ -187,6 +191,87 @@ export default function TakeMomentFriendsRoom({
   useEffect(() => {
     roleRef.current = role;
   }, [role]);
+
+  const getTouchDistance = useCallback((touches) => {
+    if (!touches || touches.length < 2) return 0;
+    const t0 = touches[0];
+    const t1 = touches[1];
+    const dx = (t1?.clientX ?? 0) - (t0?.clientX ?? 0);
+    const dy = (t1?.clientY ?? 0) - (t0?.clientY ?? 0);
+    return Math.hypot(dx, dy);
+  }, []);
+
+  const clearPinch = useCallback(() => {
+    if (pinchRafRef.current) {
+      try {
+        cancelAnimationFrame(pinchRafRef.current);
+      } catch {
+        // ignore
+      }
+      pinchRafRef.current = null;
+    }
+    pinchStateRef.current = null;
+    setPinchingTileId(null);
+  }, []);
+
+  const startPinchForTile = useCallback(
+    (tileId, touches) => {
+      const baseLayout = ensureNormLayoutNow();
+      if (!baseLayout) return;
+      const currentNorm =
+        baseLayout?.[tileId] || getDefaultTileNorm(stageSize.w, stageSize.h);
+      const startDist = getTouchDistance(touches);
+      if (!startDist) return;
+
+      const centerX = (currentNorm.x ?? 0) + (currentNorm.w ?? 0) / 2;
+      const centerY = (currentNorm.y ?? 0) + (currentNorm.h ?? 0) / 2;
+
+      pinchStateRef.current = {
+        id: tileId,
+        startDist,
+        startNorm: currentNorm,
+        centerX,
+        centerY,
+        latestScale: 1,
+      };
+      setPinchingTileId(tileId);
+    },
+    [getTouchDistance, stageSize.w, stageSize.h]
+  );
+
+  const updatePinchScale = useCallback(
+    (tileId, touches) => {
+      const state = pinchStateRef.current;
+      if (!state || state.id !== tileId) return;
+      const dist = getTouchDistance(touches);
+      if (!dist || !state.startDist) return;
+      const scale = clamp(dist / state.startDist, 0.25, 4);
+      state.latestScale = scale;
+
+      if (pinchRafRef.current) return;
+      pinchRafRef.current = requestAnimationFrame(() => {
+        pinchRafRef.current = null;
+        const s = pinchStateRef.current;
+        if (!s || s.id !== tileId) return;
+
+        const start = s.startNorm || getDefaultTileNorm(stageSize.w, stageSize.h);
+        const nextW = (start.w ?? 0.2) * (s.latestScale ?? 1);
+        const nextH = (start.h ?? 0.2) * (s.latestScale ?? 1);
+        const nextX = (s.centerX ?? 0) - nextW / 2;
+        const nextY = (s.centerY ?? 0) - nextH / 2;
+
+        const nextNorm = clampNormRect({
+          ...start,
+          w: nextW,
+          h: nextH,
+          x: nextX,
+          y: nextY,
+        });
+        upsertLayoutFor(tileId, nextNorm);
+      });
+    },
+    [getTouchDistance, stageSize.w, stageSize.h]
+  );
 
   // Use state so video tiles re-render when stream becomes available
   const [localStream, setLocalStream] = useState(null);
@@ -1192,9 +1277,46 @@ export default function TakeMomentFriendsRoom({
               bounds="parent"
               size={{ width: layout.w, height: layout.h }}
               position={{ x: layout.x, y: layout.y }}
-              disableDragging={!canControl}
-              enableResizing={canControl}
-              style={{ zIndex, borderRadius: 14, overflow: "hidden" }}
+              disableDragging={!canControl || pinchingTileId === id}
+              enableResizing={canControl && pinchingTileId !== id}
+              style={{ zIndex, borderRadius: 14, overflow: "hidden", touchAction: canControl ? "none" : "manipulation" }}
+              onTouchStart={(e) => {
+                if (!isMaster) return;
+                if (e?.touches?.length === 2) {
+                  try {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  } catch {
+                    // ignore
+                  }
+                  setSelectedTileId(id);
+                  startPinchForTile(id, e.touches);
+                }
+              }}
+              onTouchMove={(e) => {
+                if (!isMaster) return;
+                const state = pinchStateRef.current;
+                if (!state || state.id !== id) return;
+                if (e?.touches?.length !== 2) return;
+                try {
+                  e.preventDefault();
+                  e.stopPropagation();
+                } catch {
+                  // ignore
+                }
+                updatePinchScale(id, e.touches);
+              }}
+              onTouchEnd={(e) => {
+                const state = pinchStateRef.current;
+                if (!state || state.id !== id) return;
+                if (e?.touches?.length && e.touches.length >= 2) return;
+                clearPinch();
+              }}
+              onTouchCancel={() => {
+                const state = pinchStateRef.current;
+                if (!state || state.id !== id) return;
+                clearPinch();
+              }}
               onDragStop={(e, d) => {
                 if (!isMaster) return;
                 const baseLayout = ensureNormLayoutNow();

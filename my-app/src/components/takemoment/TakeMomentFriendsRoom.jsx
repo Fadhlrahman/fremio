@@ -52,7 +52,7 @@ const getIceServers = () => {
   return servers;
 };
 
-const createPeerConnection = ({ onIceCandidate, onTrack }) => {
+const createPeerConnection = ({ onIceCandidate, onTrackEvent }) => {
   const pc = new RTCPeerConnection({
     iceServers: getIceServers(),
   });
@@ -62,8 +62,7 @@ const createPeerConnection = ({ onIceCandidate, onTrack }) => {
   };
 
   pc.ontrack = (event) => {
-    const [stream] = event.streams || [];
-    if (stream) onTrack(stream);
+    onTrackEvent?.(event);
   };
 
   return pc;
@@ -216,8 +215,23 @@ export default function TakeMomentFriendsRoom({
             payload: { to: peerId, data: { candidate } },
           });
         },
-        onTrack: (remoteStream) => {
-          remoteStreamsRef.current.set(peerId, remoteStream);
+        onTrackEvent: (event) => {
+          // Safari can provide empty event.streams; build a stream from tracks.
+          let stream = (event.streams && event.streams[0]) || remoteStreamsRef.current.get(peerId);
+          if (!stream) {
+            stream = new MediaStream();
+          }
+
+          const track = event.track;
+          if (track && !stream.getTracks().some((t) => t.id === track.id)) {
+            try {
+              stream.addTrack(track);
+            } catch {
+              // ignore
+            }
+          }
+
+          remoteStreamsRef.current.set(peerId, stream);
           updateRemoteStreamsState();
         },
       });

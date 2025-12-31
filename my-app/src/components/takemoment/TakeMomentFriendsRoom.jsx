@@ -617,8 +617,12 @@ export default function TakeMomentFriendsRoom({
   }, [clientId, peers]);
 
   const stageStyle = {
-    width: "min(920px, 100%)",
-    aspectRatio: "16 / 9",
+    width: "100%",
+    maxWidth: "920px",
+    // On mobile, a strict 16:9 box becomes too short and clips 220px tiles.
+    // Use a viewport-based height with a sensible minimum.
+    height: "min(60vh, 520px)",
+    minHeight: "320px",
     background: roomState.background || "#F4E6DA",
     borderRadius: "18px",
     overflow: "hidden",

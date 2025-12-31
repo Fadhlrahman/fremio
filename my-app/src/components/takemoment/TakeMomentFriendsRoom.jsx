@@ -661,12 +661,27 @@ export default function TakeMomentFriendsRoom({
                   autoPlay
                   playsInline
                   muted={isLocal}
+                  onLoadedMetadata={(e) => {
+                    // Safari can require an explicit play() call for WebRTC streams
+                    try {
+                      const p = e.currentTarget.play?.();
+                      if (p && typeof p.catch === "function") p.catch(() => {});
+                    } catch {
+                      // ignore
+                    }
+                  }}
                   ref={(el) => {
                     if (!el) return;
                     // Attach stream
                     try {
                       if (videoProps.srcObject && el.srcObject !== videoProps.srcObject) {
                         el.srcObject = videoProps.srcObject;
+                        try {
+                          const p = el.play?.();
+                          if (p && typeof p.catch === "function") p.catch(() => {});
+                        } catch {
+                          // ignore
+                        }
                       }
                     } catch {
                       // ignore

@@ -72,6 +72,7 @@ const getOrCreateRoom = (roomId) => {
     createdAt: Date.now(),
     state: {
       background: "#F4E6DA",
+      layoutUnits: "px",
       layout: {},
     },
     clients: new Map(), // clientId -> { ws, role }
@@ -239,6 +240,9 @@ const attachTakeMomentWs = (server) => {
         // Whitelist allowed fields
         if (typeof nextState.background === "string") {
           room.state.background = nextState.background;
+        }
+        if (nextState.layoutUnits === "norm" || nextState.layoutUnits === "px") {
+          room.state.layoutUnits = nextState.layoutUnits;
         }
         if (nextState.layout && typeof nextState.layout === "object") {
           room.state.layout = nextState.layout;

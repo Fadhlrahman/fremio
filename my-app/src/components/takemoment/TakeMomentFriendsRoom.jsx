@@ -75,6 +75,29 @@ const createPeerConnection = ({ onIceCandidate, onTrackEvent }) => {
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
+const inferLayoutUnits = (layout) => {
+  if (!layout || typeof layout !== "object") return "px";
+  const rects = Object.values(layout);
+  for (const rect of rects) {
+    if (!rect || typeof rect !== "object") continue;
+    const w = rect.w;
+    const h = rect.h;
+    // Heuristic: normalized sizes are usually <= 1; px sizes are typically > 10.
+    if (typeof w === "number" && typeof h === "number" && w > 0 && h > 0 && w <= 1.5 && h <= 1.5) {
+      return "norm";
+    }
+  }
+  return "px";
+};
+
+const normalizeIncomingState = (incoming) => {
+  const state = incoming && typeof incoming === "object" ? incoming : {};
+  const background = typeof state.background === "string" ? state.background : "#F4E6DA";
+  const layout = state.layout && typeof state.layout === "object" ? state.layout : {};
+  const layoutUnits = state.layoutUnits === "norm" || state.layoutUnits === "px" ? state.layoutUnits : inferLayoutUnits(layout);
+  return { background, layoutUnits, layout };
+};
+
 const DEFAULT_TILE_PX = { x: 40, y: 40, w: 220, h: 220, z: 0 };
 
 const getDefaultTileNorm = (stageW, stageH) => {
@@ -667,13 +690,7 @@ export default function TakeMomentFriendsRoom({
 
             setClientId(payload.clientId);
             setRole(payload.role);
-            const incoming = payload.state || {};
-            setRoomState({
-              background: incoming.background || "#F4E6DA",
-              // If units are missing, assume legacy px.
-              layoutUnits: incoming.layoutUnits === "norm" ? "norm" : "px",
-              layout: incoming.layout && typeof incoming.layout === "object" ? incoming.layout : {},
-            });
+            setRoomState(normalizeIncomingState(payload.state));
             setStatus("connected");
 
             const initialPeers = Array.isArray(payload.peers) ? payload.peers : [];
@@ -695,15 +712,7 @@ export default function TakeMomentFriendsRoom({
             setPeers((prev) => (prev.includes(peerId) ? prev : [...prev, peerId]));
             // Set up connection to new peer (offer side chosen deterministically)
             await setupPeer(peerId, { initiate: undefined });
-            if (payload?.state) {
-              const incoming = payload.state || {};
-              setRoomState({
-                background: incoming.background || "#F4E6DA",
-                layoutUnits: incoming.layoutUnits === "norm" ? "norm" : "px",
-                layout:
-                  incoming.layout && typeof incoming.layout === "object" ? incoming.layout : {},
-              });
-            }
+            if (payload?.state) setRoomState(normalizeIncomingState(payload.state));
             return;
           }
 
@@ -731,15 +740,7 @@ export default function TakeMomentFriendsRoom({
           }
 
           if (type === "STATE") {
-            if (payload?.state) {
-              const incoming = payload.state || {};
-              setRoomState({
-                background: incoming.background || "#F4E6DA",
-                layoutUnits: incoming.layoutUnits === "norm" ? "norm" : "px",
-                layout:
-                  incoming.layout && typeof incoming.layout === "object" ? incoming.layout : {},
-              });
-            }
+            if (payload?.state) setRoomState(normalizeIncomingState(payload.state));
             return;
           }
 

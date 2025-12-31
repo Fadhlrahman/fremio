@@ -1,22 +1,13 @@
-import express from "express";
-import pg from "pg";
+const express = require("express");
+const db = require("../config/database");
 
 const router = express.Router();
 
-// Database pool
-const pool = new pg.Pool({
-  host: process.env.DB_HOST || "localhost",
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || "fremio",
-  user: process.env.DB_USER || "salwa",
-  password: process.env.DB_PASSWORD || "",
-});
-
-// Generate short share ID
-function generateShareId() {
-  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+function generateShareId(length = 8) {
+  const chars =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   let result = "";
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < length; i++) {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return result;
@@ -25,7 +16,7 @@ function generateShareId() {
 async function insertSharedGroup({ title, frames, preferences }) {
   // Try a few times to avoid rare share_id collisions
   for (let attempt = 0; attempt < 5; attempt++) {
-    const shareId = generateShareId();
+    const shareId = generateShareId(8);
     try {
       const preferencesJson =
         preferences && typeof preferences === "object"
@@ -34,10 +25,10 @@ async function insertSharedGroup({ title, frames, preferences }) {
             ? preferences
             : null;
 
-      const result = await pool.query(
+      const result = await db.query(
         `INSERT INTO shared_groups (share_id, title, frames, preferences)
          VALUES ($1, $2, $3, $4)
-         RETURNING *`,
+         RETURNING share_id, title, frames, preferences, created_at`,
         [
           shareId,
           title || "Group Frames",
@@ -52,13 +43,14 @@ async function insertSharedGroup({ title, frames, preferences }) {
 
       // 42703 = undefined_column (older schema without preferences)
       if (error && error.code === "42703") {
-        const fallback = await pool.query(
+        const fallback = await db.query(
           `INSERT INTO shared_groups (share_id, title, frames)
            VALUES ($1, $2, $3)
-           RETURNING *`,
+           RETURNING share_id, title, frames, created_at`,
           [shareId, title || "Group Frames", JSON.stringify(frames)]
         );
-        return fallback.rows[0];
+        const row = fallback.rows[0];
+        return { ...row, preferences: null };
       }
 
       throw error;
@@ -70,13 +62,18 @@ async function insertSharedGroup({ title, frames, preferences }) {
   throw err;
 }
 
-// Public share endpoint - no auth required
+/**
+ * POST /api/groups/public-share
+ * Create a public share record for a group of frames (no auth)
+ */
 router.post("/public-share", async (req, res) => {
   try {
-    const { title, frames, preferences } = req.body;
+    const { title, frames, preferences } = req.body || {};
 
     if (!Array.isArray(frames) || frames.length === 0) {
-      return res.status(400).json({ error: "Frames list is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Frames list is required" });
     }
 
     // Keep payload small-ish to prevent abuse
@@ -87,9 +84,10 @@ router.post("/public-share", async (req, res) => {
       thumbnail: f?.thumbnail || null,
     }));
 
-    const invalid = capped.some((f) => !f.shareId);
-    if (invalid) {
-      return res.status(400).json({ error: "Each frame must have shareId" });
+    if (capped.some((f) => !f.shareId)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Each frame must have shareId" });
     }
 
     const group = await insertSharedGroup({
@@ -105,22 +103,28 @@ router.post("/public-share", async (req, res) => {
     // Likely schema missing (migrations not run)
     if (error && error.code === "42P01") {
       return res.status(500).json({
-        error: "Database schema missing: shared_groups table not found",
+        success: false,
+        message: "Database schema missing: shared_groups table not found",
       });
     }
 
-    res.status(500).json({ error: "Failed to create group share" });
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to create group share" });
   }
 });
 
-// Get shared group by share_id (public)
+/**
+ * GET /api/groups/share/:shareId
+ * Fetch a shared group by share id (public)
+ */
 router.get("/share/:shareId", async (req, res) => {
   try {
     const { shareId } = req.params;
 
     let result;
     try {
-      result = await pool.query(
+      result = await db.query(
         `SELECT share_id, title, frames, preferences, created_at
          FROM shared_groups
          WHERE share_id = $1`,
@@ -129,7 +133,7 @@ router.get("/share/:shareId", async (req, res) => {
     } catch (error) {
       // 42703 = undefined_column (older schema without preferences)
       if (error && error.code === "42703") {
-        result = await pool.query(
+        result = await db.query(
           `SELECT share_id, title, frames, created_at
            FROM shared_groups
            WHERE share_id = $1`,
@@ -144,7 +148,9 @@ router.get("/share/:shareId", async (req, res) => {
     }
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Group not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Group not found" });
     }
 
     res.json({ success: true, group: result.rows[0] });
@@ -152,11 +158,14 @@ router.get("/share/:shareId", async (req, res) => {
     console.error("❌ [Groups] Error fetching group:", error);
     if (error && error.code === "42P01") {
       return res.status(500).json({
-        error: "Database schema missing: shared_groups table not found",
+        success: false,
+        message: "Database schema missing: shared_groups table not found",
       });
     }
-    res.status(500).json({ error: "Failed to fetch group" });
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch group" });
   }
 });
 
-export default router;
+module.exports = router;

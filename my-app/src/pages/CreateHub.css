@@ -91,6 +91,13 @@
   gap: 10px;
 }
 
+.create-hub-group-pref-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #1e293b;
+  margin-right: 4px;
+}
+
 .create-hub-group-share-title {
   font-size: 22px;
   font-weight: 800;
@@ -124,6 +131,228 @@
   font-weight: 700;
   cursor: pointer;
   box-shadow: 0 10px 22px rgba(224, 183, 169, 0.15);
+}
+
+.create-hub-group-add-btn--active {
+  background: linear-gradient(135deg, #e0b7a9, #d4a99a);
+  color: #ffffff;
+  border-color: rgba(212, 169, 154, 0.9);
+}
+
+/* Preferences page layout (preview + form) */
+.create-hub-pref-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+}
+
+.create-hub-pref-preview {
+  flex: 0 0 340px;
+}
+
+.create-hub-pref-form {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .create-hub-pref-layout {
+    flex-direction: column;
+  }
+  .create-hub-pref-preview {
+    width: 100%;
+    flex: 0 0 auto;
+  }
+}
+
+/* Mobile screen preview (what customers see on /g/:shareId) */
+.create-hub-pref-phone {
+  width: 340px;
+  border-radius: 28px;
+  border: 2px solid rgba(224, 183, 169, 0.25);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.08);
+  padding: 12px;
+  background: #ffffff;
+}
+
+.create-hub-pref-phone-screen {
+  border-radius: 22px;
+  overflow: hidden;
+  height: 680px;
+  display: flex;
+  flex-direction: column;
+}
+
+.create-hub-pref-phone-topbar {
+  height: 64px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.create-hub-pref-phone-topbar-logo {
+  height: 32px;
+  width: auto;
+  object-fit: contain;
+}
+
+.create-hub-pref-phone-topbar-menu {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  width: 40px;
+  height: 40px;
+  background: rgba(255, 255, 255, 0.8);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+}
+
+.create-hub-pref-phone-topbar-menu img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+.create-hub-pref-phone-body {
+  padding: 12px;
+  overflow: auto;
+}
+
+.create-hub-pref-phone-page-title {
+  font-size: 16px;
+  font-weight: 900;
+  color: #1e293b;
+  margin: 4px 0 6px 0;
+}
+
+.create-hub-pref-phone-page-title--top {
+  margin: 6px 0 10px 0;
+}
+
+.create-hub-pref-phone-page-title--below {
+  margin: 16px 0 8px 0;
+}
+
+.create-hub-pref-phone-page-subtitle {
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+  margin: 0 0 8px 0;
+}
+
+.create-hub-pref-phone-page-text {
+  font-size: 11px;
+  color: #475569;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  margin: 0 0 10px 0;
+}
+
+.create-hub-pref-phone-page-text--below {
+  margin: 0 0 14px 0;
+}
+
+.create-hub-pref-phone-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.create-hub-pref-phone-card {
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.create-hub-pref-phone-thumb {
+  position: relative;
+  aspect-ratio: 9/16;
+  padding: 10px;
+  background: #f9fafb;
+}
+
+.create-hub-pref-phone-name {
+  padding: 8px 10px 10px 10px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.create-hub-pref-phone-desc {
+  padding: 0 10px 10px 10px;
+  text-align: center;
+  font-size: 10px;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+.create-hub-pref-phone-more {
+  color: #c89585;
+  font-weight: 700;
+}
+
+.create-hub-group-preferences {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 16px;
+  border: 2px solid rgba(224, 183, 169, 0.25);
+  box-shadow: 0 10px 22px rgba(224, 183, 169, 0.12);
+}
+
+.create-hub-group-pref-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.create-hub-group-pref-label {
+  font-weight: 800;
+  color: #1e293b;
+  font-size: 14px;
+}
+
+.create-hub-group-pref-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.create-hub-group-pref-control input[type="text"] {
+  width: 220px;
+  max-width: 100%;
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 2px solid rgba(224, 183, 169, 0.35);
+  outline: none;
+}
+
+.create-hub-group-pref-control input[type="file"] {
+  max-width: 250px;
+}
+
+.create-hub-group-pref-control input[type="color"] {
+  width: 44px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+.create-hub-group-pref-clear {
+  padding: 10px 12px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 2px solid rgba(224, 183, 169, 0.35);
+  font-weight: 800;
+  cursor: pointer;
 }
 
 /* Create New Card */

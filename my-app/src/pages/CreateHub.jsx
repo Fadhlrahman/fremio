@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { Plus, Share2, Check, Copy } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext.jsx";
 import { useToast } from "../contexts/ToastContext.jsx";
+import logoSalem from "../assets/logo-salem.png";
+import burgerBarIcon from "../assets/burger-bar.png";
 import draftStorage from "../utils/draftStorage.js";
 import draftService from "../services/draftService.js";
 import userStorage from "../utils/userStorage.js";
@@ -11,6 +13,7 @@ import {
   createDraftGroup,
   loadDraftGroups,
   toggleDraftInGroup,
+  updateDraftGroupPreferences,
 } from "../utils/draftGroupStorage.js";
 import "./CreateHub.css";
 
@@ -32,6 +35,7 @@ export default function CreateHub() {
   const [groups, setGroups] = useState([]);
   const [activeTab, setActiveTab] = useState({ type: "all" });
   const [addingToGroupId, setAddingToGroupId] = useState(null);
+  const [groupViewMode, setGroupViewMode] = useState("frames");
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -303,6 +307,7 @@ export default function CreateHub() {
     setGroups(next);
     setActiveTab({ type: "group", groupId: group.id });
     setAddingToGroupId(null);
+    setGroupViewMode("frames");
   };
 
   const handleToggleDraftInGroup = (groupId, draftId) => {
@@ -315,6 +320,33 @@ export default function CreateHub() {
     if (!user?.email || !activeGroup?.id) return;
     setAddingToGroupId(activeGroup.id);
     setActiveTab({ type: "all" });
+    setGroupViewMode("frames");
+  };
+
+  const handleTogglePreferencesView = () => {
+    if (activeTab.type !== "group" || !activeGroup?.id) return;
+    setGroupViewMode((prev) => (prev === "preferences" ? "frames" : "preferences"));
+  };
+
+  const handleUpdateActiveGroupPreferences = (patch) => {
+    if (!user?.email || !activeGroup?.id) return;
+    const next = updateDraftGroupPreferences(user.email, activeGroup.id, patch);
+    setGroups(next);
+  };
+
+  const handleLogoFileChange = async (file) => {
+    if (!file) return;
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("Gagal membaca file"));
+        reader.readAsDataURL(file);
+      });
+      handleUpdateActiveGroupPreferences({ logoDataUrl: dataUrl });
+    } catch (e) {
+      showToast("error", e?.message || "Gagal upload logo");
+    }
   };
 
   const handleShareGroup = async () => {
@@ -369,12 +401,14 @@ export default function CreateHub() {
       }
 
       // Create group share on backend (public)
-      const response = await fetch("/api/groups/public-share", {
+      const API_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/+$/, "");
+      const response = await fetch(`${API_URL}/groups/public-share`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: activeGroup.name || "Group Frames",
           frames: sharedFrames,
+          preferences: activeGroup.preferences || null,
         }),
       });
 
@@ -699,6 +733,7 @@ export default function CreateHub() {
               onClick={() => {
                 setActiveTab({ type: "all" });
                 setAddingToGroupId(null);
+                setGroupViewMode("frames");
               }}
             >
               All Frames
@@ -715,6 +750,7 @@ export default function CreateHub() {
                 onClick={() => {
                   setActiveTab({ type: "group", groupId: g.id });
                   setAddingToGroupId(null);
+                  setGroupViewMode("frames");
                 }}
               >
                 {g.name || "Group"}
@@ -732,26 +768,48 @@ export default function CreateHub() {
 
           {activeTab.type === "group" && activeGroup && (
             <div className="create-hub-group-share">
-              <h3 className="create-hub-group-share-title">Share Group Link</h3>
+              <h3 className="create-hub-group-share-title">
+                {groupViewMode === "preferences" ? "Preferences" : "Share Group Link"}
+              </h3>
               <div className="create-hub-group-share-actions">
                 <button
                   type="button"
-                  className="create-hub-group-share-btn"
-                  onClick={handleShareGroup}
+                  className={
+                    groupViewMode === "preferences"
+                      ? "create-hub-group-add-btn create-hub-group-add-btn--active"
+                      : "create-hub-group-add-btn"
+                  }
+                  onClick={handleTogglePreferencesView}
                 >
-                  <Share2 size={16} />
-                  <span>Share</span>
+                  <span>Preferences</span>
                 </button>
-                <button
-                  type="button"
-                  className="create-hub-group-add-btn"
-                  onClick={handleStartAddFramesToGroup}
-                >
-                  <Plus size={16} />
-                  <span>Add Frame</span>
-                </button>
+
+                {groupViewMode !== "preferences" && (
+                  <>
+                    <button
+                      type="button"
+                      className="create-hub-group-share-btn"
+                      onClick={handleShareGroup}
+                    >
+                      <Share2 size={16} />
+                      <span>Share</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="create-hub-group-add-btn"
+                      onClick={handleStartAddFramesToGroup}
+                    >
+                      <Plus size={16} />
+                      <span>Add Frame</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
+          )}
+
+          {activeTab.type === "group" && activeGroup && (
+            <></>
           )}
           
           {loading ? (
@@ -774,6 +832,206 @@ export default function CreateHub() {
               return (
                 <div className="create-hub-empty">
                   <p>Belum ada frame di group ini.</p>
+                </div>
+              );
+            }
+
+            if (
+              activeTab.type === "group" &&
+              activeGroup &&
+              groupViewMode === "preferences"
+            ) {
+              const pref =
+                activeGroup?.preferences && typeof activeGroup.preferences === "object"
+                  ? activeGroup.preferences
+                  : {};
+              const headerColor = pref?.headerColor || "#ffffff";
+              const backgroundColor = pref?.backgroundColor || "#ffffff";
+              const logoDataUrl = pref?.logoDataUrl || null;
+              const title1Text = pref?.title1Text || "";
+              const title2Text = pref?.title2Text || "";
+              const text = pref?.text || "";
+              const pageTitle = title1Text || activeGroup.name || "Group Frames";
+
+              return (
+                <div className="create-hub-pref-layout">
+                  <div className="create-hub-pref-preview">
+                    <div className="create-hub-pref-phone">
+                      <div
+                        className="create-hub-pref-phone-screen"
+                        style={{ background: backgroundColor }}
+                      >
+                        <div
+                          className="create-hub-pref-phone-topbar"
+                          style={{ background: headerColor }}
+                        >
+                          <img
+                            className="create-hub-pref-phone-topbar-logo"
+                            src={logoDataUrl || logoSalem}
+                            alt="Logo"
+                          />
+                          <button type="button" className="create-hub-pref-phone-topbar-menu">
+                            <img src={burgerBarIcon} alt="Menu" />
+                          </button>
+                        </div>
+
+                        <div className="create-hub-pref-phone-body">
+                          <div className="create-hub-pref-phone-page-title create-hub-pref-phone-page-title--top">
+                            {pageTitle}
+                          </div>
+
+                          <div className="create-hub-pref-phone-grid">
+                            {visibleDrafts.slice(0, 12).map((draft, idx) => (
+                              <div key={draft?.id || idx} className="create-hub-pref-phone-card">
+                                <div className="create-hub-pref-phone-thumb">
+                                  {renderDraftThumbnail(draft)}
+                                </div>
+                                <div className="create-hub-pref-phone-name">
+                                  {draft?.title?.trim() || `Draft - ${idx + 1}`}
+                                </div>
+                                {draft?.description ? (
+                                  <div className="create-hub-pref-phone-desc">
+                                    {String(draft.description).slice(0, 40)}
+                                    {String(draft.description).length > 40 ? "... " : " "}
+                                    <span className="create-hub-pref-phone-more">
+                                      Selengkapnya
+                                    </span>
+                                  </div>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+
+                          {title2Text ? (
+                            <div className="create-hub-pref-phone-page-title create-hub-pref-phone-page-title--below">
+                              {title2Text}
+                            </div>
+                          ) : null}
+                          {text ? (
+                            <div className="create-hub-pref-phone-page-text create-hub-pref-phone-page-text--below">
+                              {text}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="create-hub-pref-form">
+                    <div className="create-hub-group-preferences">
+                      <div className="create-hub-group-pref-row">
+                        <div className="create-hub-group-pref-label">Add Logo</div>
+                        <div className="create-hub-group-pref-control">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleLogoFileChange(e.target.files?.[0])}
+                          />
+                          {activeGroup?.preferences?.logoDataUrl ? (
+                            <button
+                              type="button"
+                              className="create-hub-group-pref-clear"
+                              onClick={() =>
+                                handleUpdateActiveGroupPreferences({ logoDataUrl: null })
+                              }
+                            >
+                              Hapus
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="create-hub-group-pref-row">
+                        <div className="create-hub-group-pref-label">Header Color</div>
+                        <div className="create-hub-group-pref-control">
+                          <input
+                            type="color"
+                            value={activeGroup?.preferences?.headerColor || "#ffffff"}
+                            onChange={(e) =>
+                              handleUpdateActiveGroupPreferences({
+                                headerColor: e.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div className="create-hub-group-pref-row">
+                        <div className="create-hub-group-pref-label">
+                          Background Color
+                        </div>
+                        <div className="create-hub-group-pref-control">
+                          <input
+                            type="color"
+                            value={activeGroup?.preferences?.backgroundColor || "#ffffff"}
+                            onChange={(e) =>
+                              handleUpdateActiveGroupPreferences({
+                                backgroundColor: e.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div className="create-hub-group-pref-row">
+                        <div className="create-hub-group-pref-label">Judul 1 teks</div>
+                        <div className="create-hub-group-pref-control">
+                          <input
+                            type="text"
+                            value={activeGroup?.preferences?.title1Text || ""}
+                            onChange={(e) =>
+                              handleUpdateActiveGroupPreferences({
+                                title1Text: e.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div className="create-hub-group-pref-row">
+                        <div className="create-hub-group-pref-label">Judul 2 teks</div>
+                        <div className="create-hub-group-pref-control">
+                          <input
+                            type="text"
+                            value={activeGroup?.preferences?.title2Text || ""}
+                            onChange={(e) =>
+                              handleUpdateActiveGroupPreferences({
+                                title2Text: e.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div className="create-hub-group-pref-row">
+                        <div className="create-hub-group-pref-label">Teks</div>
+                        <div className="create-hub-group-pref-control">
+                          <input
+                            type="text"
+                            value={activeGroup?.preferences?.text || ""}
+                            onChange={(e) =>
+                              handleUpdateActiveGroupPreferences({ text: e.target.value })
+                            }
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            if (activeTab.type === "group" && activeGroup) {
+              return (
+                <div className="frames-grid">
+                  {visibleDrafts.map((draft, index) => (
+                    <DraftCard
+                      key={draft.id || index}
+                      draft={draft}
+                      index={index}
+                      mode="all"
+                    />
+                  ))}
                 </div>
               );
             }
@@ -820,16 +1078,16 @@ export default function CreateHub() {
                 value={shareLink} 
                 readOnly 
               />
-              <button 
-                className={`create-hub-copy-btn ${copied ? 'copied' : ''}`}
+              <button
+                className={copied ? "create-hub-copy-btn copied" : "create-hub-copy-btn"}
                 onClick={handleCopyLink}
               >
                 {copied ? <Check size={18} /> : <Copy size={18} />}
-                {copied ? 'Tersalin!' : 'Salin'}
+                {copied ? "Tersalin!" : "Salin"}
               </button>
             </div>
-            
-            <button 
+
+            <button
               className="create-hub-modal-close"
               onClick={() => setShowShareModal(false)}
             >

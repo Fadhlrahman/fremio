@@ -14,6 +14,7 @@ const draftRoutes = require("./routes/drafts");
 const uploadRoutes = require("./routes/upload");
 const userRoutes = require("./routes/users");
 const analyticsRoutes = require("./routes/analytics");
+const groupRoutes = require("./routes/groups");
 const paymentRoutes = require("../routes/payment");
 const adminPackagesRoutes = require("../routes/adminPackages");
 
@@ -142,6 +143,7 @@ app.use("/api/drafts", draftRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use("/api/groups", groupRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/admin/packages", adminPackagesRoutes);
 

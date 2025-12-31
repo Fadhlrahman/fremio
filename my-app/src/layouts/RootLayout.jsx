@@ -2,6 +2,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import Header from "../components/Header.jsx";
 import Footer from "../components/Footer.jsx";
 import { useEffect } from "react";
+import { HeaderBrandingProvider } from "../contexts/HeaderBrandingContext.jsx";
 
 export default function RootLayout() {
   const { hash, pathname } = useLocation();
@@ -21,12 +22,14 @@ export default function RootLayout() {
   }, [hash, pathname]);
 
   return (
-    <div className="app-shell">
-      {!hideHeader && <Header />}
-      <main className="app-main">
-        <Outlet />
-      </main>
-      {!hideFooter && <Footer />}
-    </div>
+    <HeaderBrandingProvider>
+      <div className="app-shell">
+        {!hideHeader && <Header />}
+        <main className="app-main">
+          <Outlet />
+        </main>
+        {!hideFooter && <Footer />}
+      </div>
+    </HeaderBrandingProvider>
   );
 }

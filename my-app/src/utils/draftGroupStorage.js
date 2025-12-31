@@ -37,12 +37,47 @@ export const createDraftGroup = (userId, { name } = {}) => {
         : `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name: name || `Group ${nextIndex}`,
     draftIds: [],
+    preferences: {
+      logoDataUrl: null,
+      headerColor: "#ffffff",
+      backgroundColor: "#fdf7f4",
+      title1Text: "",
+      title2Text: "",
+      text: "",
+    },
     createdAt: nowIso(),
     updatedAt: nowIso(),
   };
   const next = [...existing, group];
   saveDraftGroups(userId, next);
   return group;
+};
+
+export const updateDraftGroupPreferences = (userId, groupId, preferences) => {
+  if (!groupId) return loadDraftGroups(userId);
+
+  const existing = loadDraftGroups(userId);
+  const next = existing.map((g) => {
+    if (!g || g.id !== groupId) return g;
+    const current = g?.preferences && typeof g.preferences === "object" ? g.preferences : {};
+    const patch = preferences && typeof preferences === "object" ? preferences : {};
+    return {
+      ...g,
+      preferences: {
+        logoDataUrl: current?.logoDataUrl ?? null,
+        headerColor: current?.headerColor || "#ffffff",
+        backgroundColor: current?.backgroundColor || "#fdf7f4",
+        title1Text: current?.title1Text || "",
+        title2Text: current?.title2Text || "",
+        text: current?.text || "",
+        ...patch,
+      },
+      updatedAt: nowIso(),
+    };
+  });
+
+  saveDraftGroups(userId, next);
+  return next;
 };
 
 export const toggleDraftInGroup = (userId, groupId, draftId) => {

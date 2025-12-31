@@ -2,6 +2,7 @@
 import { NavLink, Link, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../contexts/AuthContext.jsx";
+import { useHeaderBranding } from "../contexts/HeaderBrandingContext.jsx";
 import logoSalem from "../assets/logo-salem.png";
 import burgerBarIcon from "../assets/burger-bar.png";
 import homeIcon from "../assets/page-icon/page-home.png";
@@ -14,6 +15,7 @@ import settingsIcon from "../assets/page-icon/page-settings.png";
 import logoutIcon from "../assets/page-icon/logout.png";
 
 export default function Header() {
+  const { branding } = useHeaderBranding();
   const [open, setOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
@@ -108,9 +110,16 @@ export default function Header() {
     setProfileDropdownOpen((prev) => !prev);
   };
 
+  const effectiveLogoSrc = branding?.logoSrc || logoSalem;
+  const effectiveHeaderBg = branding?.headerColor || null;
+
   return (
     <>
-      <header ref={headerRef} className={`site-header ${open ? "open" : ""}`}>
+      <header
+        ref={headerRef}
+        className={`site-header ${open ? "open" : ""}`}
+        style={effectiveHeaderBg ? { background: effectiveHeaderBg } : undefined}
+      >
         <div className="container header-bar">
           {/* Left: Logo */}
           <Link
@@ -118,7 +127,7 @@ export default function Header() {
             className="logo"
             style={{ textDecoration: "none", cursor: "pointer" }}
           >
-            <img src={logoSalem} alt="Fremio Logo" className="logo-image" />
+            <img src={effectiveLogoSrc} alt="Fremio Logo" className="logo-image" />
           </Link>
 
           {/* Center: Nav */}
@@ -395,7 +404,7 @@ export default function Header() {
             borderBottom: "1px solid rgba(224, 183, 169, 0.2)",
           }}
         >
-          <img src={logoSalem} alt="Fremio Logo" style={{ height: "32px" }} />
+          <img src={effectiveLogoSrc} alt="Fremio Logo" style={{ height: "32px" }} />
         </div>
 
         <nav className="mobile-nav">

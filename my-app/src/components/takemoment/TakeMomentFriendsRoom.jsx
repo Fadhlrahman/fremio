@@ -473,9 +473,9 @@ export default function TakeMomentFriendsRoom({
       if (!layout) continue;
 
       const rectPx =
-        roomState.layoutUnits === "px"
-          ? layout
-          : normToPx(layout, width, height);
+        roomState.layoutUnits === "norm"
+          ? normToPx(layout, width, height)
+          : layout;
 
       const x = clamp(rectPx.x, -width, width * 2);
       const y = clamp(rectPx.y, -height, height * 2);
@@ -870,15 +870,17 @@ export default function TakeMomentFriendsRoom({
         />
 
         {everyone.map(({ id, kind }) => {
-          const normLayout =
-            roomState.layout?.[id] || getDefaultTileNorm(stageSize.w, stageSize.h);
-          const layout =
-            roomState.layoutUnits === "px"
-              ? normLayout
-              : normToPx(normLayout, stageSize.w, stageSize.h);
+          const isLegacyPx = roomState.layoutUnits !== "norm";
+          const normLayout = isLegacyPx
+            ? null
+            : roomState.layout?.[id] || getDefaultTileNorm(stageSize.w, stageSize.h);
+
+          const layout = isLegacyPx
+            ? roomState.layout?.[id] || { ...DEFAULT_TILE_PX }
+            : normToPx(normLayout, stageSize.w, stageSize.h);
 
           const isLocal = kind === "local";
-          const canControl = isMaster && !isLocal ? true : isMaster && isLocal;
+          const canControl = isMaster && roomState.layoutUnits === "norm";
 
           const zIndex = layout.z ?? 0;
 

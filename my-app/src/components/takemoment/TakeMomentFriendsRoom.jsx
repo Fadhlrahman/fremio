@@ -1202,21 +1202,6 @@ export default function TakeMomentFriendsRoom({
                   style={{ width: "30px", height: "22px", border: "none" }}
                 />
               </label>
-              <button
-                type="button"
-                onClick={doCapture}
-                style={{
-                  padding: "0.55rem 0.95rem",
-                  borderRadius: "999px",
-                  border: "none",
-                  background: "#0F172A",
-                  color: "white",
-                  fontWeight: 800,
-                  cursor: "pointer",
-                }}
-              >
-                Capture (master)
-              </button>
             </>
           )}
         </div>
@@ -1475,6 +1460,32 @@ export default function TakeMomentFriendsRoom({
           </div>
         )}
       </div>
+
+      {isMaster && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            marginTop: "0.9rem",
+          }}
+        >
+          <button
+            type="button"
+            onClick={doCapture}
+            style={{
+              padding: "0.7rem 1.25rem",
+              borderRadius: "999px",
+              border: "none",
+              background: "#0F172A",
+              color: "white",
+              fontWeight: 800,
+              cursor: "pointer",
+            }}
+          >
+            Capture (master)
+          </button>
+        </div>
+      )}
 
       {role === "participant" && (
         <div

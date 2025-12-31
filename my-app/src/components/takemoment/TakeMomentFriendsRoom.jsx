@@ -75,6 +75,51 @@ const createPeerConnection = ({ onIceCandidate, onTrackEvent }) => {
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
+const DEFAULT_TILE_PX = { x: 40, y: 40, w: 220, h: 220, z: 0 };
+
+const getDefaultTileNorm = (stageW, stageH) => {
+  if (!stageW || !stageH) {
+    return { x: 0.05, y: 0.05, w: 0.28, h: 0.42, z: 0 };
+  }
+  return {
+    x: clamp(DEFAULT_TILE_PX.x / stageW, 0, 0.9),
+    y: clamp(DEFAULT_TILE_PX.y / stageH, 0, 0.9),
+    w: clamp(DEFAULT_TILE_PX.w / stageW, 0.08, 1),
+    h: clamp(DEFAULT_TILE_PX.h / stageH, 0.08, 1),
+    z: 0,
+  };
+};
+
+const normToPx = (norm, stageW, stageH) => {
+  if (!norm || !stageW || !stageH) return { ...DEFAULT_TILE_PX };
+  return {
+    x: Math.round((norm.x ?? 0) * stageW),
+    y: Math.round((norm.y ?? 0) * stageH),
+    w: Math.round((norm.w ?? 0) * stageW),
+    h: Math.round((norm.h ?? 0) * stageH),
+    z: norm.z ?? 0,
+  };
+};
+
+const pxToNorm = (px, stageW, stageH) => {
+  if (!px || !stageW || !stageH) return getDefaultTileNorm(stageW, stageH);
+  return {
+    x: (px.x ?? 0) / stageW,
+    y: (px.y ?? 0) / stageH,
+    w: (px.w ?? 0) / stageW,
+    h: (px.h ?? 0) / stageH,
+    z: px.z ?? 0,
+  };
+};
+
+const clampNormRect = (rect) => {
+  const w = clamp(rect.w ?? 0.2, 0.05, 1);
+  const h = clamp(rect.h ?? 0.2, 0.05, 1);
+  const x = clamp(rect.x ?? 0, 0, Math.max(0, 1 - w));
+  const y = clamp(rect.y ?? 0, 0, Math.max(0, 1 - h));
+  return { ...rect, x, y, w, h };
+};
+
 export default function TakeMomentFriendsRoom({
   roomId,
   onRoomCreated,
@@ -112,6 +157,7 @@ export default function TakeMomentFriendsRoom({
 
   const [roomState, setRoomState] = useState({
     background: "#F4E6DA",
+    layoutUnits: "norm", // 'norm' (0..1) | legacy 'px'
     layout: {},
   });
 
@@ -190,6 +236,7 @@ export default function TakeMomentFriendsRoom({
           typeof next.background === "string"
             ? next.background
             : roomState.background,
+        layoutUnits: "norm",
         layout: next.layout && typeof next.layout === "object" ? next.layout : roomState.layout,
       };
       setRoomState(state);
@@ -201,7 +248,7 @@ export default function TakeMomentFriendsRoom({
   const upsertLayoutFor = useCallback(
     (targetId, patch) => {
       const prev = roomState.layout || {};
-      const current = prev[targetId] || { x: 40, y: 40, w: 220, h: 220, z: 0 };
+      const current = prev[targetId] || getDefaultTileNorm(0, 0);
       const next = {
         ...prev,
         [targetId]: {
@@ -424,10 +471,16 @@ export default function TakeMomentFriendsRoom({
     for (const node of nodes) {
       const layout = node.layout;
       if (!layout) continue;
-      const x = clamp(layout.x, -width, width * 2);
-      const y = clamp(layout.y, -height, height * 2);
-      const w = clamp(layout.w, 1, width * 4);
-      const h = clamp(layout.h, 1, height * 4);
+
+      const rectPx =
+        roomState.layoutUnits === "px"
+          ? layout
+          : normToPx(layout, width, height);
+
+      const x = clamp(rectPx.x, -width, width * 2);
+      const y = clamp(rectPx.y, -height, height * 2);
+      const w = clamp(rectPx.w, 1, width * 4);
+      const h = clamp(rectPx.h, 1, height * 4);
 
       try {
         ctx.drawImage(node.videoEl, x, y, w, h);
@@ -442,6 +495,73 @@ export default function TakeMomentFriendsRoom({
     safeJsonSend(wsRef.current, { type: "END_SESSION", payload: { reason: "captured" } });
     onMasterCaptured?.(dataUrl);
   }, [clientId, isMaster, onMasterCaptured, roomState.background, roomState.layout]);
+
+  const [stageSize, setStageSize] = useState({ w: 0, h: 0 });
+
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      const w = Math.max(1, Math.floor(rect.width));
+      const h = Math.max(1, Math.floor(rect.height));
+      setStageSize({ w, h });
+    };
+
+    update();
+    const ro = new ResizeObserver(() => update());
+    ro.observe(el);
+
+    return () => ro.disconnect();
+  }, []);
+
+  // Migrate any legacy px layout into normalized layout once we know stage size.
+  useEffect(() => {
+    if (!stageSize.w || !stageSize.h) return;
+    if (roomState.layoutUnits === "norm") return;
+
+    const prev = roomState.layout || {};
+    const migrated = {};
+    for (const [id, rect] of Object.entries(prev)) {
+      migrated[id] = clampNormRect(pxToNorm(rect, stageSize.w, stageSize.h));
+      migrated[id].z = rect?.z ?? migrated[id].z ?? 0;
+    }
+
+    setRoomState((s) => ({ ...s, layoutUnits: "norm", layout: migrated }));
+    if (roleRef.current === "master") {
+      safeJsonSend(wsRef.current, {
+        type: "STATE_UPDATE",
+        payload: { state: { background: roomState.background, layoutUnits: "norm", layout: migrated } },
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stageSize.w, stageSize.h]);
+
+  // Ensure master assigns default normalized layout for everyone so all clients render identically.
+  useEffect(() => {
+    if (!isMaster) return;
+    if (!stageSize.w || !stageSize.h) return;
+    if (!clientId) return;
+
+    const prev = roomState.layout || {};
+    let changed = false;
+    const next = { ...prev };
+
+    const ids = [clientId, ...peers].slice(0, MAX_PEOPLE);
+    ids.forEach((id, idx) => {
+      if (next[id]) return;
+      const base = getDefaultTileNorm(stageSize.w, stageSize.h);
+      const offsetX = (idx % 4) * 0.02;
+      const offsetY = Math.floor(idx / 4) * 0.02;
+      next[id] = clampNormRect({ ...base, x: base.x + offsetX, y: base.y + offsetY, z: idx });
+      changed = true;
+    });
+
+    if (changed) {
+      sendStateUpdate({ layout: next });
+    }
+  }, [clientId, isMaster, peers, roomState.layout, sendStateUpdate, stageSize.h, stageSize.w]);
 
   useEffect(() => {
     let mounted = true;
@@ -750,13 +870,12 @@ export default function TakeMomentFriendsRoom({
         />
 
         {everyone.map(({ id, kind }) => {
-          const layout = roomState.layout?.[id] || {
-            x: 40,
-            y: 40,
-            w: 220,
-            h: 220,
-            z: 0,
-          };
+          const normLayout =
+            roomState.layout?.[id] || getDefaultTileNorm(stageSize.w, stageSize.h);
+          const layout =
+            roomState.layoutUnits === "px"
+              ? normLayout
+              : normToPx(normLayout, stageSize.w, stageSize.h);
 
           const isLocal = kind === "local";
           const canControl = isMaster && !isLocal ? true : isMaster && isLocal;
@@ -785,13 +904,29 @@ export default function TakeMomentFriendsRoom({
               style={{ zIndex, borderRadius: 14, overflow: "hidden" }}
               onDragStop={(e, d) => {
                 if (!isMaster) return;
-                upsertLayoutFor(id, { x: d.x, y: d.y });
+                const currentNorm =
+                  roomState.layout?.[id] || getDefaultTileNorm(stageSize.w, stageSize.h);
+                const nextNorm = clampNormRect({
+                  ...currentNorm,
+                  x: d.x / stageSize.w,
+                  y: d.y / stageSize.h,
+                });
+                upsertLayoutFor(id, nextNorm);
               }}
               onResizeStop={(e, direction, ref, delta, position) => {
                 if (!isMaster) return;
                 const w = ref.offsetWidth;
                 const h = ref.offsetHeight;
-                upsertLayoutFor(id, { w, h, x: position.x, y: position.y });
+                const currentNorm =
+                  roomState.layout?.[id] || getDefaultTileNorm(stageSize.w, stageSize.h);
+                const nextNorm = clampNormRect({
+                  ...currentNorm,
+                  w: w / stageSize.w,
+                  h: h / stageSize.h,
+                  x: position.x / stageSize.w,
+                  y: position.y / stageSize.h,
+                });
+                upsertLayoutFor(id, nextNorm);
               }}
               onMouseDown={() => {
                 if (!isMaster) return;
@@ -800,7 +935,9 @@ export default function TakeMomentFriendsRoom({
                   0,
                   ...Object.values(roomState.layout || {}).map((l) => l?.z ?? 0)
                 );
-                upsertLayoutFor(id, { z: maxZ + 1 });
+                const currentNorm =
+                  roomState.layout?.[id] || getDefaultTileNorm(stageSize.w, stageSize.h);
+                upsertLayoutFor(id, { ...currentNorm, z: maxZ + 1 });
               }}
             >
               <div

@@ -7,23 +7,55 @@ import unifiedFrameService from "../services/unifiedFrameService";
 import paymentService from "../services/paymentService";
 import { trackFrameView } from "../services/analyticsService";
 
+const DEBUG_FRAMES =
+  import.meta.env.DEV || String(import.meta.env.VITE_DEBUG_FRAMES) === "true";
+
 // Helper to construct full URL for frame images
 const getFrameImageUrl = (frame) => {
-  const imagePath = frame.imageUrl || frame.thumbnailUrl || frame.imagePath;
-  if (!imagePath) return null;
+  const candidates = [
+    frame.imagePath,
+    frame.imageUrl,
+    frame.thumbnailUrl,
+    frame.thumbnailPath,
+  ].filter(Boolean);
 
-  // Already a full URL
-  if (imagePath.startsWith("http://") || imagePath.startsWith("https://")) {
-    return imagePath;
+  if (candidates.length === 0) return null;
+
+  // Prefer already-absolute URLs first
+  const absolute = candidates.find(
+    (v) =>
+      typeof v === "string" &&
+      (v.startsWith("http://") || v.startsWith("https://"))
+  );
+  if (absolute) return absolute;
+
+  // Base URL for relative paths/filenames
+  const backendBase = import.meta.env.DEV
+    ? "https://localhost:5050"
+    : (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+
+  const raw = String(candidates[0] || "").trim();
+  if (!raw) return null;
+
+  // If we got a full path without a leading slash
+  if (raw.startsWith("uploads/")) {
+    return `${backendBase}/${raw}`;
   }
 
-  // Relative path - prepend with backend base URL
-  // In dev, use proxy which forwards to backend on port 5050
-  const backendBase = import.meta.env.DEV
-    ? "https://localhost:5050" // Direct backend in dev
-    : import.meta.env.VITE_API_BASE_URL || "";
+  // If we got a normal relative path
+  if (raw.startsWith("/")) {
+    return `${backendBase}${raw}`;
+  }
 
-  return `${backendBase}${imagePath}`;
+  // If backend accidentally returns only a filename (e.g. "<uuid>.webp")
+  // assume it lives under /uploads/frames/
+  const looksLikeFile = /\.(png|jpe?g|webp|gif|svg)$/i.test(raw);
+  if (looksLikeFile) {
+    return `${backendBase}/uploads/frames/${raw}`;
+  }
+
+  // Last resort: treat as path segment
+  return `${backendBase}/${raw}`;
 };
 
 // FrameCard component with expandable description
@@ -269,7 +301,9 @@ export default function Frames() {
         );
 
         const loadedCustomFrames = await unifiedFrameService.getAllFrames();
-        console.log("🎨 Custom frames loaded:", loadedCustomFrames.length);
+        if (DEBUG_FRAMES) {
+          console.log("🎨 Custom frames loaded:", loadedCustomFrames.length);
+        }
 
         // Never show hidden frames on user-facing frames page
         const visibleFrames = (loadedCustomFrames || []).filter((frame) => {
@@ -282,22 +316,23 @@ export default function Frames() {
           (a, b) => (a.displayOrder || 999) - (b.displayOrder || 999)
         );
 
-        if (visibleFrames.length > 0) {
-          visibleFrames.forEach((f, idx) => {
-            console.log(
-              `  ${idx + 1}. ${f.name} (ID: ${f.id}, Order: ${
-                f.displayOrder ?? "N/A"
-              })`
-            );
-            console.log(
-              `     - imagePath: ${(f.imagePath || f.imageUrl || "")?.substring(
-                0,
-                60
-              )}...`
-            );
-          });
-        } else {
-          console.warn("⚠️ NO CUSTOM FRAMES FOUND!");
+        if (DEBUG_FRAMES) {
+          if (visibleFrames.length > 0) {
+            visibleFrames.forEach((f, idx) => {
+              console.log(
+                `  ${idx + 1}. ${f.name} (ID: ${f.id}, Order: ${
+                  f.displayOrder ?? "N/A"
+                })`
+              );
+              console.log(
+                `     - imagePath: ${(
+                  f.imagePath || f.imageUrl || f.thumbnailUrl || ""
+                )?.substring(0, 60)}...`
+              );
+            });
+          } else {
+            console.warn("⚠️ NO CUSTOM FRAMES FOUND!");
+          }
         }
 
         setCustomFrames(visibleFrames);
@@ -339,7 +374,9 @@ export default function Frames() {
   }, [currentUser]);
 
   const handleImageError = (frameId) => {
-    console.error(`❌ Image failed to load for frame: ${frameId}`);
+    if (DEBUG_FRAMES) {
+      console.error(`❌ Image failed to load for frame: ${frameId}`);
+    }
     // Don't just set error - this prevents showing frame at all
     // Let frame render with fallback instead
     setImageErrors((prev) => ({ ...prev, [frameId]: true }));

@@ -1,0 +1,1 @@
+import{ht as e,mt as t}from"./index-mjum4071-Dl79otRW.js";export{t as VPSFrameClient,e as default};

@@ -34,6 +34,7 @@ import {
   isCameraAvailable,
 } from "../utils/cameraHelper";
 import CameraPermissionPrimer from "../components/CameraPermissionPrimer";
+import TakeMomentFriendsRoom from "../components/takemoment/TakeMomentFriendsRoom.jsx";
 
 const MIRRORED_VIDEO_STYLE_ID = "take-moment-mirrored-video-controls";
 const MIRRORED_VIDEO_STYLES = `
@@ -504,9 +505,73 @@ const generatePhotoEntryId = () => {
 
 export default function TakeMoment() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const roomParam = searchParams.get("room");
+  const [friendsModeEnabled, setFriendsModeEnabled] = useState(Boolean(roomParam));
+  const [friendsRoomId, setFriendsRoomId] = useState(roomParam || null);
   const isMobile = useIsMobile();
   const { showToast } = useToast();
+
+  // Keep friends mode in sync with URL
+  useEffect(() => {
+    const nextRoom = searchParams.get("room");
+    if (nextRoom) {
+      setFriendsModeEnabled(true);
+      setFriendsRoomId(nextRoom);
+    }
+  }, [searchParams]);
+
+  const handleStartFriendsMode = useCallback(() => {
+    const newRoomId =
+      Math.random().toString(36).slice(2) + Date.now().toString(36);
+    setFriendsModeEnabled(true);
+    setFriendsRoomId(newRoomId);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("room", newRoomId);
+      return next;
+    });
+  }, [setSearchParams]);
+
+  const handleFriendsCaptured = useCallback(
+    (dataUrl) => {
+      try {
+        // Persist as the first captured photo so EditPhoto can open.
+        const photosPayload = [dataUrl];
+        safeStorage.setJSON("capturedPhotos", photosPayload);
+        safeStorage.setJSON("capturedVideos", []);
+        window.__fremio_photos = photosPayload;
+
+        showToast({
+          type: "success",
+          title: "Berhasil",
+          message: "Foto berhasil diambil. Membuka editor…",
+        });
+      } catch (e) {
+        console.warn("⚠️ Failed to persist friends capture", e);
+      }
+
+      navigate("/edit-photo");
+    },
+    [navigate, showToast]
+  );
+
+  const handleFriendsEnded = useCallback(
+    (reason) => {
+      showToast({
+        type: "info",
+        title: "Sesi Selesai",
+        message:
+          reason === "master_disconnected"
+            ? "Master keluar. Sesi foto selesai."
+            : "Sesi foto sudah selesai.",
+      });
+
+      // Non-master users can just go back to frames.
+      navigate("/frames", { replace: true });
+    },
+    [navigate, showToast]
+  );
 
   const [isLandscape, setIsLandscape] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -2902,6 +2967,13 @@ export default function TakeMoment() {
   // Handle permission primer request
   const handleRequestCameraPermission = useCallback(async () => {
     console.log("🎬 handleRequestCameraPermission called");
+
+    // Friends mode manages its own camera/mic.
+    if (friendsModeEnabled) {
+      setShowPermissionPrimer(false);
+      setPermissionChecked(true);
+      return;
+    }
     
     try {
       // Check secure context first
@@ -2948,15 +3020,18 @@ export default function TakeMoment() {
         console.log("✅ Camera permission granted - Auto-starting camera...");
 
         // Auto-start camera immediately after permission granted
-        try {
-          await startCamera(isUsingBackCamera ? "environment" : "user");
-          console.log("✅ Camera auto-started after permission grant");
-        } catch (cameraError) {
-          console.error(
-            "❌ Failed to auto-start camera after permission:",
-            cameraError
-          );
-          setCameraError("Gagal mengaktifkan kamera. Silakan coba lagi.");
+        // (Skip in Friends mode, it has its own getUserMedia)
+        if (!friendsModeEnabled) {
+          try {
+            await startCamera(isUsingBackCamera ? "environment" : "user");
+            console.log("✅ Camera auto-started after permission grant");
+          } catch (cameraError) {
+            console.error(
+              "❌ Failed to auto-start camera after permission:",
+              cameraError
+            );
+            setCameraError("Gagal mengaktifkan kamera. Silakan coba lagi.");
+          }
         }
       } else {
         await trackCameraPermission("denied", "user_denied");
@@ -5231,6 +5306,10 @@ export default function TakeMoment() {
 
   // Auto-start camera after permission is checked and granted
   useEffect(() => {
+    if (friendsModeEnabled) {
+      return;
+    }
+
     // Only auto-start if permission is checked, granted, and camera is not already active
     if (!permissionChecked || showPermissionPrimer || cameraActive) {
       return;
@@ -5255,6 +5334,7 @@ export default function TakeMoment() {
 
     autoStart();
   }, [
+    friendsModeEnabled,
     permissionChecked,
     showPermissionPrimer,
     cameraActive,
@@ -6838,6 +6918,31 @@ export default function TakeMoment() {
             </div>
 
             <div style={{ width: "100%", maxWidth: "640px" }}>
+              {!friendsModeEnabled && (
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "center",
+                    marginBottom: "0.75rem",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={handleStartFriendsMode}
+                    style={{
+                      padding: "0.65rem 1.05rem",
+                      borderRadius: "999px",
+                      border: "none",
+                      background: "#0F172A",
+                      color: "white",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Take moment with your friends
+                  </button>
+                </div>
+              )}
               {renderCameraControls("desktop")}
             </div>
 
@@ -6939,6 +7044,24 @@ export default function TakeMoment() {
             boxShadow: "0 30px 60px rgba(148,163,184,0.25)",
           }}
         >
+          {!friendsModeEnabled && (
+            <button
+              type="button"
+              onClick={handleStartFriendsMode}
+              style={{
+                width: "100%",
+                padding: "0.65rem 1rem",
+                borderRadius: "999px",
+                border: "none",
+                background: "#0F172A",
+                color: "white",
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              Take moment with your friends
+            </button>
+          )}
           {renderCameraControls("mobile")}
           <div className="take-moment-mobile-capture-stack">
             <div className="take-moment-mobile-stream">
@@ -6958,6 +7081,68 @@ export default function TakeMoment() {
       {renderConfirmationModal()}
     </main>
   );
+
+  if (friendsModeEnabled && friendsRoomId) {
+    return (
+      <main
+        style={{
+          minHeight: "100dvh",
+          background: "#F4E6DA",
+          display: "flex",
+          flexDirection: "column",
+          padding: "1rem",
+          gap: "1rem",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem" }}>
+          <button
+            type="button"
+            onClick={() => {
+              setFriendsModeEnabled(false);
+              setFriendsRoomId(null);
+              setSearchParams((prev) => {
+                const next = new URLSearchParams(prev);
+                next.delete("room");
+                return next;
+              });
+            }}
+            style={{
+              alignSelf: "flex-start",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              padding: "0.55rem 1.1rem",
+              borderRadius: "999px",
+              border: "none",
+              background: "#fff",
+              color: "#1E293B",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            <span style={{ fontSize: "1rem" }}>←</span>
+            <span>Kembali</span>
+          </button>
+          <div style={{ fontWeight: 800, color: "#0F172A", alignSelf: "center" }}>
+            Friends Session
+          </div>
+        </div>
+
+        <TakeMomentFriendsRoom
+          roomId={friendsRoomId}
+          onRoomCreated={() => {
+            showToast({
+              type: "success",
+              title: "Link Disalin",
+              message: "Bagikan link ini ke teman kamu untuk bergabung.",
+            });
+          }}
+          onMasterCaptured={handleFriendsCaptured}
+          onSessionEnded={handleFriendsEnded}
+        />
+      </main>
+    );
+  }
 
   return (
     <>

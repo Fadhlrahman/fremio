@@ -171,7 +171,10 @@ class VPSFrameClient {
           return {
             ...frame,
             imageUrl,
-            imagePath,
+            // IMPORTANT: Many UI surfaces still use `imagePath` directly.
+            // Ensure it is a public URL in VPS mode so assets don't 404 on the frontend origin.
+            imagePath: imageUrl || imagePath,
+            rawImagePath: imagePath,
             thumbnailUrl: imageUrl,
           };
         });

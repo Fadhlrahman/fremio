@@ -55,6 +55,12 @@ export default defineConfig(({ mode }) => {
         changeOrigin: true,
         secure: false,
       },
+      '/ws': {
+        target: proxyTarget,
+        ws: true,
+        changeOrigin: true,
+        secure: false,
+      },
     },
   },
   optimizeDeps: {

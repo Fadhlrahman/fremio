@@ -8,9 +8,11 @@ import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
 import https from "https";
+import http from "http";
 import { fileURLToPath } from "url";
 import { initializeFirebase } from "./config/firebase.js";
 import storageService from "./services/storageService.js";
+import { WebSocketServer } from "ws";
 
 // Routes
 import authRoutes from "./routes/auth.js";
@@ -32,6 +34,275 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 const isProduction = process.env.NODE_ENV === "production";
+
+// ------------------------------
+// TakeMoment Friends Realtime (WebSocket)
+// ------------------------------
+
+const wsSafeSend = (ws, message) => {
+  if (!ws || ws.readyState !== ws.OPEN) return;
+  try {
+    ws.send(JSON.stringify(message));
+  } catch {
+    // Ignore send errors (e.g., connection already closing)
+  }
+};
+
+const wsBroadcast = (clients, message, exceptClientId = null) => {
+  for (const [clientId, client] of clients.entries()) {
+    if (exceptClientId && clientId === exceptClientId) continue;
+    wsSafeSend(client.ws, message);
+  }
+};
+
+const generateId = () => {
+  // URL-safe id, good enough for ephemeral room/client IDs
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+};
+
+const takeMomentRooms = new Map();
+
+const getOrCreateRoom = (roomId) => {
+  const existing = takeMomentRooms.get(roomId);
+  if (existing) return existing;
+
+  const room = {
+    roomId,
+    masterId: null,
+    createdAt: Date.now(),
+    state: {
+      background: "#F4E6DA",
+      layout: {},
+    },
+    clients: new Map(), // clientId -> { ws, role }
+  };
+  takeMomentRooms.set(roomId, room);
+  return room;
+};
+
+const cleanupRoomIfEmpty = (roomId) => {
+  const room = takeMomentRooms.get(roomId);
+  if (!room) return;
+  if (room.clients.size === 0) {
+    takeMomentRooms.delete(roomId);
+  }
+};
+
+const attachTakeMomentWs = (server) => {
+  const wss = new WebSocketServer({ server, path: "/ws/take-moment" });
+
+  wss.on("connection", (ws) => {
+    const connection = {
+      roomId: null,
+      clientId: null,
+      role: null,
+    };
+
+    ws.on("message", (raw) => {
+      let msg;
+      try {
+        msg = JSON.parse(String(raw || ""));
+      } catch {
+        wsSafeSend(ws, { type: "ERROR", payload: { message: "Invalid JSON" } });
+        return;
+      }
+
+      const { type, payload } = msg || {};
+      if (!type) {
+        wsSafeSend(ws, { type: "ERROR", payload: { message: "Missing type" } });
+        return;
+      }
+
+      if (type === "CREATE_ROOM") {
+        const roomId = payload?.roomId || generateId();
+        getOrCreateRoom(roomId);
+        wsSafeSend(ws, { type: "ROOM_CREATED", payload: { roomId } });
+        return;
+      }
+
+      if (type === "JOIN") {
+        const roomId = String(payload?.roomId || "").trim();
+        if (!roomId) {
+          wsSafeSend(ws, { type: "ERROR", payload: { message: "Missing roomId" } });
+          return;
+        }
+
+        const room = getOrCreateRoom(roomId);
+        if (room.clients.size >= 4) {
+          wsSafeSend(ws, {
+            type: "ERROR",
+            payload: { message: "Room penuh (maks 4 orang)" },
+          });
+          return;
+        }
+
+        const clientId = payload?.clientId ? String(payload.clientId) : generateId();
+        const isFirst = !room.masterId;
+        const role = isFirst ? "master" : "participant";
+
+        connection.roomId = roomId;
+        connection.clientId = clientId;
+        connection.role = role;
+
+        room.clients.set(clientId, { ws, role });
+        if (isFirst) {
+          room.masterId = clientId;
+        }
+
+        // Initialize default layout slot for new user if missing
+        if (!room.state.layout[clientId]) {
+          const index = Math.max(0, room.clients.size - 1);
+          room.state.layout[clientId] = {
+            x: 40 + index * 40,
+            y: 40 + index * 40,
+            w: 220,
+            h: 220,
+            z: index,
+          };
+        }
+
+        const peers = [...room.clients.keys()].filter((id) => id !== clientId);
+        wsSafeSend(ws, {
+          type: "WELCOME",
+          payload: {
+            roomId,
+            clientId,
+            role,
+            peers,
+            state: room.state,
+            masterId: room.masterId,
+          },
+        });
+
+        wsBroadcast(
+          room.clients,
+          {
+            type: "PEER_JOINED",
+            payload: {
+              clientId,
+              role,
+              state: room.state,
+              masterId: room.masterId,
+            },
+          },
+          clientId
+        );
+        return;
+      }
+
+      // Everything below requires a joined room
+      if (!connection.roomId || !connection.clientId) {
+        wsSafeSend(ws, { type: "ERROR", payload: { message: "Not joined" } });
+        return;
+      }
+
+      const room = takeMomentRooms.get(connection.roomId);
+      if (!room) {
+        wsSafeSend(ws, { type: "ERROR", payload: { message: "Room not found" } });
+        return;
+      }
+
+      if (type === "SIGNAL") {
+        const to = String(payload?.to || "").trim();
+        const data = payload?.data;
+        const target = room.clients.get(to);
+        if (!target) return;
+
+        wsSafeSend(target.ws, {
+          type: "SIGNAL",
+          payload: {
+            from: connection.clientId,
+            data,
+          },
+        });
+        return;
+      }
+
+      if (type === "STATE_UPDATE") {
+        if (connection.role !== "master") {
+          wsSafeSend(ws, {
+            type: "ERROR",
+            payload: { message: "Only master can update state" },
+          });
+          return;
+        }
+
+        const nextState = payload?.state;
+        if (!nextState || typeof nextState !== "object") {
+          wsSafeSend(ws, {
+            type: "ERROR",
+            payload: { message: "Invalid state" },
+          });
+          return;
+        }
+
+        // Whitelist allowed fields
+        if (typeof nextState.background === "string") {
+          room.state.background = nextState.background;
+        }
+        if (nextState.layout && typeof nextState.layout === "object") {
+          room.state.layout = nextState.layout;
+        }
+
+        wsBroadcast(room.clients, {
+          type: "STATE",
+          payload: { state: room.state, masterId: room.masterId },
+        });
+        return;
+      }
+
+      if (type === "END_SESSION") {
+        if (connection.role !== "master") {
+          wsSafeSend(ws, {
+            type: "ERROR",
+            payload: { message: "Only master can end session" },
+          });
+          return;
+        }
+
+        wsBroadcast(room.clients, {
+          type: "SESSION_ENDED",
+          payload: { reason: payload?.reason || "ended" },
+        });
+        return;
+      }
+
+      wsSafeSend(ws, {
+        type: "ERROR",
+        payload: { message: `Unknown type: ${type}` },
+      });
+    });
+
+    ws.on("close", () => {
+      const roomId = connection.roomId;
+      const clientId = connection.clientId;
+      if (!roomId || !clientId) return;
+
+      const room = takeMomentRooms.get(roomId);
+      if (!room) return;
+
+      room.clients.delete(clientId);
+
+      // If master leaves, end session for everybody (simplest, avoids orphaned rooms)
+      if (room.masterId === clientId) {
+        wsBroadcast(room.clients, {
+          type: "SESSION_ENDED",
+          payload: { reason: "master_disconnected" },
+        });
+        room.clients.clear();
+        takeMomentRooms.delete(roomId);
+        return;
+      }
+
+      wsBroadcast(room.clients, {
+        type: "PEER_LEFT",
+        payload: { clientId },
+      });
+
+      cleanupRoomIfEmpty(roomId);
+    });
+  });
+};
 
 // CRITICAL: Trust proxy for nginx reverse proxy
 // This allows express-rate-limit to see real client IPs from X-Forwarded-For
@@ -228,47 +499,34 @@ const startServer = async () => {
     const enableHttps = String(process.env.ENABLE_HTTPS || "").toLowerCase() === "true";
     const useHttps = enableHttps && fs.existsSync(certPath) && fs.existsSync(keyPath);
 
+    let server;
     if (useHttps) {
-      // Start HTTPS server
       const httpsOptions = {
         key: fs.readFileSync(keyPath),
         cert: fs.readFileSync(certPath),
       };
-
-      https.createServer(httpsOptions, app).listen(PORT, "0.0.0.0", () => {
-        console.log("");
-        console.log("🔒 ============================================");
-        console.log(`🔒 Fremio Backend API running on HTTPS port ${PORT}`);
-        console.log(`🔒 Environment: ${process.env.NODE_ENV || "development"}`);
-        console.log(`🔒 Access from phone: https://192.168.100.160:${PORT}`);
-        console.log("🔒 ============================================");
-        console.log("");
-      });
+      server = https.createServer(httpsOptions, app);
     } else {
-      // Start HTTP server (fallback)
-      app.listen(PORT, "0.0.0.0", () => {
-        console.log("");
-        console.log("🚀 ============================================");
-        console.log(`🚀 Fremio Backend API running on port ${PORT}`);
-        console.log(`🚀 Environment: ${process.env.NODE_ENV || "development"}`);
-        console.log(`🚀 Frontend URL: ${process.env.FRONTEND_URL}`);
-        console.log("🚀 ============================================");
-        console.log("");
-        console.log("📋 Available endpoints:");
-        console.log("   GET  /health");
-        console.log("   POST /api/auth/register");
-        console.log("   GET  /api/auth/me");
-        console.log("   GET  /api/frames");
-        console.log("   POST /api/frames");
-        console.log("   GET  /api/drafts");
-        console.log("   POST /api/upload/image");
-        console.log("   POST /api/analytics/track");
-        console.log("   GET  /api/static/frames");
-        console.log("   POST /api/static/frames");
-        console.log("   GET  /static/frames/:filename (direct image access)");
-        console.log("");
-      });
+      server = http.createServer(app);
     }
+
+    attachTakeMomentWs(server);
+
+    server.listen(PORT, "0.0.0.0", () => {
+      console.log("");
+      console.log(useHttps ? "🔒 ============================================" : "🚀 ============================================");
+      console.log(
+        useHttps
+          ? `🔒 Fremio Backend API running on HTTPS port ${PORT}`
+          : `🚀 Fremio Backend API running on port ${PORT}`
+      );
+      console.log(`🚀 Environment: ${process.env.NODE_ENV || "development"}`);
+      console.log(`🚀 Frontend URL: ${process.env.FRONTEND_URL}`);
+      console.log("🚀 Realtime:");
+      console.log("   WS  /ws/take-moment");
+      console.log(useHttps ? "🔒 ============================================" : "🚀 ============================================");
+      console.log("");
+    });
   } catch (error) {
     console.error("❌ Failed to start server:", error);
     process.exit(1);

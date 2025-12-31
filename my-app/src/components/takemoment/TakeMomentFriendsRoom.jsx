@@ -165,6 +165,14 @@ export default function TakeMomentFriendsRoom({
   const tileCanvasElsRef = useRef(new Map()); // id -> HTMLCanvasElement
   const segmentationPipelinesRef = useRef(new Map()); // id -> { seg, rafId, stopped }
 
+  const [segmentationStatus, setSegmentationStatus] = useState({}); // id -> 'pending' | 'ready' | 'failed'
+  const segmentationStatusRef = useRef({});
+  const setSegStatus = useCallback((id, status) => {
+    if (!id) return;
+    segmentationStatusRef.current = { ...segmentationStatusRef.current, [id]: status };
+    setSegmentationStatus((prev) => (prev?.[id] === status ? prev : { ...prev, [id]: status }));
+  }, []);
+
   const [clientId, setClientId] = useState(null);
   const [role, setRole] = useState(null); // 'master' | 'participant'
   const isMaster = role === "master";
@@ -259,6 +267,9 @@ export default function TakeMomentFriendsRoom({
     segmentationPipelinesRef.current.clear();
     tileVideoElsRef.current.clear();
     tileCanvasElsRef.current.clear();
+
+    segmentationStatusRef.current = {};
+    setSegmentationStatus({});
   }, []);
 
   const disconnect = useCallback(() => {
@@ -286,15 +297,33 @@ export default function TakeMomentFriendsRoom({
     if (segmentationPipelinesRef.current.has(id)) return;
 
     const SelfieSegmentationCtor = globalThis?.SelfieSegmentation;
-    if (!SelfieSegmentationCtor) return;
+    if (!SelfieSegmentationCtor) {
+      setSegStatus(id, "failed");
+      return;
+    }
+
+    setSegStatus(id, "pending");
+
+    // Pin to the installed version to avoid CDN/version drift.
+    const MEDIAPIPE_VERSION = "0.1.1675465747";
 
     const seg = new SelfieSegmentationCtor({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${file}`,
+      locateFile: (file) =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@${MEDIAPIPE_VERSION}/${file}`,
     });
 
     seg.setOptions({ modelSelection: 1, selfieMode: Boolean(isLocal) });
 
+    let hasResults = false;
+    let consecutiveErrors = 0;
+
     seg.onResults((results) => {
+      if (!hasResults) {
+        hasResults = true;
+        setSegStatus(id, "ready");
+      }
+      consecutiveErrors = 0;
+
       const ctx = canvasEl.getContext("2d");
       if (!ctx) return;
 
@@ -332,14 +361,42 @@ export default function TakeMomentFriendsRoom({
           await seg.send({ image: videoEl });
         }
       } catch {
-        // keep loop alive; canvas will just not update on failure
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= 30 && !hasResults) {
+          // If we can't get any results after many attempts (often wasm/model blocked), fall back to raw video.
+          setSegStatus(id, "failed");
+          current.stopped = true;
+          try {
+            current.seg?.close?.();
+          } catch {
+            // ignore
+          }
+          segmentationPipelinesRef.current.delete(id);
+          return;
+        }
       }
 
       current.rafId = requestAnimationFrame(loop);
     };
 
-    pipeline.rafId = requestAnimationFrame(loop);
-  }, []);
+    // Some environments need explicit initialization; if init fails we fall back.
+    Promise.resolve()
+      .then(() => seg.initialize?.())
+      .then(() => {
+        if (!segmentationPipelinesRef.current.has(id)) return;
+        pipeline.rafId = requestAnimationFrame(loop);
+      })
+      .catch(() => {
+        setSegStatus(id, "failed");
+        pipeline.stopped = true;
+        try {
+          pipeline.seg?.close?.();
+        } catch {
+          // ignore
+        }
+        segmentationPipelinesRef.current.delete(id);
+      });
+  }, [setSegStatus]);
 
   const sendStateUpdate = useCallback(
     (next) => {
@@ -552,28 +609,24 @@ export default function TakeMomentFriendsRoom({
     ctx.fillStyle = roomState.background || "#F4E6DA";
     ctx.fillRect(0, 0, width, height);
 
-    // Build list of all cutout nodes to draw (local + remotes)
+    // Build list of all nodes to draw (prefer cutout canvas if ready; otherwise raw video)
     const nodes = [];
+    const ids = new Set(Object.keys(roomState.layout || {}));
+    if (clientId) ids.add(clientId);
 
-    // Local
-    if (localCutoutCanvasRef.current) {
-      nodes.push({
-        id: clientId,
-        sourceEl: localCutoutCanvasRef.current,
-        layout: roomState.layout?.[clientId] || null,
-      });
+    for (const id of ids) {
+      const layout = roomState.layout?.[id] || null;
+      if (!layout) continue;
+
+      const status = segmentationStatusRef.current?.[id];
+      const canvasEl = tileCanvasElsRef.current.get(id);
+      const videoEl = tileVideoElsRef.current.get(id);
+
+      const sourceEl = status === "ready" && canvasEl ? canvasEl : videoEl || canvasEl;
+      if (!sourceEl) continue;
+
+      nodes.push({ id, sourceEl, layout });
     }
-
-    // Remotes
-    const remoteCanvases = stage.querySelectorAll("canvas[data-peer]");
-    remoteCanvases.forEach((canvasEl) => {
-      const id = canvasEl.getAttribute("data-peer");
-      nodes.push({
-        id,
-        sourceEl: canvasEl,
-        layout: roomState.layout?.[id] || null,
-      });
-    });
 
     // Sort by z
     nodes.sort((a, b) => {
@@ -835,6 +888,9 @@ export default function TakeMomentFriendsRoom({
             }
             tileVideoElsRef.current.delete(peerId);
             tileCanvasElsRef.current.delete(peerId);
+
+              // Ensure UI falls back cleanly.
+              setSegStatus(peerId, "failed");
             return;
           }
 
@@ -1052,6 +1108,9 @@ export default function TakeMomentFriendsRoom({
           const isLocal = kind === "local";
           const canControl = isMaster;
 
+          const segStatus = segmentationStatus?.[id];
+          const showCutout = segStatus === "ready";
+
           const zIndex = layout.z ?? 0;
 
           const videoProps = isLocal
@@ -1138,6 +1197,7 @@ export default function TakeMomentFriendsRoom({
                     width: "100%",
                     height: "100%",
                     display: "block",
+                    opacity: showCutout ? 1 : 0,
                   }}
                 />
                 <video
@@ -1182,7 +1242,7 @@ export default function TakeMomentFriendsRoom({
                     width: "100%",
                     height: "100%",
                     objectFit: "cover",
-                    opacity: 0,
+                    opacity: showCutout ? 0 : 1,
                     pointerEvents: "none",
                   }}
                 />

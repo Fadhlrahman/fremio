@@ -312,11 +312,6 @@ export default function TakeMomentFriendsRoom({
       ctx.save();
       ctx.clearRect(0, 0, w, h);
 
-      if (isLocal) {
-        ctx.translate(w, 0);
-        ctx.scale(-1, 1);
-      }
-
       // Mask first, then draw only the person pixels.
       ctx.drawImage(results.segmentationMask, 0, 0, w, h);
       ctx.globalCompositeOperation = "source-in";

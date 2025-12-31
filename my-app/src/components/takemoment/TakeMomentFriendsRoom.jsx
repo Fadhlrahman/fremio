@@ -3,6 +3,7 @@ import { Rnd } from "react-rnd";
 import { VPS_API_URL } from "../../config/backend";
 
 const MAX_PEOPLE = 4;
+const MIRROR_ALL_STREAMS = true;
 
 const deriveWsUrl = () => {
   const api = String(VPS_API_URL || "").trim();
@@ -346,7 +347,8 @@ export default function TakeMomentFriendsRoom({
         locateFile: (file) => `${import.meta.env.BASE_URL}mediapipe/selfie_segmentation/${file}`,
       });
 
-      seg.setOptions({ modelSelection: 1, selfieMode: Boolean(isLocal) });
+      // We apply mirroring uniformly at render/capture time.
+      seg.setOptions({ modelSelection: 1, selfieMode: false });
 
       let hasResults = false;
       let consecutiveErrors = 0;
@@ -698,7 +700,15 @@ export default function TakeMomentFriendsRoom({
       const h = clamp(rectPx.h, 1, height * 4);
 
       try {
-        ctx.drawImage(node.sourceEl, x, y, w, h);
+        if (MIRROR_ALL_STREAMS) {
+          ctx.save();
+          ctx.translate(x + w, y);
+          ctx.scale(-1, 1);
+          ctx.drawImage(node.sourceEl, 0, 0, w, h);
+          ctx.restore();
+        } else {
+          ctx.drawImage(node.sourceEl, x, y, w, h);
+        }
       } catch {
         // drawImage can fail if video not ready
       }
@@ -1272,6 +1282,7 @@ export default function TakeMomentFriendsRoom({
                     height: "100%",
                     display: "block",
                     opacity: showCutout ? 1 : 0,
+                    transform: MIRROR_ALL_STREAMS ? "scaleX(-1)" : undefined,
                   }}
                 />
                 <video
@@ -1318,6 +1329,7 @@ export default function TakeMomentFriendsRoom({
                     objectFit: "cover",
                     opacity: showCutout ? 0 : 1,
                     pointerEvents: "none",
+                    transform: MIRROR_ALL_STREAMS ? "scaleX(-1)" : undefined,
                   }}
                 />
               </div>

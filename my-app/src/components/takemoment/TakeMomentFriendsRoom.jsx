@@ -304,12 +304,8 @@ export default function TakeMomentFriendsRoom({
 
     setSegStatus(id, "pending");
 
-    // Pin to the installed version to avoid CDN/version drift.
-    const MEDIAPIPE_VERSION = "0.1.1675465747";
-
     const seg = new SelfieSegmentationCtor({
-      locateFile: (file) =>
-        `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@${MEDIAPIPE_VERSION}/${file}`,
+      locateFile: (file) => `${import.meta.env.BASE_URL}mediapipe/selfie_segmentation/${file}`,
     });
 
     seg.setOptions({ modelSelection: 1, selfieMode: Boolean(isLocal) });

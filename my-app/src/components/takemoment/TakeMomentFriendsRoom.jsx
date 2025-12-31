@@ -522,7 +522,7 @@ export default function TakeMomentFriendsRoom({
 
       tileTouchCleanupRef.current.set(tileId, cleanup);
     },
-    [clearPinch, isMaster, stageSize.h, stageSize.w, startPinchForTile, updatePinchScale, upsertLayoutFor]
+    [clearPinch, isMaster, stageSize.h, stageSize.w, startPinchForTile, updatePinchScale]
   );
 
   // Use state so video tiles re-render when stream becomes available

@@ -205,6 +205,8 @@ export default function TakeMomentFriendsRoom({
   const [role, setRole] = useState(null); // 'master' | 'participant'
   const isMaster = role === "master";
 
+  const [stageSize, setStageSize] = useState({ w: 0, h: 0 });
+
   const pinchStateRef = useRef(null); // { id, startDist, startNorm, centerX, centerY, latestScale }
   const pinchRafRef = useRef(null);
   const [pinchingTileId, setPinchingTileId] = useState(null);
@@ -928,8 +930,6 @@ export default function TakeMomentFriendsRoom({
     safeJsonSend(wsRef.current, { type: "END_SESSION", payload: { reason: "captured" } });
     onMasterCaptured?.(dataUrl);
   }, [clientId, isMaster, onMasterCaptured, roomState.backgroundColor, roomState.backgroundImage, roomState.layout]);
-
-  const [stageSize, setStageSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
     const el = stageRef.current;

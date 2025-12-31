@@ -120,6 +120,14 @@ export default function TakeMomentFriendsRoom({
 
   const wsUrl = useMemo(() => deriveWsUrl(), []);
 
+  const shouldInitiateOffer = useCallback((peerId) => {
+    const self = String(clientIdRef.current || "");
+    const other = String(peerId || "");
+    if (!self || !other) return false;
+    // Deterministic: only one side creates offer to avoid deadlocks
+    return self.localeCompare(other) < 0;
+  }, []);
+
   const updateRemoteStreamsState = useCallback(() => {
     const entries = [...remoteStreamsRef.current.entries()].map(
       ([id, stream]) => ({ id, stream })
@@ -211,8 +219,11 @@ export default function TakeMomentFriendsRoom({
       if (!clientIdRef.current) return;
       if (pcsRef.current.has(peerId)) return;
 
+      const effectiveInitiate =
+        typeof initiate === "boolean" ? initiate : shouldInitiateOffer(peerId);
+
       // eslint-disable-next-line no-console
-      console.log("[friends] setupPeer", { peerId, initiate });
+      console.log("[friends] setupPeer", { peerId, initiate: effectiveInitiate });
 
       const stream = await ensureLocalMedia();
 
@@ -264,20 +275,25 @@ export default function TakeMomentFriendsRoom({
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
       pcsRef.current.set(peerId, pc);
 
-      if (initiate) {
-        // eslint-disable-next-line no-console
-        console.log("[friends] createOffer ->", peerId);
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        // eslint-disable-next-line no-console
-        console.log("[friends] send SDP offer ->", peerId);
-        safeJsonSend(wsRef.current, {
-          type: "SIGNAL",
-          payload: { to: peerId, data: { sdp: pc.localDescription } },
-        });
+      if (effectiveInitiate) {
+        try {
+          // eslint-disable-next-line no-console
+          console.log("[friends] createOffer ->", peerId);
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          // eslint-disable-next-line no-console
+          console.log("[friends] send SDP offer ->", peerId);
+          safeJsonSend(wsRef.current, {
+            type: "SIGNAL",
+            payload: { to: peerId, data: { sdp: pc.localDescription } },
+          });
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn("[friends] createOffer failed", peerId, e);
+        }
       }
     },
-    [ensureLocalMedia, updateRemoteStreamsState]
+    [ensureLocalMedia, shouldInitiateOffer, updateRemoteStreamsState]
   );
 
   const handleSignal = useCallback(
@@ -485,9 +501,9 @@ export default function TakeMomentFriendsRoom({
 
             const initialPeers = Array.isArray(payload.peers) ? payload.peers : [];
             setPeers(initialPeers);
-            // New joiner initiates to existing peers
+            // Set up connections to existing peers (offer side chosen deterministically)
             for (const peerId of initialPeers) {
-              await setupPeer(peerId, { initiate: true });
+              await setupPeer(peerId, { initiate: undefined });
             }
             return;
           }
@@ -500,8 +516,8 @@ export default function TakeMomentFriendsRoom({
             console.log("[friends] PEER_JOINED", peerId);
 
             setPeers((prev) => (prev.includes(peerId) ? prev : [...prev, peerId]));
-            // Existing peers wait for offers (do not initiate)
-            await setupPeer(peerId, { initiate: false });
+            // Set up connection to new peer (offer side chosen deterministically)
+            await setupPeer(peerId, { initiate: undefined });
             if (payload?.state) setRoomState(payload.state);
             return;
           }

@@ -24,6 +24,7 @@ import analyticsRoutes from "./routes/analytics.js";
 import staticRoutes from "./routes/static.js";
 import paymentRoutes from "./routes/payment.js";
 import maintenanceRoutes from "./routes/maintenance.js";
+import webrtcRoutes from "./routes/webrtc.js";
 
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -460,6 +461,7 @@ app.use("/api/drafts", draftsRoutes);
 app.use("/api/groups", groupsRoutes);
 app.use("/api/upload", uploadLimiter, uploadRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use("/api/webrtc", webrtcRoutes);
 app.use("/api/static", staticRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/maintenance", maintenanceRoutes);

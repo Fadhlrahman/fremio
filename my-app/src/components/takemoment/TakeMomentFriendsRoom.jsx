@@ -582,51 +582,52 @@ export default function TakeMomentFriendsRoom({
 
   const wsUrl = useMemo(() => deriveWsUrl(), []);
 
-  const shouldInitiateOffer = useCallback((peerId) => {
-      const ensureIceServers = useCallback(async () => {
-        const now = Date.now();
-        if (Array.isArray(iceServersRef.current) && now < (iceServersExpiresAtRef.current || 0)) {
-          return iceServersRef.current;
+  const ensureIceServers = useCallback(async () => {
+    const now = Date.now();
+    if (Array.isArray(iceServersRef.current) && now < (iceServersExpiresAtRef.current || 0)) {
+      return iceServersRef.current;
+    }
+    if (iceServersPromiseRef.current) return iceServersPromiseRef.current;
+
+    const run = async () => {
+      // Always keep a working fallback.
+      const fallback = getIceServers();
+
+      try {
+        const api = String(VPS_API_URL || "").trim();
+        if (!api) return fallback;
+
+        const apiBase = api.startsWith("/") ? `${window.location.origin}${api}` : api;
+        const url = `${apiBase.replace(/\/$/, "")}/webrtc/turn`;
+
+        const resp = await fetch(url, { method: "GET" });
+        if (!resp.ok) return fallback;
+        const json = await resp.json();
+
+        const servers = Array.isArray(json?.iceServers) ? json.iceServers : null;
+        const ttl = Number(json?.ttlSeconds || 0);
+
+        if (servers && servers.length) {
+          iceServersRef.current = servers;
+          // refresh a bit before expiry
+          const ms = Math.max(30_000, Math.min(6 * 60 * 60 * 1000, (ttl || 3600) * 1000));
+          iceServersExpiresAtRef.current = Date.now() + Math.floor(ms * 0.8);
+          return servers;
         }
-        if (iceServersPromiseRef.current) return iceServersPromiseRef.current;
 
-        const run = async () => {
-          // Always keep a working fallback.
-          const fallback = getIceServers();
+        return fallback;
+      } catch {
+        return fallback;
+      } finally {
+        iceServersPromiseRef.current = null;
+      }
+    };
 
-          try {
-            const api = String(VPS_API_URL || "").trim();
-            if (!api) return fallback;
+    iceServersPromiseRef.current = run();
+    return iceServersPromiseRef.current;
+  }, []);
 
-            const apiBase = api.startsWith("/") ? `${window.location.origin}${api}` : api;
-            const url = `${apiBase.replace(/\/$/, "")}/webrtc/turn`;
-
-            const resp = await fetch(url, { method: "GET" });
-            if (!resp.ok) return fallback;
-            const json = await resp.json();
-
-            const servers = Array.isArray(json?.iceServers) ? json.iceServers : null;
-            const ttl = Number(json?.ttlSeconds || 0);
-
-            if (servers && servers.length) {
-              iceServersRef.current = servers;
-              // refresh a bit before expiry
-              const ms = Math.max(30_000, Math.min(6 * 60 * 60 * 1000, (ttl || 3600) * 1000));
-              iceServersExpiresAtRef.current = Date.now() + Math.floor(ms * 0.8);
-              return servers;
-            }
-
-            return fallback;
-          } catch {
-            return fallback;
-          } finally {
-            iceServersPromiseRef.current = null;
-          }
-        };
-
-        iceServersPromiseRef.current = run();
-        return iceServersPromiseRef.current;
-      }, []);
+  const shouldInitiateOffer = useCallback((peerId) => {
     const self = String(clientIdRef.current || "");
     const other = String(peerId || "");
     if (!self || !other) return false;

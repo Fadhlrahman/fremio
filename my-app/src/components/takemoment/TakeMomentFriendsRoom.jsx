@@ -146,11 +146,13 @@ const normalizeIncomingState = (incoming) => {
       ? backgroundColorCandidate
       : "#F4E6DA";
 
-  const layout = state.layout && typeof state.layout === "object" ? state.layout : {};
+  const rawLayout = state.layout && typeof state.layout === "object" ? state.layout : {};
   const layoutUnits =
     state.layoutUnits === "norm" || state.layoutUnits === "px"
       ? state.layoutUnits
-      : inferLayoutUnits(layout);
+      : inferLayoutUnits(rawLayout);
+
+  const layout = sanitizeLayout(layoutUnits, rawLayout);
 
   return { background: backgroundColor, backgroundColor, backgroundImage, layoutUnits, layout };
 };
@@ -173,23 +175,55 @@ const getDefaultTileNorm = (stageW, stageH) => {
 const normToPx = (norm, stageW, stageH) => {
   if (!norm || !stageW || !stageH) return { ...DEFAULT_TILE_PX };
   return {
-    x: Math.round((norm.x ?? 0) * stageW),
-    y: Math.round((norm.y ?? 0) * stageH),
-    w: Math.round((norm.w ?? 0) * stageW),
-    h: Math.round((norm.h ?? 0) * stageH),
-    z: norm.z ?? 0,
+    x: Math.round(finiteOr(norm.x, 0) * stageW),
+    y: Math.round(finiteOr(norm.y, 0) * stageH),
+    w: Math.round(finiteOr(norm.w, DEFAULT_TILE_PX.w / stageW) * stageW),
+    h: Math.round(finiteOr(norm.h, DEFAULT_TILE_PX.h / stageH) * stageH),
+    z: finiteOr(norm.z, 0),
   };
 };
 
 const pxToNorm = (px, stageW, stageH) => {
   if (!px || !stageW || !stageH) return getDefaultTileNorm(stageW, stageH);
   return {
-    x: (px.x ?? 0) / stageW,
-    y: (px.y ?? 0) / stageH,
-    w: (px.w ?? 0) / stageW,
-    h: (px.h ?? 0) / stageH,
-    z: px.z ?? 0,
+    x: finiteOr(px.x, 0) / stageW,
+    y: finiteOr(px.y, 0) / stageH,
+    w: finiteOr(px.w, DEFAULT_TILE_PX.w) / stageW,
+    h: finiteOr(px.h, DEFAULT_TILE_PX.h) / stageH,
+    z: finiteOr(px.z, 0),
   };
+};
+
+const sanitizeLayout = (layoutUnits, layout) => {
+  const src = layout && typeof layout === "object" ? layout : {};
+  const out = {};
+
+  for (const [id, rect] of Object.entries(src)) {
+    if (!id) continue;
+    const r = rect && typeof rect === "object" ? rect : {};
+
+    if (layoutUnits === "norm") {
+      out[id] = clampNormRect({
+        x: finiteOr(r.x, 0.05),
+        y: finiteOr(r.y, 0.05),
+        w: finiteOr(r.w, 0.28),
+        h: finiteOr(r.h, 0.42),
+        z: finiteOr(r.z, 0),
+      });
+      out[id].z = finiteOr(r.z, out[id].z ?? 0);
+      continue;
+    }
+
+    out[id] = {
+      x: Math.round(finiteOr(r.x, DEFAULT_TILE_PX.x)),
+      y: Math.round(finiteOr(r.y, DEFAULT_TILE_PX.y)),
+      w: Math.max(20, Math.round(finiteOr(r.w, DEFAULT_TILE_PX.w))),
+      h: Math.max(20, Math.round(finiteOr(r.h, DEFAULT_TILE_PX.h))),
+      z: finiteOr(r.z, 0),
+    };
+  }
+
+  return out;
 };
 
 const clampNormRect = (rect) => {

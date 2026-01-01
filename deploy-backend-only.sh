@@ -44,7 +44,6 @@ rsync -avz --delete \
     --exclude='uploads' \
     --exclude='uploads/**' \
     --exclude='uploads/temp/*' \
-    --exclude='public' \
     backend/ ${VPS_USER}@${VPS_HOST}:${BACKEND_PATH}/
 
 echo -e "${GREEN}✅ Files synced!${NC}"

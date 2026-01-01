@@ -100,7 +100,12 @@ const createPeerConnection = ({ iceServers, onIceCandidate, onTrackEvent }) => {
   return pc;
 };
 
-const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const clamp = (value, min, max) => {
+  const v = Number.isFinite(value) ? value : min;
+  return Math.max(min, Math.min(max, v));
+};
+
+const finiteOr = (value, fallback) => (Number.isFinite(value) ? value : fallback);
 
 const inferLayoutUnits = (layout) => {
   if (!layout || typeof layout !== "object") return "px";
@@ -188,10 +193,10 @@ const pxToNorm = (px, stageW, stageH) => {
 };
 
 const clampNormRect = (rect) => {
-  const w = clamp(rect.w ?? 0.2, 0.05, 1);
-  const h = clamp(rect.h ?? 0.2, 0.05, 1);
-  const x = clamp(rect.x ?? 0, 0, Math.max(0, 1 - w));
-  const y = clamp(rect.y ?? 0, 0, Math.max(0, 1 - h));
+  const w = clamp(finiteOr(rect?.w, 0.2), 0.05, 1);
+  const h = clamp(finiteOr(rect?.h, 0.2), 0.05, 1);
+  const x = clamp(finiteOr(rect?.x, 0), 0, Math.max(0, 1 - w));
+  const y = clamp(finiteOr(rect?.y, 0), 0, Math.max(0, 1 - h));
   return { ...rect, x, y, w, h };
 };
 
@@ -1887,31 +1892,33 @@ export default function TakeMomentFriendsRoom({
               style={{ zIndex, borderRadius: 14, overflow: "hidden", touchAction: canControl ? "none" : "manipulation" }}
               onDragStop={(e, d) => {
                 if (!isMaster) return;
+                if (!stageSize.w || !stageSize.h) return;
                 const baseLayout = ensureNormLayoutNow();
                 if (!baseLayout) return;
                 const currentNorm =
                   baseLayout?.[id] || getDefaultTileNorm(stageSize.w, stageSize.h);
                 const nextNorm = clampNormRect({
                   ...currentNorm,
-                  x: d.x / stageSize.w,
-                  y: d.y / stageSize.h,
+                  x: (Number.isFinite(d?.x) ? d.x : 0) / stageSize.w,
+                  y: (Number.isFinite(d?.y) ? d.y : 0) / stageSize.h,
                 });
                 upsertLayoutFor(id, nextNorm);
               }}
               onResizeStop={(e, direction, ref, delta, position) => {
                 if (!isMaster) return;
+                if (!stageSize.w || !stageSize.h) return;
                 const baseLayout = ensureNormLayoutNow();
                 if (!baseLayout) return;
-                const w = ref.offsetWidth;
-                const h = ref.offsetHeight;
+                const w = Number.isFinite(ref?.offsetWidth) ? ref.offsetWidth : layout.w;
+                const h = Number.isFinite(ref?.offsetHeight) ? ref.offsetHeight : layout.h;
                 const currentNorm =
                   baseLayout?.[id] || getDefaultTileNorm(stageSize.w, stageSize.h);
                 const nextNorm = clampNormRect({
                   ...currentNorm,
                   w: w / stageSize.w,
                   h: h / stageSize.h,
-                  x: position.x / stageSize.w,
-                  y: position.y / stageSize.h,
+                  x: (Number.isFinite(position?.x) ? position.x : 0) / stageSize.w,
+                  y: (Number.isFinite(position?.y) ? position.y : 0) / stageSize.h,
                 });
                 upsertLayoutFor(id, nextNorm);
               }}

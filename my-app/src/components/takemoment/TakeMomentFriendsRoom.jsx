@@ -528,6 +528,27 @@ export default function TakeMomentFriendsRoom({
   // Use state so video tiles re-render when stream becomes available
   const [localStream, setLocalStream] = useState(null);
 
+  // Mobile/iOS can block autoplay with audio unless play() is invoked from a user gesture.
+  const kickstartedPlaybackRef = useRef(false);
+  const kickstartPlayback = useCallback(() => {
+    if (kickstartedPlaybackRef.current) return;
+    kickstartedPlaybackRef.current = true;
+    for (const el of tileVideoElsRef.current.values()) {
+      try {
+        const p = el?.play?.();
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      } catch {
+        // ignore
+      }
+    }
+    try {
+      const p = localVideoRef.current?.play?.();
+      if (p && typeof p.catch === "function") p.catch(() => {});
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const [peers, setPeers] = useState([]); // list of peerIds
   const [remoteStreams, setRemoteStreams] = useState([]); // [{id, stream}]
 
@@ -567,16 +588,21 @@ export default function TakeMomentFriendsRoom({
 
   const ensureLocalMedia = useCallback(async () => {
     if (localStreamRef.current) return localStreamRef.current;
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 640, height: 480 },
-      audio: true,
-    });
-    localStreamRef.current = stream;
-    setLocalStream(stream);
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = stream;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480 },
+        audio: true,
+      });
+      localStreamRef.current = stream;
+      setLocalStream(stream);
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+      }
+      return stream;
+    } catch {
+      // Allow joining in recvonly mode if camera/mic is unavailable (common in in-app browsers).
+      return null;
     }
-    return stream;
   }, []);
 
   const closeAllPeerConnections = useCallback(() => {
@@ -951,7 +977,17 @@ export default function TakeMomentFriendsRoom({
         console.log("[friends] PC state", peerId, pc.connectionState);
       };
 
-      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      if (stream) {
+        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      } else {
+        // Still receive remote audio/video even if we can't publish.
+        try {
+          pc.addTransceiver("video", { direction: "recvonly" });
+          pc.addTransceiver("audio", { direction: "recvonly" });
+        } catch {
+          // ignore
+        }
+      }
       pcsRef.current.set(peerId, pc);
 
       if (effectiveInitiate) {
@@ -1291,7 +1327,7 @@ export default function TakeMomentFriendsRoom({
         setPeers([]);
         setRemoteStreams([]);
 
-        // Ensure local camera/mic is ready
+        // Try to get local camera/mic, but don't block room join if it fails.
         await ensureLocalMedia();
 
         const ws = new WebSocket(wsUrl);
@@ -1606,6 +1642,8 @@ export default function TakeMomentFriendsRoom({
         ref={stageRef}
         style={stageStyle}
         onMouseDown={() => setSelectedTileId(null)}
+        onPointerDown={() => kickstartPlayback()}
+        onTouchStart={() => kickstartPlayback()}
       >
         {/* Local video element (hidden UI, but used for rendering/capture) */}
         <video

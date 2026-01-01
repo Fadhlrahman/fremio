@@ -417,6 +417,21 @@ app.use(
   express.static(publicDir, {
     maxAge: "1y",
     immutable: true,
+    setHeaders: (res, filePath) => {
+      // Ensure correct MIME types for WebAssembly and MediaPipe assets.
+      // If `.wasm` is served with the wrong Content-Type, browsers fall back to slower
+      // compilation and MediaPipe init can take 30s+ on some networks/devices.
+      if (filePath.endsWith(".wasm")) {
+        res.setHeader("Content-Type", "application/wasm");
+      } else if (filePath.endsWith(".tflite")) {
+        res.setHeader("Content-Type", "application/octet-stream");
+      } else if (filePath.endsWith(".binarypb")) {
+        res.setHeader("Content-Type", "application/octet-stream");
+      } else if (filePath.endsWith(".data")) {
+        res.setHeader("Content-Type", "application/octet-stream");
+      }
+      res.setHeader("X-Content-Type-Options", "nosniff");
+    },
   })
 );
 

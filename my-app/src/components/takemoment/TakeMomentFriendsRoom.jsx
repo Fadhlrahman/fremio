@@ -5,6 +5,25 @@ import { VPS_API_URL } from "../../config/backend";
 const MAX_PEOPLE = 4;
 const MIRROR_ALL_STREAMS = true;
 
+const deriveBackendOrigin = () => {
+  const api = String(VPS_API_URL || "").trim();
+
+  // If API is relative, backend is same-origin.
+  if (!api || api.startsWith("/")) return window.location.origin;
+
+  try {
+    return new URL(api).origin;
+  } catch {
+    return window.location.origin;
+  }
+};
+
+const deriveMediapipeSelfieBase = () => {
+  // Serve MediaPipe assets from backend `/static` so we can guarantee correct MIME types
+  // (especially `.wasm` -> `application/wasm`) and long-lived caching.
+  return `${deriveBackendOrigin()}/static/mediapipe/selfie_segmentation`;
+};
+
 const deriveWsUrl = () => {
   const api = String(VPS_API_URL || "").trim();
 
@@ -766,7 +785,7 @@ export default function TakeMomentFriendsRoom({
     if (globalThis?.SelfieSegmentation) return Promise.resolve(true);
     if (mediapipeLoadPromiseRef.current) return mediapipeLoadPromiseRef.current;
 
-    const src = `${import.meta.env.BASE_URL}mediapipe/selfie_segmentation/selfie_segmentation.js`;
+    const src = `${deriveMediapipeSelfieBase()}/selfie_segmentation.js`;
 
     mediapipeLoadPromiseRef.current = new Promise((resolve, reject) => {
       try {
@@ -812,8 +831,10 @@ export default function TakeMomentFriendsRoom({
         const SelfieSegmentationCtor = globalThis?.SelfieSegmentation;
         if (!SelfieSegmentationCtor) return;
 
+        const base = deriveMediapipeSelfieBase();
+
         const seg = new SelfieSegmentationCtor({
-          locateFile: (file) => `${import.meta.env.BASE_URL}mediapipe/selfie_segmentation/${file}`,
+          locateFile: (file) => `${base}/${file}`,
         });
 
         try {
@@ -856,8 +877,10 @@ export default function TakeMomentFriendsRoom({
         return;
       }
 
+      const base = deriveMediapipeSelfieBase();
+
       const seg = new SelfieSegmentationCtor({
-        locateFile: (file) => `${import.meta.env.BASE_URL}mediapipe/selfie_segmentation/${file}`,
+        locateFile: (file) => `${base}/${file}`,
       });
 
       // We apply mirroring uniformly at render/capture time.

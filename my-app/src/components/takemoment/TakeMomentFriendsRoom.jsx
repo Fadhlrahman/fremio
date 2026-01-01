@@ -27,7 +27,14 @@ const safeJsonSend = (ws, msg) => {
 };
 
 const getIceServers = () => {
-  const servers = [{ urls: "stun:stun.l.google.com:19302" }];
+  // Multiple STUN entries improves odds across networks.
+  const servers = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+    { urls: "stun:stun3.l.google.com:19302" },
+    { urls: "stun:stun4.l.google.com:19302" },
+  ];
 
   // Optional TURN for NAT-restricted networks (set in Cloudflare Pages env)
   // - VITE_WEBRTC_TURN_URL: e.g. "turn:turn.example.com:3478?transport=udp,turns:turn.example.com:5349?transport=tcp"
@@ -186,6 +193,7 @@ export default function TakeMomentFriendsRoom({
   const pcsRef = useRef(new Map()); // peerId -> RTCPeerConnection
   const remoteStreamsRef = useRef(new Map()); // peerId -> MediaStream
   const pendingIceRef = useRef(new Map()); // peerId -> RTCIceCandidateInit[]
+  const iceRestartRef = useRef(new Map()); // peerId -> lastRestartAt(ms)
 
   const tileVideoElsRef = useRef(new Map()); // id -> HTMLVideoElement
   const tileCanvasElsRef = useRef(new Map()); // id -> HTMLCanvasElement
@@ -579,6 +587,54 @@ export default function TakeMomentFriendsRoom({
     return self.localeCompare(other) < 0;
   }, []);
 
+  const requestIceRestart = useCallback(
+    async (peerId, reason) => {
+      const pc = pcsRef.current.get(peerId);
+      if (!pc) return;
+
+      const now = Date.now();
+      const last = iceRestartRef.current.get(peerId) || 0;
+      if (now - last < 8000) return; // throttle
+      iceRestartRef.current.set(peerId, now);
+
+      const initiator = shouldInitiateOffer(peerId);
+
+      // eslint-disable-next-line no-console
+      console.log("[friends] ICE restart", { peerId, initiator, reason, state: pc.iceConnectionState });
+
+      if (!initiator) {
+        // Ask the initiator to restart ICE (some browsers behave better).
+        safeJsonSend(wsRef.current, {
+          type: "SIGNAL",
+          payload: { to: peerId, data: { iceRestartRequest: true, reason: String(reason || "") } },
+        });
+        return;
+      }
+
+      try {
+        pc.restartIce?.();
+      } catch {
+        // ignore
+      }
+
+      // Only renegotiate when stable.
+      if (pc.signalingState !== "stable") return;
+
+      try {
+        const offer = await pc.createOffer({ iceRestart: true });
+        await pc.setLocalDescription(offer);
+        safeJsonSend(wsRef.current, {
+          type: "SIGNAL",
+          payload: { to: peerId, data: { sdp: pc.localDescription } },
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("[friends] ICE restart offer failed", peerId, e);
+      }
+    },
+    [shouldInitiateOffer]
+  );
+
   const updateRemoteStreamsState = useCallback(() => {
     const entries = [...remoteStreamsRef.current.entries()].map(
       ([id, stream]) => ({ id, stream })
@@ -971,10 +1027,18 @@ export default function TakeMomentFriendsRoom({
       pc.oniceconnectionstatechange = () => {
         // eslint-disable-next-line no-console
         console.log("[friends] ICE state", peerId, pc.iceConnectionState);
+
+        if (pc.iceConnectionState === "failed") {
+          requestIceRestart(peerId, "ice_failed");
+        }
       };
       pc.onconnectionstatechange = () => {
         // eslint-disable-next-line no-console
         console.log("[friends] PC state", peerId, pc.connectionState);
+
+        if (pc.connectionState === "failed") {
+          requestIceRestart(peerId, "pc_failed");
+        }
       };
 
       if (stream) {
@@ -1014,6 +1078,12 @@ export default function TakeMomentFriendsRoom({
   const handleSignal = useCallback(
     async (from, data) => {
       if (!from || !data) return;
+
+      // Peer asked us to restart ICE (we might be the initiator).
+      if (data.iceRestartRequest) {
+        await requestIceRestart(from, data.reason || "peer_request");
+        return;
+      }
 
       // eslint-disable-next-line no-console
       console.log("[friends] recv SIGNAL <-", from, {
@@ -1081,7 +1151,7 @@ export default function TakeMomentFriendsRoom({
         }
       }
     },
-    [setupPeer]
+    [requestIceRestart, setupPeer]
   );
 
   const doCapture = useCallback(async () => {

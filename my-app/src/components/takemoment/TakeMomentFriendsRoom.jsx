@@ -203,6 +203,7 @@ export default function TakeMomentFriendsRoom({
   const segmentationPipelinesRef = useRef(new Map()); // id -> { seg, rafId, stopped }
 
   const mediapipeLoadPromiseRef = useRef(null);
+  const mediapipeWarmupStartedRef = useRef(false);
 
   const [segmentationStatus, setSegmentationStatus] = useState({}); // id -> 'pending' | 'ready' | 'failed'
   const segmentationStatusRef = useRef({});
@@ -795,6 +796,49 @@ export default function TakeMomentFriendsRoom({
 
     return mediapipeLoadPromiseRef.current;
   }, []);
+
+  // Warm up MediaPipe as early as possible so cutout becomes ready faster.
+  // Note: first-time load still depends on network + wasm/model initialization, so it can't be truly instant.
+  useEffect(() => {
+    if (mediapipeWarmupStartedRef.current) return;
+    mediapipeWarmupStartedRef.current = true;
+
+    let cancelled = false;
+    (async () => {
+      const ok = await ensureMediapipeSelfieSegmentationLoaded();
+      if (!ok || cancelled) return;
+
+      try {
+        const SelfieSegmentationCtor = globalThis?.SelfieSegmentation;
+        if (!SelfieSegmentationCtor) return;
+
+        const seg = new SelfieSegmentationCtor({
+          locateFile: (file) => `${import.meta.env.BASE_URL}mediapipe/selfie_segmentation/${file}`,
+        });
+
+        try {
+          seg.setOptions?.({ modelSelection: 1, selfieMode: false });
+        } catch {
+          // ignore
+        }
+
+        // Force initialization/download of wasm+model.
+        await Promise.resolve(seg.initialize?.());
+
+        try {
+          seg.close?.();
+        } catch {
+          // ignore
+        }
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ensureMediapipeSelfieSegmentationLoaded]);
 
   const ensureSegmentationPipeline = useCallback((id, isLocal) => {
     const videoEl = tileVideoElsRef.current.get(id);

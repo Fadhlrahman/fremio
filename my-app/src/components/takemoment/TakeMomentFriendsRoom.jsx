@@ -60,9 +60,9 @@ const getIceServers = () => {
   return servers;
 };
 
-const createPeerConnection = ({ onIceCandidate, onTrackEvent }) => {
+const createPeerConnection = ({ iceServers, onIceCandidate, onTrackEvent }) => {
   const pc = new RTCPeerConnection({
-    iceServers: getIceServers(),
+    iceServers: iceServers || getIceServers(),
   });
 
   pc.onicecandidate = (event) => {
@@ -194,6 +194,9 @@ export default function TakeMomentFriendsRoom({
   const remoteStreamsRef = useRef(new Map()); // peerId -> MediaStream
   const pendingIceRef = useRef(new Map()); // peerId -> RTCIceCandidateInit[]
   const iceRestartRef = useRef(new Map()); // peerId -> lastRestartAt(ms)
+  const iceServersRef = useRef(null);
+  const iceServersExpiresAtRef = useRef(0);
+  const iceServersPromiseRef = useRef(null);
 
   const tileVideoElsRef = useRef(new Map()); // id -> HTMLVideoElement
   const tileCanvasElsRef = useRef(new Map()); // id -> HTMLCanvasElement
@@ -580,6 +583,50 @@ export default function TakeMomentFriendsRoom({
   const wsUrl = useMemo(() => deriveWsUrl(), []);
 
   const shouldInitiateOffer = useCallback((peerId) => {
+      const ensureIceServers = useCallback(async () => {
+        const now = Date.now();
+        if (Array.isArray(iceServersRef.current) && now < (iceServersExpiresAtRef.current || 0)) {
+          return iceServersRef.current;
+        }
+        if (iceServersPromiseRef.current) return iceServersPromiseRef.current;
+
+        const run = async () => {
+          // Always keep a working fallback.
+          const fallback = getIceServers();
+
+          try {
+            const api = String(VPS_API_URL || "").trim();
+            if (!api) return fallback;
+
+            const apiBase = api.startsWith("/") ? `${window.location.origin}${api}` : api;
+            const url = `${apiBase.replace(/\/$/, "")}/webrtc/turn`;
+
+            const resp = await fetch(url, { method: "GET" });
+            if (!resp.ok) return fallback;
+            const json = await resp.json();
+
+            const servers = Array.isArray(json?.iceServers) ? json.iceServers : null;
+            const ttl = Number(json?.ttlSeconds || 0);
+
+            if (servers && servers.length) {
+              iceServersRef.current = servers;
+              // refresh a bit before expiry
+              const ms = Math.max(30_000, Math.min(6 * 60 * 60 * 1000, (ttl || 3600) * 1000));
+              iceServersExpiresAtRef.current = Date.now() + Math.floor(ms * 0.8);
+              return servers;
+            }
+
+            return fallback;
+          } catch {
+            return fallback;
+          } finally {
+            iceServersPromiseRef.current = null;
+          }
+        };
+
+        iceServersPromiseRef.current = run();
+        return iceServersPromiseRef.current;
+      }, []);
     const self = String(clientIdRef.current || "");
     const other = String(peerId || "");
     if (!self || !other) return false;
@@ -988,7 +1035,9 @@ export default function TakeMomentFriendsRoom({
 
       const stream = await ensureLocalMedia();
 
+      const iceServers = await ensureIceServers();
       const pc = createPeerConnection({
+        iceServers,
         onIceCandidate: (candidate) => {
           // eslint-disable-next-line no-console
           console.log("[friends] send ICE ->", peerId);
@@ -1072,7 +1121,7 @@ export default function TakeMomentFriendsRoom({
         }
       }
     },
-    [ensureLocalMedia, shouldInitiateOffer, updateRemoteStreamsState]
+    [ensureIceServers, ensureLocalMedia, requestIceRestart, shouldInitiateOffer, updateRemoteStreamsState]
   );
 
   const handleSignal = useCallback(

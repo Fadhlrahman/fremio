@@ -16,6 +16,7 @@ const uploadRoutes = require("./routes/upload");
 const userRoutes = require("./routes/users");
 const analyticsRoutes = require("./routes/analytics");
 const groupRoutes = require("./routes/groups");
+const webrtcRoutes = require("./routes/webrtc");
 const paymentRoutes = require("../routes/payment");
 const adminPackagesRoutes = require("../routes/adminPackages");
 
@@ -145,6 +146,7 @@ app.use("/api/upload", uploadRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/groups", groupRoutes);
+app.use("/api/webrtc", webrtcRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/admin/packages", adminPackagesRoutes);
 

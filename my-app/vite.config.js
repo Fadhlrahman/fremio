@@ -67,6 +67,9 @@ export default defineConfig(({ mode }) => {
     exclude: ['@ffmpeg/ffmpeg']
   },
   build: {
+    // Improve compatibility on older devices that support modules but
+    // can't parse newer syntax (e.g. optional chaining).
+    target: 'es2017',
     rollupOptions: {
       output: {
         // Use assets folder with timestamp for cache busting

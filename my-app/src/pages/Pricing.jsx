@@ -18,9 +18,12 @@ const Pricing = () => {
   // Premium frames categories shown on Pricing page
   // Must match the exact category strings used when uploading frames in Admin.
   const tabs = [
-    "Christmas Fremio Series",
     "Holiday Fremio Series",
-    "Year-End Recap Fremio Series",
+    "Aesthetic Scrapbook & Retro",
+    "Cute Characters",
+    "Self-love",
+    "Minimalist Doodles & Soft Colors",
+    "Romance",
   ];
   const [activeTab, setActiveTab] = useState(tabs[0]);
   const [premiumFramesByCategory, setPremiumFramesByCategory] = useState({});
@@ -51,14 +54,19 @@ const Pricing = () => {
 
       // Pricing preview is based on category only (not tied to paid/free).
       const allowed = new Set(tabs);
-      const categoryFrames = (frames || []).filter((f) =>
-        allowed.has(String(f.category || ""))
-      );
+      const grouped = (frames || []).reduce((acc, frame) => {
+        const rawCategories = Array.isArray(frame?.categories)
+          ? frame.categories
+          : String(frame?.category || "")
+              .split(",")
+              .map((c) => c.trim())
+              .filter(Boolean);
 
-      const grouped = categoryFrames.reduce((acc, frame) => {
-        const category = String(frame.category || "Uncategorized");
-        if (!acc[category]) acc[category] = [];
-        acc[category].push(frame);
+        const match = rawCategories.find((c) => allowed.has(String(c)));
+        if (!match) return acc;
+
+        if (!acc[match]) acc[match] = [];
+        acc[match].push(frame);
         return acc;
       }, {});
 
@@ -384,11 +392,6 @@ const Pricing = () => {
     );
   }
 
-  const christmasFrames =
-    premiumFramesByCategory["Christmas Fremio Series"] || [];
-  const holidayFrames = premiumFramesByCategory["Holiday Fremio Series"] || [];
-  const yearEndFrames =
-    premiumFramesByCategory["Year-End Recap Fremio Series"] || [];
   const tabFrames = premiumFramesByCategory[activeTab] || [];
 
   const pendingCanResume =
@@ -398,12 +401,28 @@ const Pricing = () => {
 
   const pendingCanManage = !!pendingPayment && !pendingPayment.unavailable;
 
+  const previewQuoteByCategory = {
+    "Holiday Fremio Series": "“Holiday Frames untuk temani liburan”",
+    "Aesthetic Scrapbook & Retro": "“Aesthetic & Retro untuk cerita kamu”",
+    "Cute Characters": "“Cute Characters untuk vibes gemas”",
+    "Self-love": "“Self-love untuk momen yang lebih bermakna”",
+    "Minimalist Doodles & Soft Colors":
+      "“Minimalist & Soft Colors untuk tampilan clean”",
+    Romance: "“Romance untuk momen spesial”",
+  };
+
   const previewQuote =
-    activeTab === "Christmas Fremio Series"
-      ? "“Christmas Frames untuk rayakan Natal”"
-      : activeTab === "Holiday Fremio Series"
-      ? "“Holiday Frames untuk temani liburan”"
-      : "“Year-End Frames untuk rayakan tahun baru”";
+    previewQuoteByCategory[activeTab] || "“Koleksi frames untuk member Fremio”";
+
+  const membershipCategoryCounts = tabs.map((category) => ({
+    category,
+    count: (premiumFramesByCategory[category] || []).length || 0,
+  }));
+
+  const membershipTotalFrames = membershipCategoryCounts.reduce(
+    (sum, entry) => sum + (entry.count || 0),
+    0
+  );
 
   return (
     <div className="pricing-container">
@@ -702,26 +721,16 @@ const Pricing = () => {
                   </ul>
                 </div>
                 <div className="offer-col">
-                  <div className="offer-col-title">December Series Frames:</div>
+                  <div className="offer-col-title">
+                    Koleksi Membership Frames:
+                  </div>
                   <ul>
-                    <li>
-                      {christmasFrames.length || 0} Christmas Fremio Series
-                      frames
-                    </li>
-                    <li>
-                      {holidayFrames.length || 0} Holiday Fremio Series frames
-                    </li>
-                    <li>
-                      {yearEndFrames.length || 0} Year-End Recap Fremio Series
-                      frames
-                    </li>
-                    <li>
-                      Total:{" "}
-                      {christmasFrames.length +
-                        holidayFrames.length +
-                        yearEndFrames.length}{" "}
-                      frames
-                    </li>
+                    {membershipCategoryCounts.map((entry) => (
+                      <li key={entry.category}>
+                        {entry.count} {entry.category} frames
+                      </li>
+                    ))}
+                    <li>Total: {membershipTotalFrames} frames</li>
                   </ul>
                 </div>
               </div>

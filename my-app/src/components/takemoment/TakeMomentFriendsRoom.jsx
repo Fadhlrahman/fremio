@@ -5,6 +5,13 @@ import { VPS_API_URL } from "../../config/backend";
 const MAX_PEOPLE = 4;
 const MIRROR_ALL_STREAMS = true;
 
+const TIMER_STEPS = [0, 3, 5, 10];
+
+// Some browsers hard-fail when canvas width*height gets too large.
+// 268,435,456 is a common max area (e.g., 16384^2). Keep at-or-below it.
+const MAX_CANVAS_AREA = 268435456;
+const MAX_CANVAS_DIM = 16384;
+
 const deriveBackendOrigin = () => {
   const api = String(VPS_API_URL || "").trim();
 
@@ -242,6 +249,8 @@ export default function TakeMomentFriendsRoom({
 }) {
   const stageRef = useRef(null);
   const wsRef = useRef(null);
+  const participantUiTimerRef = useRef(null);
+  const countdownIntervalRef = useRef(null);
   const localVideoRef = useRef(null);
   const localCutoutCanvasRef = useRef(null);
   const backgroundFileInputRef = useRef(null);
@@ -274,6 +283,119 @@ export default function TakeMomentFriendsRoom({
   const [clientId, setClientId] = useState(null);
   const [role, setRole] = useState(null); // 'master' | 'participant'
   const isMaster = role === "master";
+
+  const [timerSeconds, setTimerSeconds] = useState(0);
+  const [countdown, setCountdown] = useState(null);
+  const [isCapturing, setIsCapturing] = useState(false);
+
+  // Track each stream's intrinsic aspect ratio (width/height) so tiles never stretch.
+  const aspectByIdRef = useRef({});
+  const [aspectById, setAspectById] = useState({});
+  const upsertAspectForId = useCallback((id, aspect) => {
+    if (!id) return;
+    const ar = Number(aspect);
+    if (!Number.isFinite(ar) || ar <= 0.05 || ar >= 20) return;
+    const prev = aspectByIdRef.current?.[id];
+    if (Number.isFinite(prev) && Math.abs(prev - ar) < 0.0001) return;
+
+    aspectByIdRef.current = { ...(aspectByIdRef.current || {}), [id]: ar };
+    setAspectById((curr) => {
+      const currentVal = curr?.[id];
+      if (Number.isFinite(currentVal) && Math.abs(currentVal - ar) < 0.0001) return curr;
+      return { ...(curr || {}), [id]: ar };
+    });
+  }, []);
+
+  const getAspectForId = useCallback((id) => {
+    const ar = aspectByIdRef.current?.[id];
+    return Number.isFinite(ar) ? ar : null;
+  }, []);
+
+  // Prevent auto-layout from overriding master's manual adjustments.
+  const userAdjustedLayoutRef = useRef(false);
+
+  const [showParticipantCapture, setShowParticipantCapture] = useState(false);
+  const [participantCaptureUrl, setParticipantCaptureUrl] = useState(null);
+
+  const clearParticipantUiTimer = useCallback(() => {
+    if (participantUiTimerRef.current) {
+      try {
+        clearTimeout(participantUiTimerRef.current);
+      } catch {
+        // ignore
+      }
+      participantUiTimerRef.current = null;
+    }
+  }, []);
+
+  const clearCountdownInterval = useCallback(() => {
+    if (countdownIntervalRef.current) {
+      try {
+        clearInterval(countdownIntervalRef.current);
+      } catch {
+        // ignore
+      }
+      countdownIntervalRef.current = null;
+    }
+  }, []);
+
+  const showParticipantCaptureNotice = useCallback(
+    ({ dataUrl }) => {
+      setParticipantCaptureUrl(typeof dataUrl === "string" ? dataUrl : null);
+      setShowParticipantCapture(true);
+
+      // Keep visible briefly even if session ends right after.
+      clearParticipantUiTimer();
+      participantUiTimerRef.current = setTimeout(() => {
+        setShowParticipantCapture(false);
+        setParticipantCaptureUrl(null);
+      }, 2000);
+    },
+    [clearParticipantUiTimer]
+  );
+
+  const sendRoomEvent = useCallback(
+    (payload) => {
+      if (!isMaster) return;
+      safeJsonSend(wsRef.current, { type: "ROOM_EVENT", payload });
+    },
+    [isMaster]
+  );
+
+  const buildStandardDefaultLayout = useCallback((ids) => {
+    const list = Array.isArray(ids) ? ids.slice(0, MAX_PEOPLE) : [];
+    const n = list.length;
+    const layout = {};
+
+    if (n <= 0) return layout;
+
+    if (n === 1) {
+      layout[list[0]] = { x: 0.2, y: 0.1, w: 0.6, h: 0.8, z: 0 };
+      return layout;
+    }
+
+    if (n === 2) {
+      // Master slightly left of horizontal center, participant to the right.
+      layout[list[0]] = { x: 0.12, y: 0.12, w: 0.36, h: 0.76, z: 0 };
+      layout[list[1]] = { x: 0.52, y: 0.12, w: 0.36, h: 0.76, z: 1 };
+      return layout;
+    }
+
+    if (n === 3) {
+      // Master + participant 1 on top (slightly shifted up), participant 2 below centered.
+      layout[list[0]] = { x: 0.12, y: 0.06, w: 0.36, h: 0.42, z: 0 };
+      layout[list[1]] = { x: 0.52, y: 0.06, w: 0.36, h: 0.42, z: 1 };
+      layout[list[2]] = { x: 0.3, y: 0.52, w: 0.4, h: 0.42, z: 2 };
+      return layout;
+    }
+
+    // 4
+    layout[list[0]] = { x: 0.06, y: 0.07, w: 0.42, h: 0.42, z: 0 };
+    layout[list[1]] = { x: 0.52, y: 0.07, w: 0.42, h: 0.42, z: 1 };
+    layout[list[2]] = { x: 0.06, y: 0.54, w: 0.42, h: 0.42, z: 2 };
+    layout[list[3]] = { x: 0.52, y: 0.54, w: 0.42, h: 0.42, z: 3 };
+    return layout;
+  }, []);
 
   const [stageSize, setStageSize] = useState({ w: 0, h: 0 });
 
@@ -941,8 +1063,17 @@ export default function TakeMomentFriendsRoom({
         const cssW = Math.max(1, Math.floor(canvasEl.clientWidth || 1));
         const cssH = Math.max(1, Math.floor(canvasEl.clientHeight || 1));
         const dpr = window.devicePixelRatio || 1;
-        const w = Math.max(1, Math.floor(cssW * dpr));
-        const h = Math.max(1, Math.floor(cssH * dpr));
+        let w = Math.max(1, Math.floor(cssW * dpr));
+        let h = Math.max(1, Math.floor(cssH * dpr));
+
+        w = Math.min(MAX_CANVAS_DIM, w);
+        h = Math.min(MAX_CANVAS_DIM, h);
+        const area = w * h;
+        if (area > MAX_CANVAS_AREA) {
+          const scale = Math.sqrt(MAX_CANVAS_AREA / area);
+          w = Math.max(1, Math.floor(w * scale));
+          h = Math.max(1, Math.floor(h * scale));
+        }
 
         if (canvasEl.width !== w || canvasEl.height !== h) {
           canvasEl.width = w;
@@ -1055,6 +1186,39 @@ export default function TakeMomentFriendsRoom({
     },
     [roomState]
   );
+
+  const applyAutoLayoutIfNeeded = useCallback(() => {
+    if (!isMaster) return;
+    if (!stageSize.w || !stageSize.h) return;
+    if (!clientId) return;
+    if (roomState.layoutUnits !== "norm") return;
+    if (userAdjustedLayoutRef.current) return;
+
+    const ids = [clientId, ...peers].slice(0, MAX_PEOPLE);
+    const desired = buildStandardDefaultLayout(ids);
+    const current = roomState.layout || {};
+
+    let changed = false;
+    const next = { ...current };
+    for (const id of ids) {
+      const want = desired[id];
+      if (!want) continue;
+
+      const prev = current[id];
+      const same =
+        prev &&
+        Math.abs((prev.x ?? 0) - want.x) < 0.001 &&
+        Math.abs((prev.y ?? 0) - want.y) < 0.001 &&
+        Math.abs((prev.w ?? 0) - want.w) < 0.001 &&
+        Math.abs((prev.h ?? 0) - want.h) < 0.001;
+      if (!same) {
+        next[id] = want;
+        changed = true;
+      }
+    }
+
+    if (changed) sendStateUpdate({ layout: next });
+  }, [buildStandardDefaultLayout, clientId, isMaster, peers, roomState.layout, roomState.layoutUnits, sendStateUpdate, stageSize.h, stageSize.w]);
 
   const resizeImageFileToDataUrl = useCallback(async (file, { maxDim = 1600, quality = 0.88 } = {}) => {
     if (!file) return null;
@@ -1316,8 +1480,17 @@ export default function TakeMomentFriendsRoom({
     if (!stage) return;
 
     const rect = stage.getBoundingClientRect();
-    const width = Math.max(1, Math.floor(rect.width));
-    const height = Math.max(1, Math.floor(rect.height));
+    let width = Math.max(1, Math.floor(rect.width));
+    let height = Math.max(1, Math.floor(rect.height));
+
+    width = Math.min(MAX_CANVAS_DIM, width);
+    height = Math.min(MAX_CANVAS_DIM, height);
+    const area = width * height;
+    if (area > MAX_CANVAS_AREA) {
+      const scale = Math.sqrt(MAX_CANVAS_AREA / area);
+      width = Math.max(1, Math.floor(width * scale));
+      height = Math.max(1, Math.floor(height * scale));
+    }
 
     const canvas = document.createElement("canvas");
     canvas.width = width;
@@ -1371,7 +1544,13 @@ export default function TakeMomentFriendsRoom({
       const sourceEl = status === "ready" && canvasEl ? canvasEl : videoEl || canvasEl;
       if (!sourceEl) continue;
 
-      nodes.push({ id, sourceEl, layout });
+      const arFromVideo =
+        videoEl && videoEl.videoWidth > 0 && videoEl.videoHeight > 0
+          ? videoEl.videoWidth / videoEl.videoHeight
+          : null;
+      const aspect = Number.isFinite(arFromVideo) ? arFromVideo : getAspectForId(id);
+
+      nodes.push({ id, sourceEl, layout, aspect });
     }
 
     // Sort by z
@@ -1392,8 +1571,21 @@ export default function TakeMomentFriendsRoom({
 
       const x = clamp(rectPx.x, -width, width * 2);
       const y = clamp(rectPx.y, -height, height * 2);
-      const w = clamp(rectPx.w, 1, width * 4);
-      const h = clamp(rectPx.h, 1, height * 4);
+      let w = clamp(rectPx.w, 1, width * 4);
+      let h = clamp(rectPx.h, 1, height * 4);
+
+      const ar = Number(node.aspect);
+      if (Number.isFinite(ar) && ar > 0.05 && ar < 20) {
+        const hFromW = w / ar;
+        const wFromH = h * ar;
+        if (Number.isFinite(hFromW) && Number.isFinite(wFromH)) {
+          if (Math.abs(hFromW - h) <= Math.abs(wFromH - w)) {
+            h = hFromW;
+          } else {
+            w = wFromH;
+          }
+        }
+      }
 
       try {
         if (MIRROR_ALL_STREAMS) {
@@ -1412,10 +1604,56 @@ export default function TakeMomentFriendsRoom({
 
     const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
 
-    // End session for everyone
-    safeJsonSend(wsRef.current, { type: "END_SESSION", payload: { reason: "captured" } });
+    // Ask participants to show capture UI feedback.
+    sendRoomEvent({ kind: "CAPTURED", dataUrl, capturedAt: Date.now() });
+
+    // End session for everyone (slightly delayed so participants can render the notice).
+    setTimeout(() => {
+      safeJsonSend(wsRef.current, { type: "END_SESSION", payload: { reason: "captured" } });
+    }, 350);
     onMasterCaptured?.(dataUrl);
-  }, [clientId, isMaster, onMasterCaptured, roomState.backgroundColor, roomState.backgroundImage, roomState.layout]);
+  }, [clientId, getAspectForId, isMaster, onMasterCaptured, roomState.backgroundColor, roomState.backgroundImage, roomState.layout, sendRoomEvent]);
+
+  const handleCapture = useCallback(async () => {
+    if (!isMaster) return;
+    if (isCapturing) return;
+    if (typeof countdown === "number") return;
+
+    if (timerSeconds > 0) {
+      const startedAt = Date.now();
+      sendRoomEvent({ kind: "COUNTDOWN_START", seconds: timerSeconds, startedAt });
+
+      clearCountdownInterval();
+      setIsCapturing(true);
+      setCountdown(timerSeconds);
+
+      countdownIntervalRef.current = setInterval(() => {
+        setCountdown((prev) => {
+          const next = (typeof prev === "number" ? prev : timerSeconds) - 1;
+          if (next <= 0) {
+            clearCountdownInterval();
+            Promise.resolve()
+              .then(() => doCapture())
+              .finally(() => {
+                setCountdown(null);
+                setIsCapturing(false);
+              });
+            return 0;
+          }
+          return next;
+        });
+      }, 1000);
+
+      return;
+    }
+
+    setIsCapturing(true);
+    try {
+      await doCapture();
+    } finally {
+      setIsCapturing(false);
+    }
+  }, [clearCountdownInterval, countdown, doCapture, isCapturing, isMaster, sendRoomEvent, timerSeconds]);
 
   useEffect(() => {
     const el = stageRef.current;
@@ -1516,28 +1754,8 @@ export default function TakeMomentFriendsRoom({
 
   // Ensure master assigns default normalized layout for everyone so all clients render identically.
   useEffect(() => {
-    if (!isMaster) return;
-    if (!stageSize.w || !stageSize.h) return;
-    if (!clientId) return;
-
-    const prev = roomState.layout || {};
-    let changed = false;
-    const next = { ...prev };
-
-    const ids = [clientId, ...peers].slice(0, MAX_PEOPLE);
-    ids.forEach((id, idx) => {
-      if (next[id]) return;
-      const base = getDefaultTileNorm(stageSize.w, stageSize.h);
-      const offsetX = (idx % 4) * 0.02;
-      const offsetY = Math.floor(idx / 4) * 0.02;
-      next[id] = clampNormRect({ ...base, x: base.x + offsetX, y: base.y + offsetY, z: idx });
-      changed = true;
-    });
-
-    if (changed) {
-      sendStateUpdate({ layout: next });
-    }
-  }, [clientId, isMaster, peers, roomState.layout, sendStateUpdate, stageSize.h, stageSize.w]);
+    applyAutoLayoutIfNeeded();
+  }, [applyAutoLayoutIfNeeded]);
 
   useEffect(() => {
     let mounted = true;
@@ -1672,9 +1890,56 @@ export default function TakeMomentFriendsRoom({
             return;
           }
 
+          if (type === "ROOM_EVENT") {
+            const kind = payload?.kind;
+            if (kind === "COUNTDOWN_START") {
+              if (roleRef.current === "participant") {
+                const seconds = Math.max(0, Number(payload?.seconds) || 0);
+                const startedAt = Number(payload?.startedAt) || Date.now();
+                const endAt = startedAt + seconds * 1000;
+
+                clearCountdownInterval();
+                setIsCapturing(true);
+                const tick = () => {
+                  const remaining = Math.ceil((endAt - Date.now()) / 1000);
+                  if (remaining <= 0) {
+                    setCountdown(null);
+                    setIsCapturing(false);
+                    clearCountdownInterval();
+                    return;
+                  }
+                  setCountdown(remaining);
+                };
+
+                tick();
+                countdownIntervalRef.current = setInterval(tick, 250);
+              }
+              return;
+            }
+            if (kind === "CAPTURED") {
+              if (roleRef.current === "participant") {
+                showParticipantCaptureNotice({ dataUrl: payload?.dataUrl });
+              }
+              return;
+            }
+            return;
+          }
+
           if (type === "SESSION_ENDED") {
+            const reason = payload?.reason || "ended";
+            if (roleRef.current === "participant" && reason === "captured") {
+              // Give participants a moment to see the capture notice.
+              setTimeout(() => {
+                if (!mounted) return;
+                setStatus("ended");
+                onSessionEnded?.(reason);
+                disconnect();
+              }, 900);
+              return;
+            }
+
             setStatus("ended");
-            onSessionEnded?.(payload?.reason || "ended");
+            onSessionEnded?.(reason);
             disconnect();
             return;
           }
@@ -1705,9 +1970,11 @@ export default function TakeMomentFriendsRoom({
 
     return () => {
       mounted = false;
+      clearParticipantUiTimer();
+      clearCountdownInterval();
       disconnect();
     };
-  }, [disconnect, ensureLocalMedia, handleSignal, onSessionEnded, roomId, updateRemoteStreamsState, wsUrl, setupPeer]);
+  }, [clearCountdownInterval, clearParticipantUiTimer, disconnect, ensureLocalMedia, handleSignal, onSessionEnded, roomId, showParticipantCaptureNotice, updateRemoteStreamsState, wsUrl, setupPeer]);
 
   useEffect(() => {
     // keep local video hooked up if ref appears later
@@ -1871,6 +2138,79 @@ export default function TakeMomentFriendsRoom({
         onPointerDown={() => kickstartPlayback()}
         onTouchStart={() => kickstartPlayback()}
       >
+        {typeof countdown === "number" && countdown > 0 && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 10000,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              pointerEvents: "none",
+            }}
+          >
+            <div
+              style={{
+                minWidth: "92px",
+                minHeight: "92px",
+                padding: "18px",
+                borderRadius: "999px",
+                background: "rgba(15,23,42,0.55)",
+                color: "#fff",
+                fontWeight: 900,
+                fontSize: "72px",
+                lineHeight: 1,
+                textAlign: "center",
+                boxShadow: "0 22px 44px rgba(15,23,42,0.28)",
+                backdropFilter: "blur(10px)",
+              }}
+            >
+              {countdown}
+            </div>
+          </div>
+        )}
+
+        {role === "participant" && showParticipantCapture && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 9999,
+              background: "rgba(0,0,0,0.72)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "1rem",
+            }}
+          >
+            <div
+              style={{
+                background: "#fff",
+                borderRadius: "18px",
+                width: "min(380px, 100%)",
+                padding: "1rem",
+                textAlign: "center",
+                boxShadow: "0 22px 44px rgba(0,0,0,0.28)",
+              }}
+            >
+              <div style={{ fontWeight: 900, fontSize: "18px" }}>📸 Foto berhasil diambil!</div>
+              {participantCaptureUrl && (
+                <img
+                  src={participantCaptureUrl}
+                  alt="capture preview"
+                  style={{
+                    width: "100%",
+                    borderRadius: "14px",
+                    marginTop: "0.75rem",
+                    border: "1px solid rgba(15,23,42,0.12)",
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Local video element (hidden UI, but used for rendering/capture) */}
         <video
           ref={localVideoRef}
@@ -1904,6 +2244,23 @@ export default function TakeMomentFriendsRoom({
 
           const zIndex = layout.z ?? 0;
 
+          const aspect = aspectById?.[id] || null;
+          let displayW = layout.w;
+          let displayH = layout.h;
+          if (Number.isFinite(aspect) && aspect > 0.05 && aspect < 20) {
+            const hFromW = displayW / aspect;
+            const wFromH = displayH * aspect;
+            if (Number.isFinite(hFromW) && Number.isFinite(wFromH)) {
+              if (Math.abs(hFromW - displayH) <= Math.abs(wFromH - displayW)) {
+                displayH = hFromW;
+              } else {
+                displayW = wFromH;
+              }
+            }
+          }
+          displayW = Math.max(20, Math.round(displayW));
+          displayH = Math.max(20, Math.round(displayH));
+
           const videoProps = isLocal
             ? {
                 srcObject: localStream,
@@ -1919,13 +2276,15 @@ export default function TakeMomentFriendsRoom({
             <Rnd
               key={id}
               bounds="parent"
-              size={{ width: layout.w, height: layout.h }}
+              size={{ width: displayW, height: displayH }}
               position={{ x: layout.x, y: layout.y }}
               disableDragging={!canControl || pinchingTileId === id}
               enableResizing={canControl && pinchingTileId !== id}
+              lockAspectRatio={canControl && Number.isFinite(aspect) ? aspect : false}
               style={{ zIndex, borderRadius: 14, overflow: "hidden", touchAction: canControl ? "none" : "manipulation" }}
               onDragStop={(e, d) => {
                 if (!isMaster) return;
+                userAdjustedLayoutRef.current = true;
                 if (!stageSize.w || !stageSize.h) return;
                 const baseLayout = ensureNormLayoutNow();
                 if (!baseLayout) return;
@@ -1940,11 +2299,12 @@ export default function TakeMomentFriendsRoom({
               }}
               onResizeStop={(e, direction, ref, delta, position) => {
                 if (!isMaster) return;
+                userAdjustedLayoutRef.current = true;
                 if (!stageSize.w || !stageSize.h) return;
                 const baseLayout = ensureNormLayoutNow();
                 if (!baseLayout) return;
-                const w = Number.isFinite(ref?.offsetWidth) ? ref.offsetWidth : layout.w;
-                const h = Number.isFinite(ref?.offsetHeight) ? ref.offsetHeight : layout.h;
+                const w = Number.isFinite(ref?.offsetWidth) ? ref.offsetWidth : displayW;
+                const h = Number.isFinite(ref?.offsetHeight) ? ref.offsetHeight : displayH;
                 const currentNorm =
                   baseLayout?.[id] || getDefaultTileNorm(stageSize.w, stageSize.h);
                 const nextNorm = clampNormRect({
@@ -2024,6 +2384,14 @@ export default function TakeMomentFriendsRoom({
                   playsInline
                   muted={isLocal}
                   onLoadedMetadata={(e) => {
+                    try {
+                      const vw = e.currentTarget.videoWidth;
+                      const vh = e.currentTarget.videoHeight;
+                      if (vw > 0 && vh > 0) upsertAspectForId(id, vw / vh);
+                    } catch {
+                      // ignore
+                    }
+
                     // Safari can require an explicit play() call for WebRTC streams
                     try {
                       const p = e.currentTarget.play?.();
@@ -2093,11 +2461,37 @@ export default function TakeMomentFriendsRoom({
             display: "flex",
             justifyContent: "center",
             marginTop: "0.9rem",
+            gap: "0.75rem",
           }}
         >
           <button
             type="button"
-            onClick={doCapture}
+            onClick={() => {
+              setTimerSeconds((prev) => {
+                const idx = TIMER_STEPS.indexOf(prev);
+                const next = TIMER_STEPS[(idx + 1) % TIMER_STEPS.length];
+                return next;
+              });
+            }}
+            disabled={isCapturing || typeof countdown === "number"}
+            style={{
+              padding: "0.7rem 1.05rem",
+              borderRadius: "999px",
+              border: "1px solid rgba(15,23,42,0.14)",
+              background: "white",
+              color: "#0F172A",
+              fontWeight: 800,
+              cursor: isCapturing || typeof countdown === "number" ? "not-allowed" : "pointer",
+              opacity: isCapturing || typeof countdown === "number" ? 0.6 : 1,
+            }}
+          >
+            {timerSeconds > 0 ? `⏱️ Timer: ${timerSeconds}s` : "⏱️ Timer: Off"}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleCapture}
+            disabled={isCapturing || typeof countdown === "number"}
             style={{
               padding: "0.7rem 1.25rem",
               borderRadius: "999px",
@@ -2105,10 +2499,11 @@ export default function TakeMomentFriendsRoom({
               background: "#0F172A",
               color: "white",
               fontWeight: 800,
-              cursor: "pointer",
+              cursor: isCapturing || typeof countdown === "number" ? "not-allowed" : "pointer",
+              opacity: isCapturing || typeof countdown === "number" ? 0.7 : 1,
             }}
           >
-            Capture (master)
+            {typeof countdown === "number" ? `⏳ ${countdown}s` : isCapturing ? "⏳" : "Capture (master)"}
           </button>
         </div>
       )}

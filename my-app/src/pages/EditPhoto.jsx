@@ -39,7 +39,14 @@ const preloadModules = async () => {
 preloadModules();
 
 export default function EditPhoto() {
-  console.log("🚀 EDITPHOTO RENDERING...");
+  const debugEnabled =
+    (typeof import.meta !== "undefined" && import.meta?.env?.DEV) ||
+    (typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("debug") === "1");
+
+  if (debugEnabled) {
+    console.log("🚀 EDITPHOTO RENDERING...");
+  }
 
   const navigate = useNavigate();
   const { showToast } = useToast();
@@ -52,6 +59,113 @@ export default function EditPhoto() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const [videoProcessingMessage, setVideoProcessingMessage] = useState(""); // For video download loading screen
+
+  const exportCanvasSize = useMemo(() => {
+    let layout = frameConfig?.layout;
+    if (typeof layout === "string") {
+      try {
+        layout = JSON.parse(layout);
+      } catch {
+        // ignore
+      }
+    }
+    const designer = frameConfig?.designer;
+
+    const wRaw =
+      layout?.canvasWidth ??
+      layout?.canvas_width ??
+      frameConfig?.canvasWidth ??
+      frameConfig?.canvas_width ??
+      designer?.canvasWidth ??
+      designer?.canvas_width ??
+      frameConfig?.layout?.canvas_size?.width ??
+      frameConfig?.canvas_size?.width;
+
+    const hRaw =
+      layout?.canvasHeight ??
+      layout?.canvas_height ??
+      frameConfig?.canvasHeight ??
+      frameConfig?.canvas_height ??
+      designer?.canvasHeight ??
+      designer?.canvas_height ??
+      frameConfig?.layout?.canvas_size?.height ??
+      frameConfig?.canvas_size?.height;
+
+    const w = wRaw != null ? Number(wRaw) : NaN;
+    const h = hRaw != null ? Number(hRaw) : NaN;
+
+    // Fallback: derive from aspect ratio if explicit canvas sizes are missing.
+    const ratioRaw =
+      layout?.aspectRatio ??
+      layout?.aspect_ratio ??
+      layout?.canvasAspectRatio ??
+      layout?.canvas_aspect_ratio ??
+      designer?.aspectRatio ??
+      designer?.aspect_ratio ??
+      designer?.canvasAspectRatio ??
+      designer?.canvas_aspect_ratio ??
+      frameConfig?.canvasAspectRatio ??
+      frameConfig?.canvas_aspect_ratio;
+
+    const ratio = String(ratioRaw || "").trim();
+    const ratioNorm = ratio
+      .toLowerCase()
+      .replace(/\s+/g, "")
+      .replace(/[x\/]/g, ":");
+
+    const isPhotostripRatio =
+      ratioNorm === "photostrip" ||
+      ratioNorm === "4r" ||
+      ratioNorm === "2:3" ||
+      ratioNorm === "4:6" ||
+      ratioNorm === "1200:1800" ||
+      ratioNorm === "1200x1800";
+
+    const isStoryRatio =
+      ratioNorm === "story" ||
+      ratioNorm === "instagramstory" ||
+      ratioNorm === "9:16" ||
+      ratioNorm === "1080:1920" ||
+      ratioNorm === "1080x1920";
+
+    // ✅ Match Create.jsx sizing rules:
+    // - Photostrip explicit: 1200:1800
+    // - Photostrip ratio 2:3: uses base width 1080 => 1080x1620
+    if (ratioNorm === "1200:1800" || ratioNorm === "1200x1800") {
+      return { width: 1200, height: 1800 };
+    }
+    if (isPhotostripRatio) {
+      return { width: 1080, height: 1620 };
+    }
+    if (isStoryRatio) return { width: 1080, height: 1920 };
+
+    if (!Number.isFinite(w) || !Number.isFinite(h)) {
+      if (ratio.includes(":")) {
+        const [rwStr, rhStr] = ratio.split(":").map((v) => v.trim());
+        const rw = Number(rwStr);
+        const rh = Number(rhStr);
+        if (Number.isFinite(rw) && Number.isFinite(rh) && rw > 0 && rh > 0) {
+          const baseW = 1080;
+          const derivedH = Math.round((baseW * rh) / rw);
+          return { width: baseW, height: derivedH };
+        }
+      }
+      return { width: 1080, height: 1920 };
+    }
+
+    // If the frame says 2:3 but stored as Story size, correct it to 2:3 canvas.
+    if (ratioNorm === "2:3" && w === 1080 && h === 1920) {
+      return { width: 1080, height: 1620 };
+    }
+
+    return { width: w, height: h };
+  }, [frameConfig]);
+
+  const isDesktopSafari =
+    typeof window !== "undefined" &&
+    /Safari/i.test(navigator.userAgent) &&
+    !/Chrome|CriOS|Edg|OPR/i.test(navigator.userAgent) &&
+    !/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
   // Photo zoom/pan transforms - keyed by element id or photo index
   const [photoTransforms, setPhotoTransforms] = useState({});
@@ -1667,7 +1781,8 @@ export default function EditPhoto() {
           });
         }
 
-        // CRITICAL: For custom frames, always reload from service to get latest schema
+        // CRITICAL: Only reload from service for Supabase frames (UUID ids).
+        // Some locally-generated custom frames use ids like "frame_..." and must NOT hit the service.
         const selectedFrameId = safeStorage.getItem("selectedFrame");
         
         // Helper to detect UUID (Supabase custom frames)
@@ -1676,23 +1791,21 @@ export default function EditPhoto() {
           return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
         };
         
-        // Custom frame detection: either "custom-" prefix OR UUID OR isCustom flag
-        const isCustomFrame = selectedFrameId?.startsWith("custom-") || 
-                              isUUID(selectedFrameId) || 
-                              config?.isCustom;
+        const isSupabaseFrame = isUUID(selectedFrameId) || isUUID(config?.id);
+        const isLocalCustomId =
+          selectedFrameId?.startsWith("custom-") ||
+          selectedFrameId?.startsWith("draft-") ||
+          selectedFrameId?.startsWith("shared-") ||
+          selectedFrameId?.startsWith("frame_") ||
+          config?.id?.startsWith("frame_");
         
         // For draft-based custom frames, DON'T try to load from service
         // They don't exist in Supabase - they're stored locally
         // Includes: custom-xxx, draft-xxx, shared-xxx prefixes
-        const isDraftBasedCustomFrame =
-          hasSharedFrameSession ||
-          selectedFrameId?.startsWith("custom-") ||
-          selectedFrameId?.startsWith("draft-") ||
-          selectedFrameId?.startsWith("shared-");
+        const isDraftBasedCustomFrame = hasSharedFrameSession || isLocalCustomId;
         
-        if (isCustomFrame && !isDraftBasedCustomFrame) {
-          // Only try service for UUID-based frames (Supabase frames)
-          console.log("🔄 Supabase custom frame detected, reloading from service...");
+        if (config?.isCustom && isSupabaseFrame && !isDraftBasedCustomFrame) {
+          console.log("🔄 Supabase custom frame detected (UUID), reloading from service...");
           
           // First, save the original config's image URL as fallback
           const originalImageUrl = config?.imagePath || config?.frameImage || config?.thumbnailUrl || config?.image_url;
@@ -1701,8 +1814,19 @@ export default function EditPhoto() {
             // Use preloaded module or fallback to dynamic import
             const frameService = unifiedFrameServiceModule?.default || 
               (await import("../services/unifiedFrameService")).default;
-            const freshConfig = await frameService.getFrameConfig(
-              selectedFrameId || config?.id
+
+            // Prevent infinite loading (some devices/network conditions can hang fetch)
+            const withTimeout = (promise, ms) =>
+              Promise.race([
+                promise,
+                new Promise((_, reject) =>
+                  setTimeout(() => reject(new Error(`getFrameConfig timeout after ${ms}ms`)), ms)
+                ),
+              ]);
+
+            const freshConfig = await withTimeout(
+              frameService.getFrameConfig(selectedFrameId || config?.id),
+              5000
             );
             if (freshConfig) {
               config = freshConfig;
@@ -1721,7 +1845,7 @@ export default function EditPhoto() {
             }
           }
         } else if (isDraftBasedCustomFrame) {
-          console.log("🎨 Draft-based custom frame detected (custom-xxx), will load from draft...");
+          console.log("🎨 Local/draft-based custom frame detected, skipping service reload");
           // Keep existing config from localStorage, or it will be loaded from draft in fallback
         }
 
@@ -2087,7 +2211,17 @@ export default function EditPhoto() {
             
             const photoElements = config.slots.map((slot, index) => {
               const converted = convertFn(slot.left, slot.top, slot.width, slot.height);
-              console.log(`  Slot ${index}: (${slot.left}, ${slot.top}, ${slot.width}, ${slot.height}) → (${converted.x}, ${converted.y}, ${converted.width}, ${converted.height})`);
+              console.log(
+                `  Slot ${index}: (${slot.left}, ${slot.top}, ${slot.width}, ${slot.height}) → (${converted.x}, ${converted.y}, ${converted.width}, ${converted.height})`
+              );
+
+              const slotRotation = Number(slot?.rotation);
+              const rotation = Number.isFinite(slotRotation) ? slotRotation : 0;
+              const slotBorderRadius = Number(slot?.borderRadius);
+              const borderRadius = Number.isFinite(slotBorderRadius)
+                ? slotBorderRadius
+                : 0;
+
               return {
                 id: slot.id || `photo_${index + 1}`,
                 type: "photo",
@@ -2096,11 +2230,13 @@ export default function EditPhoto() {
                 width: converted.width,
                 height: converted.height,
                 zIndex: slot.zIndex || 2,
+                rotation,
                 data: {
                   photoIndex:
                     slot.photoIndex !== undefined ? slot.photoIndex : index,
                   image: null,
                   aspectRatio: slot.aspectRatio || "4:5",
+                  borderRadius,
                 },
               };
             });
@@ -3193,8 +3329,8 @@ export default function EditPhoto() {
         </div>
       )}
 
-      {/* Debug Info: Show if frameConfig or photos missing */}
-      {(!frameConfig || photos.length === 0) && (
+      {/* Debug Info: Show if frameConfig or photos missing (debug only) */}
+      {debugEnabled && (!frameConfig || photos.length === 0) && (
         <div
           style={{
             background: "#fff7ed",
@@ -3311,7 +3447,7 @@ export default function EditPhoto() {
               boxShadow: "0 4px 20px rgba(0,0,0,0.1)",
               overflow: "hidden",
               width: "fit-content",
-              height: `${1920 * 0.25 + 32}px`,
+              height: `${exportCanvasSize.height * 0.25 + 32}px`,
             }}
           >
             {/* Frame Canvas */}
@@ -3319,8 +3455,8 @@ export default function EditPhoto() {
               id="frame-preview-canvas"
               style={{
                 position: "relative",
-                width: "1080px",
-                height: "1920px",
+                width: `${exportCanvasSize.width}px`,
+                height: `${exportCanvasSize.height}px`,
                 margin: "0 auto",
                 background:
                   frameConfig && frameConfig.designer
@@ -3368,19 +3504,22 @@ export default function EditPhoto() {
                   .map((element, idx) => {
                   if (!element || !element.type) return null;
                   
-                  // DEBUG: Log each element being rendered
-                  console.log(`🎨 Rendering element ${idx}:`, {
-                    type: element.type,
-                    id: element.id ? String(element.id).slice(0, 8) : 'no-id',
-                    x: element.x,
-                    y: element.y,
-                    width: element.width,
-                    height: element.height,
-                    zIndex: element.zIndex,
-                    hasImage: !!element.data?.image,
-                    photoIndex: element.data?.photoIndex,
-                    __isOverlay: element.data?.__isOverlay,
-                  });
+                  if (debugEnabled) {
+                    console.log(`🎨 Rendering element ${idx}:`, {
+                      type: element.type,
+                      id: element.id
+                        ? String(element.id).slice(0, 8)
+                        : "no-id",
+                      x: element.x,
+                      y: element.y,
+                      width: element.width,
+                      height: element.height,
+                      zIndex: element.zIndex,
+                      hasImage: !!element.data?.image,
+                      photoIndex: element.data?.photoIndex,
+                      __isOverlay: element.data?.__isOverlay,
+                    });
+                  }
                   
                   const elemZIndex = Number.isFinite(element.zIndex)
                     ? element.zIndex
@@ -3871,11 +4010,28 @@ export default function EditPhoto() {
                 console.log("🎨 [v3.0-16Dec-FINAL] Memulai download dengan canvas manual...");
                 console.log("🔥 USER CACHE CHECK: If you see this log, you are using the LATEST code!");
 
+                // Safari desktop sometimes blocks downloads when the click handler awaits work.
+                // Open a fallback window immediately while we're still in the user gesture.
+                let safariDownloadWindow = null;
+                if (isDesktopSafari) {
+                  try {
+                    safariDownloadWindow = window.open("", "_blank");
+                  } catch {
+                    safariDownloadWindow = null;
+                  }
+                }
+
+                showToast({
+                  type: "info",
+                  title: "Menyiapkan Download",
+                  message: "Sedang menyiapkan file...",
+                });
+
                 try {
                   // Buat canvas baru
                   const canvas = document.createElement("canvas");
-                  canvas.width = 1080;
-                  canvas.height = 1920;
+                  canvas.width = exportCanvasSize.width;
+                  canvas.height = exportCanvasSize.height;
                   const ctx = canvas.getContext("2d", { alpha: true }); // ✅ Enable alpha for transparency
 
                   // ✅ Helper function to apply filter using temporary canvas (Safari compatible)
@@ -4001,7 +4157,7 @@ export default function EditPhoto() {
                   // Background color
                   ctx.fillStyle =
                     frameConfig?.designer?.canvasBackground || "#ffffff";
-                  ctx.fillRect(0, 0, 1080, 1920);
+                  ctx.fillRect(0, 0, exportCanvasSize.width, exportCanvasSize.height);
 
                   // Helper function untuk object-fit: cover
                   const drawImageCover = (ctx, img, x, y, w, h) => {
@@ -4143,7 +4299,14 @@ export default function EditPhoto() {
                       // Frame background should always retain original colors
                       ctx.save();
                       // Draw dengan object-fit: cover - original image, no filter
-                      drawImageCover(ctx, bgImg, 0, 0, 1080, 1920);
+                      drawImageCover(
+                        ctx,
+                        bgImg,
+                        0,
+                        0,
+                        exportCanvasSize.width,
+                        exportCanvasSize.height
+                      );
                       ctx.restore();
                       console.log("✅ Background photo drawn successfully (NO FILTER - frame background)");
                     } catch (bgError) {
@@ -4463,8 +4626,8 @@ export default function EditPhoto() {
                   // Draw frame overlay if exists and get actual frame dimensions
                   // ✅ CRITICAL: Skip frameImage for custom frames - they use designerElements instead
                   // frameImage for custom frames is just a JPEG preview thumbnail, not a transparent overlay
-                  let finalCanvasWidth = 1080;
-                  let finalCanvasHeight = 1920;
+                  let finalCanvasWidth = exportCanvasSize.width;
+                  let finalCanvasHeight = exportCanvasSize.height;
                   let frameOffsetX = 0;
                   let frameOffsetY = 0;
 
@@ -4474,8 +4637,8 @@ export default function EditPhoto() {
                       const frameImg = await loadImageWithFallback(frameConfig.frameImage);
                       
                       // Calculate actual frame dimensions maintaining aspect ratio
-                      const canvasWidth = 1080;
-                      const canvasHeight = 1920;
+                      const canvasWidth = exportCanvasSize.width;
+                      const canvasHeight = exportCanvasSize.height;
                       const imgRatio = frameImg.width / frameImg.height;
                       const canvasRatio = canvasWidth / canvasHeight;
 
@@ -4530,11 +4693,11 @@ export default function EditPhoto() {
                   if (
                     frameOffsetX > 0 ||
                     frameOffsetY > 0 ||
-                    finalCanvasWidth < 1080 ||
-                    finalCanvasHeight < 1920
+                    finalCanvasWidth < exportCanvasSize.width ||
+                    finalCanvasHeight < exportCanvasSize.height
                   ) {
                     console.log("✂️ Cropping canvas to frame size:", {
-                      from: "1080x1920",
+                      from: `${exportCanvasSize.width}x${exportCanvasSize.height}`,
                       to: `${finalCanvasWidth}x${finalCanvasHeight}`,
                       offset: `${frameOffsetX}, ${frameOffsetY}`,
                     });
@@ -4567,6 +4730,17 @@ export default function EditPhoto() {
                   const dataUrl = finalCanvas.toDataURL("image/png", 1.0);
                   const timestamp = Date.now();
                   const filename = `fremio-photo-${timestamp}.png`;
+
+                  // Fallback for Safari desktop: push a self-contained download page.
+                  if (safariDownloadWindow && !safariDownloadWindow.closed) {
+                    try {
+                      safariDownloadWindow.document.open();
+                      safariDownloadWindow.document.write(`<!doctype html><html><head><meta charset="utf-8" /><title>${filename}</title></head><body style="font-family: system-ui; padding: 16px;"><p>Jika download tidak otomatis, klik tombol di bawah.</p><p><a id="dl" href="${dataUrl}" download="${filename}" style="display:inline-block;padding:10px 14px;background:#e8a889;color:#fff;border-radius:10px;text-decoration:none;font-weight:700;">Download Photo</a></p><script>document.getElementById('dl').click();</script></body></html>`);
+                      safariDownloadWindow.document.close();
+                    } catch {
+                      // Ignore fallback failures
+                    }
+                  }
                   
                   // Use download helper for mobile-friendly download
                   const frameId = frameConfig?.id || "unknown";
@@ -4662,10 +4836,10 @@ export default function EditPhoto() {
                   setIsSaving(true);
                   setVideoProcessingMessage("🎬 Merender video dengan frame...");
 
-                  // Create off-screen canvas for video rendering (same as photo - full 1080x1920)
+                  // Create off-screen canvas for video rendering (match current frame canvas size)
                   const canvas = document.createElement("canvas");
-                  canvas.width = 1080;
-                  canvas.height = 1920;
+                  canvas.width = exportCanvasSize.width;
+                  canvas.height = exportCanvasSize.height;
                   // ✅ Set alpha: true to properly support transparent PNGs
                   const ctx = canvas.getContext("2d", {
                     alpha: true,
@@ -5786,8 +5960,8 @@ export default function EditPhoto() {
                         ctx.globalAlpha = 1;
 
                         // Calculate actual frame dimensions maintaining aspect ratio
-                        const canvasWidth = 1080;
-                        const canvasHeight = 1920;
+                        const canvasWidth = exportCanvasSize.width;
+                        const canvasHeight = exportCanvasSize.height;
                         const imgRatio = frameImage.width / frameImage.height;
                         const canvasRatio = canvasWidth / canvasHeight;
 

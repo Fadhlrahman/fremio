@@ -63,6 +63,11 @@ const AVAILABLE_CATEGORIES = [
   "Holiday Fremio Series",
   "Year-End Recap Fremio Series",
   "Fremio Series",
+  "Self-love",
+  "Cute Characters",
+  "Romance",
+  "Aesthetic Scrapbook & Retro",
+  "Minimalist Doodles & Soft Colors",
   "Wedding",
   "Birthday",
   "Graduation",
@@ -70,6 +75,71 @@ const AVAILABLE_CATEGORIES = [
   "Music",
   "Custom",
 ];
+
+const normalizeAspectRatioString = (raw) => {
+  const normalized = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace("/", ":")
+    .replace("x", ":")
+    .replace(/\s+/g, "");
+
+  if (normalized === "photostrip" || normalized === "4r") return "2:3";
+  if (/^\d+\:\d+$/.test(normalized)) return normalized;
+  return "";
+};
+
+const computeCanvasDimensionsFromRatio = (ratio) => {
+  const safe = normalizeAspectRatioString(ratio);
+  if (!safe) return { width: CANVAS_WIDTH, height: CANVAS_HEIGHT };
+  const [w, h] = safe.split(":").map(Number);
+  if (!w || !h) return { width: CANVAS_WIDTH, height: CANVAS_HEIGHT };
+  if (h >= w) {
+    return { width: CANVAS_WIDTH, height: Math.round((CANVAS_WIDTH * h) / w) };
+  }
+  return { width: Math.round((CANVAS_HEIGHT * w) / h), height: CANVAS_HEIGHT };
+};
+
+const inferAspectRatioFromFrame = (frame) => {
+  const direct = normalizeAspectRatioString(
+    frame?.layout?.aspectRatio ??
+      frame?.layout?.aspect_ratio ??
+      frame?.aspectRatio ??
+      frame?.aspect_ratio
+  );
+  if (direct) return direct;
+
+  const cw = Number(
+    frame?.canvasWidth ??
+      frame?.canvas_width ??
+      frame?.layout?.canvasWidth ??
+      frame?.layout?.canvas_width
+  );
+  const ch = Number(
+    frame?.canvasHeight ??
+      frame?.canvas_height ??
+      frame?.layout?.canvasHeight ??
+      frame?.layout?.canvas_height
+  );
+  if (Number.isFinite(cw) && Number.isFinite(ch) && cw > 0 && ch > 0) {
+    const gcd = (a, b) => {
+      let x = Math.abs(Math.round(a));
+      let y = Math.abs(Math.round(b));
+      while (y) {
+        const t = y;
+        y = x % y;
+        x = t;
+      }
+      return x || 1;
+    };
+    const g = gcd(cw, ch);
+    const rw = Math.round(cw / g);
+    const rh = Math.round(ch / g);
+    if (rw > 0 && rh > 0) return `${rw}:${rh}`;
+  }
+
+  return "9:16";
+};
 
 export default function UploadFrame() {
   const navigate = useNavigate();
@@ -172,6 +242,11 @@ export default function UploadFrame() {
         try {
           const frame = await unifiedFrameService.getFrameById(editFrameId);
           if (frame) {
+            const targetAspectRatio = inferAspectRatioFromFrame(frame);
+            setCanvasAspectRatio(targetAspectRatio);
+            const { width: targetCanvasWidth, height: targetCanvasHeight } =
+              computeCanvasDimensionsFromRatio(targetAspectRatio);
+
             setFrameName(frame.name || "");
             setFrameDescription(frame.description || "");
             setHideAfterUpload(!!(frame?.isHidden ?? frame?.is_hidden));
@@ -200,10 +275,10 @@ export default function UploadFrame() {
                 newElements.push({
                   id: slot.id || `photo_${index + 1}`,
                   type: "photo",
-                  x: slot.left * CANVAS_WIDTH,
-                  y: slot.top * CANVAS_HEIGHT,
-                  width: slot.width * CANVAS_WIDTH,
-                  height: slot.height * CANVAS_HEIGHT,
+                  x: slot.left * targetCanvasWidth,
+                  y: slot.top * targetCanvasHeight,
+                  width: slot.width * targetCanvasWidth,
+                  height: slot.height * targetCanvasHeight,
                   rotation: typeof slot.rotation === "number" ? slot.rotation : 0,
                   zIndex: 1,
                   data: {
@@ -220,8 +295,14 @@ export default function UploadFrame() {
               frame.layout.elements.forEach((el, idx) => {
                 console.log(`  Element ${idx}: type=${el.type}, id=${el.id?.substring(0, 8)}, zIndex=${el.zIndex}, hasImage=${!!el.data?.image}`);
                 
-                let restoredWidth = el.widthNorm !== undefined ? el.widthNorm * CANVAS_WIDTH : el.width;
-                let restoredHeight = el.heightNorm !== undefined ? el.heightNorm * CANVAS_HEIGHT : el.height;
+                let restoredWidth =
+                  el.widthNorm !== undefined
+                    ? el.widthNorm * targetCanvasWidth
+                    : el.width;
+                let restoredHeight =
+                  el.heightNorm !== undefined
+                    ? el.heightNorm * targetCanvasHeight
+                    : el.height;
 
                 if (el.type === "upload" && el.data?.imageAspectRatio) {
                   restoredHeight = restoredWidth / el.data.imageAspectRatio;
@@ -235,8 +316,8 @@ export default function UploadFrame() {
 
                 const restoredElement = {
                   ...el,
-                  x: el.xNorm !== undefined ? el.xNorm * CANVAS_WIDTH : el.x,
-                  y: el.yNorm !== undefined ? el.yNorm * CANVAS_HEIGHT : el.y,
+                  x: el.xNorm !== undefined ? el.xNorm * targetCanvasWidth : el.x,
+                  y: el.yNorm !== undefined ? el.yNorm * targetCanvasHeight : el.y,
                   width: restoredWidth,
                   height: restoredHeight,
                   zIndex: restoredZIndex,
@@ -276,6 +357,7 @@ export default function UploadFrame() {
         // New frame mode - reset
         setElements([]);
         setCanvasBackground("#f7f1ed");
+        setCanvasAspectRatio("9:16");
         clearSelection();
         setIsEditMode(false);
       }

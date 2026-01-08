@@ -272,6 +272,39 @@ const attachTakeMomentWs = (server) => {
         return;
       }
 
+      if (type === "ROOM_EVENT") {
+        if (connection.role !== "master") {
+          wsSafeSend(ws, {
+            type: "ERROR",
+            payload: { message: "Only master can send room events" },
+          });
+          return;
+        }
+
+        const kind = typeof payload?.kind === "string" ? payload.kind : "";
+        if (!kind) {
+          wsSafeSend(ws, {
+            type: "ERROR",
+            payload: { message: "Invalid room event" },
+          });
+          return;
+        }
+
+        wsBroadcast(
+          room.clients,
+          {
+            type: "ROOM_EVENT",
+            payload: {
+              ...payload,
+              from: connection.clientId,
+              masterId: room.masterId,
+            },
+          },
+          connection.clientId
+        );
+        return;
+      }
+
       wsSafeSend(ws, {
         type: "ERROR",
         payload: { message: `Unknown type: ${type}` },

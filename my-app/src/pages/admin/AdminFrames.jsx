@@ -2,11 +2,106 @@ import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import unifiedFrameService from "../../services/unifiedFrameService";
 
+const normalizeRatio = (value) => String(value || "").toLowerCase().trim();
+
+const getCanvasSize = (frame) => {
+  const layout = frame?.layout;
+  const canvasSize = frame?.canvas_size || frame?.canvasSize;
+
+  const width =
+    layout?.canvasWidth ??
+    layout?.canvas_width ??
+    frame?.canvasWidth ??
+    frame?.canvas_width ??
+    canvasSize?.width ??
+    canvasSize?.w;
+
+  const height =
+    layout?.canvasHeight ??
+    layout?.canvas_height ??
+    frame?.canvasHeight ??
+    frame?.canvas_height ??
+    canvasSize?.height ??
+    canvasSize?.h;
+
+  const widthNum = width != null ? Number(width) : null;
+  const heightNum = height != null ? Number(height) : null;
+
+  return {
+    width: Number.isFinite(widthNum) ? widthNum : null,
+    height: Number.isFinite(heightNum) ? heightNum : null,
+  };
+};
+
+const isPhotostripCanvas = (frame) => {
+  const ratioRaw =
+    frame?.layout?.aspectRatio ??
+    frame?.layout?.aspect_ratio ??
+    frame?.aspectRatio ??
+    frame?.aspect_ratio;
+
+  const ratio = normalizeRatio(ratioRaw);
+  // Photostrip / 4R commonly represented as 2:3 (4x6), sometimes as 1200:1800 or the literal "photostrip".
+  if (ratio === "photostrip" || ratio === "1200:1800" || ratio === "2:3" || ratio === "4:6" || ratio === "4r") {
+    return true;
+  }
+
+  if (ratio.includes(":")) {
+    const [wStr, hStr] = ratio.split(":").map((v) => v.trim());
+    const w = Number(wStr);
+    const h = Number(hStr);
+    if (Number.isFinite(w) && Number.isFinite(h) && w === 1200 && h === 1800) {
+      return true;
+    }
+  }
+
+  const { width, height } = getCanvasSize(frame);
+  return width === 1200 && height === 1800;
+};
+
+const normalizeAspectRatioString = (raw) => {
+  const normalized = String(raw || "")
+    .toLowerCase()
+    .trim()
+    .replace("/", ":")
+    .replace("x", ":")
+    .replace(/\s+/g, "");
+  if (normalized === "photostrip" || normalized === "4r") return "2:3";
+  return normalized;
+};
+
+const getFrameThumbnailPaddingTop = (frame) => {
+  const ratioRaw =
+    frame?.layout?.aspectRatio ??
+    frame?.layout?.aspect_ratio ??
+    frame?.aspectRatio ??
+    frame?.aspect_ratio;
+
+  const ratio = normalizeAspectRatioString(ratioRaw);
+  if (ratio.includes(":")) {
+    const [wStr, hStr] = ratio.split(":").map((v) => v.trim());
+    const w = Number(wStr);
+    const h = Number(hStr);
+    if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+      return `${((h / w) * 100).toFixed(2)}%`;
+    }
+  }
+
+  const { width, height } = getCanvasSize(frame);
+  if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+    return `${((height / width) * 100).toFixed(2)}%`;
+  }
+
+  // Default: Story Instagram 9:16
+  return "177.78%";
+};
+
 const AdminFrames = () => {
   console.log("AdminFrames component rendering...");
   
   const [frames, setFrames] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeCanvasCategory, setActiveCanvasCategory] = useState("story");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [sortOrder, setSortOrder] = useState("display-order"); // display-order, category-asc, category-desc, name-asc, name-desc, newest, oldest
   const [isReorderMode, setIsReorderMode] = useState(false);
@@ -43,8 +138,16 @@ const AdminFrames = () => {
     loadFrames();
   }, []);
 
+  const sizeFilteredFrames = React.useMemo(() => {
+    const show4R = activeCanvasCategory === "4r";
+    return (frames || []).filter((frame) => {
+      const is4RFrame = isPhotostripCanvas(frame);
+      return show4R ? is4RFrame : !is4RFrame;
+    });
+  }, [frames, activeCanvasCategory]);
+
   // Get unique categories (alphabetically sorted for filter dropdown)
-  const categories = [...new Set(frames.map(f => f.category || "Uncategorized"))].sort();
+  const categories = [...new Set(sizeFilteredFrames.map((f) => f.category || "Uncategorized"))].sort();
 
   // Initialize categoryOrder based on displayOrder from database
   useEffect(() => {
@@ -82,7 +185,7 @@ const AdminFrames = () => {
 
   // Filter and sort frames
   const filteredAndSortedFrames = React.useMemo(() => {
-    let result = [...frames];
+    let result = [...sizeFilteredFrames];
     
     // Filter by category
     if (selectedCategory !== "all") {
@@ -112,7 +215,7 @@ const AdminFrames = () => {
     });
     
     return result;
-  }, [frames, selectedCategory, sortOrder]);
+  }, [sizeFilteredFrames, selectedCategory, sortOrder]);
 
   // Group frames by category for display
   // Always group by category unless in reorder mode
@@ -490,10 +593,10 @@ const AdminFrames = () => {
           </div>
         )}
         
-        {/* Frame thumbnail with 9:16 aspect ratio */}
+        {/* Frame thumbnail with per-frame aspect ratio */}
         <div style={{ 
           position: "relative",
-          paddingTop: "177.78%",
+          paddingTop: getFrameThumbnailPaddingTop(frame),
           background: frame.canvasBackground || "#f3f4f6",
           overflow: "hidden"
         }}>
@@ -698,10 +801,65 @@ const AdminFrames = () => {
   return (
     <div style={{ padding: "20px", backgroundColor: "#fff", minHeight: "200px" }}>
       <h1 style={{ color: "#111", marginBottom: "20px" }}>🖼️ Kelola Frame</h1>
+
+      {/* Canvas Size Category Tabs */}
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: "12px" }}>
+        <div
+          style={{
+            display: "inline-flex",
+            gap: "6px",
+            padding: "6px",
+            borderRadius: "999px",
+            background: "#eef2ff",
+            border: "1px solid #c7d2fe",
+          }}
+        >
+          <button
+            type="button"
+            aria-pressed={activeCanvasCategory === "story"}
+            onClick={() => setActiveCanvasCategory("story")}
+            style={{
+              border: "none",
+              cursor: "pointer",
+              padding: "8px 14px",
+              borderRadius: "999px",
+              fontWeight: 700,
+              fontSize: "12px",
+              background:
+                activeCanvasCategory === "story"
+                  ? "linear-gradient(135deg, #4f46e5, #7c3aed)"
+                  : "transparent",
+              color: activeCanvasCategory === "story" ? "white" : "#3730a3",
+            }}
+          >
+            Story Instagram
+          </button>
+          <button
+            type="button"
+            aria-pressed={activeCanvasCategory === "4r"}
+            onClick={() => setActiveCanvasCategory("4r")}
+            style={{
+              border: "none",
+              cursor: "pointer",
+              padding: "8px 14px",
+              borderRadius: "999px",
+              fontWeight: 700,
+              fontSize: "12px",
+              background:
+                activeCanvasCategory === "4r"
+                  ? "linear-gradient(135deg, #4f46e5, #7c3aed)"
+                  : "transparent",
+              color: activeCanvasCategory === "4r" ? "white" : "#3730a3",
+            }}
+          >
+            4R (Photostrip)
+          </button>
+        </div>
+      </div>
       
       <p style={{ color: "#666", marginBottom: "20px" }}>
         Total frames: {frames.length}
-        {selectedCategory !== "all" && ` • Menampilkan: ${filteredAndSortedFrames.length}`}
+        {` • Menampilkan: ${filteredAndSortedFrames.length}`}
         {isReorderMode && " • Mode Atur Urutan Aktif"}
       </p>
       

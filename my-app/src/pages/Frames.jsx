@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import frameProvider from "../utils/frameProvider.js";
 import safeStorage from "../utils/safeStorage.js";
@@ -56,6 +56,64 @@ const getFrameImageUrl = (frame) => {
 
   // Last resort: treat as path segment
   return `${backendBase}/${raw}`;
+};
+
+const normalizeRatio = (value) => String(value || "").toLowerCase().trim();
+
+const getCanvasSize = (frame) => {
+  const layout = frame?.layout;
+  const canvasSize = frame?.canvas_size || frame?.canvasSize;
+
+  const width =
+    layout?.canvasWidth ??
+    layout?.canvas_width ??
+    frame?.canvasWidth ??
+    frame?.canvas_width ??
+    canvasSize?.width ??
+    canvasSize?.w;
+
+  const height =
+    layout?.canvasHeight ??
+    layout?.canvas_height ??
+    frame?.canvasHeight ??
+    frame?.canvas_height ??
+    canvasSize?.height ??
+    canvasSize?.h;
+
+  const widthNum = width != null ? Number(width) : null;
+  const heightNum = height != null ? Number(height) : null;
+
+  return {
+    width: Number.isFinite(widthNum) ? widthNum : null,
+    height: Number.isFinite(heightNum) ? heightNum : null,
+  };
+};
+
+const isPhotostripCanvas = (frame) => {
+  const ratioRaw =
+    frame?.layout?.aspectRatio ??
+    frame?.layout?.aspect_ratio ??
+    frame?.aspectRatio ??
+    frame?.aspect_ratio;
+
+  const ratio = normalizeRatio(ratioRaw);
+  // Photostrip / 4R commonly represented as 2:3 (4x6), sometimes as 1200:1800 or the literal "photostrip".
+  if (ratio === "photostrip" || ratio === "1200:1800" || ratio === "2:3" || ratio === "4:6" || ratio === "4r") {
+    return true;
+  }
+
+  // Sometimes aspect ratio may be stored as "1200:1800" with spaces
+  if (ratio.includes(":")) {
+    const [wStr, hStr] = ratio.split(":").map((v) => v.trim());
+    const w = Number(wStr);
+    const h = Number(hStr);
+    if (Number.isFinite(w) && Number.isFinite(h) && w === 1200 && h === 1800) {
+      return true;
+    }
+  }
+
+  const { width, height } = getCanvasSize(frame);
+  return width === 1200 && height === 1800;
 };
 
 // FrameCard component with expandable description
@@ -239,11 +297,25 @@ export default function Frames() {
   const [accessibleFrameIds, setAccessibleFrameIds] = useState([]);
   const [hasAccess, setHasAccess] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [activeCanvasCategory, setActiveCanvasCategory] = useState("story");
+
+  const headlineText =
+    activeCanvasCategory === "story"
+      ? "Buat story Instagram kamu indah, instan, dan berbeda"
+      : "Mudah dicetak ukuran 4R di fotocopy terdekat, dan tetap cocok untuk Story Instagram";
+
+  const sizeFilteredFrames = useMemo(() => {
+    const show4R = activeCanvasCategory === "4r";
+    return (customFrames || []).filter((frame) => {
+      const is4RFrame = isPhotostripCanvas(frame);
+      return show4R ? is4RFrame : !is4RFrame;
+    });
+  }, [customFrames, activeCanvasCategory]);
 
   // Group frames by category and sort categories by min displayOrder
-  const groupedFrames = (() => {
+  const groupedFrames = useMemo(() => {
     // First, group frames by category
-    const groups = customFrames.reduce((acc, frame) => {
+    const groups = sizeFilteredFrames.reduce((acc, frame) => {
       const category = frame.category || "Uncategorized";
       if (!acc[category]) {
         acc[category] = [];
@@ -277,7 +349,7 @@ export default function Frames() {
     });
 
     return orderedGroups;
-  })();
+  }, [sizeFilteredFrames]);
 
   // Clear old frameConfig when entering Frames page
   useEffect(() => {
@@ -489,26 +561,102 @@ export default function Frames() {
             padding: "0 16px",
           }}
         >
+          {/* Canvas Size Category Tabs */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              marginBottom: "16px",
+            }}
+          >
+            <div
+              style={{
+                display: "inline-flex",
+                gap: "6px",
+                padding: "6px",
+                borderRadius: "999px",
+                background: "rgba(224, 183, 169, 0.22)",
+                border: "1px solid rgba(224, 183, 169, 0.35)",
+              }}
+            >
+              <button
+                type="button"
+                aria-pressed={activeCanvasCategory === "story"}
+                onClick={() => setActiveCanvasCategory("story")}
+                style={{
+                  border: "none",
+                  cursor: "pointer",
+                  padding: "8px 14px",
+                  borderRadius: "999px",
+                  fontWeight: 700,
+                  fontSize: "12px",
+                  background:
+                    activeCanvasCategory === "story"
+                      ? "linear-gradient(to right, #e0b7a9, #c89585)"
+                      : "transparent",
+                  color:
+                    activeCanvasCategory === "story" ? "white" : "#4a302b",
+                }}
+              >
+                Story Instagram
+              </button>
+              <button
+                type="button"
+                aria-pressed={activeCanvasCategory === "4r"}
+                onClick={() => setActiveCanvasCategory("4r")}
+                style={{
+                  border:
+                    activeCanvasCategory === "4r"
+                      ? "none"
+                      : "1px solid rgba(200, 149, 133, 0.55)",
+                  cursor: "pointer",
+                  padding: "8px 14px",
+                  borderRadius: "999px",
+                  fontWeight: 700,
+                  fontSize: "12px",
+                  background:
+                    activeCanvasCategory === "4r"
+                      ? "linear-gradient(to right, #e0b7a9, #c89585)"
+                      : "transparent",
+                  color: activeCanvasCategory === "4r" ? "white" : "#4a302b",
+                  position: "relative",
+                }}
+              >
+                4R
+                <span
+                  style={{
+                    position: "absolute",
+                    top: "-8px",
+                    right: "-6px",
+                    padding: "2px 6px",
+                    borderRadius: "999px",
+                    fontSize: "10px",
+                    fontWeight: 800,
+                    letterSpacing: "0.2px",
+                    background: "linear-gradient(to right, #e0b7a9, #c89585)",
+                    color: "white",
+                    boxShadow: "0 6px 14px rgba(200, 149, 133, 0.25)",
+                    lineHeight: 1.2,
+                  }}
+                >
+                  New
+                </span>
+              </button>
+            </div>
+          </div>
+
           {/* Title */}
           <h2
             style={{
               marginBottom: "32px",
               textAlign: "center",
-              fontSize: "24px",
+              fontSize: "clamp(18px, 4.8vw, 24px)",
               fontWeight: "bold",
               color: "#1e293b",
+              lineHeight: 1.25,
             }}
           >
-            Pilihan Frame dari{" "}
-            <span
-              style={{
-                background: "linear-gradient(to right, #e0b7a9, #c89585)",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-              }}
-            >
-              Designer fremio
-            </span>
+            {headlineText}
           </h2>
 
           {/* Upgrade Banner - show if user logged in but no access */}

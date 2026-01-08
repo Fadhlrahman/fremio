@@ -524,6 +524,16 @@ export default function TakeMoment() {
   const handleStartFriendsMode = useCallback(() => {
     const newRoomId =
       Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+    // Fresh friends session capture buffer
+    try {
+      safeStorage.removeItem("friendsCapturedPhotos");
+      // Default: duplicate ON for even-slot frames
+      safeStorage.setItem("friendsDuplicateMode", "1");
+    } catch {
+      // ignore
+    }
+
     setFriendsModeEnabled(true);
     setFriendsRoomId(newRoomId);
     setSearchParams((prev) => {
@@ -535,9 +545,52 @@ export default function TakeMoment() {
 
   const handleFriendsCaptured = useCallback(
     (dataUrl) => {
+      // IMPORTANT: This callback is defined early in the file; do NOT reference
+      // variables that are declared later (TDZ) like capturedPhotos/maxCaptures/isDuplicateMode.
+      // Instead, derive everything from persisted frameConfig + friendsDuplicateMode.
+
+      const frameConfig = safeStorage.getJSON("frameConfig", null);
+      const inferredMaxCaptures =
+        typeof frameConfig?.maxCaptures === "number" && frameConfig.maxCaptures > 0
+          ? frameConfig.maxCaptures
+          : Array.isArray(frameConfig?.slots)
+          ? Math.max(1, frameConfig.slots.length)
+          : 1;
+
+      const duplicatePref = safeStorage.getItem("friendsDuplicateMode");
+      const inferredDuplicateMode = duplicatePref !== "0" && inferredMaxCaptures % 2 === 0;
+
+      const inferredPhotosNeeded =
+        inferredDuplicateMode && inferredMaxCaptures > 1
+          ? Math.ceil(inferredMaxCaptures / 2)
+          : inferredMaxCaptures;
+
+      const current = safeStorage.getJSON("friendsCapturedPhotos", []);
+      const currentArr = Array.isArray(current) ? current : [];
+      const nextArr = [...currentArr, dataUrl].filter(Boolean).slice(0, inferredPhotosNeeded);
+
       try {
-        // Persist as the first captured photo so EditPhoto can open.
-        const photosPayload = [dataUrl];
+        safeStorage.setJSON("friendsCapturedPhotos", nextArr);
+      } catch {
+        // ignore
+      }
+
+      const reachedTarget = nextArr.length >= inferredPhotosNeeded;
+      if (!reachedTarget) {
+        return false;
+      }
+
+      try {
+        let photosPayload = [...nextArr];
+        if (inferredDuplicateMode && inferredMaxCaptures > 1 && photosPayload.length < inferredMaxCaptures) {
+          const duplicated = [];
+          for (const p of photosPayload) {
+            duplicated.push(p);
+            duplicated.push(p);
+          }
+          photosPayload = duplicated.slice(0, inferredMaxCaptures);
+        }
+
         safeStorage.setJSON("capturedPhotos", photosPayload);
         safeStorage.setJSON("capturedVideos", []);
         window.__fremio_photos = photosPayload;
@@ -552,6 +605,7 @@ export default function TakeMoment() {
       }
 
       navigate("/edit-photo");
+      return true;
     },
     [navigate, showToast]
   );
@@ -7083,63 +7137,238 @@ export default function TakeMoment() {
   );
 
   if (friendsModeEnabled && friendsRoomId) {
+    const exitFriendsMode = () => {
+      setFriendsModeEnabled(false);
+      setFriendsRoomId(null);
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("room");
+        return next;
+      });
+    };
+
+    if (isMobile) {
+      return (
+        <main
+          style={{
+            minHeight: "100dvh",
+            background: "#F4E6DA",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <section
+            style={{
+              flex: "1 1 auto",
+              display: "flex",
+              flexDirection: "column",
+              padding: "0.7rem 0.75rem 0.85rem",
+              gap: "0.85rem",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.4rem",
+                alignItems: "center",
+                textAlign: "center",
+              }}
+            >
+              <button
+                type="button"
+                onClick={exitFriendsMode}
+                style={{
+                  alignSelf: "flex-start",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.35rem",
+                  padding: "0.45rem 0.95rem",
+                  borderRadius: "999px",
+                  border: "none",
+                  background: "#fff",
+                  color: "#1E293B",
+                  fontWeight: 600,
+                  fontSize: "0.9rem",
+                  boxShadow: "0 12px 24px rgba(15,23,42,0.12)",
+                  cursor: "pointer",
+                  marginBottom: "1.35rem",
+                }}
+              >
+                <span style={{ fontSize: "0.95rem" }}>←</span>
+                <span>Kembali</span>
+              </button>
+              <h1
+                ref={mobileContentRef}
+                style={{
+                  ...headingStyles,
+                  marginTop: "0.1rem",
+                }}
+              >
+                Pilih momen berhargamu bersama fremio
+              </h1>
+            </div>
+
+            <div
+              style={{
+                background: "rgba(255,255,255,0.6)",
+                borderRadius: "22px",
+                padding: "0.95rem",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.9rem",
+                boxShadow: "0 30px 60px rgba(148,163,184,0.25)",
+              }}
+            >
+              <TakeMomentFriendsRoom
+                roomId={friendsRoomId}
+                onRoomCreated={() => {
+                  showToast({
+                    type: "success",
+                    title: "Link Disalin",
+                    message: "Bagikan link ini ke teman kamu untuk bergabung.",
+                  });
+                }}
+                onMasterCaptured={handleFriendsCaptured}
+                onSessionEnded={handleFriendsEnded}
+                maxCaptures={maxCaptures}
+                photosNeeded={photosNeeded}
+                currentCaptureCount={
+                  (safeStorage.getJSON("friendsCapturedPhotos", []) || []).length
+                }
+                isDuplicateMode={isDuplicateMode}
+                onToggleDuplicateMode={() =>
+                  setIsDuplicateMode((v) => {
+                    const next = !v;
+                    try {
+                      safeStorage.setItem(
+                        "friendsDuplicateMode",
+                        next ? "1" : "0"
+                      );
+                    } catch {
+                      // ignore
+                    }
+                    return next;
+                  })
+                }
+              />
+            </div>
+          </section>
+        </main>
+      );
+    }
+
     return (
       <main
         style={{
-          minHeight: "100dvh",
+          minHeight: "100vh",
           background: "#F4E6DA",
+          padding: "2rem",
           display: "flex",
           flexDirection: "column",
-          padding: "1rem",
-          gap: "1rem",
+          gap: "1.2rem",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem" }}>
-          <button
-            type="button"
-            onClick={() => {
-              setFriendsModeEnabled(false);
-              setFriendsRoomId(null);
-              setSearchParams((prev) => {
-                const next = new URLSearchParams(prev);
-                next.delete("room");
-                return next;
-              });
-            }}
+        <section
+          style={{
+            background: "rgba(255,255,255,0.6)",
+            borderRadius: "28px",
+            padding: "2rem",
+            display: "flex",
+            justifyContent: "center",
+            boxShadow: "0 40px 80px rgba(148,163,184,0.25)",
+          }}
+        >
+          <div
             style={{
-              alignSelf: "flex-start",
-              display: "inline-flex",
+              width: "min(1100px, 100%)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "1.25rem",
               alignItems: "center",
-              gap: "0.4rem",
-              padding: "0.55rem 1.1rem",
-              borderRadius: "999px",
-              border: "none",
-              background: "#fff",
-              color: "#1E293B",
-              fontWeight: 700,
-              cursor: "pointer",
             }}
           >
-            <span style={{ fontSize: "1rem" }}>←</span>
-            <span>Kembali</span>
-          </button>
-          <div style={{ fontWeight: 800, color: "#0F172A", alignSelf: "center" }}>
-            Friends Session
-          </div>
-        </div>
+            <div
+              style={{
+                width: "100%",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "0.35rem",
+                textAlign: "center",
+              }}
+            >
+              <button
+                type="button"
+                onClick={exitFriendsMode}
+                style={{
+                  alignSelf: "flex-start",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.4rem",
+                  padding: "0.55rem 1.1rem",
+                  borderRadius: "999px",
+                  border: "none",
+                  background: "#fff",
+                  color: "#1E293B",
+                  fontWeight: 600,
+                  fontSize: "0.95rem",
+                  cursor: "pointer",
+                  boxShadow: "0 14px 28px rgba(15,23,42,0.12)",
+                  transition: "transform 0.15s ease, box-shadow 0.15s ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "translateY(-1px)";
+                  e.currentTarget.style.boxShadow = "0 18px 32px rgba(15,23,42,0.18)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "none";
+                  e.currentTarget.style.boxShadow = "0 14px 28px rgba(15,23,42,0.12)";
+                }}
+              >
+                <span style={{ fontSize: "1rem" }}>←</span>
+                <span>Kembali</span>
+              </button>
+              <h1 style={headingStyles}>Pilih momen berhargamu bersama fremio</h1>
+            </div>
 
-        <TakeMomentFriendsRoom
-          roomId={friendsRoomId}
-          onRoomCreated={() => {
-            showToast({
-              type: "success",
-              title: "Link Disalin",
-              message: "Bagikan link ini ke teman kamu untuk bergabung.",
-            });
-          }}
-          onMasterCaptured={handleFriendsCaptured}
-          onSessionEnded={handleFriendsEnded}
-        />
+            <div style={{ width: "100%", maxWidth: "820px" }}>
+              <TakeMomentFriendsRoom
+                roomId={friendsRoomId}
+                onRoomCreated={() => {
+                  showToast({
+                    type: "success",
+                    title: "Link Disalin",
+                    message: "Bagikan link ini ke teman kamu untuk bergabung.",
+                  });
+                }}
+                onMasterCaptured={handleFriendsCaptured}
+                onSessionEnded={handleFriendsEnded}
+                maxCaptures={maxCaptures}
+                photosNeeded={photosNeeded}
+                currentCaptureCount={
+                  (safeStorage.getJSON("friendsCapturedPhotos", []) || []).length
+                }
+                isDuplicateMode={isDuplicateMode}
+                onToggleDuplicateMode={() =>
+                  setIsDuplicateMode((v) => {
+                    const next = !v;
+                    try {
+                      safeStorage.setItem(
+                        "friendsDuplicateMode",
+                        next ? "1" : "0"
+                      );
+                    } catch {
+                      // ignore
+                    }
+                    return next;
+                  })
+                }
+              />
+            </div>
+          </div>
+        </section>
       </main>
     );
   }

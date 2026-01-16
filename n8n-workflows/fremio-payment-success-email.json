@@ -1,0 +1,108 @@
+{
+  "name": "Fremio Payment Success Email",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "fremio-payment-success",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "fremio-payment-success"
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+                "html": "<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;\">\n<div style=\"text-align: center; margin-bottom: 30px;\">\n<img src=\"cid:logo-salem.png\" alt=\"Fremio\" style=\"width: 60px; height: 60px; margin-bottom: 10px;\">\n<div style=\"font-size: 36px; font-weight: bold; color: #d4a89a; margin-top: 8px; font-family: Arial, sans-serif;\">fremio</div>\n</div>\n<h2 style=\"text-align: center; color: #333; margin-bottom: 5px; font-size: 32px; font-weight: bold;\">Pembayaran Berhasil</h2>\n<p style=\"text-align: center; color: #888; margin-top: 0; font-size: 20px;\">Terima kasih sudah berlangganan Fremio.</p>\n<p>Halo <b>{{ $json.body.data.customerName }}</b>,</p>\n<p>Terima kasih sudah bergabung 🙌</p>\n<p>Pembayaran kamu berhasil, dan akses <b>Membership Fremio</b> sekarang sudah aktif.</p>\n<p>Mulai sekarang, kamu punya akses penuh ke <b>koleksi frame Fremio</b> — dikurasi dengan rasa, konsisten secara visual, dan siap dipakai tanpa harus bingung memilih dari nol.</p>\n<p>Setiap momen punya cerita.<br>Setiap cerita pantas dirayakan dengan tampilan yang tepat.</p>\n<p>Fremio hadir untuk menemani momen-momen itu.</p>\n<p><b>Kapan pun, di mana pun, kamu bisa jadi siapa pun yang kamu inginkan.</b></p>\n<hr style=\"border: none; border-top: 1px solid #eee; margin: 24px 0;\">\n<p style=\"margin: 0 0 10px;\"><b>Detail Transaksi</b></p>\n<p style=\"margin: 0;\">Order ID: {{ $json.body.data.orderId }}<br>Metode Pembayaran: {{ $json.paymentMethodFormatted }}<br>Jumlah: {{ $json.amountFormatted }}<br>Akses aktif sampai: {{ $json.accessEndDateFormatted }}</p>\n<hr style=\"border: none; border-top: 1px solid #eee; margin: 24px 0;\">\n<h2 style=\"margin: 0 0 10px; font-size: 24px; font-weight: 400;\">Sekarang giliran kamu ✨</h2>\n<p>Jelajahi koleksi frame premium dan pilih yang paling terasa \"kamu\".</p>\n<p><a href=\"{{ $json.body.data.appUrl }}/frames\" style=\"background: #c89585; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;\">Rayakan Momen Sekarang →</a></p>\n<p>Jika ada pertanyaan, kamu bisa langsung membalas email ini atau menghubungi kami.</p>\n<p>Kami dengan senang hati membantu 🤍</p>\n<hr style=\"border: none; border-top: 1px solid #eee; margin: 24px 0;\">\n<p style=\"text-align: center; color: #888; font-size: 12px;\">© 2026 Fremio</p>\n</div>",
+              "value": "={{$json.body?.data?.accessEndDate ? new Date($json.body.data.accessEndDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Asia/Jakarta' }) : '-'}}"
+            },
+            {
+              "name": "paymentMethodFormatted",
+              "value": "={{String($json.body?.data?.paymentMethod || '').toUpperCase()}}"
+            },
+            {
+              "name": "amountFormatted",
+              "value": "={{$json.body?.data?.amount !== undefined && $json.body?.data?.amount !== null ? ('Rp ' + new Intl.NumberFormat('id-ID').format($json.body.data.amount)) : ''}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "format-data",
+      "name": "Format Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [380, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "fremioid@gmail.com",
+        "toEmail": "={{$json.body.data.email}}",
+        "subject": "Selamat! Kamu berhasil menjadi member Fremio 🎉",
+        "emailType": "html",
+            "html": "<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;\">\n<div style=\"text-align: center; margin-bottom: 30px;\">\n<img src=\"https://api.fremio.id/static/logo-salem.png\" alt=\"Fremio\" style=\"width: 60px; height: 60px; margin-bottom: 10px;\">\n<h1 style=\"color: #c89585; margin: 0; font-size: 28px;\">fremio</h1>\n</div>\n<h2 style=\"text-align: center; color: #333; margin-bottom: 5px;\">Pembayaran Berhasil</h2>\n<p style=\"text-align: center; color: #888; margin-top: 0;\">Terima kasih sudah berlangganan Fremio.</p>\n<p>Halo <b>{{ $json.body.data.customerName }}</b>,</p>\n<p>Terima kasih sudah bergabung 🙌</p>\n<p>Pembayaran kamu berhasil, dan akses <b>Membership Fremio</b> sekarang sudah aktif.</p>\n<p>Mulai sekarang, kamu punya akses penuh ke <b>koleksi frame Fremio</b> — dikurasi dengan rasa, konsisten secara visual, dan siap dipakai tanpa harus bingung memilih dari nol.</p>\n<p>Setiap momen punya cerita.<br>Setiap cerita pantas dirayakan dengan tampilan yang tepat.</p>\n<p>Fremio hadir untuk menemani momen-momen itu.</p>\n<p><b>Kapan pun, di mana pun, kamu bisa jadi siapa pun yang kamu inginkan.</b></p>\n<hr style=\"border: none; border-top: 1px solid #eee; margin: 24px 0;\">\n<p style=\"margin: 0 0 10px;\"><b>Detail Transaksi</b></p>\n<p style=\"margin: 0;\">Order ID: {{ $json.body.data.orderId }}<br>Metode Pembayaran: {{ $json.paymentMethodFormatted }}<br>Jumlah: {{ $json.amountFormatted }}<br>Akses aktif sampai: {{ $json.accessEndDateFormatted }}</p>\n<hr style=\"border: none; border-top: 1px solid #eee; margin: 24px 0;\">\n<h2 style=\"margin: 0 0 10px; font-size: 24px; font-weight: 400;\">Sekarang giliran kamu ✨</h2>\n<p>Jelajahi koleksi frame premium dan pilih yang paling terasa \"kamu\".</p>\n<p><a href=\"{{ $json.body.data.appUrl }}/frames\" style=\"background: #c89585; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;\">Rayakan Momen Sekarang →</a></p>\n<p>Jika ada pertanyaan, kamu bisa langsung membalas email ini atau menghubungi kami.</p>\n<p>Kami dengan senang hati membantu 🤍</p>\n<hr style=\"border: none; border-top: 1px solid #eee; margin: 24px 0;\">\n<p style=\"text-align: center; color: #888; font-size: 12px;\">© 2026 Fremio</p>\n</div>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "send-email",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [500, 300],
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Gmail SMTP"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Format Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Data": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "instanceId": "fremio-production"
+  },
+  "tags": [
+    {
+      "name": "payment"
+    },
+    {
+      "name": "email"
+    }
+  ]
+}

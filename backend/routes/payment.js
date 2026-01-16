@@ -4,11 +4,61 @@
  */
 
 import express from "express";
-import midtransService from "../services/midtransService.js";
-import paymentDB from "../services/paymentDatabaseService.js";
 import { verifyToken } from "../middleware/auth.js";
+import paymentDB from "../services/paymentDatabaseService.js";
+import midtransService from "../services/midtransService.js";
+import n8nWebhook from "../services/n8nWebhookService.js";
 
 const router = express.Router();
+const isUuidLike = (value) => {
+  const v = String(value || "").trim();
+  if (!v) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    v
+  );
+};
+
+// Many parts of the backend use DB user ids (UUID). When auth is via Firebase,
+// req.user.userId defaults to the Firebase UID, so we resolve to the local DB
+// UUID via email when possible.
+const resolveDbUserId = async (req, { allowBodyEmail = false } = {}) => {
+  const candidate = req.user?.userId || req.user?.uid;
+  if (candidate && isUuidLike(candidate)) return String(candidate);
+
+  const email =
+    req.user?.email || (allowBodyEmail ? req.body?.email : null) || null;
+  if (email) {
+    const local = await paymentDB.findLocalUserIdByEmail(email);
+    if (local) return String(local);
+  }
+
+  return candidate ? String(candidate) : null;
+};
+
+const getAccessDurationDays = () => {
+  const raw = Number(process.env.PAYMENT_ACCESS_DURATION_DAYS ?? process.env.PAYMENT_DURATION_DAYS ?? 30);
+  return Number.isFinite(raw) && raw > 0 ? raw : 30;
+};
+
+const addDays = (date, days) => {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+};
+
+// Midtrans may temporarily return 404 for very recent orders (eventual consistency / propagation).
+// To avoid breaking legitimate payments, only mark a missing order as failed after some time.
+const getMissingMidtransFailAfterMinutes = () => {
+  const raw = Number(process.env.MIDTRANS_MISSING_FAIL_AFTER_MINUTES ?? 15);
+  return Number.isFinite(raw) && raw > 0 ? raw : 15;
+};
+
+const isOlderThanMinutes = (dateLike, minutes) => {
+  const d = dateLike ? new Date(dateLike) : null;
+  if (!d || Number.isNaN(d.getTime())) return true; // if unknown, err on the side of cleanup
+  const ageMs = Date.now() - d.getTime();
+  return ageMs >= minutes * 60 * 1000;
+};
 
 // Checkout gating to protect users during integration testing.
 // PAYMENT_CHECKOUT_MODE: disabled | whitelist | enabled (default: enabled)
@@ -79,12 +129,35 @@ const determinePackageIdsToGrant = ({ packages }) => {
 };
 
 /**
+ * GET /api/payment/config
+ * Public config endpoint so the frontend can load Midtrans Snap correctly.
+ * This prevents environment/key mismatches between frontend build-time vars
+ * and backend runtime configuration.
+ */
+router.get("/config", (req, res) => {
+  const isProduction = String(process.env.MIDTRANS_IS_PRODUCTION || "").toLowerCase() === "true";
+  const clientKey = process.env.MIDTRANS_CLIENT_KEY || null;
+  const snapScriptUrl = isProduction
+    ? "https://app.midtrans.com/snap/snap.js"
+    : "https://app.sandbox.midtrans.com/snap/snap.js";
+
+  return res.json({
+    success: true,
+    data: {
+      isProduction,
+      snapScriptUrl,
+      clientKey,
+    },
+  });
+});
+
+/**
  * POST /api/payment/create
  * Create new payment transaction
  */
 router.post("/create", verifyToken, async (req, res) => {
   try {
-    const userId = req.user?.uid || req.user?.userId;
+    const userId = await resolveDbUserId(req, { allowBodyEmail: true });
     if (!userId) {
       return res.status(401).json({
         success: false,
@@ -130,7 +203,82 @@ router.post("/create", verifyToken, async (req, res) => {
 
       // Check if there's pending transaction
       const userTransactions = await paymentDB.getUserTransactions(userId);
-      hasPending = userTransactions.some((t) => t.status === "pending");
+      const pendingTx = (userTransactions || []).filter(
+        (t) => String(t.status || "").toLowerCase() === "pending"
+      );
+
+      // If there's a pending tx, sanity-check the latest one against Midtrans.
+      // If Midtrans doesn't know it (404), mark it failed so checkout is not blocked.
+      if (pendingTx.length > 0) {
+        const latest = pendingTx[0];
+        const orderId = latest?.invoice_number || null;
+        if (orderId) {
+          try {
+            const st = await midtransService.getTransactionStatus(String(orderId));
+            const txStatus = String(st?.transaction_status || "").trim().toLowerCase();
+
+            // If Midtrans already expired/cancelled/denied, update DB so it won't block checkout.
+            if (txStatus && txStatus !== "pending") {
+              try {
+                await paymentDB.updateTransactionStatus({
+                  orderId: String(orderId),
+                  transactionStatus: txStatus,
+                  paymentType: st?.payment_type || null,
+                  transactionTime: st?.transaction_time || new Date().toISOString(),
+                  settlementTime: st?.settlement_time || null,
+                  midtransTransactionId: st?.transaction_id || null,
+                  midtransResponse: st,
+                });
+              } catch {
+                // ignore
+              }
+            }
+          } catch (e) {
+            const msg = String(e?.message || "");
+            const msgLower = msg.toLowerCase();
+            const isMissingOnMidtrans =
+              msgLower.includes("http status code: 404") ||
+              msgLower.includes("status_code\":\"404\"") ||
+              /transaction\s+doesn['’]\s*t\s+exist/.test(msgLower) ||
+              msgLower.includes("transaction does not exist") ||
+              msgLower.includes("transaction not found");
+
+            if (isMissingOnMidtrans) {
+              const thresholdMin = getMissingMidtransFailAfterMinutes();
+              const createdAt = latest?.created_at || latest?.createdAt || null;
+              // If it's very recent, treat it as still pending to avoid double-checkout.
+              if (!isOlderThanMinutes(createdAt, thresholdMin)) {
+                hasPending = true;
+              } else {
+                try {
+                  await paymentDB.markTransactionFailed({
+                    orderId: String(orderId),
+                    reason: "midtrans_missing_on_create_precheck",
+                    details: msg,
+                  });
+                } catch {
+                  // ignore
+                }
+              }
+            } else {
+              // Midtrans temporarily unreachable: keep it pending to be safe.
+              hasPending = true;
+            }
+          }
+        } else {
+          hasPending = true;
+        }
+
+        // Recompute pending after potential cleanup.
+        if (!hasPending) {
+          const tx2 = await paymentDB.getUserTransactions(userId);
+          hasPending = (tx2 || []).some(
+            (t) => String(t.status || "").toLowerCase() === "pending"
+          );
+        }
+      } else {
+        hasPending = false;
+      }
 
       if (hasPending) {
         return res.status(400).json({
@@ -169,11 +317,26 @@ router.post("/create", verifyToken, async (req, res) => {
 
     console.log("🔄 Creating Midtrans transaction...");
 
-    const transaction = await midtransService.createTransaction({
-      orderId,
-      grossAmount,
-      customerDetails,
-    });
+    let transaction;
+    try {
+      transaction = await midtransService.createTransaction({
+        orderId,
+        grossAmount,
+        customerDetails,
+      });
+    } catch (e) {
+      // If Midtrans creation fails after we inserted a DB row, don't leave it stuck as 'pending'.
+      try {
+        await paymentDB.markTransactionFailed({
+          orderId,
+          reason: "midtrans_create_failed",
+          details: e?.message || String(e),
+        });
+      } catch {
+        // ignore secondary failure
+      }
+      throw e;
+    }
 
     console.log("✅ Midtrans transaction created successfully");
 
@@ -212,7 +375,7 @@ router.post("/create", verifyToken, async (req, res) => {
  */
 router.get("/pending", verifyToken, async (req, res) => {
   try {
-    const userId = req.user?.uid || req.user?.userId;
+    const userId = await resolveDbUserId(req);
     if (!userId) {
       return res.status(401).json({
         success: false,
@@ -248,12 +411,64 @@ router.get("/pending", verifyToken, async (req, res) => {
         }
       }
     } catch (e) {
-      // If Midtrans is unreachable, return DB state.
-      console.warn("⚠️ Failed to refresh Midtrans status:", e?.message || e);
+      const msg = String(e?.message || "");
+      const msgLower = msg.toLowerCase();
+
+      const isMissingOnMidtrans =
+        msgLower.includes("http status code: 404") ||
+        msgLower.includes("status_code\":\"404\"") ||
+        /transaction\s+doesn['’]\s*t\s+exist/.test(msgLower) ||
+        msgLower.includes("transaction does not exist") ||
+        msgLower.includes("transaction not found");
+
+      if (isMissingOnMidtrans && latestPending?.status === "pending") {
+        const thresholdMin = getMissingMidtransFailAfterMinutes();
+        const createdAt = latestPending?.created_at || latestPending?.createdAt || null;
+        if (isOlderThanMinutes(createdAt, thresholdMin)) {
+          try {
+            await paymentDB.markTransactionFailed({
+              orderId: latestPending.invoice_number,
+              reason: "midtrans_missing_on_status",
+              details: msg,
+            });
+            latestPending.status = "failed";
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      // If Midtrans is unreachable or missing, return DB state (possibly updated above).
+      console.warn("⚠️ Failed to refresh Midtrans status:", msg || e);
     }
 
     // If it already settled, the client should just sync access.
-    if (latestPending.status === "settlement" || latestPending.status === "capture") {
+    if (
+      latestPending.status === "settlement" ||
+      latestPending.status === "capture" ||
+      latestPending.status === "completed"
+    ) {
+      // Self-heal: if webhook didn't grant access, grant here.
+      try {
+        const alreadyGranted = await paymentDB.hasAccessForTransaction(
+          latestPending.id
+        );
+
+        if (!alreadyGranted) {
+          const packages = await paymentDB.getAllPackages();
+          const packageIds = determinePackageIdsToGrant({ packages });
+          if (packageIds.length > 0) {
+            await paymentDB.grantPackageAccess({
+              userId,
+              transactionId: latestPending.id,
+              packageIds,
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("⚠️ Failed to self-heal access on /pending:", e?.message || e);
+      }
+
       return res.json({
         success: true,
         hasPending: false,
@@ -294,7 +509,7 @@ router.get("/pending", verifyToken, async (req, res) => {
  */
 router.post("/pending/cancel", verifyToken, async (req, res) => {
   try {
-    const userId = req.user?.uid || req.user?.userId;
+    const userId = await resolveDbUserId(req);
     if (!userId) {
       return res.status(401).json({
         success: false,
@@ -384,18 +599,57 @@ router.post("/pending/cancel", verifyToken, async (req, res) => {
  * POST /api/payment/webhook
  * Midtrans webhook notification handler
  */
-router.post("/webhook", async (req, res) => {
+const isPaidTxStatus = (status) => {
+  const s = String(status || "").trim().toLowerCase();
+  return s === "settlement" || s === "capture" || s === "completed";
+};
+
+const handleMidtransNotification = async (req, res) => {
   try {
-    // Verify notification from Midtrans
-    const notification = await midtransService.verifyNotification(req.body);
+    // Log raw webhook for debugging (especially for DANA which uses different order_id)
+    const rawBody = req.body || {};
+    console.log("📥 Raw webhook received:", JSON.stringify({
+      order_id: rawBody.order_id,
+      transaction_status: rawBody.transaction_status,
+      payment_type: rawBody.payment_type,
+      gross_amount: rawBody.gross_amount,
+      email: rawBody.customer_details?.email,
+    }));
+
+    // Verify notification from Midtrans.
+    // If verification fails (payload format mismatch), fall back to status check using order_id.
+    let notification;
+    try {
+      notification = await midtransService.verifyNotification(req.body);
+    } catch (e) {
+      const rawOrderId =
+        req.body?.order_id ||
+        req.body?.orderId ||
+        req.body?.transaction_details?.order_id ||
+        null;
+      const orderId = rawOrderId ? String(rawOrderId).trim() : "";
+      if (!orderId) throw e;
+
+      const st = await midtransService.getTransactionStatus(orderId);
+      notification = {
+        orderId,
+        transactionStatus: st?.transaction_status,
+        paymentType: st?.payment_type,
+        transactionTime: st?.transaction_time,
+        settlementTime: st?.settlement_time,
+        midtransTransactionId: st?.transaction_id,
+        fullResponse: st,
+      };
+    }
 
     console.log("📥 Payment notification received:", {
       orderId: notification.orderId,
       status: notification.transactionStatus,
+      paymentType: notification.paymentType,
     });
 
-    // Update transaction in database
-    const transaction = await paymentDB.updateTransactionStatus({
+    // Update transaction in database (may return null if orderId not found)
+    let transaction = await paymentDB.updateTransactionStatus({
       orderId: notification.orderId,
       transactionStatus: notification.transactionStatus,
       paymentType: notification.paymentType,
@@ -405,51 +659,167 @@ router.post("/webhook", async (req, res) => {
       midtransResponse: notification.fullResponse,
     });
 
-    // If payment is successful, grant package access
-    if (
-      notification.transactionStatus === "settlement" ||
-      notification.transactionStatus === "capture"
-    ) {
-      console.log("✅ Payment successful, granting access...");
+    // DANA/E-wallet fix: If order_id from webhook doesn't match our DB (DANA uses different order_id format),
+    // try to find pending transaction by email + amount
+    if (!transaction && isPaidTxStatus(notification.transactionStatus)) {
+      const email =
+        notification.fullResponse?.customer_details?.email ||
+        notification.fullResponse?.customer_details?.email_address ||
+        rawBody.customer_details?.email ||
+        null;
+      const grossAmount = Number(notification.fullResponse?.gross_amount || rawBody.gross_amount || 0);
 
-      const packages = await paymentDB.getAllPackages();
-
-      if (!packages || packages.length === 0) {
-        console.error("❌ No packages available");
-        return res.status(500).json({
-          success: false,
-          message: "No packages available",
-        });
+      if (email && grossAmount > 0) {
+        console.log("🔍 Order ID not found, searching by email:", email, "amount:", grossAmount);
+        
+        // Find pending transaction for this email with matching amount (within last 48 hours)
+        const pendingTx = await paymentDB.findPendingTransactionByEmailAndAmount(email, grossAmount);
+        
+        if (pendingTx) {
+          console.log("✅ Found matching pending transaction:", pendingTx.invoice_number);
+          
+          // Update the found transaction
+          transaction = await paymentDB.updateTransactionStatus({
+            orderId: pendingTx.invoice_number,
+            transactionStatus: notification.transactionStatus,
+            paymentType: notification.paymentType,
+            transactionTime: notification.transactionTime,
+            settlementTime: notification.settlementTime,
+            midtransTransactionId: notification.midtransTransactionId,
+            midtransResponse: {
+              ...notification.fullResponse,
+              _matched_by: "email_amount",
+              _original_webhook_order_id: notification.orderId,
+            },
+          });
+        }
       }
-
-      const packageIds = determinePackageIdsToGrant({ packages });
-
-      if (packageIds.length === 0) {
-        console.error("❌ Failed to determine packages to grant");
-        return res.status(500).json({
-          success: false,
-          message: "Failed to determine packages to grant",
-        });
-      }
-
-      await paymentDB.grantPackageAccess({
-        userId: transaction.user_id,
-        transactionId: transaction.id,
-        packageIds,
-      });
-
-      console.log("✅ Access granted to user:", transaction.user_id);
     }
 
-    res.json({ success: true });
+    // Safety-net: if we still don't have a local transaction row, create one from webhook.
+    if (!transaction) {
+      const email =
+        notification.fullResponse?.customer_details?.email ||
+        notification.fullResponse?.customer_details?.email_address ||
+        null;
+
+      const localUserId = email
+        ? await paymentDB.findLocalUserIdByEmail(email)
+        : null;
+
+      if (localUserId) {
+        transaction = await paymentDB.createTransactionFromWebhook({
+          userId: localUserId,
+          orderId: notification.orderId,
+          grossAmount: notification.fullResponse?.gross_amount,
+          transactionStatus: notification.transactionStatus,
+          paymentType: notification.paymentType,
+          transactionTime: notification.transactionTime,
+          midtransTransactionId: notification.midtransTransactionId,
+          midtransResponse: notification.fullResponse,
+        });
+      }
+    }
+
+    // If payment is successful, grant package access
+    if (isPaidTxStatus(notification.transactionStatus)) {
+      console.log("✅ Payment successful, granting access...");
+
+      if (!transaction) {
+        // We can't grant without a local transaction record.
+        console.warn(
+          "⚠️ Webhook success but transaction row not found/created:",
+          notification.orderId
+        );
+        return res.json({ success: true });
+      }
+
+      const packages = await paymentDB.getAllPackages();
+      const packageIds = determinePackageIdsToGrant({ packages });
+
+      if (packageIds.length > 0) {
+        let effectiveUserId = transaction.user_id;
+        if (!isUuidLike(effectiveUserId)) {
+          const email = notification.fullResponse?.customer_details?.email || null;
+          if (email) {
+            const local = await paymentDB.findLocalUserIdByEmail(email);
+            if (local) effectiveUserId = local;
+          }
+        }
+
+        await paymentDB.grantPackageAccess({
+          userId: effectiveUserId,
+          transactionId: transaction.id,
+          packageIds,
+        });
+
+        console.log("✅ Access granted to user:", transaction.user_id);
+
+        // Send email notification via n8n (idempotent - only sends once)
+        try {
+          const alreadySent = await paymentDB.isReceiptEmailSent(transaction.invoice_number);
+          if (!alreadySent) {
+            const marked = await paymentDB.markReceiptEmailSent(transaction.invoice_number);
+            if (marked > 0) {
+              const customerEmail =
+                notification.fullResponse?.customer_details?.email ||
+                transaction.customer_email ||
+                null;
+              const customerName =
+                notification.fullResponse?.customer_details?.first_name ||
+                notification.fullResponse?.customer_details?.name ||
+                "Fremio User";
+              const paymentMethod = notification.paymentType || transaction.payment_method || "Unknown";
+              const amount = transaction.amount || notification.fullResponse?.gross_amount || 0;
+
+              // Calculate access end date (default 30 days from now)
+              const accessDurationDays = getAccessDurationDays();
+              const accessEndDate = addDays(new Date(), accessDurationDays).toISOString();
+
+              if (customerEmail) {
+                await n8nWebhook.sendPaymentSuccessEvent({
+                  email: customerEmail,
+                  orderId: transaction.invoice_number,
+                  customerName,
+                  paymentMethod,
+                  amount,
+                  accessEndDate,
+                });
+              }
+            }
+          }
+        } catch (emailErr) {
+          // Non-blocking: log but don't fail the webhook
+          console.error("⚠️ Failed to send email notification:", emailErr.message);
+          // Optionally clear the flag so it can retry next time
+          try {
+            await paymentDB.clearReceiptEmailSent(transaction.invoice_number);
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+
+    return res.json({ success: true });
   } catch (error) {
     console.error("Webhook error:", error);
-    res.status(500).json({
+    // Returning 200 prevents endless retries if something is misconfigured.
+    // We still log the error for investigation.
+    return res.status(200).json({
       success: false,
       message: "Webhook processing failed",
       error: error.message,
     });
   }
+};
+
+router.post("/webhook", handleMidtransNotification);
+router.post("/notification", handleMidtransNotification);
+router.post("/midtrans/notification", handleMidtransNotification);
+
+router.get(["/webhook", "/notification", "/midtrans/notification"], (req, res) => {
+  res.json({ success: true, message: "OK" });
 });
 
 /**
@@ -459,7 +829,8 @@ router.post("/webhook", async (req, res) => {
 router.get("/status/:orderId", verifyToken, async (req, res) => {
   try {
     const { orderId } = req.params;
-    const userId = req.user?.uid || req.user?.userId;
+    const userId = await resolveDbUserId(req);
+    const rawUid = req.user?.uid ? String(req.user.uid) : null;
     if (!userId) {
       return res.status(401).json({
         success: false,
@@ -478,7 +849,10 @@ router.get("/status/:orderId", verifyToken, async (req, res) => {
     }
 
     // Verify ownership
-    if (transaction.user_id !== userId) {
+    if (
+      String(transaction.user_id) !== String(userId) &&
+      (!rawUid || String(transaction.user_id) !== rawUid)
+    ) {
       return res.status(403).json({
         success: false,
         message: "Unauthorized",
@@ -489,7 +863,9 @@ router.get("/status/:orderId", verifyToken, async (req, res) => {
     const midtransStatus = await midtransService.getTransactionStatus(orderId);
 
     // Update in database if status changed
-    if (midtransStatus.transaction_status !== transaction.transaction_status) {
+    const localStatus =
+      transaction.status || transaction.transaction_status || "pending";
+    if (midtransStatus.transaction_status !== localStatus) {
       await paymentDB.updateTransactionStatus({
         orderId,
         transactionStatus: midtransStatus.transaction_status,
@@ -511,8 +887,11 @@ router.get("/status/:orderId", verifyToken, async (req, res) => {
         const packages = await paymentDB.getAllPackages();
         const packageIds = determinePackageIdsToGrant({ packages });
         if (packageIds.length > 0) {
+          const effectiveUserId = isUuidLike(transaction.user_id)
+            ? transaction.user_id
+            : userId;
           await paymentDB.grantPackageAccess({
-            userId: transaction.user_id,
+            userId: effectiveUserId,
             transactionId: transaction.id,
             packageIds,
           });
@@ -523,10 +902,10 @@ router.get("/status/:orderId", verifyToken, async (req, res) => {
     res.json({
       success: true,
       data: {
-        orderId: transaction.order_id,
+        orderId: transaction.invoice_number || orderId,
         status: midtransStatus.transaction_status,
         paymentType: midtransStatus.payment_type,
-        grossAmount: transaction.gross_amount,
+        grossAmount: transaction.amount,
       },
     });
   } catch (error) {
@@ -546,7 +925,7 @@ router.get("/status/:orderId", verifyToken, async (req, res) => {
  */
 router.post("/reconcile-latest", verifyToken, async (req, res) => {
   try {
-    const userId = req.user?.uid || req.user?.userId;
+    const userId = await resolveDbUserId(req);
     if (!userId) {
       return res.status(401).json({
         success: false,
@@ -563,15 +942,24 @@ router.post("/reconcile-latest", verifyToken, async (req, res) => {
       });
     }
 
+    const orderId = latestPending.invoice_number || latestPending.order_id;
+    if (!orderId) {
+      return res.status(500).json({
+        success: false,
+        message: "Failed to reconcile payment",
+        error: "Missing orderId in latest pending transaction",
+      });
+    }
+
     const midtransStatus = await midtransService.getTransactionStatus(
-      latestPending.order_id
+      orderId
     );
 
-    if (
-      midtransStatus.transaction_status !== latestPending.transaction_status
-    ) {
+    const localStatus =
+      latestPending.status || latestPending.transaction_status || "pending";
+    if (midtransStatus.transaction_status !== localStatus) {
       await paymentDB.updateTransactionStatus({
-        orderId: latestPending.order_id,
+        orderId,
         transactionStatus: midtransStatus.transaction_status,
         paymentType: midtransStatus.payment_type,
         transactionTime: midtransStatus.transaction_time,
@@ -593,7 +981,7 @@ router.post("/reconcile-latest", verifyToken, async (req, res) => {
         const packageIds = determinePackageIdsToGrant({ packages });
         if (packageIds.length > 0) {
           await paymentDB.grantPackageAccess({
-            userId: latestPending.user_id,
+            userId: isUuidLike(latestPending.user_id) ? latestPending.user_id : userId,
             transactionId: latestPending.id,
             packageIds,
           });
@@ -604,7 +992,7 @@ router.post("/reconcile-latest", verifyToken, async (req, res) => {
     return res.json({
       success: true,
       data: {
-        orderId: latestPending.order_id,
+        orderId,
         status: midtransStatus.transaction_status,
       },
     });
@@ -624,7 +1012,7 @@ router.post("/reconcile-latest", verifyToken, async (req, res) => {
  */
 router.get("/history", verifyToken, async (req, res) => {
   try {
-    const userId = req.user?.uid || req.user?.userId;
+    const userId = await resolveDbUserId(req);
     if (!userId) {
       return res.status(401).json({
         success: false,
@@ -653,7 +1041,7 @@ router.get("/history", verifyToken, async (req, res) => {
  */
 router.get("/access", verifyToken, async (req, res) => {
   try {
-    const userId = req.user?.uid || req.user?.userId;
+    const userId = await resolveDbUserId(req);
     if (!userId) {
       return res.status(401).json({
         success: false,
@@ -662,7 +1050,98 @@ router.get("/access", verifyToken, async (req, res) => {
     }
 
     try {
-      const access = await paymentDB.getUserActiveAccess(userId);
+      let access = await paymentDB.getUserActiveAccess(userId);
+
+      // Self-heal: if user paid successfully but access record is missing,
+      // grant access using their latest successful transaction.
+      if (!access) {
+        const latestSuccess = await paymentDB.getLatestSuccessfulTransaction(
+          userId
+        );
+
+        if (latestSuccess) {
+          const alreadyGranted = await paymentDB.hasAccessForTransaction(
+            latestSuccess.id
+          );
+
+          if (!alreadyGranted) {
+            const packages = await paymentDB.getAllPackages();
+            const packageIds = determinePackageIdsToGrant({ packages });
+            if (packageIds.length > 0) {
+              const durationDays = getAccessDurationDays();
+              const start = latestSuccess.paid_at || latestSuccess.created_at || new Date();
+              const accessEnd = addDays(start, durationDays);
+
+              await paymentDB.grantPackageAccess({
+                userId,
+                transactionId: latestSuccess.id,
+                packageIds,
+                accessEnd,
+              });
+            }
+          }
+
+          access = await paymentDB.getUserActiveAccess(userId);
+        }
+      }
+
+      // Self-heal (DANA-friendly): if DB still says "pending" but Midtrans has
+      // already settled, reconcile the latest pending transaction here.
+      if (!access) {
+        try {
+          const latestPending = await paymentDB.getLatestPendingTransaction(userId);
+          const orderId = latestPending?.invoice_number || null;
+
+          if (latestPending && orderId) {
+            const midtransStatus = await midtransService.getTransactionStatus(orderId);
+            const finalStatus = midtransStatus?.transaction_status;
+
+            if (finalStatus && finalStatus !== latestPending.status) {
+              await paymentDB.updateTransactionStatus({
+                orderId,
+                transactionStatus: finalStatus,
+                paymentType: midtransStatus.payment_type,
+                transactionTime: midtransStatus.transaction_time,
+                settlementTime: midtransStatus.settlement_time,
+                midtransTransactionId: midtransStatus.transaction_id,
+                midtransResponse: midtransStatus,
+              });
+            }
+
+            if (finalStatus === "settlement" || finalStatus === "capture") {
+              const alreadyGranted = await paymentDB.hasAccessForTransaction(
+                latestPending.id
+              );
+
+              if (!alreadyGranted) {
+                const packages = await paymentDB.getAllPackages();
+                const packageIds = determinePackageIdsToGrant({ packages });
+                if (packageIds.length > 0) {
+                  const durationDays = getAccessDurationDays();
+                  const start =
+                    midtransStatus.settlement_time ||
+                    midtransStatus.transaction_time ||
+                    latestPending.paid_at ||
+                    latestPending.created_at ||
+                    new Date();
+                  const accessEnd = addDays(start, durationDays);
+
+                  await paymentDB.grantPackageAccess({
+                    userId,
+                    transactionId: latestPending.id,
+                    packageIds,
+                    accessEnd,
+                  });
+                }
+              }
+
+              access = await paymentDB.getUserActiveAccess(userId);
+            }
+          }
+        } catch (e) {
+          console.warn("⚠️ Failed to self-heal access from pending tx:", e?.message || e);
+        }
+      }
 
       if (!access) {
         return res.json({
@@ -722,7 +1201,7 @@ router.get("/access", verifyToken, async (req, res) => {
  */
 router.get("/can-purchase", verifyToken, async (req, res) => {
   try {
-    const userId = req.user?.uid || req.user?.userId;
+    const userId = await resolveDbUserId(req);
     if (!userId) {
       return res.status(401).json({
         success: false,

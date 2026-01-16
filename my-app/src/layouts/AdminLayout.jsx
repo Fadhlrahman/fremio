@@ -20,6 +20,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   Shapes,
+  Crown,
 } from "lucide-react";
 
 export default function AdminLayout() {
@@ -85,6 +86,7 @@ export default function AdminLayout() {
       badge: pendingAffiliates,
     },
     { path: "/admin/maintenance", icon: Shield, label: "Maintenance" },
+    { path: "/admin/subscribers", icon: Crown, label: "Subscribers" },
     { path: "/admin/settings", icon: Settings, label: "Settings" },
   ];
 

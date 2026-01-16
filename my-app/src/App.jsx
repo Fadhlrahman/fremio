@@ -50,6 +50,7 @@ import AdminMessages from "./pages/admin/AdminMessages.jsx";
 import AdminAffiliates from "./pages/admin/AdminAffiliates.jsx";
 import AdminPackages from "./pages/admin/AdminPackages.jsx";
 import AdminMaintenance from "./pages/admin/AdminMaintenance.jsx";
+import AdminSubscribers from "./pages/admin/AdminSubscribers.jsx";
 
 // Maintenance
 import Maintenance from "./pages/Maintenance.jsx";
@@ -198,6 +199,7 @@ export default function App() {
             <Route path="messages" element={<AdminMessages />} />
             <Route path="affiliates" element={<AdminAffiliates />} />
             <Route path="packages" element={<AdminPackages />} />
+            <Route path="subscribers" element={<AdminSubscribers />} />
             <Route path="maintenance" element={<AdminMaintenance />} />
             <Route path="settings" element={<AdminSettings />} />
           </Route>

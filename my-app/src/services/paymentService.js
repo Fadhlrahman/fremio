@@ -7,6 +7,17 @@ import api from "./api";
 
 class PaymentService {
   /**
+   * Fetch Midtrans runtime config from backend (no auth).
+   */
+  async getConfig() {
+    try {
+      return await api.get("/payment/config", false);
+    } catch (error) {
+      // Non-fatal; callers can fall back to build-time env.
+      return null;
+    }
+  }
+  /**
    * Create new payment transaction
    * @param {Object} userData - User data for payment
    * @returns {Promise<Object>} Payment token and redirect URL
@@ -157,26 +168,59 @@ class PaymentService {
    * @returns {Promise<void>}
    */
   loadSnapScript() {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       // Check if already loaded
       if (window.snap) {
         resolve();
         return;
       }
 
-      const script = document.createElement("script");
-      script.src =
-        import.meta.env.VITE_MIDTRANS_IS_PRODUCTION === "true"
+      let isProduction = null;
+      let clientKey = null;
+      let snapScriptUrl = null;
+
+      // Prefer backend runtime config to avoid env mismatches.
+      const cfg = await this.getConfig();
+      if (cfg?.success && cfg?.data) {
+        isProduction = cfg.data.isProduction;
+        clientKey = cfg.data.clientKey;
+        snapScriptUrl = cfg.data.snapScriptUrl;
+      }
+
+      // Fallback to build-time env vars.
+      if (isProduction === null || isProduction === undefined) {
+        isProduction = import.meta.env.VITE_MIDTRANS_IS_PRODUCTION === "true";
+      }
+      if (!snapScriptUrl) {
+        snapScriptUrl = isProduction
           ? "https://app.midtrans.com/snap/snap.js"
           : "https://app.sandbox.midtrans.com/snap/snap.js";
+      }
+      if (!clientKey) {
+        clientKey = import.meta.env.VITE_MIDTRANS_CLIENT_KEY;
+      }
 
-      script.setAttribute(
-        "data-client-key",
-        import.meta.env.VITE_MIDTRANS_CLIENT_KEY
-      );
+      if (!clientKey) {
+        reject(new Error("Missing Midtrans client key"));
+        return;
+      }
+
+      // If a previous snap script tag exists (e.g., old build), remove it.
+      const existing = document.querySelector('script[data-midtrans-snap="true"]');
+      if (existing) {
+        existing.parentNode?.removeChild(existing);
+      }
+
+      const script = document.createElement("script");
+      script.src = snapScriptUrl;
+      script.async = true;
+      script.setAttribute("data-client-key", clientKey);
+      script.setAttribute("data-midtrans-snap", "true");
 
       script.onload = () => {
-        console.log("✅ Midtrans Snap script loaded");
+        console.log(
+          `✅ Midtrans Snap script loaded (${isProduction ? "PROD" : "SANDBOX"})`
+        );
         resolve();
       };
 

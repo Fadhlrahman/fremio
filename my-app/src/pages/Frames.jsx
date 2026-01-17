@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import frameProvider from "../utils/frameProvider.js";
@@ -291,6 +291,7 @@ function FrameCard({
 
 export default function Frames() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user: currentUser } = useAuth();
   const [customFrames, setCustomFrames] = useState([]);
   const [imageErrors, setImageErrors] = useState({});
@@ -412,10 +413,59 @@ export default function Frames() {
         // Check user access (only if logged in)
         if (currentUser) {
           try {
+            // Self-heal path 1: if we know the last orderId (stored during checkout),
+            // ask backend to check status and grant access if settled.
+            try {
+              const qs = new URLSearchParams(location.search || "");
+              const orderIdFromQuery =
+                qs.get("order_id") || qs.get("orderId") || qs.get("order") || null;
+
+              if (orderIdFromQuery) {
+                try {
+                  localStorage.setItem("fremio_last_order_id", orderIdFromQuery);
+                } catch {
+                  // ignore
+                }
+              }
+
+              const lastOrderId =
+                orderIdFromQuery || localStorage.getItem("fremio_last_order_id");
+              if (lastOrderId) {
+                await paymentService.checkStatus(lastOrderId);
+              }
+            } catch (e) {
+              const msg = String(e?.message || "");
+              const msgLower = msg.toLowerCase();
+              const looksMissing =
+                msgLower.includes("http 404") ||
+                msgLower.includes("transaction") && msgLower.includes("does") && msgLower.includes("exist");
+              if (looksMissing) {
+                try {
+                  localStorage.removeItem("fremio_last_order_id");
+                } catch {
+                  // ignore
+                }
+              }
+            }
+
+            // Self-heal: some payment methods (e.g., DANA) may complete outside
+            // of the Snap popup callbacks. Reconcile the latest transaction so
+            // access can be granted even if webhook/JS callbacks were missed.
+            try {
+              await paymentService.reconcileLatest?.();
+            } catch (e) {
+              // non-fatal
+            }
+
             const accessResponse = await paymentService.getAccess();
             if (accessResponse.success && accessResponse.hasAccess) {
               setHasAccess(true);
               setAccessibleFrameIds(accessResponse.data.frameIds || []);
+              try {
+                localStorage.removeItem("fremio_last_order_id");
+              } catch {
+                // ignore
+              }
               console.log(
                 "✅ User has access to frames:",
                 accessResponse.data.frameIds?.length
@@ -443,7 +493,7 @@ export default function Frames() {
     };
 
     loadFramesAndAccess();
-  }, [currentUser]);
+  }, [currentUser, location.search]);
 
   const handleImageError = (frameId) => {
     if (DEBUG_FRAMES) {

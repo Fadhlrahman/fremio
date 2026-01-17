@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import paymentService from "../services/paymentService";
 import unifiedFrameService from "../services/unifiedFrameService";
@@ -7,6 +7,7 @@ import "./Pricing.css";
 
 const Pricing = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user: currentUser } = useAuth();
   const [loading, setLoading] = useState(false);
   const [access, setAccess] = useState(null);
@@ -14,6 +15,9 @@ const Pricing = () => {
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [pendingPayment, setPendingPayment] = useState(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
+
+  // Avoid running syncAccess multiple times for the same redirect
+  const [syncedOrderFromQuery, setSyncedOrderFromQuery] = useState(null);
 
   // Premium frames categories shown on Pricing page
   // Must match the exact category strings used when uploading frames in Admin.
@@ -46,6 +50,26 @@ const Pricing = () => {
     loadSnapScript();
     loadPreviewFrames();
   }, [currentUser]);
+
+  // If Midtrans redirects back with order_id/orderId (common for VTWeb / DANA),
+  // immediately sync status to grant access and navigate to /frames.
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const qs = new URLSearchParams(location.search || "");
+    const orderId =
+      qs.get("order_id") ||
+      qs.get("orderId") ||
+      qs.get("order") ||
+      null;
+
+    if (!orderId) return;
+    if (syncedOrderFromQuery === orderId) return;
+
+    setSyncedOrderFromQuery(orderId);
+    syncAccess(orderId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, location.search, syncedOrderFromQuery]);
 
   const loadPreviewFrames = async () => {
     try {
@@ -137,6 +161,41 @@ const Pricing = () => {
           setPendingPayment(pendingResponse.data);
           // Prevent new checkout while pending exists
           setCanPurchase(false);
+        } else if (pendingResponse?.success && pendingResponse?.data?.orderId) {
+          // /payment/pending may have self-healed access (webhook missed) OR
+          // cleared stale pending on the server. Refresh client state so the
+          // user doesn't need to manually refresh.
+          const status = String(pendingResponse.data.status || "").toLowerCase();
+          const isPaid =
+            status === "settlement" || status === "capture" || status === "completed";
+
+          if (isPaid) {
+            try {
+              const accessResponse2 = await paymentService.getAccess();
+              if (accessResponse2?.success && accessResponse2?.hasAccess) {
+                setAccess(accessResponse2.data);
+                setCanPurchase(false);
+              }
+            } catch (e) {
+              // ignore; access state will be refreshed on next visit
+            }
+          } else if (status && status !== "pending") {
+            // If the server decided it's no longer pending (failed/cancel/expire/etc),
+            // re-check purchase eligibility because our earlier /can-purchase call
+            // happened before /pending refresh.
+            try {
+              const purchaseResponse2 = await paymentService.canPurchase();
+              if (purchaseResponse2 && purchaseResponse2.success) {
+                setCanPurchase(purchaseResponse2.canPurchase);
+              } else {
+                setCanPurchase(true);
+              }
+            } catch {
+              setCanPurchase(true);
+            }
+
+            setPendingPayment(null);
+          }
         }
       } catch (pendingError) {
         console.log("⚠️ Could not load pending payment:", pendingError.message);
@@ -162,6 +221,11 @@ const Pricing = () => {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       const accessResponse = await paymentService.getAccess();
       if (accessResponse?.success && accessResponse?.hasAccess) {
+        try {
+          localStorage.removeItem("fremio_last_order_id");
+        } catch {
+          // ignore
+        }
         alert(
           "✅ Access berhasil! Sekarang Anda bisa menggunakan semua frame premium."
         );
@@ -242,6 +306,13 @@ const Pricing = () => {
         await paymentService.loadSnapScript();
 
         if (pendingPayment.snapToken) {
+          try {
+            if (pendingPayment.orderId) {
+              localStorage.setItem("fremio_last_order_id", pendingPayment.orderId);
+            }
+          } catch {
+            // ignore
+          }
           paymentService.openSnapPayment(pendingPayment.snapToken, {
             onSuccess: () =>
               syncAccess(pendingPayment.orderId).finally(() =>
@@ -276,6 +347,13 @@ const Pricing = () => {
         }
 
         if (pendingPayment.redirectUrl) {
+          try {
+            if (pendingPayment.orderId) {
+              localStorage.setItem("fremio_last_order_id", pendingPayment.orderId);
+            }
+          } catch {
+            // ignore
+          }
           window.open(
             pendingPayment.redirectUrl,
             "_blank",
@@ -327,6 +405,12 @@ const Pricing = () => {
       console.log("📦 Order ID:", paymentData.orderId);
 
       const orderId = paymentData.orderId;
+
+      try {
+        localStorage.setItem("fremio_last_order_id", orderId);
+      } catch {
+        // ignore
+      }
 
       // Open Midtrans Snap
       console.log("🚀 Opening Midtrans Snap popup...");

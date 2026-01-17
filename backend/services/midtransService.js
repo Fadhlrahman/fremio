@@ -4,9 +4,37 @@
  */
 
 import { createRequire } from "module";
+import { URL } from "url";
 
 const require = createRequire(import.meta.url);
 const midtransClient = require("midtrans-client");
+
+const getSafeFrontendBaseUrl = () => {
+  const raw = String(process.env.FRONTEND_URL || "").trim();
+  const defaultProd = "https://fremio.id";
+  const defaultDev = "http://localhost:5180";
+
+  const allowLocal =
+    String(process.env.ALLOW_LOCALHOST_FRONTEND_URL || "").toLowerCase() ===
+    "true";
+
+  const isProd =
+    String(process.env.NODE_ENV || "").toLowerCase() === "production" ||
+    String(process.env.MIDTRANS_IS_PRODUCTION || "").toLowerCase() === "true";
+
+  if (!raw) return isProd ? defaultProd : defaultDev;
+
+  try {
+    const parsed = new URL(raw);
+    const host = String(parsed.hostname || "").toLowerCase();
+    const isLocal = host === "localhost" || host === "127.0.0.1";
+    // Never send users to localhost in real deployments.
+    if (isLocal && !allowLocal) return defaultProd;
+    return parsed.origin;
+  } catch {
+    return isProd ? defaultProd : defaultDev;
+  }
+};
 
 class MidtransService {
   constructor() {
@@ -106,15 +134,14 @@ class MidtransService {
           secure: true,
         },
         callbacks: {
-          finish: `${
-            process.env.FRONTEND_URL || "https://localhost:5180"
-          }/frames`,
-          error: `${
-            process.env.FRONTEND_URL || "https://localhost:5180"
-          }/pricing`,
-          pending: `${
-            process.env.FRONTEND_URL || "https://localhost:5180"
-          }/pricing`,
+          // After successful payment (including VTWeb/e-wallets like DANA),
+          // send user directly to Frames. Include order_id so the client can
+          // self-heal by checking status/granting access.
+          finish: `${getSafeFrontendBaseUrl()}/frames?order_id=${encodeURIComponent(
+            orderId
+          )}`,
+          error: `${getSafeFrontendBaseUrl()}/pricing`,
+          pending: `${getSafeFrontendBaseUrl()}/pricing`,
         },
         expiry: {
           unit: "hours",
@@ -155,8 +182,18 @@ class MidtransService {
       const status = await this.core.transaction.status(orderId);
       return status;
     } catch (error) {
-      console.error("Midtrans status check error:", error);
-      throw new Error(`Failed to check status: ${error.message}`);
+      const http = error?.httpStatusCode || error?.status || null;
+      const apiMsg =
+        error?.ApiResponse?.status_message ||
+        error?.ApiResponse?.statusMessage ||
+        null;
+      const msg = apiMsg || error?.message || String(error);
+
+      // Keep logs readable; callers can still parse the message.
+      console.error(
+        `Midtrans status check error: ${http ? `HTTP ${http} ` : ""}${msg}`
+      );
+      throw new Error(`Failed to check status: ${msg}`);
     }
   }
 

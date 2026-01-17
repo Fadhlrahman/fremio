@@ -26,11 +26,17 @@ class MidtransService {
     );
 
     if (!serverKey || !clientKey) {
-      console.error("❌ CRITICAL: Midtrans keys not configured!");
-      throw new Error(
-        "Midtrans keys missing. Please configure MIDTRANS_SERVER_KEY and MIDTRANS_CLIENT_KEY in .env"
+      console.warn(
+        "⚠️  MIDTRANS: Keys not configured. Payment features will be disabled."
       );
+      console.warn(
+        "   To enable payments, configure MIDTRANS_SERVER_KEY and MIDTRANS_CLIENT_KEY in .env"
+      );
+      this.isDisabled = true;
+      return;
     }
+
+    this.isDisabled = false;
 
     // Initialize Snap API client
     this.snap = new midtransClient.Snap({

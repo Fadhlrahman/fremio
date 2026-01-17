@@ -125,7 +125,10 @@ const attachTakeMomentWs = (server) => {
       if (type === "JOIN") {
         const roomId = String(payload?.roomId || "").trim();
         if (!roomId) {
-          wsSafeSend(ws, { type: "ERROR", payload: { message: "Missing roomId" } });
+          wsSafeSend(ws, {
+            type: "ERROR",
+            payload: { message: "Missing roomId" },
+          });
           return;
         }
 
@@ -138,7 +141,9 @@ const attachTakeMomentWs = (server) => {
           return;
         }
 
-        const clientId = payload?.clientId ? String(payload.clientId) : generateId();
+        const clientId = payload?.clientId
+          ? String(payload.clientId)
+          : generateId();
         const isFirst = !room.masterId;
         const role = isFirst ? "master" : "participant";
 
@@ -200,7 +205,10 @@ const attachTakeMomentWs = (server) => {
 
       const room = takeMomentRooms.get(connection.roomId);
       if (!room) {
-        wsSafeSend(ws, { type: "ERROR", payload: { message: "Room not found" } });
+        wsSafeSend(ws, {
+          type: "ERROR",
+          payload: { message: "Room not found" },
+        });
         return;
       }
 
@@ -242,7 +250,10 @@ const attachTakeMomentWs = (server) => {
         if (typeof nextState.background === "string") {
           room.state.background = nextState.background;
         }
-        if (nextState.layoutUnits === "norm" || nextState.layoutUnits === "px") {
+        if (
+          nextState.layoutUnits === "norm" ||
+          nextState.layoutUnits === "px"
+        ) {
           room.state.layoutUnits = nextState.layoutUnits;
         }
         if (nextState.layout && typeof nextState.layout === "object") {
@@ -487,6 +498,15 @@ app.use(
   })
 );
 
+// Serve public assets (images, icons, etc.)
+app.use(
+  "/assets",
+  express.static(path.join(__dirname, "public", "assets"), {
+    maxAge: "1y",
+    etag: true,
+  })
+);
+
 // Health check
 app.get("/health", (req, res) => {
   res.json({
@@ -550,8 +570,10 @@ const startServer = async () => {
     // mismatch causing 502, only start HTTPS when explicitly enabled.
     const certPath = path.join(__dirname, "localhost+3.pem");
     const keyPath = path.join(__dirname, "localhost+3-key.pem");
-    const enableHttps = String(process.env.ENABLE_HTTPS || "").toLowerCase() === "true";
-    const useHttps = enableHttps && fs.existsSync(certPath) && fs.existsSync(keyPath);
+    const enableHttps =
+      String(process.env.ENABLE_HTTPS || "").toLowerCase() === "true";
+    const useHttps =
+      enableHttps && fs.existsSync(certPath) && fs.existsSync(keyPath);
 
     let server;
     if (useHttps) {
@@ -568,7 +590,11 @@ const startServer = async () => {
 
     server.listen(PORT, "0.0.0.0", () => {
       console.log("");
-      console.log(useHttps ? "🔒 ============================================" : "🚀 ============================================");
+      console.log(
+        useHttps
+          ? "🔒 ============================================"
+          : "🚀 ============================================"
+      );
       console.log(
         useHttps
           ? `🔒 Fremio Backend API running on HTTPS port ${PORT}`
@@ -578,7 +604,11 @@ const startServer = async () => {
       console.log(`🚀 Frontend URL: ${process.env.FRONTEND_URL}`);
       console.log("🚀 Realtime:");
       console.log("   WS  /ws/take-moment");
-      console.log(useHttps ? "🔒 ============================================" : "🚀 ============================================");
+      console.log(
+        useHttps
+          ? "🔒 ============================================"
+          : "🚀 ============================================"
+      );
       console.log("");
     });
   } catch (error) {

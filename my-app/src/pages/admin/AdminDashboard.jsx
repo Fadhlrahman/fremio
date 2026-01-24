@@ -43,14 +43,17 @@ export default function AdminDashboard() {
   // Load stats from VPS API and other sources
   const loadStats = async (forceRefresh = false) => {
     try {
-      console.log("📊 AdminDashboard - Loading stats...", forceRefresh ? "(force refresh)" : "");
+      console.log(
+        "📊 AdminDashboard - Loading stats...",
+        forceRefresh ? "(force refresh)" : "",
+      );
       setLoading(true);
-      
+
       // Force refresh flag (no longer using clearFramesCache)
       if (forceRefresh) {
         console.log("🔄 Force refresh requested");
       }
-      
+
       // Load frames using unified service
       let frames = [];
       try {
@@ -60,13 +63,21 @@ export default function AdminDashboard() {
         console.warn("⚠️ Failed to load frames:", e.message);
       }
 
-      // Load users (from Supabase/localStorage fallback)
+      // Load users (from Backend API first, then Supabase/localStorage fallback)
       let usersData = [];
       try {
         usersData = await getAllUsers();
-        console.log("📊 Users loaded:", usersData?.length || 0);
+        console.log(
+          "📊 AdminDashboard - Users loaded:",
+          usersData?.length || 0,
+        );
+        console.log(
+          "📊 AdminDashboard - First 3 users:",
+          usersData?.slice(0, 3).map((u) => u.email),
+        );
       } catch (e) {
         console.warn("⚠️ Failed to load users:", e.message);
+        console.error("⚠️ Full error:", e);
       }
 
       // Load other stats
@@ -85,9 +96,12 @@ export default function AdminDashboard() {
       }
 
       // Calculate stats from frames data (VPS stores views, uses, likes per frame)
-      const totalViews = frames?.reduce((sum, f) => sum + (f.views || 0), 0) || 0;
-      const totalDownloads = frames?.reduce((sum, f) => sum + (f.downloads || f.uses || 0), 0) || 0;
-      const totalLikes = frames?.reduce((sum, f) => sum + (f.likes || 0), 0) || 0;
+      const totalViews =
+        frames?.reduce((sum, f) => sum + (f.views || 0), 0) || 0;
+      const totalDownloads =
+        frames?.reduce((sum, f) => sum + (f.downloads || f.uses || 0), 0) || 0;
+      const totalLikes =
+        frames?.reduce((sum, f) => sum + (f.likes || 0), 0) || 0;
 
       const newStats = {
         totalFrames: frames?.length || 0,
@@ -179,13 +193,22 @@ export default function AdminDashboard() {
         )}
 
         {/* Stats Header with Refresh Button */}
-        <div style={{ 
-          display: "flex", 
-          justifyContent: "space-between", 
-          alignItems: "center", 
-          marginBottom: "16px" 
-        }}>
-          <h2 style={{ margin: 0, fontSize: "18px", fontWeight: "700", color: "#333" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "16px",
+          }}
+        >
+          <h2
+            style={{
+              margin: 0,
+              fontSize: "18px",
+              fontWeight: "700",
+              color: "#333",
+            }}
+          >
             Overview Stats
           </h2>
           <button
@@ -206,7 +229,12 @@ export default function AdminDashboard() {
               transition: "all 0.2s",
             }}
           >
-            <RefreshCw size={14} style={{ animation: loading ? "spin 1s linear infinite" : "none" }} />
+            <RefreshCw
+              size={14}
+              style={{
+                animation: loading ? "spin 1s linear infinite" : "none",
+              }}
+            />
             {loading ? "Loading..." : "Refresh"}
           </button>
         </div>

@@ -3,13 +3,14 @@
  * Admin-only routes for managing frame packages
  */
 
-const express = require("express");
+import express from "express";
+import paymentDB from "../services/paymentDatabaseService.js";
+import { verifyToken, requireAdmin } from "../middleware/auth.js";
+
 const router = express.Router();
-const paymentDB = require("../services/paymentDatabaseService");
-const { verifyToken, verifyAdmin } = require("../src/middleware/auth");
 
 // All routes require admin authentication
-router.use(verifyToken, verifyAdmin);
+router.use(verifyToken, requireAdmin);
 
 /**
  * GET /api/admin/packages
@@ -38,7 +39,14 @@ router.get("/", async (req, res) => {
  */
 router.post("/", async (req, res) => {
   try {
-    const { name, description, frameIds } = req.body;
+    const {
+      name,
+      description,
+      frameIds,
+      price,
+      originalPrice,
+      discountPercentage,
+    } = req.body;
 
     if (!name || !frameIds || frameIds.length === 0) {
       return res.status(400).json({
@@ -47,15 +55,18 @@ router.post("/", async (req, res) => {
       });
     }
 
-    const package = await paymentDB.createPackage({
+    const newPackage = await paymentDB.createPackage({
       name,
       description,
       frameIds,
+      price: price || 10000,
+      originalPrice: originalPrice || 50000,
+      discountPercentage: discountPercentage || 80,
     });
 
     res.json({
       success: true,
-      data: package,
+      data: newPackage,
       message: "Package created successfully",
     });
   } catch (error) {
@@ -74,16 +85,27 @@ router.post("/", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, frameIds, isActive } = req.body;
-
-    const package = await paymentDB.updatePackage(parseInt(id), {
+    const {
       name,
       description,
       frameIds,
       isActive,
+      price,
+      originalPrice,
+      discountPercentage,
+    } = req.body;
+
+    const pkg = await paymentDB.updatePackage(parseInt(id), {
+      name,
+      description,
+      frameIds,
+      isActive,
+      price,
+      originalPrice,
+      discountPercentage,
     });
 
-    if (!package) {
+    if (!pkg) {
       return res.status(404).json({
         success: false,
         message: "Package not found",
@@ -92,7 +114,7 @@ router.put("/:id", async (req, res) => {
 
     res.json({
       success: true,
-      data: package,
+      data: pkg,
       message: "Package updated successfully",
     });
   } catch (error) {
@@ -111,9 +133,9 @@ router.put("/:id", async (req, res) => {
 router.delete("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const package = await paymentDB.deletePackage(parseInt(id));
+    const pkg = await paymentDB.deletePackage(parseInt(id));
 
-    if (!package) {
+    if (!pkg) {
       return res.status(404).json({
         success: false,
         message: "Package not found",
@@ -155,4 +177,4 @@ router.get("/stats/payment", async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

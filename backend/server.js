@@ -26,6 +26,7 @@ import paymentRoutes from "./routes/payment.js";
 import maintenanceRoutes from "./routes/maintenance.js";
 import webrtcRoutes from "./routes/webrtc.js";
 import adminSubscribersRoutes from "./routes/adminSubscribers.js";
+import usersRoutes from "./routes/users.js";
 import { startAutoReconcilePendingService } from "./services/autoReconcilePendingService.js";
 
 // Get __dirname equivalent for ES modules
@@ -194,7 +195,7 @@ const attachTakeMomentWs = (server) => {
               masterId: room.masterId,
             },
           },
-          clientId
+          clientId,
         );
         return;
       }
@@ -313,7 +314,7 @@ const attachTakeMomentWs = (server) => {
               masterId: room.masterId,
             },
           },
-          connection.clientId
+          connection.clientId,
         );
         return;
       }
@@ -412,7 +413,7 @@ app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
     contentSecurityPolicy: false, // Disable CSP for development
-  })
+  }),
 );
 app.use(compression());
 app.use(
@@ -425,7 +426,7 @@ app.use(
         p === "/api/maintenance/status"
       );
     },
-  })
+  }),
 );
 
 // CORS - Allow all origins for static files and API
@@ -435,7 +436,7 @@ app.use(
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
-  })
+  }),
 );
 
 // CRITICAL: Handle OPTIONS preflight before any other middleware
@@ -447,7 +448,7 @@ app.options(
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     optionsSuccessStatus: 204,
-  })
+  }),
 );
 
 // Apply general rate limiting
@@ -478,7 +479,7 @@ app.use(
       }
       res.setHeader("X-Content-Type-Options", "nosniff");
     },
-  })
+  }),
 );
 
 // Serve mock-frames (alias to public/mock-frames)
@@ -487,7 +488,7 @@ app.use(
   express.static(path.join(publicDir, "mock-frames"), {
     maxAge: "1y",
     immutable: true,
-  })
+  }),
 );
 
 // Serve uploaded files (frames, thumbnails)
@@ -497,7 +498,7 @@ app.use(
   express.static(uploadsDir, {
     maxAge: "30d",
     etag: true,
-  })
+  }),
 );
 
 // Serve public assets (images, icons, etc.)
@@ -506,7 +507,7 @@ app.use(
   express.static(path.join(__dirname, "public", "assets"), {
     maxAge: "1y",
     etag: true,
-  })
+  }),
 );
 
 // Health check
@@ -536,6 +537,7 @@ app.use("/api/static", staticRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/maintenance", maintenanceRoutes);
 app.use("/api/admin/subscribers", adminSubscribersRoutes);
+app.use("/api/users", usersRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -565,10 +567,13 @@ const startServer = async () => {
     startAutoReconcilePendingService();
 
     // Start cleanup cron for temp files (every 6 hours)
-    setInterval(() => {
-      const hours = parseInt(process.env.TEMP_FILE_CLEANUP_HOURS) || 24;
-      storageService.cleanupTempFiles(hours);
-    }, 6 * 60 * 60 * 1000);
+    setInterval(
+      () => {
+        const hours = parseInt(process.env.TEMP_FILE_CLEANUP_HOURS) || 24;
+        storageService.cleanupTempFiles(hours);
+      },
+      6 * 60 * 60 * 1000,
+    );
 
     // Check for HTTPS certificates.
     // IMPORTANT: when running behind nginx (production), the backend should
@@ -599,12 +604,12 @@ const startServer = async () => {
       console.log(
         useHttps
           ? "🔒 ============================================"
-          : "🚀 ============================================"
+          : "🚀 ============================================",
       );
       console.log(
         useHttps
           ? `🔒 Fremio Backend API running on HTTPS port ${PORT}`
-          : `🚀 Fremio Backend API running on port ${PORT}`
+          : `🚀 Fremio Backend API running on port ${PORT}`,
       );
       console.log(`🚀 Environment: ${process.env.NODE_ENV || "development"}`);
       console.log(`🚀 Frontend URL: ${process.env.FRONTEND_URL}`);
@@ -613,7 +618,7 @@ const startServer = async () => {
       console.log(
         useHttps
           ? "🔒 ============================================"
-          : "🚀 ============================================"
+          : "🚀 ============================================",
       );
       console.log("");
     });

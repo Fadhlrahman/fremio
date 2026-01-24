@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from "../config/supabase";
+import api from "./api";
 
 // LocalStorage key for fallback
 const USERS_STORAGE_KEY = "fremio_all_users";
@@ -21,6 +22,38 @@ export const USER_ROLES = {
  */
 export async function getAllUsers() {
   try {
+    console.log("🔍 getAllUsers called - attempting backend API...");
+
+    // Try backend API first
+    try {
+      console.log("🌐 Calling backend API: GET /users");
+      const response = await api.get("/users");
+      console.log("✅ Backend API response:", response);
+
+      if (response && response.users) {
+        console.log(
+          "📊 getAllUsers - Backend API:",
+          response.users.length,
+          "users",
+        );
+        return response.users.map((u) => ({
+          id: u.id,
+          uid: u.id,
+          email: u.email,
+          name: u.display_name || u.email?.split("@")[0],
+          displayName: u.display_name,
+          role: u.role || "user",
+          status: u.status || "active",
+          createdAt: u.created_at,
+          lastLoginAt: u.last_login_at,
+        }));
+      }
+    } catch (apiError) {
+      console.error("❌ Backend API failed:", apiError);
+      console.error("❌ Error details:", apiError.message, apiError.stack);
+    }
+
+    // Fallback to Supabase
     if (!isSupabaseConfigured || !supabase) {
       const users = getUsersFromLocalStorage();
       console.log("📊 getAllUsers - LocalStorage mode:", users.length, "users");
@@ -28,9 +61,9 @@ export async function getAllUsers() {
     }
 
     const { data, error } = await supabase
-      .from('fremio_users')
-      .select('*')
-      .order('created_at', { ascending: false });
+      .from("fremio_users")
+      .select("*")
+      .order("created_at", { ascending: false });
 
     if (error) {
       console.warn("Supabase failed, using LocalStorage:", error.message);
@@ -38,14 +71,14 @@ export async function getAllUsers() {
     }
 
     // Map to standard format
-    const users = (data || []).map(u => ({
+    const users = (data || []).map((u) => ({
       id: u.id,
       uid: u.uid,
       email: u.email,
       name: u.name || u.display_name,
       displayName: u.display_name,
-      role: u.role || 'user',
-      status: u.status || 'active',
+      role: u.role || "user",
+      status: u.status || "active",
       createdAt: u.created_at,
       lastLoginAt: u.last_login_at,
       updatedAt: u.updated_at,
@@ -66,12 +99,12 @@ export async function getUserById(userId) {
   try {
     if (!isSupabaseConfigured || !supabase) {
       const users = getUsersFromLocalStorage();
-      return users.find(u => u.id === userId || u.uid === userId) || null;
+      return users.find((u) => u.id === userId || u.uid === userId) || null;
     }
 
     const { data, error } = await supabase
-      .from('fremio_users')
-      .select('*')
+      .from("fremio_users")
+      .select("*")
       .or(`id.eq.${userId},uid.eq.${userId}`)
       .single();
 
@@ -105,7 +138,7 @@ export async function updateUserRole(userId, newRole, adminId) {
 
     if (!isSupabaseConfigured || !supabase) {
       const users = getUsersFromLocalStorage();
-      const index = users.findIndex(u => u.id === userId);
+      const index = users.findIndex((u) => u.id === userId);
       if (index === -1) return { success: false, message: "User not found" };
 
       users[index].role = newRole;
@@ -115,18 +148,21 @@ export async function updateUserRole(userId, newRole, adminId) {
     }
 
     const { error } = await supabase
-      .from('fremio_users')
+      .from("fremio_users")
       .update({
         role: newRole,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', userId);
+      .eq("id", userId);
 
     if (error) throw error;
     return { success: true, message: `User role updated to ${newRole}` };
   } catch (error) {
     console.error("Error updating user role:", error);
-    return { success: false, message: error.message || "Failed to update role" };
+    return {
+      success: false,
+      message: error.message || "Failed to update role",
+    };
   }
 }
 
@@ -137,7 +173,7 @@ export async function banUser(userId, adminId, reason = "") {
   try {
     if (!isSupabaseConfigured || !supabase) {
       const users = getUsersFromLocalStorage();
-      const index = users.findIndex(u => u.id === userId);
+      const index = users.findIndex((u) => u.id === userId);
       if (index === -1) return { success: false, message: "User not found" };
 
       users[index].status = "banned";
@@ -148,12 +184,12 @@ export async function banUser(userId, adminId, reason = "") {
     }
 
     const { error } = await supabase
-      .from('fremio_users')
+      .from("fremio_users")
       .update({
-        status: 'banned',
+        status: "banned",
         updated_at: new Date().toISOString(),
       })
-      .eq('id', userId);
+      .eq("id", userId);
 
     if (error) throw error;
     return { success: true, message: "User banned successfully" };
@@ -170,7 +206,7 @@ export async function unbanUser(userId, adminId) {
   try {
     if (!isSupabaseConfigured || !supabase) {
       const users = getUsersFromLocalStorage();
-      const index = users.findIndex(u => u.id === userId);
+      const index = users.findIndex((u) => u.id === userId);
       if (index === -1) return { success: false, message: "User not found" };
 
       users[index].status = "active";
@@ -181,12 +217,12 @@ export async function unbanUser(userId, adminId) {
     }
 
     const { error } = await supabase
-      .from('fremio_users')
+      .from("fremio_users")
       .update({
-        status: 'active',
+        status: "active",
         updated_at: new Date().toISOString(),
       })
-      .eq('id', userId);
+      .eq("id", userId);
 
     if (error) throw error;
     return { success: true, message: "User unbanned successfully" };
@@ -203,21 +239,24 @@ export async function deleteUser(userId, adminId) {
   try {
     if (!isSupabaseConfigured || !supabase) {
       const users = getUsersFromLocalStorage();
-      const filtered = users.filter(u => u.id !== userId);
+      const filtered = users.filter((u) => u.id !== userId);
       saveUsersToLocalStorage(filtered);
       return { success: true, message: "User deleted successfully" };
     }
 
     const { error } = await supabase
-      .from('fremio_users')
+      .from("fremio_users")
       .delete()
-      .eq('id', userId);
+      .eq("id", userId);
 
     if (error) throw error;
     return { success: true, message: "User deleted successfully" };
   } catch (error) {
     console.error("Error deleting user:", error);
-    return { success: false, message: error.message || "Failed to delete user" };
+    return {
+      success: false,
+      message: error.message || "Failed to delete user",
+    };
   }
 }
 
@@ -233,9 +272,9 @@ export async function saveUserToSupabase(userData) {
   try {
     // Check if user exists by email
     const { data: existing } = await supabase
-      .from('fremio_users')
-      .select('*')
-      .eq('email', userData.email)
+      .from("fremio_users")
+      .select("*")
+      .eq("email", userData.email)
       .single();
 
     const userToSave = {
@@ -243,8 +282,8 @@ export async function saveUserToSupabase(userData) {
       email: userData.email,
       name: userData.name || userData.displayName,
       display_name: userData.displayName || userData.name,
-      role: userData.role || 'user',
-      status: userData.status || 'active',
+      role: userData.role || "user",
+      status: userData.status || "active",
       last_login_at: userData.lastLoginAt || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -252,18 +291,16 @@ export async function saveUserToSupabase(userData) {
     if (existing) {
       // Update existing user
       const { error } = await supabase
-        .from('fremio_users')
+        .from("fremio_users")
         .update(userToSave)
-        .eq('email', userData.email);
+        .eq("email", userData.email);
 
       if (error) throw error;
       console.log("✅ User updated in Supabase:", userData.email);
     } else {
       // Insert new user
       userToSave.created_at = userData.createdAt || new Date().toISOString();
-      const { error } = await supabase
-        .from('fremio_users')
-        .insert(userToSave);
+      const { error } = await supabase.from("fremio_users").insert(userToSave);
 
       if (error) throw error;
       console.log("✅ New user saved to Supabase:", userData.email);
@@ -284,17 +321,17 @@ export async function getUsersByRole(role) {
   try {
     if (!isSupabaseConfigured || !supabase) {
       const users = getUsersFromLocalStorage();
-      return users.filter(u => u.role === role);
+      return users.filter((u) => u.role === role);
     }
 
     const { data, error } = await supabase
-      .from('fremio_users')
-      .select('*')
-      .eq('role', role)
-      .order('created_at', { ascending: false });
+      .from("fremio_users")
+      .select("*")
+      .eq("role", role)
+      .order("created_at", { ascending: false });
 
     if (error) throw error;
-    return (data || []).map(u => ({
+    return (data || []).map((u) => ({
       id: u.id,
       uid: u.uid,
       email: u.email,
@@ -316,17 +353,17 @@ export async function getUsersByStatus(status) {
   try {
     if (!isSupabaseConfigured || !supabase) {
       const users = getUsersFromLocalStorage();
-      return users.filter(u => u.status === status);
+      return users.filter((u) => u.status === status);
     }
 
     const { data, error } = await supabase
-      .from('fremio_users')
-      .select('*')
-      .eq('status', status)
-      .order('created_at', { ascending: false });
+      .from("fremio_users")
+      .select("*")
+      .eq("status", status)
+      .order("created_at", { ascending: false });
 
     if (error) throw error;
-    return (data || []).map(u => ({
+    return (data || []).map((u) => ({
       id: u.id,
       uid: u.uid,
       email: u.email,
@@ -388,7 +425,7 @@ export function saveUserToStorage(userData) {
   try {
     const users = getUsersFromLocalStorage();
     const existingIndex = users.findIndex(
-      u => u.email === userData.email || u.id === userData.id
+      (u) => u.email === userData.email || u.id === userData.id,
     );
 
     const userToSave = {

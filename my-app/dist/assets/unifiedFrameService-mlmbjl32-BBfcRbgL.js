@@ -1,0 +1,1 @@
+import{ht as e,mt as t}from"./index-mlmbjl32-CPW31TV0.js";export{t as VPSFrameClient,e as default};

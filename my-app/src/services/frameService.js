@@ -9,12 +9,11 @@ import { uploadImageSimple } from './imagekitService.js';
 import { getStaticFrames } from '../data/staticFrames.js';
 
 // Multiple fallback URLs - try each one until success
-// IMPORTANT: in dev, never fall back to production.
+// IMPORTANT: Use relative /api path since we're on same domain
 const API_URLS = import.meta.env.DEV
   ? [import.meta.env.VITE_API_URL || '/api']
   : [
-      'https://api.fremio.id/api', // Primary VPS API (KVM 4)
-      'https://fremio-api-proxy.array111103.workers.dev/api', // Fallback Cloudflare Worker
+      '/api', // Relative path - works on fremio.id
     ];
 
 // Use local Pages Function for ImageKit uploads

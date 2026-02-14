@@ -38,9 +38,9 @@ const resolveVpsApiUrl = () => {
       return "/api";
     }
 
-    // Fremio production domains (Cloudflare Pages + custom domain)
+    // Fremio production domains - use RELATIVE path because we're on same domain
     if (hostname.endsWith("fremio.id") || hostname.endsWith("pages.dev")) {
-      return "https://api.fremio.id/api";
+      return "/api";
     }
   }
 

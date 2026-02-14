@@ -1,0 +1,1 @@
+import{ht as e,mt as t}from"./index-mlmbnq1a-BaEunOtA.js";export{t as VPSFrameClient,e as default};

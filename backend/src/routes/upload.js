@@ -54,13 +54,16 @@ router.post('/frame', authenticateToken, requireAdmin, upload.single('image'), a
       })
       .toFile(filepath);
 
-    const imageUrl = `/uploads/frames/${filename}`;
+    // Return full URL so Cloudflare Pages frontend can access it
+    const baseUrl = process.env.API_BASE_URL || 'https://api.fremio.id';
+    const imageUrl = `${baseUrl}/uploads/frames/${filename}`;
     
-    console.log(`📸 Frame image uploaded: ${filename}`);
+    console.log(`📸 Frame image uploaded: ${filename} -> ${imageUrl}`);
 
     res.json({
       message: 'Gambar berhasil diupload',
       imagePath: imageUrl,
+      image_path: imageUrl, // Both formats for compatibility
       filename
     });
   } catch (error) {
@@ -169,6 +172,100 @@ router.post('/base64', authenticateToken, async (req, res) => {
 });
 
 /**
+ * POST /api/upload/overlay
+ * Upload overlay image (admin only)
+ * Converts to PNG with transparency preserved
+ */
+router.post('/overlay', authenticateToken, requireAdmin, upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Tidak ada file yang diupload' });
+    }
+
+    // Validate file size before processing
+    const maxSizeMB = 10;
+    const fileSizeMB = req.file.size / (1024 * 1024);
+    if (fileSizeMB > maxSizeMB) {
+      return res.status(413).json({ 
+        error: `File terlalu besar (${fileSizeMB.toFixed(2)}MB). Maksimal ${maxSizeMB}MB.`,
+        maxSizeMB,
+        actualSizeMB: parseFloat(fileSizeMB.toFixed(2))
+      });
+    }
+
+    const filename = `${uuidv4()}.png`;
+    const uploadDir = path.join(__dirname, '../../uploads/overlays');
+    const filepath = path.join(uploadDir, filename);
+
+    // Ensure directory exists
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    // Process overlay image with timeout protection
+    const processTimeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Image processing timeout (>30s)')), 30000)
+    );
+
+    try {
+      // Check for alpha channel
+      const metadata = await sharp(req.file.buffer).metadata();
+      const hasAlpha = metadata.hasAlpha;
+
+      let processImage;
+      let finalFilename = filename;
+
+      if (hasAlpha) {
+        // Preserve transparency with PNG
+        processImage = sharp(req.file.buffer)
+          .png({ quality: 90, compressionLevel: 9 })
+          .resize(1080, 1920, {
+            fit: 'inside',
+            withoutEnlargement: true
+          })
+          .toFile(filepath);
+      } else {
+        // No alpha - use WebP for smaller size
+        finalFilename = `${uuidv4()}.webp`;
+        const webpFilepath = path.join(uploadDir, finalFilename);
+        processImage = sharp(req.file.buffer)
+          .webp({ quality: 85 })
+          .resize(1080, 1920, {
+            fit: 'inside',
+            withoutEnlargement: true
+          })
+          .toFile(webpFilepath);
+      }
+
+      await Promise.race([processImage, processTimeout]);
+
+      const imagePath = `/uploads/overlays/${finalFilename}`;
+      console.log(`📸 Overlay uploaded: ${finalFilename} (${fileSizeMB.toFixed(2)}MB, alpha: ${hasAlpha})`);
+
+      res.json({
+        message: 'Overlay berhasil diupload',
+        imagePath,
+        image_path: imagePath,
+        filename: finalFilename,
+        originalSize: fileSizeMB.toFixed(2) + 'MB',
+        hasAlpha
+      });
+    } catch (sharpError) {
+      console.error('Sharp processing error:', sharpError);
+      return res.status(500).json({ 
+        error: 'Gagal memproses gambar: ' + sharpError.message,
+        hint: 'Coba compress atau convert image terlebih dahulu'
+      });
+    }
+  } catch (error) {
+    console.error('Upload overlay error:', error);
+    res.status(500).json({ 
+      error: 'Gagal upload overlay: ' + error.message
+    });
+  }
+});
+
+/**
  * DELETE /api/upload/:folder/:filename
  * Delete uploaded file (admin only for frames, owner for thumbnails)
  */
@@ -177,12 +274,12 @@ router.delete('/:folder/:filename', authenticateToken, async (req, res) => {
     const { folder, filename } = req.params;
     
     // Validate folder
-    if (!['frames', 'thumbnails'].includes(folder)) {
+    if (!['frames', 'thumbnails', 'overlays'].includes(folder)) {
       return res.status(400).json({ error: 'Folder tidak valid' });
     }
     
     // Check permissions
-    if (folder === 'frames' && req.user.role !== 'admin') {
+    if ((folder === 'frames' || folder === 'overlays') && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Akses ditolak' });
     }
     

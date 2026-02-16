@@ -27,6 +27,7 @@ const PORT = process.env.PORT || 3000;
 const uploadDirs = [
   "uploads/frames",
   "uploads/thumbnails",
+  "uploads/overlays",
   "uploads/temp",
   "logs",
 ];

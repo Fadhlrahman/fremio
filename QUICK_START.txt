@@ -1,0 +1,124 @@
+FREMIO OVERLAY FIX - QUICK START GUIDE
+========================================
+
+✅ FRONTEND SUDAH DI-FIX & BUILD!
+   File: src/pages/admin/UploadFrame.jsx
+   - Tambah auto-trigger sync setelah upload overlay
+   - Console log: "🔄 Triggering uploads sync..." → "✅ Uploads synced immediately!"
+
+⚠️  BACKEND PERLU DI-FIX (IP belum whitelisted, SSH gagal)
+
+========================================
+LANGKAH CEPAT - PILIH SALAH SATU:
+========================================
+
+OPSI A: Via Hostinger Panel (TERMUDAH) 🎯
+------------------------------------------
+1. Login Hostinger panel: https://hpanel.hostinger.com/
+2. Go to: VPS → 76.13.192.32 → File Manager
+3. Navigate ke: /root/fremio/backend/routes/
+4. Edit file: frames.js
+5. Tambahkan kode di paling bawah (sebelum module.exports):
+
+```javascript
+// ============== SYNC ENDPOINT ==============
+router.post('/sync-uploads', (req, res) => {
+  const { exec } = require('child_process');
+  console.log('🔄 [SYNC] Triggered via API...');
+  
+  exec('/root/sync-uploads.sh', (error, stdout, stderr) => {
+    if (error) {
+      console.error('❌ [SYNC] Failed:', error);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Sync failed',
+        error: error.message
+      });
+    }
+    
+    console.log('✅ [SYNC] Completed successfully');
+    res.json({ 
+      success: true, 
+      message: 'Uploads synced successfully'
+    });
+  });
+});
+```
+
+6. Restart backend via terminal: pm2 restart fremio-backend
+
+OPSI B: Via SSH (butuh whitelist IP dulu) 🔐
+---------------------------------------------
+1. Whitelist IP di Hostinger Cloud Firewall:
+   - Current IP: 114.10.145.92
+   - Add ke existing: 114.10.148.56, 114.10.148.92
+
+2. Upload & jalankan script:
+   scp backend-sync-fix-apply.sh root@76.13.192.32:/tmp/
+   ssh root@76.13.192.32
+   bash /tmp/backend-sync-fix-apply.sh
+
+========================================
+TESTING SETELAH FIX:
+========================================
+
+1. Test sync endpoint:
+   curl -X POST http://localhost:5050/api/sync-uploads
+   
+   Expected: {"success":true,"message":"Uploads synced successfully"}
+
+2. Test upload overlay:
+   - Login admin panel: https://fremio.id/admin/frames
+   - Edit frame, upload overlay baru
+   - Check console browser:
+     ✅ "🔄 Triggering uploads sync..."
+     ✅ "✅ Uploads synced immediately!"
+   
+3. Verify file langsung tersync:
+   ls -lht /var/www/fremio/uploads/overlays/ | head -3
+   
+   File terbaru harus muncul langsung tanpa tunggu 5 menit!
+
+4. Test edit frame lagi:
+   - Klik "Update Frame"
+   - Kembali ke list frames
+   - Edit frame lagi
+   - Overlay harus LANGSUNG MUNCUL tanpa 404!
+
+========================================
+ROLLBACK (jika ada masalah):
+========================================
+
+Frontend rollback:
+cd /Users/salwa/Documents/fremio/my-app
+cp src/pages/admin/UploadFrame.jsx.backup-sync src/pages/admin/UploadFrame.jsx
+npm run build
+# Deploy via Hostinger panel
+
+Backend rollback:
+ssh root@76.13.192.32
+cp /root/fremio/backend/routes/backups/frames.js.backup-TIMESTAMP /root/fremio/backend/routes/frames.js
+pm2 restart fremio-backend
+
+========================================
+FILES GENERATED:
+========================================
+
+✅ backend-sync-fix-apply.sh     - Auto-fix script (4.5KB)
+✅ SOLUTION_SYNC_OVERLAY.md      - Full documentation
+✅ deploy-backend-sync-fix.sh    - Manual instructions
+✅ QUICK_START.txt               - This file!
+
+========================================
+SUPPORT:
+========================================
+
+Jika masih ada masalah:
+1. Check PM2 logs: pm2 logs fremio-backend --lines 50
+2. Check nginx error: tail -f /var/log/nginx/error.log
+3. Manual sync: ssh root@76.13.192.32 '/root/sync-uploads.sh'
+
+Frontend sudah fix, tinggal backend!
+Backend hanya butuh tambah 1 endpoint + 1 trigger.
+
+SELESAI! 🚀

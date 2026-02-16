@@ -1,0 +1,56 @@
+name: Deploy Frontend to Cloudflare Pages
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'my-app/**'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy to Cloudflare Pages
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: my-app/package-lock.json
+          
+      - name: Install dependencies
+        working-directory: ./my-app
+        run: npm ci
+        
+      - name: Build frontend
+        working-directory: ./my-app
+        run: npm run build
+        env:
+          # Add environment variables if needed
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_BACKEND_MODE: ${{ secrets.VITE_BACKEND_MODE }}
+          
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: ${{ secrets.CLOUDFLARE_PROJECT_NAME }}
+          directory: ./my-app/dist
+          # Optional: Add branch for preview deployments
+          branch: ${{ github.ref_name }}
+          
+      - name: Notify success
+        if: success()
+        run: |
+          echo "✅ Frontend deployed successfully to Cloudflare Pages!"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"

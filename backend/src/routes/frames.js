@@ -254,8 +254,47 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
       return res.status(409).json({ error: 'Frame ID sudah ada' });
     }
     
-    // Store layout info in description or separate field if needed
-    const frameLayout = layout ? JSON.stringify(layout) : null;
+    // ✅ PERBAIKAN: Validasi dan normalisasi layout.elements
+    let frameLayout = null;
+    if (layout && typeof layout === 'object') {
+      const normalizedLayout = { ...layout };
+      
+      if (Array.isArray(layout.elements)) {
+        const normalizedElements = layout.elements.map(el => {
+          const normalized = {
+            id: el.id,
+            type: el.type,
+            x: el.x || 0,
+            y: el.y || 0,
+            width: el.width,
+            height: el.height,
+            zIndex: el.zIndex || 500,
+          };
+          
+          // Copy data object dengan validasi image URL
+          if (el.data && typeof el.data === 'object') {
+            normalized.data = { ...el.data };
+            
+            // Validasi image URL untuk upload element
+            if (el.type === 'upload' && el.data.image) {
+              const imageUrl = el.data.image;
+              if (imageUrl.startsWith('http') || imageUrl.startsWith('data:image')) {
+                console.log('✅ Valid image URL:', imageUrl.substring(0, 80));
+              } else {
+                console.warn('⚠️ Invalid image URL format:', imageUrl.substring(0, 80));
+              }
+            }
+          }
+          
+          return normalized;
+        });
+        
+        normalizedLayout.elements = normalizedElements;
+        console.log('📦 Normalized', normalizedElements.length, 'elements before save');
+      }
+      
+      frameLayout = JSON.stringify(normalizedLayout);
+    }
     const finalMaxCaptures = maxCaptures || max_captures || slots?.length || 1;
     
     const result = await db.query(
@@ -310,7 +349,48 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
       displayOrder, display_order, is_hidden, is_premium 
     } = req.body;
     
-    const frameLayout = layout ? JSON.stringify(layout) : null;
+    // ✅ PERBAIKAN: Validasi dan normalisasi layout.elements
+    let frameLayout = null;
+    if (layout && typeof layout === 'object') {
+      const normalizedLayout = { ...layout };
+      
+      if (Array.isArray(layout.elements)) {
+        const normalizedElements = layout.elements.map(el => {
+          const normalized = {
+            id: el.id,
+            type: el.type,
+            x: el.x || 0,
+            y: el.y || 0,
+            width: el.width,
+            height: el.height,
+            zIndex: el.zIndex || 500,
+          };
+          
+          // Copy data object dengan validasi image URL
+          if (el.data && typeof el.data === 'object') {
+            normalized.data = { ...el.data };
+            
+            // Validasi image URL untuk upload element
+            if (el.type === 'upload' && el.data.image) {
+              const imageUrl = el.data.image;
+              if (imageUrl.startsWith('http') || imageUrl.startsWith('data:image')) {
+                console.log('✅ Valid image URL:', imageUrl.substring(0, 80));
+              } else {
+                console.warn('⚠️ Invalid image URL format:', imageUrl.substring(0, 80));
+              }
+            }
+          }
+          
+          return normalized;
+        });
+        
+        normalizedLayout.elements = normalizedElements;
+        console.log('📦 Normalized', normalizedElements.length, 'elements before update');
+      }
+      
+      frameLayout = JSON.stringify(normalizedLayout);
+    }
+    
     const finalDisplayOrder = displayOrder ?? display_order;
     
     const result = await db.query(
@@ -433,6 +513,39 @@ router.get('/stats/summary', authenticateToken, requireAdmin, async (req, res) =
     console.error('Get stats error:', error);
     res.status(500).json({ error: 'Gagal mengambil statistik' });
   }
+});
+
+/**
+ * POST /api/frames/sync-uploads
+ * Trigger immediate sync of uploads folder to frontend server
+ * (Admin only)
+ */
+router.post('/sync-uploads', authenticateToken, requireAdmin, (req, res) => {
+  const { exec } = require('child_process');
+  
+  console.log('🔄 Manual sync triggered by admin...');
+  
+  exec('/root/sync-uploads.sh', { timeout: 30000 }, (error, stdout, stderr) => {
+    if (error) {
+      console.error('❌ Sync failed:', error.message);
+      return res.status(500).json({
+        success: false,
+        message: 'Sync failed',
+        error: error.message
+      });
+    }
+    
+    if (stderr) {
+      console.warn('⚠️ Sync stderr:', stderr);
+    }
+    
+    console.log('✅ Sync completed:', stdout);
+    res.json({
+      success: true,
+      message: 'Uploads synced successfully',
+      output: stdout.trim()
+    });
+  });
 });
 
 module.exports = router;

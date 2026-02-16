@@ -15,7 +15,7 @@ NC='\033[0m'
 
 # Configuration
 VPS_USER="root"
-VPS_HOST="72.61.214.5"
+VPS_HOST="api.fremio.id"
 
 # Resolve the actual backend directory from PM2 (prevents deploying to the wrong folder).
 # Fallbacks are kept for older deployments.

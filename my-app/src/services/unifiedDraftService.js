@@ -3,7 +3,7 @@
 // Switches between localStorage/Firebase and VPS
 // ============================================
 
-import { isVPSMode, VPS_API_URL } from '../config/backend';
+import { isVPSMode, VPS_API_URL, getUploadsBaseUrl } from '../config/backend';
 
 // VPS Draft Client
 class VPSDraftClient {
@@ -46,7 +46,7 @@ class VPSDraftClient {
         thumbnailUrl: draft.thumbnail_path?.startsWith('http')
           ? draft.thumbnail_path
           : draft.thumbnail_path
-            ? `${this.baseUrl.replace('/api', '')}${draft.thumbnail_path}`
+            ? `${getUploadsBaseUrl()}${draft.thumbnail_path}`
             : null
       }));
     } catch (error) {
@@ -64,7 +64,7 @@ class VPSDraftClient {
         thumbnailUrl: draft.thumbnail_path?.startsWith('http')
           ? draft.thumbnail_path
           : draft.thumbnail_path
-            ? `${this.baseUrl.replace('/api', '')}${draft.thumbnail_path}`
+            ? `${getUploadsBaseUrl()}${draft.thumbnail_path}`
             : null
       };
     } catch (error) {

@@ -1,0 +1,93 @@
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                                              ┃
+┃     FREMIO OVERLAY FIX - QUICK GUIDE        ┃
+┃                                              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+📦 WHAT WAS FIXED:
+   Upload element (overlay gambar) hilang 
+   setelah frame di-save oleh admin
+
+🔧 THE PROBLEM:
+   ❌ Frontend pakai endpoint salah: /api/upload/frame
+   ✅ Seharusnya: /api/upload/overlay
+
+✅ FIXED IN:
+   src/pages/admin/UploadFrame.jsx (Line 787)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚀 DEPLOY NOW (Choose One):
+
+┌─────────────────────────────────────────────┐
+│ OPTION 1: FTP/SFTP (EASIEST)               │
+└─────────────────────────────────────────────┘
+
+1. Open FileZilla/Cyberduck
+2. Connect: 72.61.214.5 (port 22, user: root)
+3. Upload: frontend-overlay-fix.tar.gz → /tmp/
+4. SSH to server:
+   cd /var/www
+   mv fremio fremio_backup
+   tar -xzf /tmp/frontend-overlay-fix.tar.gz
+   mv dist fremio
+   pm2 restart fremio-backend
+   sudo systemctl reload nginx
+
+┌─────────────────────────────────────────────┐
+│ OPTION 2: SSH (If Connection Works)        │
+└─────────────────────────────────────────────┘
+
+cd /Users/salwa/Documents/fremio/my-app
+scp frontend-overlay-fix.tar.gz root@72.61.214.5:/tmp/
+ssh root@72.61.214.5 'cd /var/www && mv fremio fremio_backup && tar -xzf /tmp/frontend-overlay-fix.tar.gz && mv dist fremio && pm2 restart fremio-backend && sudo systemctl reload nginx'
+
+┌─────────────────────────────────────────────┐
+│ OPTION 3: cPanel File Manager              │
+└─────────────────────────────────────────────┘
+
+1. Login: https://your-server:2083
+2. File Manager → /var/www/
+3. Upload & extract: frontend-overlay-fix.tar.gz
+4. Rename: dist → fremio
+5. Terminal: pm2 restart fremio-backend
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ TEST AFTER DEPLOY:
+
+1. Clear cache: Cmd+Shift+R
+2. Open: fremio.id/admin/upload-frame
+3. Add upload element + upload gambar
+4. Save frame
+5. F12 console → NO 404 errors! ✅
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📁 FILES YOU NEED:
+
+⭐ DEPLOY THIS:
+   /Users/salwa/Documents/fremio/my-app/
+   frontend-overlay-fix.tar.gz (16 MB)
+
+📖 READ THIS IF STUCK:
+   /Users/salwa/Documents/fremio/my-app/
+   MANUAL_DEPLOYMENT.md
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🆘 IF DEPLOYMENT FAILS:
+
+Rollback:
+  ssh root@72.61.214.5
+  cd /var/www && rm -rf fremio && mv fremio_backup fremio
+  pm2 restart fremio-backend
+
+Check Logs:
+  pm2 logs fremio-backend --lines 50
+  sudo tail -f /var/log/nginx/error.log
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Status: ✅ Ready to deploy
+Date: 15 Feb 2026

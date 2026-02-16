@@ -49,12 +49,118 @@ import {
 } from "../../components/creator/canvasConstants.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import unifiedFrameService from "../../services/unifiedFrameService";
-import { VPS_API_URL } from "../../config/backend";
+import { VPS_API_URL, getUploadsBaseUrl } from "../../config/backend";
 import "../Create.css";
 
 const panelMotion = {
   hidden: { opacity: 0, y: 16 },
   visible: { opacity: 1, y: 0 },
+};
+
+// Helper: Compress image data URL to reduce size
+const compressImageDataUrl = async (dataUrl, quality = 0.7, maxDimension = 800) => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+      
+      if (width > maxDimension || height > maxDimension) {
+        const scale = Math.min(maxDimension / width, maxDimension / height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => resolve(dataUrl); // Fallback to original
+    img.src = dataUrl;
+  });
+};
+
+// Helper: Upload overlay with retry mechanism
+const uploadOverlayWithRetry = async (dataUrl, elementId, token, maxRetries = 2) => {
+  const uploadAttempt = async (attempt) => {
+    const originalBlob = await (await fetch(dataUrl)).blob();
+    const compressBlob = async (inputBlob) => {
+      try {
+        const MAX_W = 1080;
+        const MAX_H = 1920;
+        const bitmap = await createImageBitmap(inputBlob);
+        const scale = Math.min(1, MAX_W / bitmap.width, MAX_H / bitmap.height);
+        const targetW = Math.max(1, Math.round(bitmap.width * scale));
+        const targetH = Math.max(1, Math.round(bitmap.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = targetW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return inputBlob;
+        ctx.drawImage(bitmap, 0, 0, targetW, targetH);
+        const toBlob = (type, quality) =>
+          new Promise((resolve) => {
+            try {
+              canvas.toBlob((b) => resolve(b), type, quality);
+            } catch {
+              resolve(null);
+            }
+          });
+        const out =
+          (await toBlob('image/webp', 0.82)) ||
+          (await toBlob('image/jpeg', 0.82)) ||
+          (await toBlob('image/png', 0.92));
+        return out || inputBlob;
+      } catch {
+        return inputBlob;
+      }
+    };
+    const blob = await compressBlob(originalBlob);
+    const HARD_MAX = 8 * 1024 * 1024;
+    if (blob.size > HARD_MAX) {
+      throw new Error(`Overlay terlalu besar (${Math.round(blob.size / 1024 / 1024)}MB). Kecilkan dulu.`);
+    }
+    const mimeType = blob.type || 'image/webp';
+    const ext = (mimeType.split('/')[1] || 'webp').replace(/[^a-z0-9]/gi, '').toLowerCase();
+    const file = new File([blob], `overlay_${Date.now()}.${ext || 'webp'}`, { type: mimeType });
+    const formData = new FormData();
+    formData.append('image', file);
+    const response = await fetch(`${VPS_API_URL}/upload/overlay`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    const contentType = response.headers.get('content-type') || '';
+    const payload = contentType.includes('application/json') ? await response.json() : await response.text();
+    if (!response.ok) {
+      const msg = payload?.error || payload?.message || `Upload failed with status ${response.status}`;
+      throw new Error(msg);
+    }
+    const imagePath = payload.imagePath || payload.image_path;
+    if (!imagePath) throw new Error('Upload succeeded but no imagePath returned');
+    return imagePath.startsWith('http') ? imagePath : `${getUploadsBaseUrl()}${imagePath}`;
+  };
+
+  let lastError;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`📤 Uploading overlay ${elementId.substring(0, 8)} (attempt ${attempt}/${maxRetries})...`);
+      const url = await uploadAttempt(attempt);
+      console.log(`✅ Overlay uploaded successfully on attempt ${attempt}`);
+      return { success: true, url };
+    } catch (error) {
+      lastError = error;
+      console.warn(`⚠️ Upload failed (attempt ${attempt}/${maxRetries}):`, error.message);
+      if (attempt < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+  }
+  return { success: false, error: lastError?.message || 'Upload failed' };
 };
 
 // Available categories
@@ -292,8 +398,47 @@ export default function UploadFrame() {
             // Restore other elements (overlays, text, shapes, uploads)
             if (frame.layout?.elements && Array.isArray(frame.layout.elements)) {
               console.log("📦 [EDIT] Restoring layout elements:", frame.layout.elements.length);
-              frame.layout.elements.forEach((el, idx) => {
-                console.log(`  Element ${idx}: type=${el.type}, id=${el.id?.substring(0, 8)}, zIndex=${el.zIndex}, hasImage=${!!el.data?.image}`);
+              
+              // Validate overlay URLs first
+              const validatedElements = await Promise.all(
+                frame.layout.elements.map(async (el, idx) => {
+                  if (el.type === "upload" && el.data?.image && !el.data.image.startsWith('data:')) {
+                    try {
+                      const response = await fetch(el.data.image, { method: 'HEAD', cache: 'no-cache' });
+                      if (!response.ok) {
+                        console.warn(`⚠️ Overlay ${el.id} URL broken (${response.status})`);
+                        return {
+                          ...el,
+                          data: {
+                            ...el.data,
+                            image: null,
+                            _imageUrlBroken: true,
+                            _originalImageUrl: el.data.image,
+                            label: 'Overlay (URL broken - re-upload needed)'
+                          }
+                        };
+                      }
+                    } catch (error) {
+                      console.warn(`⚠️ Overlay ${el.id} URL unreachable:`, error.message);
+                      return {
+                        ...el,
+                        data: {
+                          ...el.data,
+                          image: null,
+                          _imageUrlBroken: true,
+                          _originalImageUrl: el.data.image,
+                          label: 'Overlay (Unreachable - re-upload needed)'
+                        }
+                      };
+                    }
+                  }
+                  return el;
+                })
+              );
+              
+              validatedElements.forEach((el, idx) => {
+                const imageSize = el.data?.image ? (el.data.image.length * 0.75) / 1024 : 0;
+                console.log(`  Element ${idx}: type=${el.type}, id=${el.id?.substring(0, 8)}, zIndex=${el.zIndex}, imageSize=${imageSize.toFixed(0)}KB`);
                 
                 let restoredWidth =
                   el.widthNorm !== undefined
@@ -314,6 +459,29 @@ export default function UploadFrame() {
                   ? Math.max(el.zIndex || 100, 100)  // Overlays at zIndex 100+
                   : Math.max(el.zIndex || 10, 10);
 
+                // For upload elements, validate image data URL size and convert relative URLs to full URLs
+                let cleanData = { ...el.data };
+                if (el.type === "upload" && el.data?.image) {
+                  // If image is a relative path, convert to full URL using UPLOADS_BASE_URL
+                  if (el.data.image.startsWith('/uploads/')) {
+                    cleanData.image = `${getUploadsBaseUrl()}${el.data.image}`;
+                    console.log(`  ✅ Converted relative URL to: ${cleanData.image}`);
+                  }
+                  // Check if it's a data URL (base64)
+                  else if (el.data.image.startsWith('data:')) {
+                    const dataUrlSizeKB = (el.data.image.length * 0.75) / 1024;
+                    // Show warning for large images but KEEP them
+                    if (dataUrlSizeKB > 1024) {
+                      console.warn(`  ⚠️ Upload element image large (${dataUrlSizeKB.toFixed(0)}KB) - consider compressing`);
+                      cleanData = {
+                        ...cleanData,
+                        _imageLarge: true,
+                        _imageSizeKB: Math.round(dataUrlSizeKB)
+                      };
+                    }
+                  }
+                }
+
                 const restoredElement = {
                   ...el,
                   x: el.xNorm !== undefined ? el.xNorm * targetCanvasWidth : el.x,
@@ -321,6 +489,7 @@ export default function UploadFrame() {
                   width: restoredWidth,
                   height: restoredHeight,
                   zIndex: restoredZIndex,
+                  data: cleanData,
                 };
                 delete restoredElement.xNorm;
                 delete restoredElement.yNorm;
@@ -335,9 +504,17 @@ export default function UploadFrame() {
             console.log("📦 [EDIT] Total elements restored:", newElements.length);
             setElements(newElements);
             
-            // Check if frame has overlay elements
+            // Check if frame has overlay elements and if any are broken
             const hasOverlays = frame.layout?.elements && frame.layout.elements.length > 0;
-            if (hasOverlays) {
+            const brokenOverlays = newElements.filter(el => el.data?._imageUrlBroken);
+            
+            if (brokenOverlays.length > 0) {
+              showToast(
+                "warning", 
+                `Frame "${frame.name}" dimuat. ⚠️ ${brokenOverlays.length} overlay tidak dapat dimuat - silakan upload ulang.`,
+                6000
+              );
+            } else if (hasOverlays) {
               showToast("success", `Frame "${frame.name}" dimuat dengan ${frame.layout.elements.length} overlay`);
             } else {
               showToast("info", `Frame "${frame.name}" dimuat. Overlay tidak ditemukan - tambahkan ulang jika diperlukan.`);
@@ -456,6 +633,24 @@ export default function UploadFrame() {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      showToast("error", "File harus berupa gambar", 2500);
+      return;
+    }
+
+    // Validate file size (max 5MB for upload elements, 10MB for background)
+    const maxSize = uploadPurposeRef.current === "background" ? 10 * 1024 * 1024 : 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      const maxSizeMB = uploadPurposeRef.current === "background" ? 10 : 5;
+      showToast(
+        "error",
+        `File terlalu besar! Maksimal ${maxSizeMB}MB. Ukuran file: ${(file.size / 1024 / 1024).toFixed(2)}MB`,
+        3500
+      );
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result;
@@ -466,6 +661,7 @@ export default function UploadFrame() {
           showToast("success", "Background foto diperbarui.", 2200);
         } else {
           addUploadElement(dataUrl);
+          showToast("success", "Elemen unggahan ditambahkan.", 2200);
         }
       }
     };
@@ -739,7 +935,7 @@ export default function UploadFrame() {
         const formData = new FormData();
         formData.append('image', file);
 
-        const response = await fetch(`${VPS_API_URL}/upload/frame`, {
+        const response = await fetch(`${VPS_API_URL}/upload/overlay`, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${token}`,
@@ -757,9 +953,26 @@ export default function UploadFrame() {
         const imagePath = payload.imagePath || payload.image_path;
         if (!imagePath) throw new Error('Upload succeeded but no imagePath returned');
 
-        // Convert relative path to absolute URL so it works in local dev too
-        const base = VPS_API_URL.replace(/\/api\/?$/, '');
-        return imagePath.startsWith('http') ? imagePath : `${base}${imagePath}`;
+        // ✅ TRIGGER IMMEDIATE SYNC - Don't wait for cron job!
+        try {
+          console.log('🔄 Triggering uploads sync...');
+          const syncResponse = await fetch(`${VPS_API_URL}/frames/sync-uploads`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (syncResponse.ok) {
+            console.log('✅ Uploads synced immediately!');
+          } else {
+            console.warn('⚠️ Sync returned:', syncResponse.status);
+          }
+        } catch (syncError) {
+          console.warn('⚠️ Sync trigger failed (will sync via cron):', syncError.message);
+        }
+
+        // Convert relative path to absolute URL pointing to API server
+        // IMPORTANT: In production, VPS_API_URL is '/api' (relative), so we need getUploadsBaseUrl()
+        // which resolves to 'https://api.fremio.id' for production at RUNTIME
+        return imagePath.startsWith('http') ? imagePath : `${getUploadsBaseUrl()}${imagePath}`;
       };
 
       let frameImageDataUrl = null;
@@ -952,24 +1165,45 @@ export default function UploadFrame() {
           }
         };
 
-        // Upload overlay images to backend (avoid third-party services)
+        // Upload overlay images to backend with retry and fallback
         const imageToUpload = el.data?.originalImage || el.data?.image;
         if (el.type === "upload" && imageToUpload && imageToUpload.startsWith("data:")) {
-          try {
-            const uploadedUrl = await uploadDataUrlToBackend(imageToUpload);
+          const token = localStorage.getItem('fremio_token') || localStorage.getItem('auth_token');
+          const uploadResult = await uploadOverlayWithRetry(imageToUpload, el.id, token);
+          
+          if (uploadResult.success) {
             const { originalImage, ...restData } = elementToSave.data || {};
             elementToSave.data = {
               ...restData,
-              image: uploadedUrl,
+              image: uploadResult.url,
               __isOverlay: true,
             };
-          } catch (err) {
-            // If overlay upload fails, DO NOT continue (otherwise we'd send huge base64 in frameData and hit 413)
-            console.warn("Error uploading overlay:", err);
-            throw new Error(
-              `Upload overlay gagal: ${err?.message || String(err)}. ` +
-                "Coba ulangi (atau pakai gambar overlay yang lebih kecil)."
-            );
+            console.log(`✅ Overlay ${el.id.substring(0, 8)} uploaded: ${uploadResult.url.substring(0, 60)}...`);
+          } else {
+            // Fallback: compress and keep as data URL
+            console.warn(`⚠️ Overlay ${el.id.substring(0, 8)} upload failed after retries, using compressed fallback`);
+            try {
+              const compressedDataUrl = await compressImageDataUrl(imageToUpload, 0.6, 800);
+              const { originalImage, ...restData } = elementToSave.data || {};
+              elementToSave.data = {
+                ...restData,
+                image: compressedDataUrl,
+                __isOverlay: true,
+                _uploadFailed: true,
+                _uploadError: uploadResult.error
+              };
+              showToast(
+                "warning",
+                `Overlay ${el.id.substring(0, 8)} menggunakan fallback (upload gagal). Frame tetap tersimpan.`,
+                4000
+              );
+            } catch (compressError) {
+              console.error(`❌ Failed to compress overlay ${el.id}:`, compressError);
+              throw new Error(
+                `Upload overlay gagal dan fallback compression juga gagal: ${uploadResult.error}. ` +
+                "Coba gunakan gambar yang lebih kecil."
+              );
+            }
           }
         }
 

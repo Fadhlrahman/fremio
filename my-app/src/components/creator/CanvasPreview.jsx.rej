@@ -1,0 +1,8 @@
+@@ -459,6 +459,7 @@
+       console.log("🖼️ Upload element rendering:", {
+         id: element.id?.slice(0, 8),
+         width: element.width,
+         height: element.height,
+         hasImage,
+         imageTooLarge,
++        imageUrl: element.data?.image?.substring(0, 120),

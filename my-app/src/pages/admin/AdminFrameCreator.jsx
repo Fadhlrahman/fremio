@@ -220,9 +220,9 @@ export default function AdminFrameCreator() {
             // Restore other elements (upload, text, shape) from layout.elements
             // These should have HIGHER zIndex than photo slots
             if (frame.layout?.elements && Array.isArray(frame.layout.elements)) {
-              console.log("📦 Restoring other elements:", frame.layout.elements.length, frame.layout.elements);
-              frame.layout.elements.forEach((el) => {
-                console.log("🔄 Restoring element:", el.type, el.id, "zIndex:", el.zIndex, "aspectRatio:", el.data?.imageAspectRatio);
+              console.log("📦 [EDIT] Restoring other elements:", frame.layout.elements.length);
+              frame.layout.elements.forEach((el, index) => {
+                console.log(`📦 [EDIT] Element ${index}: type=${el.type}, id=${el.id}, hasImage=${!!el.data?.image}`);
                 
                 // Convert normalized positions back to absolute positions
                 let restoredWidth = el.widthNorm !== undefined ? el.widthNorm * CANVAS_WIDTH : el.width;
@@ -234,7 +234,7 @@ export default function AdminFrameCreator() {
                   const aspectRatio = el.data.imageAspectRatio;
                   // Use width as base and recalculate height to maintain aspect ratio
                   restoredHeight = restoredWidth / aspectRatio;
-                  console.log("📐 Recalculated dimensions:", { width: restoredWidth, height: restoredHeight, aspectRatio });
+                  console.log("  📐 Recalculated dimensions:", { width: restoredWidth, height: restoredHeight, aspectRatio });
                 }
                 
                 const restoredElement = {
@@ -246,11 +246,29 @@ export default function AdminFrameCreator() {
                   // Ensure overlay elements (upload/text/shape) are ABOVE photo slots
                   zIndex: Math.max(el.zIndex || 10, 10),
                 };
+                
+                // ✅ PERBAIKAN: Validasi image URL untuk upload element
+                if (el.type === 'upload' && el.data?.image) {
+                  const imageUrl = el.data.image;
+                  
+                  if (imageUrl.startsWith('http') || imageUrl.startsWith('data:image')) {
+                    console.log(`  ✅ Valid image URL:`, imageUrl.substring(0, 80));
+                  } else {
+                    console.error(`  ❌ Invalid image URL:`, imageUrl.substring(0, 80));
+                    // Set to null to prevent errors
+                    if (restoredElement.data) {
+                      restoredElement.data.image = null;
+                    }
+                  }
+                }
+                
                 // Remove normalized properties
                 delete restoredElement.xNorm;
                 delete restoredElement.yNorm;
                 delete restoredElement.widthNorm;
                 delete restoredElement.heightNorm;
+                
+                console.log(`  ✅ Restored: zIndex=${restoredElement.zIndex}, hasImage=${!!restoredElement.data?.image}`);
                 newElements.push(restoredElement);
               });
             } else {
@@ -532,9 +550,22 @@ export default function AdminFrameCreator() {
       // For upload elements with images, upload to ImageKit first
       const otherElements = [];
       
+      console.log("📦 [SAVE] Starting to process elements...");
+      console.log("📦 [SAVE] All elements:", elements.length);
+      console.log("📦 [SAVE] Non-photo elements:", elements.filter(e => e.type !== "photo" && e.type !== "background-photo").length);
+      
       for (const el of elements.filter(e => e.type !== "photo" && e.type !== "background-photo")) {
+        console.log(`📦 [SAVE] Processing element: type=${el.type}, id=${el.id}`);
+        
+        // ✅ PERBAIKAN: Buat struktur element yang bersih dan konsisten
         const elementToSave = {
-          ...el,
+          id: el.id,
+          type: el.type,
+          x: el.x || 0,
+          y: el.y || 0,
+          width: el.width,
+          height: el.height,
+          zIndex: el.zIndex || 500,
           // Normalize positions to percentages for responsive storage
           xNorm: el.x / canvasWidth,
           yNorm: el.y / canvasHeight,
@@ -542,54 +573,104 @@ export default function AdminFrameCreator() {
           heightNorm: el.height / canvasHeight,
         };
         
-        // If this is an upload element with a data URL image, upload to backend
-        // Use originalImage if available (better quality, preserves transparency)
-        const imageToUpload = el.data?.originalImage || el.data?.image;
-        if (el.type === "upload" && imageToUpload && imageToUpload.startsWith("data:")) {
-          console.log("📤 Uploading overlay element image to backend (/api/upload/overlay)...");
-          console.log("📤 Using original image:", !!el.data?.originalImage);
-          try {
-            // Convert data URL to blob - preserve PNG format for transparency
-            const dataUrl = imageToUpload;
-            const mimeMatch = dataUrl.match(/data:([^;]+);/);
-            const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+        // Copy data object dengan validasi
+        if (el.data && typeof el.data === 'object') {
+          elementToSave.data = {
+            label: el.data.label || (el.type === 'upload' ? 'Unggahan' : ''),
+            objectFit: el.data.objectFit || 'contain',
+            borderRadius: el.data.borderRadius || 0,
+            __isOverlay: el.type === 'upload',
+          };
+          
+          // Handle upload element with image
+          if (el.type === 'upload') {
+            // If this is an upload element with a data URL image, upload to backend
+            // Use originalImage if available (better quality, preserves transparency)
+            const imageToUpload = el.data?.originalImage || el.data?.image;
             
-            // Use proper base64 to blob conversion
-            const base64Data = dataUrl.split(',')[1];
-            const binaryString = atob(base64Data);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
-            }
-            const blob = new Blob([bytes], { type: mimeType });
-            
-            console.log("📤 Blob created:", { size: blob.size, type: blob.type });
-            
-            // Upload to backend - use .png extension for transparency
-            const safeName = `overlay_${el.id.substring(0, 8)}.png`;
-            const uploadResult = await unifiedFrameService.uploadOverlayImage(blob, safeName);
-            
-            if (uploadResult?.imagePath) {
-              console.log("✅ Overlay uploaded to backend:", uploadResult.imagePath);
-              // Replace data URL with server URL
-              // Remove originalImage from saved data to reduce storage
-              const { originalImage, ...restData } = elementToSave.data || {};
-              elementToSave.data = {
-                ...restData,
-                image: uploadResult.imagePath,
-              };
+            if (imageToUpload && imageToUpload.startsWith("data:")) {
+              console.log("📤 Uploading overlay element image to backend (/api/upload/overlay)...");
+              console.log("📤 Using original image:", !!el.data?.originalImage);
+              console.log("📤 Image size:", imageToUpload.length, "chars");
+              
+              try {
+                // Convert data URL to blob - preserve PNG format for transparency
+                const dataUrl = imageToUpload;
+                const mimeMatch = dataUrl.match(/data:([^;]+);/);
+                const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+                
+                // Use proper base64 to blob conversion
+                const base64Data = dataUrl.split(',')[1];
+                const binaryString = atob(base64Data);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                  bytes[i] = binaryString.charCodeAt(i);
+                }
+                const blob = new Blob([bytes], { type: mimeType });
+                
+                console.log("📤 Blob created:", { size: blob.size, type: blob.type });
+                
+                // Upload to backend - use .png extension for transparency
+                const safeName = `overlay_${el.id.substring(0, 8)}.png`;
+                const uploadResult = await unifiedFrameService.uploadOverlayImage(blob, safeName);
+                
+                if (uploadResult?.imagePath) {
+                  console.log("✅ Overlay uploaded to backend:", uploadResult.imagePath);
+                  // Replace data URL with server URL
+                  elementToSave.data.image = uploadResult.imagePath;
+                  
+                  // Add metadata if available
+                  if (el.data.imageAspectRatio) {
+                    elementToSave.data.imageAspectRatio = el.data.imageAspectRatio;
+                  }
+                } else {
+                  console.warn("⚠️ Failed to upload overlay, result:", uploadResult);
+                  throw new Error("Upload failed - no imagePath returned");
+                }
+              } catch (err) {
+                console.error("❌ Error uploading overlay:", err);
+                showToast("error", "Gagal upload gambar overlay: " + err.message);
+                setSaving(false);
+                return; // Stop saving if upload fails
+              }
+            } else if (imageToUpload && imageToUpload.startsWith("http")) {
+              // Already uploaded - keep the URL
+              console.log("✅ Image already uploaded:", imageToUpload.substring(0, 80));
+              elementToSave.data.image = imageToUpload;
+              
+              if (el.data.imageAspectRatio) {
+                elementToSave.data.imageAspectRatio = el.data.imageAspectRatio;
+              }
             } else {
-              console.warn("⚠️ Failed to upload overlay, keeping data URL");
+              console.warn("⚠️ Upload element has no image:", el.id);
             }
-          } catch (err) {
-            console.warn("⚠️ Error uploading overlay:", err, err.stack);
+          } else {
+            // For other element types, copy other data fields
+            Object.keys(el.data).forEach(key => {
+              if (!['originalImage'].includes(key)) {
+                elementToSave.data[key] = el.data[key];
+              }
+            });
           }
         }
+        
+        console.log(`📦 [SAVE] Element processed:`, {
+          type: elementToSave.type,
+          id: elementToSave.id,
+          hasImage: !!elementToSave.data?.image,
+          imageUrl: elementToSave.data?.image?.substring(0, 80)
+        });
         
         otherElements.push(elementToSave);
       }
 
-      console.log("📦 Other elements to save:", otherElements.length, otherElements.map(e => ({ type: e.type, id: e.id })));
+      console.log("📦 [SAVE] Other elements to save:", otherElements.length);
+      otherElements.forEach((el, i) => {
+        console.log(`  [${i}] type=${el.type}, id=${el.id}, hasImage=${!!el.data?.image}`);
+        if (el.data?.image) {
+          console.log(`      imageURL=${el.data.image.substring(0, 80)}...`);
+        }
+      });
 
       const frameData = {
         name: frameName.trim(),

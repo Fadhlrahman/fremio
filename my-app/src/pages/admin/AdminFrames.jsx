@@ -614,7 +614,16 @@ const AdminFrames = () => {
               }}
               onError={(e) => {
                 console.error("Image load error for:", displayImageUrl);
+                // Show 'No Image' placeholder instead of just hiding
+                const parent = e.target.parentElement;
                 e.target.style.display = "none";
+                if (parent && !parent.querySelector('.img-error-placeholder')) {
+                  const ph = document.createElement('div');
+                  ph.className = 'img-error-placeholder';
+                  ph.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#9ca3af;font-size:12px;text-align:center;';
+                  ph.textContent = 'No Image';
+                  parent.appendChild(ph);
+                }
               }}
             />
           ) : (

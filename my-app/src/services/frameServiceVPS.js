@@ -4,6 +4,7 @@
 // ============================================
 
 import api, { API_BASE_URL } from './api';
+import { getUploadsBaseUrl } from '../config/backend';
 
 const frameServiceVPS = {
     // Get all frames (public)
@@ -15,7 +16,7 @@ const frameServiceVPS = {
                 ...frame,
                 imageUrl: frame.image_path?.startsWith('http') 
                     ? frame.image_path 
-                    : `${API_BASE_URL.replace('/api', '')}${frame.image_path}`
+                    : `${getUploadsBaseUrl()}${frame.image_path}`
             }));
         } catch (error) {
             console.error('Error getting frames:', error);
@@ -32,7 +33,7 @@ const frameServiceVPS = {
                 ...frame,
                 imageUrl: frame.image_path?.startsWith('http') 
                     ? frame.image_path 
-                    : `${API_BASE_URL.replace('/api', '')}${frame.image_path}`
+                    : `${getUploadsBaseUrl()}${frame.image_path}`
             };
         } catch (error) {
             console.error('Error getting frame:', error);
@@ -82,7 +83,7 @@ const frameServiceVPS = {
         
         return {
             ...result.frame,
-            imageUrl: `${API_BASE_URL.replace('/api', '')}${uploadResult.path}`
+            imageUrl: `${getUploadsBaseUrl()}${uploadResult.path}`
         };
     },
 

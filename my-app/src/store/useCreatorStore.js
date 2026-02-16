@@ -555,16 +555,44 @@ export const useCreatorStore = create((set, get) => ({
         width = height * aspectRatio;
       }
       
-      // Create display version (smaller) - PRESERVE TRANSPARENCY
+      // Create display version with optimal size - PRESERVE TRANSPARENCY
+      // Max display dimensions to prevent large data URLs (max 400px on longest side for better performance)
+      const maxDisplaySize = 400;
+      let displayWidth = Math.round(width);
+      let displayHeight = Math.round(height);
+      
+      if (Math.max(displayWidth, displayHeight) > maxDisplaySize) {
+        if (displayWidth > displayHeight) {
+          displayWidth = maxDisplaySize;
+          displayHeight = Math.round(maxDisplaySize / aspectRatio);
+        } else {
+          displayHeight = maxDisplaySize;
+          displayWidth = Math.round(maxDisplaySize * aspectRatio);
+        }
+      }
+      
       const displayCanvas = document.createElement('canvas');
-      displayCanvas.width = Math.round(width);
-      displayCanvas.height = Math.round(height);
+      displayCanvas.width = displayWidth;
+      displayCanvas.height = displayHeight;
       const displayCtx = displayCanvas.getContext('2d', { alpha: true });
       // Clear canvas with transparent background
       displayCtx.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
-      displayCtx.drawImage(img, 0, 0, Math.round(width), Math.round(height));
-      // Use PNG format to preserve transparency
-      const displayImageDataUrl = displayCanvas.toDataURL('image/png');
+      displayCtx.drawImage(img, 0, 0, displayWidth, displayHeight);
+      // Use PNG format to preserve transparency, quality 0.75 for smaller size
+      const displayImageDataUrl = displayCanvas.toDataURL('image/png', 0.75);
+      
+      // Validate data URL size (should be < 500KB)
+      const dataUrlSizeKB = (displayImageDataUrl.length * 0.75) / 1024;
+      if (dataUrlSizeKB > 500) {
+        console.warn('⚠️ Display image still large:', dataUrlSizeKB.toFixed(0), 'KB');
+      }
+      
+      console.log('📦 Upload element created:', {
+        originalSize: `${img.width}x${img.height}`,
+        displaySize: `${displayWidth}x${displayHeight}`,
+        canvasSize: `${Math.round(width)}x${Math.round(height)}`,
+        dataUrlLength: displayImageDataUrl.length
+      });
       
       // Center the element on canvas
       const x = Math.round((CANVAS_WIDTH - width) / 2);
@@ -587,7 +615,7 @@ export const useCreatorStore = create((set, get) => ({
           image: displayImageDataUrl,
           originalImage: imageDataUrl,
           imageAspectRatio: aspectRatio,
-          objectFit: 'contain',
+          objectFit: 'fill', // Changed from 'contain' to 'fill' to ensure it fills the element bounds
           label: 'Unggahan',
           borderRadius: 0
         }
@@ -608,7 +636,7 @@ export const useCreatorStore = create((set, get) => ({
         y: Math.round((CANVAS_HEIGHT - DEFAULT_UPLOAD_HEIGHT) / 2),
         data: {
           image: imageDataUrl,
-          objectFit: 'contain',
+          objectFit: 'fill',
           label: 'Unggahan'
         }
       });

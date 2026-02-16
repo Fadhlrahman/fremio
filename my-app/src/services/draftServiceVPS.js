@@ -4,6 +4,7 @@
 // ============================================
 
 import api, { API_BASE_URL } from './api';
+import { getUploadsBaseUrl } from '../config/backend';
 
 const draftServiceVPS = {
     // Get all user's drafts
@@ -15,7 +16,7 @@ const draftServiceVPS = {
                 thumbnailUrl: draft.thumbnail_path?.startsWith('http')
                     ? draft.thumbnail_path
                     : draft.thumbnail_path 
-                        ? `${API_BASE_URL.replace('/api', '')}${draft.thumbnail_path}`
+                        ? `${getUploadsBaseUrl()}${draft.thumbnail_path}`
                         : null
             }));
         } catch (error) {
@@ -33,7 +34,7 @@ const draftServiceVPS = {
                 thumbnailUrl: data.draft.thumbnail_path?.startsWith('http')
                     ? data.draft.thumbnail_path
                     : data.draft.thumbnail_path
-                        ? `${API_BASE_URL.replace('/api', '')}${data.draft.thumbnail_path}`
+                        ? `${getUploadsBaseUrl()}${data.draft.thumbnail_path}`
                         : null
             };
         } catch (error) {

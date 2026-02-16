@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Rnd } from "react-rnd";
 import { motion as Motion } from "framer-motion";
+import { UploadCloud } from "lucide-react";
 import trashIcon from "../../assets/create-icon/create-trash.png";
 import duplicateIcon from "../../assets/create-icon/create-duplicate.png";
 import lockIcon from "../../assets/create-icon/create-lock.png";
@@ -452,13 +453,16 @@ const ElementContent = forwardRef(
 
     if (element.type === "upload") {
       const isCapturedOverlay = element.data?.__capturedOverlay === true;
+      const hasImage = element.data?.image && element.data.image.length > 50;
+      const imageTooLarge = element.data?._imageTooLarge === true;
       
-      // Always use "fill" to stretch image to container size
-      // This ensures the image fills the entire element bounds
       console.log("🖼️ Upload element rendering:", {
         id: element.id?.slice(0, 8),
         width: element.width,
         height: element.height,
+        hasImage,
+        imageTooLarge,
+        imageUrl: element.data?.image?.substring(0, 120),
       });
       
       return (
@@ -470,7 +474,7 @@ const ElementContent = forwardRef(
           data-captured-overlay={isCapturedOverlay ? "true" : undefined}
           data-export-allow={isCapturedOverlay ? "photo-overlay" : undefined}
         >
-          {element.data?.image ? (
+          {hasImage && !imageTooLarge ? (
             <img
               src={element.data.image}
               alt="Unggahan"
@@ -482,9 +486,38 @@ const ElementContent = forwardRef(
                 display: "block",
               }}
               draggable={false}
+              onError={(e) => {
+                console.error("❌ Failed to load upload image:", element.id?.slice(0, 8), "src:", element.data.image?.substring(0, 80));
+                // Show a fallback placeholder instead of hiding
+                const parent = e.target.parentElement;
+                e.target.style.display = "none";
+                if (parent && !parent.querySelector('.upload-error-placeholder')) {
+                  const placeholder = document.createElement('div');
+                  placeholder.className = 'upload-error-placeholder';
+                  placeholder.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(254,202,202,0.3);border:2px dashed rgba(239,68,68,0.5);color:#991b1b;font-size:11px;text-align:center;padding:8px;';
+                  placeholder.textContent = '⚠️ Gambar gagal dimuat';
+                  parent.appendChild(placeholder);
+                }
+              }}
             />
           ) : (
-            <div className="text-xs font-medium uppercase tracking-widest text-slate-600">
+            <div 
+              className="text-xs font-medium uppercase tracking-widest"
+              style={{
+                width: "100%",
+                height: "100%",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: imageTooLarge ? "rgba(254, 202, 202, 0.3)" : "rgba(226, 232, 240, 0.5)",
+                border: imageTooLarge ? "2px dashed rgba(239, 68, 68, 0.5)" : "2px dashed rgba(148, 163, 184, 0.5)",
+                color: imageTooLarge ? "#991b1b" : "#64748b",
+                padding: "8px",
+                textAlign: "center",
+              }}
+            >
+              <UploadCloud size={24} style={{ marginBottom: "4px", opacity: 0.5 }} />
               {element.data?.label ?? "Unggahan"}
             </div>
           )}

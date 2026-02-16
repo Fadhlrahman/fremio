@@ -3,7 +3,7 @@
 // Switches between Firebase and VPS based on config
 // ============================================
 
-import { isVPSMode, VPS_API_URL } from '../config/backend';
+import { isVPSMode, VPS_API_URL, getUploadsBaseUrl } from '../config/backend';
 
 // Import Firebase service (will be used in Firebase mode)
 let firebaseFrameService = null;
@@ -40,10 +40,16 @@ class VPSFrameClient {
       return pathOrUrl.replace('http://', 'https://');
     }
 
-    if (pathOrUrl.startsWith('https://')) return pathOrUrl;
+    if (pathOrUrl.startsWith('https://')) {
+      // Replace api.fremio.id with fremio.id for uploads to use nginx proxy
+      if (pathOrUrl.includes('api.fremio.id/uploads/')) {
+        return pathOrUrl.replace('https://api.fremio.id/', 'https://fremio.id/');
+      }
+      return pathOrUrl;
+    }
 
     if (pathOrUrl.startsWith('/uploads/')) {
-      return `${this.baseUrl.replace('/api', '')}${pathOrUrl}`;
+      return `${getUploadsBaseUrl()}${pathOrUrl}`;
     }
     return pathOrUrl;
   }
@@ -165,7 +171,7 @@ class VPSFrameClient {
           if (!imageUrl && imagePath) {
             imageUrl = imagePath.startsWith('http')
               ? imagePath
-              : `${this.baseUrl.replace('/api', '')}${imagePath}`;
+              : `${getUploadsBaseUrl()}${imagePath}`;
           }
 
           return {
@@ -244,7 +250,7 @@ class VPSFrameClient {
         ...frame,
         imageUrl: frame.image_path?.startsWith('http')
           ? frame.image_path
-          : `${this.baseUrl.replace('/api', '')}${frame.image_path}`,
+          : `${getUploadsBaseUrl()}${frame.image_path}`,
         imagePath: frame.image_path
       };
       return this.normalizeFrameMedia(normalized);
@@ -273,7 +279,17 @@ class VPSFrameClient {
     
     if (frameData.layout) {
       console.log('📤 [createFrame] ENTRY - layout keys:', Object.keys(frameData.layout));
-      console.log('📤 [createFrame] ENTRY - layout.elements:', frameData.layout.elements);
+      console.log('📤 [createFrame] ENTRY - layout.elements count:', frameData.layout.elements?.length || 0);
+      
+      // Log setiap element dengan detail
+      if (Array.isArray(frameData.layout.elements)) {
+        frameData.layout.elements.forEach((el, i) => {
+          console.log(`  [${i}] type=${el.type}, id=${el.id}, hasImage=${!!el.data?.image}`);
+          if (el.data?.image) {
+            console.log(`      imageURL=${el.data.image.substring(0, 80)}...`);
+          }
+        });
+      }
     }
     
     // Upload image first if provided
@@ -322,7 +338,17 @@ class VPSFrameClient {
     }
     
     console.log('📤 [vpsClient.updateFrame] frameData.layout exists:', !!frameData.layout);
-    console.log('📤 [vpsClient.updateFrame] frameData.layout.elements:', frameData.layout?.elements?.length);
+    console.log('📤 [vpsClient.updateFrame] frameData.layout.elements count:', frameData.layout?.elements?.length || 0);
+    
+    // Log setiap element dengan detail
+    if (frameData.layout && Array.isArray(frameData.layout.elements)) {
+      frameData.layout.elements.forEach((el, i) => {
+        console.log(`  [${i}] type=${el.type}, id=${el.id}, hasImage=${!!el.data?.image}`);
+        if (el.data?.image) {
+          console.log(`      imageURL=${el.data.image.substring(0, 80)}...`);
+        }
+      });
+    }
     
     return await this.request(`/frames/${id}`, {
       method: 'PUT',

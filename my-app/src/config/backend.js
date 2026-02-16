@@ -49,6 +49,39 @@ const resolveVpsApiUrl = () => {
 
 export const VPS_API_URL = resolveVpsApiUrl();
 
+/**
+ * Resolve the public base URL for uploaded assets (e.g. frame images).
+ * In production the frontend is on Cloudflare Pages (fremio.id) while uploads
+ * live on the API server (api.fremio.id). Using a relative path like
+ * `/uploads/...` would incorrectly point to Cloudflare Pages.
+ *
+ * IMPORTANT: This MUST evaluate at runtime in the browser. Vite/esbuild will
+ * try to constant-fold pure functions during the build. We intentionally
+ * access `window.location` inside a try/catch (which esbuild treats as impure)
+ * to prevent inlining.
+ */
+export function getUploadsBaseUrl() {
+  try {
+    // This try/catch prevents esbuild from constant-folding
+    const hostname = window.location.hostname.toLowerCase();
+
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return ''; // relative is fine for local dev
+    }
+
+    if (hostname.endsWith('fremio.id') || hostname.endsWith('pages.dev')) {
+      return ''; // FIX: Serve from main domain (uploads synced to /var/www/fremio/uploads/)
+    }
+  } catch (_) {
+    // SSR or build-time — fall through
+  }
+
+  return '';
+}
+
+// Backward compat — kept as empty string, all call sites should use getUploadsBaseUrl()
+export const UPLOADS_BASE_URL = '';
+
 // Check if using VPS
 export const isVPSMode = () => {
   return currentBackendMode === BACKEND_MODE.VPS;
